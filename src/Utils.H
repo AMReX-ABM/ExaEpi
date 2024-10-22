@@ -29,6 +29,7 @@ struct TestParams
     int random_travel_int;              /*!< steps between random travel events
                                              (see AgentContainer::moveRandomTravel) */
     amrex::Real random_travel_prob;     /*!< probability of an agent going on random travel */
+    int air_travel_int;
     short ic_type;                      /*!< initialization type (see ExaEpi::ICType) */
 
     int num_diseases;   /*!< Number of diseases to track */
@@ -48,6 +49,8 @@ struct TestParams
           + Number of households with: 1, 2, 3, 4, 5, 6, and 7 member(s)
     */
     std::string census_filename;
+    std::string air_traffic_filename;
+    std::string airports_filename;
 
     /*! UrbanPop data filename.
     */

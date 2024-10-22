@@ -11,6 +11,7 @@
 
 #include "AgentContainer.H"
 #include "CaseData.H"
+#include "AirTravelFlow.H"
 #include "DemographicData.H"
 #include "IO.H"
 #include "Utils.H"
@@ -113,7 +114,7 @@ void runAgent ()
     cases.resize(params.num_diseases);
     for (int d = 0; d < params.num_diseases; d++) {
         if (params.initial_case_type[d] == "file") {
-            cases[d].InitFromFile(params.disease_names[d], params.case_filename[d]);
+            cases[d].InitFromFile(params.disease_names[d],params.case_filename[d]);
         }
     }
 
@@ -127,6 +128,13 @@ void runAgent ()
         censusData.init(params, geom, ba, dm);
     } else if (params.ic_type == ICType::UrbanPop) {
         urbanPopData.init(params, geom, ba, dm);
+    }
+
+    AirTravelFlow air;
+    if (params.air_travel_int > 0){
+        air.ReadAirports(params.airports_filename, censusData.demo);
+        air.ReadAirTravelFlow(params.air_traffic_filename);
+        air.ComputeTravelProbs(censusData.demo);
     }
 
     // The default output filename is:
@@ -155,14 +163,14 @@ void runAgent ()
             }
 
             File << std::setw(5) << "Day"
-                 << std::setw(10) << "Never"
-                 << std::setw(10) << "Infected"
-                 << std::setw(10) << "Immune"
-                 << std::setw(10) << "Deaths"
+                 << std::setw(12) << "Susceptible"
+                 << std::setw(12) << "Infected"
+                 << std::setw(12) << "Recovered"
+                 << std::setw(12) << "Deaths"
                  << std::setw(15) << "Hospitalized"
                  << std::setw(15) << "Ventilated"
-                 << std::setw(10) << "ICU"
-                 << std::setw(10) << "Exposed"
+                 << std::setw(12) << "ICU"
+                 << std::setw(12) << "Exposed"
                  << std::setw(15) << "Asymptomatic"
                  << std::setw(15) << "Presymptomatic"
                  << std::setw(15) << "Symptomatic\n";
@@ -188,6 +196,8 @@ void runAgent ()
     mask_behavior.setVal(1);
 
     AgentContainer pc(geom, dm, ba, params.num_diseases, params.disease_names, params.fast, params.ic_type);
+
+    if (params.air_travel_int > 0) pc.setAirTravel(censusData.unit_mf, air, censusData.demo);
 
     {
         BL_PROFILE_REGION("Initialization");
@@ -357,18 +367,18 @@ void runAgent ()
                         amrex::FileOpenFailed(output_filename[d]);
                     }
 
-                    File << std::setw(5) << i                    // day
-                         << std::setw(10) << counts[0]           // never infected
-                         << std::setw(10) << counts[1]           // infected
-                         << std::setw(10) << counts[2]           // immune
-                         << std::setw(10) << counts[4]           // deaths
-                         << std::setw(15) << mmc[0]              // hospitalized
-                         << std::setw(15) << mmc[1]              // ventilated
-                         << std::setw(10) << mmc[2]              // ICU
-                         << std::setw(10) << counts[5]           // exposed
-                         << std::setw(15) << counts[6]           // asymptomatic
-                         << std::setw(15) << counts[7]           // presymptomatic
-                         << std::setw(15) << counts[8] << "\n";  // symptomatic
+                    File << std::setw(5) << i
+                         << std::setw(12) << counts[0]
+                         << std::setw(12) << counts[1]
+                         << std::setw(12) << counts[2]
+                         << std::setw(12) << counts[4]
+                         << std::setw(15) << mmc[0]
+                         << std::setw(15) << mmc[1]
+                         << std::setw(12) << mmc[2]
+                         << std::setw(12) << counts[5]
+                         << std::setw(15) << counts[6]
+                         << std::setw(15) << counts[7]
+                         << std::setw(15) << counts[8] << "\n";
 
                     File.flush();
 
@@ -392,6 +402,10 @@ void runAgent ()
                 pc.moveRandomTravel(params.random_travel_prob);
             }
 
+            if ((params.air_travel_int > 0) && (i % params.air_travel_int == 0)) {
+                pc.moveAirTravel(censusData.unit_mf, air, censusData.demo);
+            }
+
             // Typical day
             pc.morningCommute(mask_behavior);
             pc.interactDay(mask_behavior);
@@ -401,6 +415,10 @@ void runAgent ()
 
             if ((params.random_travel_int > 0) && (i % params.random_travel_int == 0)) {
                 pc.returnRandomTravel();
+            }
+
+            if ((params.air_travel_int > 0) && (i % params.air_travel_int == 0)){
+                pc.returnAirTravel();
             }
 
             // Infect agents based on their interactions

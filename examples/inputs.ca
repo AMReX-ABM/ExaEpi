@@ -3,10 +3,13 @@ agent.census_filename = "../../data/CensusData/CA.dat"
 agent.workerflow_filename = "../../data/CensusData/CA-wf.bin"
 agent.initial_case_type = "file"
 agent.case_filename = "../../data/CaseData/July4.cases"
+agent.airports_filename="../../data/CensusData/CA_airports.dat"
+agent.air_traffic_filename= "../../data/CA_CY23AirTraffic.dat"
 
 agent.nsteps = 120
 agent.plot_int = 10
 agent.random_travel_int = 24
+agent.air_travel_int = 1
 
 agent.aggregated_diag_int = -1
 agent.aggregated_diag_prefix = "cases"

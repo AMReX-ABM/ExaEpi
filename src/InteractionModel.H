@@ -26,7 +26,7 @@ namespace ExaEpi
 {
 
     /*! \brief Name of models */
-    AMREX_ENUM(InteractionNames, home, work, school, home_nborhood, work_nborhood, transit, random);
+    AMREX_ENUM(InteractionNames, home, work, school, home_nborhood, work_nborhood, transit, random, airTravel);
 }
 
 /*! \brief Base class for defining interaction models

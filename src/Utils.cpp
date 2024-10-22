@@ -39,6 +39,9 @@ void ExaEpi::Utils::get_test_params (   TestParams& params,         /*!< Test pa
     params.random_travel_prob = 0.0001_prt;
     pp.query("random_travel_prob", params.random_travel_prob);
 
+    params.air_travel_int = -1;
+    pp.query("air_travel_int", params.air_travel_int);
+
     params.num_diseases = 1;
     pp.query("number_of_diseases", params.num_diseases);
 

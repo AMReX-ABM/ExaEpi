@@ -36,6 +36,7 @@ struct DemographicData
                         Tract;  /*!< Census tract array */
     amrex::Vector<int> Start;         /*!< Starting community number for each unit */
     amrex::Vector<int> Population;    /*!< Population of each unit */
+    std::map<int, int> CountyPop; /*!< Population of each county */
     amrex::Vector<int> N5,      /*!< number of people in age-group: under-5 */
                        N17,     /*!< number of people in age-group: 5-17 */
                        N29,     /*!< number of people in age-group: 18-29 */

@@ -61,7 +61,7 @@ template <typename PTDType>
 struct HomeCandidate {
     AMREX_GPU_HOST_DEVICE
     bool operator() (const int idx, const PTDType& ptd) const noexcept {
-        return !isHospitalized(idx, ptd) && ptd.m_idata[IntIdx::random_travel][idx] < 0;
+        return !isHospitalized(idx, ptd) && ptd.m_idata[IntIdx::random_travel][idx] < 0 && ptd.m_idata[IntIdx::air_travel][idx] < 0;
     }
 };
 
@@ -90,7 +90,6 @@ class InteractionModHome : public InteractionModel<PCType, PTDType, PType>
 
         void fastInteractHome (PCType &agents);
 };
-
 
 template <typename PCType, typename PTDType, typename PType>
 void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agents) {

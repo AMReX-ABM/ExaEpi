@@ -23,6 +23,7 @@
 #include "DiseaseStatus.H"
 #include "HospitalModel.H"
 #include "InteractionModelLibrary.H"
+#include "AirTravelFlow.H"
 
 
 struct LngLatToGrid {
@@ -111,11 +112,17 @@ public:
 
     void interactNight(amrex::MultiFab&);
 
+    void moveAirTravel (const amrex::iMultiFab& unit_mf, AirTravelFlow& air, DemographicData& demo);
+
+    void setAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air, DemographicData& demo);
+
     void moveAgentsRandomWalk ();
 
     void moveRandomTravel (const amrex::Real random_travel_prob);
 
     void returnRandomTravel ();
+
+    void returnAirTravel ();
 
     void updateStatus (MFPtrVec&);
 
@@ -183,7 +190,6 @@ public:
     short ic_type;
 
 protected:
-
     int m_symptomatic_withdraw = 1; /*!< whether symptomatic agents withdraw or not */
 
     amrex::Real m_shelter_compliance = 0.95_rt; /*!< Shelter-in-place compliance rate */

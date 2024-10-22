@@ -75,6 +75,7 @@ struct SchoolCandidate {
                 ptd.m_idata[IntIdx::school_id][idx] > 0 &&
                 ptd.m_idata[IntIdx::school_closed][idx] == 0 &&
                 !ptd.m_idata[IntIdx::withdrawn][idx] &&
+                ptd.m_idata[IntIdx::air_travel][idx] < 0 &&
                 ptd.m_idata[IntIdx::random_travel][idx] < 0;
     }
 };
@@ -104,7 +105,6 @@ class InteractionModSchool : public InteractionModel<PCType, PTDType, PType>
 
         void fastInteractSchool (PCType &agents);
 };
-
 
 template <typename PCType, typename PTDType, typename PType>
 void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& agents) {

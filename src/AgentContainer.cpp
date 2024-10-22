@@ -107,7 +107,6 @@ AgentContainer::AgentContainer (const amrex::Geometry            & a_geom,  /*!<
     max_attribute_values.fill(-1);
 }
 
-
 /*! \brief Send agents on a random walk around the neighborhood
 
     For each agent, set its position to a random one near its current position
@@ -306,6 +305,151 @@ void AgentContainer::moveRandomTravel (const amrex::Real random_travel_prob)
     //Redistribute();
 }
 
+/*! \brief Select agents to travel by air
+
+*/
+void AgentContainer::moveAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air, DemographicData& demo)
+{
+    BL_PROFILE("AgentContainer::moveAirTravel");
+    for (int lev = 0; lev <= finestLevel(); ++lev)
+    {
+        auto& plev  = GetParticles(lev);
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for(MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            const auto unit_arr = unit_mf[mfi].array();
+            auto& ptile = plev[{mfi.index(), mfi.LocalTileIndex()}];
+            const auto& ptd = ptile.getParticleTileData();
+            auto& aos   = ptile.GetArrayOfStructs();
+            ParticleType* pstruct = &(aos[0]);
+            const size_t np = aos.numParticles();
+            auto& soa   = ptile.GetStructOfArrays();
+            auto air_travel_ptr = soa.GetIntData(IntIdx::air_travel).data();
+            auto random_travel_ptr = soa.GetIntData(IntIdx::random_travel).data();
+            auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
+            auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
+            auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+            auto trav_i_ptr = soa.GetIntData(IntIdx::trav_i).data();
+            auto trav_j_ptr = soa.GetIntData(IntIdx::trav_j).data();
+            auto air_travel_prob_ptr= air.air_travel_prob_d.data();
+
+            amrex::ParallelForRNG( np,
+            [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept
+            {
+                int unit = unit_arr(home_i_ptr[i], home_j_ptr[i], 0);
+                if (!isHospitalized(i, ptd) && random_travel_ptr[i] <0 && air_travel_ptr[i] <0) {
+                    if (withdrawn_ptr[i] == 1) {return ;}
+                    if (amrex::Random(engine) < air_travel_prob_ptr[unit]) {
+                                ParticleType& p = pstruct[i];
+                                p.pos(0) = trav_i_ptr[i];
+                                p.pos(1) = trav_j_ptr[i];
+                                air_travel_ptr[i] = i;
+                    }
+                }
+            });
+       }
+    }
+}
+
+void AgentContainer::setAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air, DemographicData& demo)
+{
+    BL_PROFILE("AgentContainer::setAirTravel");
+
+    amrex::Print()<<"Compute air travel statistics"<<"\n";
+    const Box& domain = Geom(0).Domain();
+    int i_max = domain.length(0);
+    int j_max = domain.length(1);
+    for (int lev = 0; lev <= finestLevel(); ++lev)
+    {
+        auto& plev  = GetParticles(lev);
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for(MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            const auto unit_arr = unit_mf[mfi].array();
+            int gid = mfi.index();
+            int tid = mfi.LocalTileIndex();
+            auto& ptile = plev[std::make_pair(gid, tid)];
+            auto& aos   = ptile.GetArrayOfStructs();
+            const size_t np = aos.numParticles();
+            auto& soa   = ptile.GetStructOfArrays();
+            auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
+            auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+            auto trav_i_ptr = soa.GetIntData(IntIdx::trav_i).data();
+            auto trav_j_ptr = soa.GetIntData(IntIdx::trav_j).data();
+            auto Start = demo.Start_d.data();
+            auto dest_airports_ptr= air.dest_airports_d.data();
+            auto dest_airports_offset_ptr= air.dest_airports_offset_d.data();
+            auto dest_airports_prob_ptr= air.dest_airports_prob_d.data();
+            auto arrivalUnits_ptr= air.arrivalUnits_d.data();
+            auto arrivalUnits_offset_ptr= air.arrivalUnits_offset_d.data();
+            auto arrivalUnits_prob_ptr= air.arrivalUnits_prob_d.data();
+            auto assigned_airport_ptr= air.assigned_airport_d.data();
+
+            amrex::ParallelForRNG( np,
+            [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept
+            {
+                trav_i_ptr[i] = -1;
+                trav_j_ptr[i] = -1;
+                int unit = unit_arr(home_i_ptr[i], home_j_ptr[i], 0);
+                int orgAirport= assigned_airport_ptr[unit];
+                int destAirport=-1;
+                float lowProb=0.0;
+                float random= amrex::Random(engine);
+                //choose a destination airport for the agent (number of airports is often small, so let's visit in sequential order)
+                for(int idx= dest_airports_offset_ptr[orgAirport]; idx<dest_airports_offset_ptr[orgAirport+1]; idx++){
+                        float hiProb= dest_airports_prob_ptr[idx];
+                        if(random>lowProb && random < hiProb) {
+                                destAirport=dest_airports_ptr[idx];
+                                break;
+                        }
+                        lowProb= dest_airports_ptr[idx];
+                }
+                if(destAirport >=0){
+                  int destUnit=-1;
+                  float random1= amrex::Random(engine);
+                  int low=arrivalUnits_offset_ptr[destAirport], high=arrivalUnits_offset_ptr[destAirport+1];
+                  if(high-low<=16){
+                          //this sequential algo. is very slow when we have to go through hundreds or thoudsands of units to select a destination
+                          float lProb=0.0;
+                          for(int idx= low; idx<high; idx++){
+                                  if(random1>lProb && random1 < arrivalUnits_prob_ptr[idx]) {
+                                          destUnit=arrivalUnits_ptr[idx];
+                                          break;
+                                  }
+                                  lProb= arrivalUnits_prob_ptr[idx];
+                          }
+                  }else{  //binary search algorithm
+                          while(low<high){
+                                  if(random1<low) break; //low is the found airport index
+                                  //if random1 falls within (low, high), half the range
+                                  int mid= low+ (high-low)/2;
+                                  if(arrivalUnits_prob_ptr[mid]<random1) low=mid+1;
+                                  else high=mid-1;
+                          }
+                          destUnit=arrivalUnits_ptr[low];
+                  }
+                  if(destUnit >=0){
+                          //randomly select a community in the dest unit
+                                int comm_to = Start[destUnit] + amrex::Random_int(Start[destUnit+1] - Start[destUnit], engine);
+                          int new_i= comm_to%i_max;
+                          int new_j= comm_to/i_max;
+                          if(new_i>=0 && new_j>=0 && new_i<i_max && new_j<j_max){
+                                  trav_i_ptr[i] = new_i;
+                                  trav_j_ptr[i] = new_j;
+                          }
+                  }
+                }
+            });
+        }
+    }
+}
+
+
 /*! \brief Return agents from random travel
 */
 void AgentContainer::returnRandomTravel ()
@@ -354,6 +498,48 @@ void AgentContainer::returnRandomTravel ()
     Redistribute();
     AMREX_ALWAYS_ASSERT(OK());
 }
+
+
+/*! \brief Return agents from air travel
+*/
+void AgentContainer::returnAirTravel ()
+{
+    BL_PROFILE("AgentContainer::returnAirTravel");
+
+    for (int lev = 0; lev <= finestLevel(); ++lev)
+    {
+        auto& plev  = GetParticles(lev);
+        const auto dx = Geom(lev).CellSizeArray();
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for(MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            auto& ptile = plev[{mfi.index(), mfi.LocalTileIndex()}];
+            auto& aos   = ptile.GetArrayOfStructs();
+            ParticleType* pstruct = &(aos[0]);
+            const size_t np = aos.numParticles();
+            auto& soa   = ptile.GetStructOfArrays();
+            auto air_travel_ptr = soa.GetIntData(IntIdx::air_travel).data();
+            auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
+            auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+
+            amrex::ParallelFor (np, [=] AMREX_GPU_DEVICE (int i) noexcept
+            {
+                if (air_travel_ptr[i] >= 0) {
+                    ParticleType& p = pstruct[i];
+                    air_travel_ptr[i] = -1;
+                    p.pos(0) = (home_i_ptr[i] + 0.5_prt) * dx[0];
+                    p.pos(1) = (home_j_ptr[i] + 0.5_prt) * dx[1];
+                }
+            });
+        }
+    }
+    Redistribute();
+    AMREX_ALWAYS_ASSERT(OK());
+}
+
 
 /*! \brief Updates disease status of each agent */
 void AgentContainer::updateStatus ( MFPtrVec& a_disease_stats /*!< Community-wise disease stats tracker */)
