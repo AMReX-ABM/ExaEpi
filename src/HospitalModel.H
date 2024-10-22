@@ -8,6 +8,7 @@
 #include "InteractionModel.H"
 #include "DiseaseParm.H"
 #include "AgentDefinitions.H"
+#include "AgentContainer.H"
 
 using namespace amrex;
 
@@ -55,6 +56,9 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
     BL_PROFILE("HospitalModel::interactAgents");
     int n_disease = a_agents.numDiseases();
 
+    //GridToLngLat grid_to_lnglat(a_egents.min_lng, a_agents.min_lat, a_agents.gspacing_x, a_agents.gspacing_y);
+    //bool is_census = (a_agents.gspacing_x == 0);
+
     for (int lev = 0; lev < a_agents.numLevels(); ++lev)
     {
         const auto dx = a_agents.Geom(lev).CellSizeArray();
@@ -73,6 +77,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
             PType* pstruct = &(aos[0]);
             const auto np = ptile.numParticles();
             if (np == 0) continue;
+            auto tbox = mfi.tilebox();
 
             auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
             auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
@@ -85,13 +90,13 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
             int r_RT = RealIdx::nattribs;
 
             GpuArray<int*,ExaEpi::max_num_diseases> status_ptrs, symptomatic_ptrs;
-            GpuArray<ParticleReal*,ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs, incub_per_ptrs;
+            GpuArray<ParticleReal*,ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs, incubation_per_ptrs;
             for (int d = 0; d < n_disease; d++) {
                 status_ptrs[d] = soa.GetIntData(i_RT+i0(d)+IntIdxDisease::status).data();
                 symptomatic_ptrs[d] = soa.GetIntData(i_RT+i0(d)+IntIdxDisease::symptomatic).data();
                 counter_ptrs[d] = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::disease_counter).data();
                 timer_ptrs[d] = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::treatment_timer).data();
-                incub_per_ptrs[d] = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::incubation_period).data();
+                incubation_per_ptrs[d] = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::incubation_period).data();
             }
 
             Gpu::DeviceVector<int> is_alive;
@@ -136,8 +141,8 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                         // agent is not in hospital
                         return;
                     }
-                    if (counter_ptrs[d][i] == Math::ceil(incub_per_ptrs[d][i])) {
-                        // agent just started treatment
+                    if (counter_ptrs[d][i] == Math::floor(incubation_per_ptrs[d][i])) {
+                        // agent just started treatment at start of symptoms appearing
                         return;
                     }
                     if ( timer_ptrs[d][i] == 0) {
@@ -148,7 +153,6 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                         // agent is dead
                         return;
                     }
-
                     AMREX_ALWAYS_ASSERT(status_ptrs[d][i] == Status::infected);
                     timer_ptrs[d][i] -= 1.0_rt;
                     if (timer_ptrs[d][i] == 0) {
@@ -216,7 +220,6 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                 if ( !isHospitalized(i, ptd) )  { return; }
 
                 if (is_alive_ptr[i] == 0) {
-
                     // agent has died
                     for (int d = 0; d < n_disease; d++) {
                         status_ptrs[d][i] = Status::dead;
@@ -224,22 +227,34 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                     hosp_i_ptr[i] = -1;
                     hosp_j_ptr[i] = -1;
                     withdrawn_ptr[i] = 0;
-
                 } else {
-
                     // check if agent can be discharged from hospital
                     ParticleReal sum_timers = 0;
                     for (int d = 0; d < n_disease; d++) {
                         sum_timers += timer_ptrs[d][i];
                     }
-                    if (sum_timers == 0) {
+                    bool is_infected = false;
+                    for (int d = 0; d < n_disease; d++) {
+                        if (status_ptrs[d][i] == Status::infected) {
+                            is_infected = true;
+                            break;
+                        }
+                    }
+                    if (sum_timers == 0 || !is_infected) {
                         // discharge patient
                         hosp_i_ptr[i] = -1;
                         hosp_j_ptr[i] = -1;
                         withdrawn_ptr[i] = 0;
                         PType& p = pstruct[i];
-                        p.pos(0) = (home_i_ptr[i] + 0.5_prt)*dx[0];
-                        p.pos(1) = (home_j_ptr[i] + 0.5_prt)*dx[1];
+                        //if (is_census) { // using census data
+                            p.pos(0) = (home_i_ptr[i] + 0.5_prt) * dx[0];
+                            p.pos(1) = (home_j_ptr[i] + 0.5_prt) * dx[1];
+                        /*} else {
+                            Real lng, lat;
+                            grid_to_lnglat(home_i_ptr[i], home_j_ptr[i], lng, lat);
+                            p.pos(0) = lng;
+                            p.pos(1) = lat;
+                        }*/
                     }
                 }
 

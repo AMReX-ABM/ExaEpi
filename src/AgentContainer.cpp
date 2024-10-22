@@ -509,9 +509,9 @@ void AgentContainer::infectAgents ()
 
                 auto counter_ptr           = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::disease_counter).data();
                 auto prob_ptr              = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::prob).data();
-                auto incubation_period_ptr = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::incubation_period).data();
+                auto latent_period_ptr     = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::latent_period).data();
                 auto infectious_period_ptr = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::infectious_period).data();
-                auto symptomdev_period_ptr = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::symptomdev_period).data();
+                auto incubation_period_ptr = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::incubation_period).data();
 
                 auto* lparm = m_d_parm[d];
 
@@ -524,9 +524,9 @@ void AgentContainer::infectAgents ()
                         if (amrex::Random(engine) < prob_ptr[i]) {
                             status_ptr[i] = Status::infected;
                             counter_ptr[i] = 0.0_rt;
-                            incubation_period_ptr[i] = amrex::RandomNormal(lparm->latent_length_mean, lparm->latent_length_std, engine);
+                            latent_period_ptr[i] = amrex::RandomNormal(lparm->latent_length_mean, lparm->latent_length_std, engine);
                             infectious_period_ptr[i] = amrex::RandomNormal(lparm->infectious_length_mean, lparm->infectious_length_std, engine);
-                            symptomdev_period_ptr[i] = amrex::RandomNormal(lparm->incubation_length_mean, lparm->incubation_length_std, engine);
+                            incubation_period_ptr[i] = amrex::RandomNormal(lparm->incubation_length_mean, lparm->incubation_length_std, engine);
                             return;
                         }
                     }

@@ -29,9 +29,9 @@ struct RealIdxDisease
         treatment_timer = 0,    /*!< Timer since hospital admission */
         disease_counter,        /*!< Counter since start of infection */
         prob,                   /*!< Probability of infection */
-        incubation_period,      /*!< Time until infectious */
+        latent_period,          /*!< Time until infectious, which could be before symptoms appear */
         infectious_period,      /*!< Length of time infectious */
-        symptomdev_period,      /*!< Time until symptoms would develop */
+        incubation_period,      /*!< Time until symptoms appear */
         nattribs                /*!< number of real-type attribute*/
     };
 };
@@ -166,7 +166,7 @@ bool notInfectiousButInfected ( const int      a_idx, /*!< Agent index */
 {
     return (    (a_ptd.m_runtime_idata[i0(a_d)+IntIdxDisease::status][a_idx] == Status::infected)
              && (a_ptd.m_runtime_rdata[r0(a_d)+RealIdxDisease::disease_counter][a_idx]
-                 <= a_ptd.m_runtime_rdata[r0(a_d)+RealIdxDisease::incubation_period][a_idx]) );
+                 <= a_ptd.m_runtime_rdata[r0(a_d)+RealIdxDisease::latent_period][a_idx]) );
 }
 
 /*! \brief Is an agent infectious? */
@@ -178,7 +178,7 @@ bool isInfectious ( const int      a_idx, /*!< Agent index */
 {
     return (   (a_ptd.m_runtime_idata[i0(a_d)+IntIdxDisease::status][a_idx] == Status::infected)
             && (a_ptd.m_runtime_rdata[r0(a_d)+RealIdxDisease::disease_counter][a_idx]
-                >= a_ptd.m_runtime_rdata[r0(a_d)+RealIdxDisease::incubation_period][a_idx]) );
+                >= a_ptd.m_runtime_rdata[r0(a_d)+RealIdxDisease::latent_period][a_idx]) );
 }
 
 /*! \brief Is an agent susceptible? */

@@ -36,11 +36,11 @@ Data is either written as an ``int`` or a ``real``.
 
   - Real data:
 
-    - ``incubation_period``: (currently misleadingly named) Latent period length, i.e. time between exposure and infectiousness.
+    - ``latent_period``: Latent period length, i.e. time between exposure and infectiousness.
 
     - ``infectious_period``: Infections period length, i.e. time during which agent can spread disease
 
-    - ``symptomdev_period``: Symptom development period length (known as incubation period in some contexts), i.e. time between exposure and symptoms appearing.
+    - ``incubation_period``: Symptom development period length (known as incubation period in some contexts), i.e. time between exposure and symptoms appearing.
 
 - Every day (time-varying)
 
