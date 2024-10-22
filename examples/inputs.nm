@@ -1,27 +1,22 @@
-# the maximum size of each box - a smaller number increases the number of boxes and hence improves load balance,
-# but is worse for GPUs because there is less work per kernel launch
-# agent.max_grid_size = 20
+# This should be set to be large (300) for UrbanPop GPUs
+# agent.max_grid_size = 300
 
 # these are settings for the Census input type
 #agent.ic_type = "census"
-agent.census_filename = "../../CensusData/NM_TX_2010.dat"
-agent.workerflow_filename = "../../CensusData/US-wf.bin"
-
-agent.airports_filename="../../CensusData/CA_airports.dat"
-agent.air_traffic_filename= "../../CA_CY23AirTraffic.dat"
-
-agent.air_travel_int = 0
+agent.census_filename = "../CensusData/NM_TX_2010.dat"
+agent.workerflow_filename = "../CensusData/US-wf.bin"
 
 agent.initial_case_type = "file"
-agent.case_filename = "nm-july4.cases"
-#agent.case_filename = "nm-small.cases"
-
-#agent.initial_case_type="random"
-#agent.num_initial_cases=1000
+agent.case_filename = "../CaseData/nm-july4.cases"
 
 # Settings for the UrbanPop input type
 agent.ic_type = "urbanpop"
-agent.urbanpop_filename = "urbanpop_nm"
+agent.urbanpop_filename = "../UrbanPop/NM_35/urbanpop_nm"
+
+#agent.airports_filename="../CensusData/CA_airports.dat"
+#agent.air_traffic_filename= "../CA_CY23AirTraffic.dat"
+
+agent.air_travel_int = 0
 
 agent.nsteps = 70
 agent.plot_int = -1
