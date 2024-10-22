@@ -391,6 +391,8 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
         auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
         auto work_i_ptr = soa.GetIntData(IntIdx::work_i).data();
         auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
+        auto trav_i_ptr = soa.GetIntData(IntIdx::trav_i).data();
+        auto trav_j_ptr = soa.GetIntData(IntIdx::trav_j).data();
         soa.GetIntData(IntIdx::hosp_i).assign(-1);
         soa.GetIntData(IntIdx::hosp_j).assign(-1);
         auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
@@ -404,6 +406,7 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
         int nborhood_size = params.nborhood_size;
         soa.GetIntData(IntIdx::withdrawn).assign(0);
         soa.GetIntData(IntIdx::random_travel).assign(-1);
+        soa.GetIntData(IntIdx::air_travel).assign(-1);
 
         int i_RT = IntIdx::nattribs;
         int r_RT = RealIdx::nattribs;
@@ -481,6 +484,9 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
                 // home neighborhoods, effectively
                 work_nborhood_ptr[i] = nborhood_ptr[i];
             }
+
+            trav_i_ptr[i] = home_i_ptr[i];
+            trav_j_ptr[i] = home_j_ptr[i];
         });
         Gpu::synchronize();
 
