@@ -187,7 +187,7 @@ void runAgent ()
     MultiFab mask_behavior(ba, dm, 1, 0);
     mask_behavior.setVal(1);
 
-    AgentContainer pc(geom, dm, ba, params.num_diseases, params.disease_names, params.fast);
+    AgentContainer pc(geom, dm, ba, params.num_diseases, params.disease_names, params.fast, params.ic_type);
 
     {
         BL_PROFILE_REGION("Initialization");
@@ -215,12 +215,13 @@ void runAgent ()
         }
     }
 
-    /*
+//#define DUMP_INITIAL_AGENTS_ASCII
+#ifdef DUMP_INITIAL_AGENTS_ASCII
     string agents_fname = std::string("agents.") + (params.ic_type == ICType::UrbanPop ? "urbanpop" : "census") + ".csv";
     pc.WriteAsciiFile(agents_fname);
     if (ParallelDescriptor::IOProcessor()) {
         std::ofstream agents_f(agents_fname, std::ios_base::app);
-        agents_f << "posx posy id cpu "
+        agents_f << "#posx posy id cpu "
                  << "treatment_timer "
                  << "disease_counter "
                  << "prob "
@@ -247,7 +248,7 @@ void runAgent ()
                  << "symptomatic\n";
         agents_f.close();
     }
-    */
+#endif
 
     std::vector<int>  step_of_peak(params.num_diseases, 0);
     std::vector<Long> num_infected_peak(params.num_diseases, 0);

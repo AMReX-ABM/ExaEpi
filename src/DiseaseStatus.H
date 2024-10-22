@@ -95,7 +95,6 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
         for (MFIter mfi = a_agents.MakeMFIter(lev); mfi.isValid(); ++mfi) {
             int gid = mfi.index();
             int tid = mfi.LocalTileIndex();
-            auto tbox = mfi.tilebox();
             auto& ptile = plev[std::make_pair(gid, tid)];
             const auto& ptd = ptile.getParticleTileData();
             auto& soa   = ptile.GetStructOfArrays();
@@ -224,7 +223,6 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
             });
 
             for (int d = 0; d < n_disease; d++) {
-                auto status_ptr = soa.GetIntData(i_RT+i0(d)+IntIdxDisease::status).data();
                 auto ds_arr = (*a_stats[d])[mfi].array();
                 ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
                 {

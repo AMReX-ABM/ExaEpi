@@ -56,9 +56,6 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
     BL_PROFILE("HospitalModel::interactAgents");
     int n_disease = a_agents.numDiseases();
 
-    //GridToLngLat grid_to_lnglat(a_egents.min_lng, a_agents.min_lat, a_agents.gspacing_x, a_agents.gspacing_y);
-    //bool is_census = (a_agents.gspacing_x == 0);
-
     for (int lev = 0; lev < a_agents.numLevels(); ++lev)
     {
         const auto dx = a_agents.Geom(lev).CellSizeArray();
@@ -77,7 +74,6 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
             PType* pstruct = &(aos[0]);
             const auto np = ptile.numParticles();
             if (np == 0) continue;
-            auto tbox = mfi.tilebox();
 
             auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
             auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
@@ -215,6 +211,9 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                 Gpu::synchronize();
             }
 
+            bool is_census = (a_agents.ic_type == ExaEpi::ICType::Census);
+            auto grid_to_lnglat_ptr = &a_agents.grid_to_lnglat;
+
             ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
             {
                 if ( !isHospitalized(i, ptd) )  { return; }
@@ -246,15 +245,15 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                         hosp_j_ptr[i] = -1;
                         withdrawn_ptr[i] = 0;
                         PType& p = pstruct[i];
-                        //if (is_census) { // using census data
+                        if (is_census) {
                             p.pos(0) = (home_i_ptr[i] + 0.5_prt) * dx[0];
                             p.pos(1) = (home_j_ptr[i] + 0.5_prt) * dx[1];
-                        /*} else {
+                        } else {
                             Real lng, lat;
-                            grid_to_lnglat(home_i_ptr[i], home_j_ptr[i], lng, lat);
+                            (*grid_to_lnglat_ptr)(home_i_ptr[i], home_j_ptr[i], lng, lat);
                             p.pos(0) = lng;
                             p.pos(1) = lat;
-                        }*/
+                        }
                     }
                 }
 

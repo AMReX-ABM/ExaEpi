@@ -289,13 +289,11 @@ void UrbanPopData::init (ExaEpi::TestParams &params, Geometry &geom, BoxArray &b
 void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &params) {
     BL_PROFILE("UrbanPopData::initAgents");
 
-    LngLatToGrid lnglat_to_grid(min_lng, min_lat, gspacing_x, gspacing_y);
-    GridToLngLat grid_to_lnglat(min_lng, min_lat, gspacing_x, gspacing_y);
+    pc.lnglat_to_grid.init(min_lng, min_lat, gspacing_x, gspacing_y);
+    pc.grid_to_lnglat.init(min_lng, min_lat, gspacing_x, gspacing_y);
 
-    pc.min_lng = min_lng;
-    pc.min_lat = min_lat;
-    pc.gspacing_x = gspacing_x;
-    pc.gspacing_y = gspacing_y;
+    const auto &lnglat_to_grid = pc.lnglat_to_grid;
+    const auto &grid_to_lnglat = pc.grid_to_lnglat;
 
     int home_population = 0;
     int work_population = 0;

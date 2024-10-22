@@ -39,7 +39,8 @@ AgentContainer::AgentContainer (const amrex::Geometry            & a_geom,  /*!<
                                 const amrex::BoxArray            & a_ba,    /*!< Box array */
                                 const int                        & a_num_diseases, /*!< Number of diseases */
                                 const std::vector<std::string>   & a_disease_names, /*!< names of the diseases */
-                                const bool                       fast  /*!< faster but non-deterministic computation*/)
+                                const bool                       fast,  /*!< faster but non-deterministic computation*/
+                                const short                      a_ic_type  /*!< type of initialization */)
     : amrex::ParticleContainer< 0,
                                 0,
                                 RealIdx::nattribs,
@@ -47,6 +48,8 @@ AgentContainer::AgentContainer (const amrex::Geometry            & a_geom,  /*!<
         m_student_counts(a_ba, a_dmap, SchoolType::total_school_type, 0)
 {
     BL_PROFILE("AgentContainer::AgentContainer");
+
+    ic_type = a_ic_type;
 
     m_num_diseases = a_num_diseases;
     AMREX_ASSERT(m_num_diseases < ExaEpi::max_num_diseases);
@@ -148,14 +151,13 @@ void AgentContainer::moveAgentsToWork ()
 {
     BL_PROFILE("AgentContainer::moveAgentsToWork");
 
-    GridToLngLat grid_to_lnglat(min_lng, min_lat, gspacing_x, gspacing_y);
-
-    bool is_census = (gspacing_x == 0);
-
     for (int lev = 0; lev <= finestLevel(); ++lev)
     {
         const auto dx = Geom(lev).CellSizeArray();
         auto& plev  = GetParticles(lev);
+
+        bool is_census = (ic_type == ExaEpi::ICType::Census);
+        auto grid_to_lnglat_ptr = &grid_to_lnglat;
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -183,7 +185,7 @@ void AgentContainer::moveAgentsToWork ()
                         p.pos(1) = (work_j_ptr[ip] + 0.5_prt)*dx[1];
                     } else {
                         Real lng, lat;
-                        grid_to_lnglat(work_i_ptr[ip], work_j_ptr[ip], lng, lat);
+                        (*grid_to_lnglat_ptr)(work_i_ptr[ip], work_j_ptr[ip], lng, lat);
                         p.pos(0) = lng;
                         p.pos(1) = lat;
                     }
@@ -206,14 +208,13 @@ void AgentContainer::moveAgentsToHome ()
 {
     BL_PROFILE("AgentContainer::moveAgentsToHome");
 
-    GridToLngLat grid_to_lnglat(min_lng, min_lat, gspacing_x, gspacing_y);
-
-    bool is_census = (gspacing_x == 0);
-
     for (int lev = 0; lev <= finestLevel(); ++lev)
     {
         const auto dx = Geom(lev).CellSizeArray();
         auto& plev  = GetParticles(lev);
+
+        bool is_census = (ic_type == ExaEpi::ICType::Census);
+        auto grid_to_lnglat_ptr = &grid_to_lnglat;
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -241,7 +242,7 @@ void AgentContainer::moveAgentsToHome ()
                         p.pos(1) = (home_j_ptr[ip] + 0.5_prt) * dx[1];
                     } else {
                         Real lng, lat;
-                        grid_to_lnglat(home_i_ptr[ip], home_j_ptr[ip], lng, lat);
+                        (*grid_to_lnglat_ptr)(home_i_ptr[ip], home_j_ptr[ip], lng, lat);
                         p.pos(0) = lng;
                         p.pos(1) = lat;
                     }
@@ -311,14 +312,13 @@ void AgentContainer::returnRandomTravel ()
 {
     BL_PROFILE("AgentContainer::returnRandomTravel");
 
-    GridToLngLat grid_to_lnglat(min_lng, min_lat, gspacing_x, gspacing_y);
-
-    bool is_census = (gspacing_x == 0);
-
     for (int lev = 0; lev <= finestLevel(); ++lev)
     {
         auto& plev  = GetParticles(lev);
         const auto dx = Geom(lev).CellSizeArray();
+
+        bool is_census = (ic_type == ExaEpi::ICType::Census);
+        auto grid_to_lnglat_ptr = &grid_to_lnglat;
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -338,12 +338,12 @@ void AgentContainer::returnRandomTravel ()
                 if (random_travel_ptr[i] >= 0) {
                     ParticleType& p = pstruct[i];
                     random_travel_ptr[i] = -1;
-                    if (is_census) { // using census data
+                    if (is_census) {
                         p.pos(0) = (home_i_ptr[i] + 0.5_prt) * dx[0];
                         p.pos(1) = (home_j_ptr[i] + 0.5_prt) * dx[1];
                     } else {
                         Real lng, lat;
-                        grid_to_lnglat(home_i_ptr[i], home_j_ptr[i], lng, lat);
+                        (*grid_to_lnglat_ptr)(home_i_ptr[i], home_j_ptr[i], lng, lat);
                         p.pos(0) = lng;
                         p.pos(1) = lat;
                     }
@@ -360,10 +360,6 @@ void AgentContainer::updateStatus ( MFPtrVec& a_disease_stats /*!< Community-wis
 {
     BL_PROFILE("AgentContainer::updateStatus");
 
-    GridToLngLat grid_to_lnglat(min_lng, min_lat, gspacing_x, gspacing_y);
-
-    bool is_census = (gspacing_x == 0);
-
     m_disease_status.updateAgents(*this, a_disease_stats);
     m_hospital->treatAgents(*this, a_disease_stats);
 
@@ -372,6 +368,9 @@ void AgentContainer::updateStatus ( MFPtrVec& a_disease_stats /*!< Community-wis
     {
         const auto dx = Geom(lev).CellSizeArray();
         auto& plev  = GetParticles(lev);
+
+        bool is_census = (ic_type == ExaEpi::ICType::Census);
+        auto grid_to_lnglat_ptr = &grid_to_lnglat;
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -394,12 +393,12 @@ void AgentContainer::updateStatus ( MFPtrVec& a_disease_stats /*!< Community-wis
             {
                 if (isHospitalized(ip, ptd)) {
                     ParticleType& p = pstruct[ip];
-                    if (is_census) { // using census data
+                    if (is_census) {
                         p.pos(0) = (hosp_i_ptr[ip] + 0.5_prt) * dx[0];
                         p.pos(1) = (hosp_j_ptr[ip] + 0.5_prt) * dx[1];
                     } else {
                         Real lng, lat;
-                        grid_to_lnglat(hosp_i_ptr[ip], hosp_j_ptr[ip], lng, lat);
+                        (*grid_to_lnglat_ptr)(hosp_i_ptr[ip], hosp_j_ptr[ip], lng, lat);
                         p.pos(0) = lng;
                         p.pos(1) = lat;
                     }
