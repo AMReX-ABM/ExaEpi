@@ -176,12 +176,13 @@ struct DiseaseParm
                                 int& a_ICU, /*!< moved to ICU ? */
                                 int& a_ventilator, /*!< moved to ventilator? */
                                 const int a_age_grp, /*!< age group */
-                                const amrex::Real a_u50frac, /*!< Under-50 fraction in 30-64 age group */
                                 const amrex::RandomEngine& a_reng /*!< random engine */) const
     {
         a_t_hosp = 0.0;
         a_ICU = 0;
         a_ventilator = 0;
+        // fraction of age group 30-64 who are under 50 (assuming uniform distribution)
+        const amrex::Real a_u50frac = amrex::Real(0.57);
         amrex::Real p_hosp = m_CHR[a_age_grp];
         if (amrex::Random(a_reng) < p_hosp) {
             if (a_age_grp < AgeGroups::a30to64) {  // age groups 0-4, 5-18, 19-29

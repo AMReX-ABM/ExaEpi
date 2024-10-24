@@ -449,11 +449,11 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
             AMREX_ASSERT(tilebox.contains(iv2));
             */
             // Age group (under 5, 5-17, 18-29, 30-64, 65+)
-            if (agent.age < 5) age_group_ptr[i] = 0;
-            else if (agent.age < 17) age_group_ptr[i] = 1;
-            else if (agent.age < 29) age_group_ptr[i] = 2;
-            else if (agent.age < 64) age_group_ptr[i] = 3;
-            else age_group_ptr[i] = 4;
+            if (agent.age < 5) age_group_ptr[i] = AgeGroups::u5;
+            else if (agent.age < 18) age_group_ptr[i] = AgeGroups::a5to17;
+            else if (agent.age < 30) age_group_ptr[i] = AgeGroups::a18to29;
+            else if (agent.age < 65) age_group_ptr[i] = AgeGroups::a30to64;
+            else age_group_ptr[i] = AgeGroups::o65;
             family_ptr[i] = agent.household_id;
             lnglat_to_grid(agent.work_lng, agent.work_lat, work_i_ptr[i], work_j_ptr[i]);
             grid_to_lnglat(work_i_ptr[i], work_j_ptr[i], agent.work_lng, agent.work_lat);

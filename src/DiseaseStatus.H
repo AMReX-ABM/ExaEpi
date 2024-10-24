@@ -111,9 +111,6 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
             auto symptomatic_withdraw = a_agents.symptomaticWithdraw();
             auto symptomatic_withdraw_compliance = a_agents.symptomaticWithdrawCompliance();
 
-            // fraction of age group 30-64 who are under 50 (assuming uniform distribution)
-            Real u50frac = 0.57_rt;
-
             int i_RT = IntIdx::nattribs;
             int r_RT = RealIdx::nattribs;
 
@@ -187,7 +184,6 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                                                                        flag_ICU_i,
                                                                        flag_vent_i,
                                                                        age_group_ptr[i],
-                                                                       u50frac,
                                                                        engine );
                                 timer_ptr[i] = ParticleReal(num_days);
                                 if (timer_ptr[i] > 0) { flag_hosp_ptr[i] = 1; }

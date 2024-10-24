@@ -224,7 +224,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 bool isAnAdult (const int      a_idx, /*!< Agent index */
                 const PTDType& a_ptd  /*!< Particle tile data */ )
 {
-    return a_ptd.m_idata[IntIdx::age_group][a_idx] > 1;
+    return a_ptd.m_idata[IntIdx::age_group][a_idx] > AgeGroups::a5to17;
 }
 
 // grade definitions

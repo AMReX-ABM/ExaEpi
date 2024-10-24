@@ -182,7 +182,7 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                                 int num_infected_school = infected_school_d_ptr[pos];
                                 ParticleReal xmit = 0;
                                 if (adults) {   // transmitters are adults
-                                    if (age_group_ptr[i] <= 1) {  // Adult teacher/staff -> child student
+                                    if (age_group_ptr[i] <= AgeGroups::a5to17) {  // Adult teacher/staff -> child student
                                         if (inHighSchool(school_grade_ptr[i])) xmit = lparm->xmit_high_school_a2c;
                                         else if (inMiddleSchool(school_id_ptr[i])) xmit = lparm->xmit_middle_school_a2c;
                                         else if (inElemSchool(school_grade_ptr[i])) xmit = lparm->xmit_elem_school_a2c;
@@ -193,7 +193,7 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                                         else if (inCollege(school_grade_ptr[i])) xmit = lparm->xmit_college;
                                     }
                                 } else { // transmitters are children
-                                    if (age_group_ptr[i] <= 1) {  // Receiver j is a child
+                                    if (age_group_ptr[i] <= AgeGroups::a5to17) {  // Receiver j is a child
                                         if (inHighSchool(school_grade_ptr[i])) xmit = lparm->xmit_high_school;
                                         else if (inMiddleSchool(school_id_ptr[i])) xmit = lparm->xmit_middle_school;
                                         else if (inElemSchool(school_id_ptr[i])) xmit = lparm->xmit_elem_school;

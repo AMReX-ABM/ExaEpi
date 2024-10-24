@@ -78,7 +78,7 @@ void CensusData::init (ExaEpi::TestParams &params, Geometry &geom, BoxArray &ba,
  *  default distribution to choose elementary/middle/high school. */
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 void assign_school (int* school_grade, int* school_id, const int age_group, const int nborhood, const RandomEngine& engine) {
-    if (age_group == 0) {
+    if (age_group == AgeGroups::u5) {
         // under 5
         // assume 50% in daycare
         if (Random_int(100, engine) < 50) {
@@ -88,7 +88,7 @@ void assign_school (int* school_grade, int* school_id, const int age_group, cons
             *school_grade = -1;
             *school_id = 0; // no school
         }
-    } else if (age_group == 1) {
+    } else if (age_group == AgeGroups::a5to17) {
         // 5 to 17
         int il4 = Random_int(100, engine);
         if (il4 < 36) {
@@ -386,46 +386,46 @@ void CensusData::initAgents (AgentContainer& pc,       /*!< Agents */
                 int age_group = -1;
 
                 if (family_size == 1) {
-                    if (il2 < 28) { age_group = 4; }      /* single adult age 65+   */
-                    else if (il2 < 68) { age_group = 3; } /* age 30-64 (ASSUME 40%) */
-                    else { age_group = 2; }               /* single adult age 19-29 */
+                    if (il2 < 28) { age_group = AgeGroups::o65; }      /* single adult age 65+   */
+                    else if (il2 < 68) { age_group = AgeGroups::a30to64; } /* age 30-64 (ASSUME 40%) */
+                    else { age_group = AgeGroups::a18to29; }               /* single adult age 19-29 */
                     nr_arr(i, j, k, age_group) += 1;
                 } else if (family_size == 2) {
                     if (il2 == 0) {
                         /* 1% probability of one parent + one child */
                         int il3 = amrex::Random_int(100, engine);
-                        if (il3 < 2) { age_group = 4; }        /* one parent, age 65+ */
-                        else if (il3 < 62) { age_group = 3; }  /* one parent 30-64 (ASSUME 60%) */
-                        else { age_group = 2; }                /* one parent 19-29 */
+                        if (il3 < 2) { age_group = AgeGroups::o65; }        /* one parent, age 65+ */
+                        else if (il3 < 62) { age_group = AgeGroups::a30to64; }  /* one parent 30-64 (ASSUME 60%) */
+                        else { age_group = AgeGroups::a18to29; }                /* one parent 19-29 */
                         nr_arr(i, j, k, age_group) += 1;
                         if (((int) amrex::Random_int(100, engine)) < p_schoolage) {
-                            age_group = 1; /* 22.0% of total population ages 5-18 */
+                            age_group = AgeGroups::a5to17; /* 22.0% of total population ages 5-18 */
                         } else {
-                            age_group = 0;   /* 6.8% of total population ages 0-4 */
+                            age_group = AgeGroups::u5;   /* 6.8% of total population ages 0-4 */
                         }
                         nr_arr(i, j, k, age_group) += 1;
                     } else {
                         /* 2 adults, 28% over 65 (ASSUME both same age group) */
-                        if (il2 < 28) { age_group = 4; }      /* single adult age 65+ */
-                        else if (il2 < 68) { age_group = 3; } /* age 30-64 (ASSUME 40%) */
-                        else { age_group = 2; }               /* single adult age 19-29 */
+                        if (il2 < 28) { age_group = AgeGroups::o65; }      /* single adult age 65+ */
+                        else if (il2 < 68) { age_group = AgeGroups::a30to64; } /* age 30-64 (ASSUME 40%) */
+                        else { age_group = AgeGroups::a18to29; }               /* single adult age 19-29 */
                         nr_arr(i, j, k, age_group) += 2;
                     }
                 }
 
                 if (family_size > 2) {
                     /* ASSUME 2 adults, of the same age group */
-                    if (il2 < 2) { age_group = 4; }  /* parents are age 65+ */
-                    else if (il2 < 62) { age_group = 3; }  /* parents 30-64 (ASSUME 60%) */
-                    else { age_group = 2; }  /* parents 19-29 */
+                    if (il2 < 2) { age_group = AgeGroups::o65; }  /* parents are age 65+ */
+                    else if (il2 < 62) { age_group = AgeGroups::a30to64; }  /* parents 30-64 (ASSUME 60%) */
+                    else { age_group = AgeGroups::a18to29; }  /* parents 19-29 */
                     nr_arr(i, j, k, age_group) += 2;
 
                     /* Now pick the children's age groups */
                     for (int nc = 2; nc < family_size; ++nc) {
                         if (((int) amrex::Random_int(100, engine)) < p_schoolage) {
-                            age_group = 1; /* 22.0% of total population ages 5-18 */
+                            age_group = AgeGroups::a5to17; /* 22.0% of total population ages 5-18 */
                         } else {
-                            age_group = 0;   /* 6.8% of total population ages 0-4 */
+                            age_group = AgeGroups::u5;   /* 6.8% of total population ages 0-4 */
                         }
                         nr_arr(i, j, k, age_group) += 1;
                     }
@@ -656,7 +656,7 @@ void CensusData::read_workerflow (AgentContainer& pc,           /*!< Agent conta
 
             int age_group = age_group_ptr[ip];
             /* Check working-age population */
-            if ((age_group == 2) || (age_group == 3)) {
+            if ((age_group == AgeGroups::a18to29) || (age_group == AgeGroups::a30to64)) {
                 unsigned int irnd = amrex::Random_int(nwork, engine);
                 int to = 0;
                 int comm_to = 0;
@@ -756,7 +756,7 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
             int comm_to = (int)domain.index(IntVect(AMREX_D_DECL(work_i_ptr[ip], work_j_ptr[ip], 0)));
             if (comm_to >= Ncommunity) return;
             // skip non-working age
-            if (age_group_ptr[ip] != 3 && age_group_ptr[ip] != 2) return;
+            if (age_group_ptr[ip] != AgeGroups::a18to29 && age_group_ptr[ip] != AgeGroups::a30to64) return;
             // skip non-workers
             if (workgroup_ptr[ip] == 0) return;
 
