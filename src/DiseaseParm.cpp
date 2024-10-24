@@ -78,22 +78,29 @@ void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string
     amrex::Vector<amrex::Real> CHR(AgeGroups::total);
     amrex::Vector<amrex::Real> CIC(AgeGroups::total);
     amrex::Vector<amrex::Real> CVE(AgeGroups::total);
-    amrex::Vector<amrex::Real> CVF(AgeGroups::total);
+    amrex::Vector<amrex::Real> hospCVF(AgeGroups::total);
+    amrex::Vector<amrex::Real> icuCVF(AgeGroups::total);
+    amrex::Vector<amrex::Real> ventCVF(AgeGroups::total);
     for (int i = 0; i < AgeGroups::total; i++) {
         CHR[i] = m_CHR[i];
         CIC[i] = m_CIC[i];
         CVE[i] = m_CVE[i];
-        CVF[i] = m_CVF[i];
+        hospCVF[i] = m_HospToDeath[0][i];
+        icuCVF[i] = m_HospToDeath[1][i];
+        ventCVF[i] = m_HospToDeath[2][i];
     }
     pp.queryarr("CHR", CHR, 0, AgeGroups::total);
     pp.queryarr("CIC", CHR, 0, AgeGroups::total);
     pp.queryarr("CVE", CHR, 0, AgeGroups::total);
-    pp.queryarr("CVF", CHR, 0, AgeGroups::total);
+    pp.queryarr("hospCVF", hospCVF, 0, AgeGroups::total);
+    pp.queryarr("icuCVF", icuCVF, 0, AgeGroups::total);
+    pp.queryarr("ventCVF", ventCVF, 0, AgeGroups::total);
     for (int i = 0; i < AgeGroups::total; i++) {
         m_CHR[i] = CHR[i];
         m_CIC[i] = CIC[i];
-        m_CVE[i] = CVE[i];
-        m_CVF[i] = CVF[i];
+        m_HospToDeath[0][i] = hospCVF[i];
+        m_HospToDeath[1][i] = icuCVF[i];
+        m_HospToDeath[2][i] = ventCVF[i];
     }
 }
 

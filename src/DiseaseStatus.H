@@ -186,9 +186,9 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                                                                        age_group_ptr[i],
                                                                        engine );
                                 timer_ptr[i] = ParticleReal(num_days);
-                                if (timer_ptr[i] > 0) { flag_hosp_ptr[i] = 1; }
-                                if (flag_ICU_i) { flag_ICU_ptr[i] = 1; }
-                                if (flag_vent_i) { flag_vent_ptr[i] = 1; }
+                                if (timer_ptr[i] > 0) flag_hosp_ptr[i] = 1;
+                                if (flag_ICU_i) flag_ICU_ptr[i] = 1;
+                                if (flag_vent_i) flag_vent_ptr[i] = 1;
                                 if (!flag_hosp_ptr[i] && symptomatic_withdraw &&
                                     Random(engine) < symptomatic_withdraw_compliance) {
                                     // only withdraw if not hospitalized

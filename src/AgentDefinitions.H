@@ -96,8 +96,9 @@ struct AgeGroups
         u5 = 0, /*!< Under 5 */
         a5to17,  /*!< 5-17 */
         a18to29, /*!< 18-29 */
-        a30to64, /*!< 30-64 */
+        a30to49, /*!< 30-49 */
         o65,    /*!< over 65 */
+        a50to64,
         total   /*!< number of age groups */
     };
 };

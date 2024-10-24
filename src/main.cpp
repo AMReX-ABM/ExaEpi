@@ -225,7 +225,7 @@ void runAgent ()
         }
     }
 
-//#define DUMP_INITIAL_AGENTS_ASCII
+#define DUMP_INITIAL_AGENTS_ASCII
 #ifdef DUMP_INITIAL_AGENTS_ASCII
     string agents_fname = std::string("agents.") + (params.ic_type == ICType::UrbanPop ? "urbanpop" : "census") + ".csv";
     pc.WriteAsciiFile(agents_fname);

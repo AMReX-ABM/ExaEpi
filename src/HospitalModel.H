@@ -95,12 +95,10 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                 incubation_per_ptrs[d] = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::incubation_period).data();
             }
 
-            Gpu::DeviceVector<int> is_alive;
-            is_alive.resize(np);
+            Gpu::DeviceVector<int> is_alive(np);
             auto is_alive_ptr = is_alive.data();
 
-            Gpu::DeviceVector<int> flag_status;
-            flag_status.resize(np);
+            Gpu::DeviceVector<int> flag_status(np);
             auto flag_status_ptr = flag_status.data();
 
             ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
@@ -117,7 +115,6 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                         AMREX_ALWAYS_ASSERT(status_ptrs[d][i] != Status::dead);
                     }
                 }
-
                 flag_status_ptr[i] = 0; // 0: nothing changed on this day
             });
             Gpu::synchronize();
@@ -133,75 +130,38 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                                 [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine)
                                 noexcept
                 {
-                    if ( !isHospitalized(i, ptd) )  {
-                        // agent is not in hospital
-                        return;
-                    }
-                    if (counter_ptrs[d][i] == Math::floor(incubation_per_ptrs[d][i])) {
-                        // agent just started treatment at start of symptoms appearing
-                        return;
-                    }
-                    if ( timer_ptrs[d][i] == 0) {
-                        // agent has recovered/died from disease d
-                        return;
-                    }
-                    if ( is_alive_ptr[i] == 0) {
-                        // agent is dead
-                        return;
-                    }
+                    // agent is not in hospital
+                    if (!isHospitalized(i, ptd)) return;
+                    // agent just started treatment at start of symptoms appearing
+                    if (counter_ptrs[d][i] == Math::floor(incubation_per_ptrs[d][i])) return;
+                    // agent has recovered/died from disease d
+                    if (timer_ptrs[d][i] == 0) return;
+                    // agent is dead
+                    if (is_alive_ptr[i] == 0) return;
+
                     AMREX_ALWAYS_ASSERT(status_ptrs[d][i] == Status::infected);
+                    // decrement days in hospital
                     timer_ptrs[d][i] -= 1.0_rt;
                     if (timer_ptrs[d][i] == 0) {
-                        disease_parm_d->check_survival( is_alive_ptr[i],
-                                                        age_group_ptr[i],
-                                                        2.0_rt,
-                                                        engine );
+                        // finished hospitalization period
                         flag_status_ptr[i] = DiseaseStats::hospitalization + 1;
-                        if (is_alive_ptr[i] == 0) {
-                            flag_status_ptr[i] *= -1;
-                            status_ptrs[d][i] = Status::dead;
-                        } else {
-                            // If alive, hospitalized patient recovers
-                            status_ptrs[d][i] = Status::immune;
-                            counter_ptrs[d][i] = amrex::RandomNormal(immune_length_mean, immune_length_std, engine);
-                            symptomatic_ptrs[d][i] = SymptomStatus::presymptomatic;
-                            withdrawn_ptr[i] = 0;
-                            timer_ptrs[d][i] = 0.0_rt;
-                        }
-                    }
-                    if (timer_ptrs[d][i] == disease_parm_d->m_t_hosp_offset) {
-                        disease_parm_d->check_survival( is_alive_ptr[i],
-                                                        age_group_ptr[i],
-                                                        1.0_rt,
-                                                        engine );
+                    } else if (timer_ptrs[d][i] == disease_parm_d->m_t_hosp_offset) {
+                        // finished ICU hospitalization period
                         flag_status_ptr[i] = DiseaseStats::ICU + 1;
-                        if (is_alive_ptr[i] == 0) {
-                            flag_status_ptr[i] *= -1;
-                            status_ptrs[d][i] = Status::dead;
-                        } else {
-                            // If alive, hospitalized patient recovers
-                            status_ptrs[d][i] = Status::immune;
-                            counter_ptrs[d][i] = (immune_length_mean - immune_length_std)
-                                             + 2.0_rt*immune_length_std*Random(engine);
-                            symptomatic_ptrs[d][i] = SymptomStatus::presymptomatic;
-                            withdrawn_ptr[i] = 0;
-                            timer_ptrs[d][i] = 0.0_rt;
-                        }
-                    }
-                    if (timer_ptrs[d][i] == 2*disease_parm_d->m_t_hosp_offset) {
-                        disease_parm_d->check_survival( is_alive_ptr[i],
-                                                        age_group_ptr[i],
-                                                        0.0_rt,
-                                                        engine );
+                    } else if (timer_ptrs[d][i] == 2 * disease_parm_d->m_t_hosp_offset) {
+                        // finished ventilator hospitalization period
                         flag_status_ptr[i] = DiseaseStats::ventilator + 1;
-                        if (is_alive_ptr[i] == 0) {
+                    }
+                    if (flag_status_ptr[i] > 0) {
+                        // Check if hospitalized patient recovers or dies
+                        if (Random(engine) < disease_parm_d->m_HospToDeath[flag_status_ptr[i] - 1][age_group_ptr[i]]) {
+                            is_alive_ptr[i] = 0;
                             flag_status_ptr[i] *= -1;
                             status_ptrs[d][i] = Status::dead;
                         } else {
                             // If alive, hospitalized patient recovers
                             status_ptrs[d][i] = Status::immune;
-                            counter_ptrs[d][i] = (immune_length_mean - immune_length_std)
-                                             + 2.0_rt*immune_length_std*Random(engine);
+                            counter_ptrs[d][i] = RandomNormal(immune_length_mean, immune_length_std, engine);
                             symptomatic_ptrs[d][i] = SymptomStatus::presymptomatic;
                             withdrawn_ptr[i] = 0;
                             timer_ptrs[d][i] = 0.0_rt;
