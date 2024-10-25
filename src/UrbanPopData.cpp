@@ -245,9 +245,6 @@ void UrbanPopData::init (ExaEpi::TestParams &params, Geometry &geom, BoxArray &b
         // reset lng/lat coords to account for int conversion
         grid_to_lnglat(block_group.x, block_group.y, block_group.lng, block_group.lat);
         auto xy = IntVect(block_group.x, block_group.y);
-        //if (block_group.x == 182 && block_group.y == 155)
-        //    Print() << "block group " << block_group.geoid << " pop " << block_group.home_population
-        //            << " " << xy << " " << block_group.lng << "," << block_group.lat << "\n";
         auto it = xy_to_block_groups.find(xy);
         if (it != xy_to_block_groups.end()) Abort("Found duplicate x,y location; need to decrease gspacing\n");
         else xy_to_block_groups.insert({xy, block_group});
@@ -273,8 +270,6 @@ void UrbanPopData::init (ExaEpi::TestParams &params, Geometry &geom, BoxArray &b
         if (bi_loc == -1)
             AllPrint() << MyProc() << ": WARNING: could not find box for " << block_group.x << "," << block_group.y << "\n";
     }
-    //dm_latlong.SFCProcessorMap(ba, weights, NProcs());
-    //Print() << "ba " << ba << " dm_latlong " << dm_latlong << "\n";
     // distribute the boxes in the array across the processors
     dm.define(ba);
     dm.KnapSackProcessorMap(weights, NProcs());
