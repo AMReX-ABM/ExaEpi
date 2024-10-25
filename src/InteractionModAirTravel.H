@@ -116,7 +116,7 @@ void InteractionModAirTravel<AC,ACT,ACTD,A>::interactAgents(AC& a_agents, /*!< A
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for(MFIter mfi = a_agents.MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        for(MFIter mfi = a_agents.MakeMFIter(lev); mfi.isValid(); ++mfi)
         {
             auto pair_ind = std::make_pair(mfi.index(), mfi.LocalTileIndex());
             auto bins_ptr = a_agents.getBins(pair_ind, ExaEpi::InteractionNames::home);
@@ -178,7 +178,7 @@ void InteractionModAirTravel<AC,ACT,ACTD,A>::interactAgents(AC& a_agents, /*!< A
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for(MFIter mfi = a_agents.MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        for(MFIter mfi = a_agents.MakeMFIter(lev); mfi.isValid(); ++mfi)
         {
             auto pair_ind = std::make_pair(mfi.index(), mfi.LocalTileIndex());
             auto bins_ptr = a_agents.getBins(pair_ind, ExaEpi::InteractionNames::home);

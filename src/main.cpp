@@ -25,7 +25,7 @@ using namespace ExaEpi;
 
 void runAgent();
 
-/*! \brief Set ExaEpi-specific defaults for memory-management */
+/*! \brief Set ExaEpi-specific defaults for memory-management and tiling */
 void override_amrex_defaults ()
 {
     amrex::ParmParse pp("amrex");
@@ -328,7 +328,6 @@ void runAgent ()
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (!system::regtest_reduction) reduction(+:mmc[:4])
 #endif
-                        //for (MFIter mfi(*(disease_stats[d]), TilingIfNotGPU_()); mfi.isValid(); ++mfi) {
                         for (MFIter mfi(*(disease_stats[d])); mfi.isValid(); ++mfi) {
                             Box const& bx = mfi.tilebox();
                             auto const& dfab = disease_stats[d]->const_array(mfi);

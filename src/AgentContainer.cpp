@@ -317,7 +317,7 @@ void AgentContainer::moveAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for(MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        for(MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi)
         {
             const auto unit_arr = unit_mf[mfi].array();
             auto& ptile = plev[{mfi.index(), mfi.LocalTileIndex()}];
@@ -368,7 +368,7 @@ void AgentContainer::setAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air,
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for(MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        for(MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi)
         {
             const auto unit_arr = unit_mf[mfi].array();
             int gid = mfi.index();
@@ -514,7 +514,7 @@ void AgentContainer::returnAirTravel ()
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for(MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        for(MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi)
         {
             auto& ptile = plev[{mfi.index(), mfi.LocalTileIndex()}];
             auto& aos   = ptile.GetArrayOfStructs();
