@@ -452,7 +452,8 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
             if (agent.age < 5) age_group_ptr[i] = AgeGroups::u5;
             else if (agent.age < 18) age_group_ptr[i] = AgeGroups::a5to17;
             else if (agent.age < 30) age_group_ptr[i] = AgeGroups::a18to29;
-            else if (agent.age < 65) age_group_ptr[i] = AgeGroups::a30to49;
+            else if (agent.age < 50) age_group_ptr[i] = AgeGroups::a30to49;
+            else if (agent.age < 65) age_group_ptr[i] = AgeGroups::a50to64;
             else age_group_ptr[i] = AgeGroups::o65;
             family_ptr[i] = agent.household_id;
             lnglat_to_grid(agent.work_lng, agent.work_lat, work_i_ptr[i], work_j_ptr[i]);

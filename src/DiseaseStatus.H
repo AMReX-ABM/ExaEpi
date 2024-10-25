@@ -114,20 +114,12 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
             int i_RT = IntIdx::nattribs;
             int r_RT = RealIdx::nattribs;
 
-            Gpu::DeviceVector<int> flag_hosp, flag_ICU, flag_vent;
-            flag_hosp.resize(np);
-            flag_ICU.resize(np);
-            flag_vent.resize(np);
+            Gpu::DeviceVector<int> flag_hosp(np, 0);
+            Gpu::DeviceVector<int> flag_ICU(np, 0);
+            Gpu::DeviceVector<int> flag_vent(np, 0);
             auto flag_hosp_ptr = flag_hosp.data();
             auto flag_ICU_ptr = flag_ICU.data();
             auto flag_vent_ptr = flag_vent.data();
-            ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
-            {
-                flag_hosp_ptr[i] = 0;
-                flag_ICU_ptr[i] = 0;
-                flag_vent_ptr[i] = 0;
-            });
-            Gpu::synchronize();
 
             for (int d = 0; d < n_disease; d++ ) {
 
@@ -178,17 +170,14 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                                 AMREX_ASSERT(symptomatic_ptr[i] == SymptomStatus::presymptomatic);
                                 symptomatic_ptr[i] = SymptomStatus::symptomatic;
                                 // could be hospitalized when symptoms first appear
-                                int flag_ICU_i = 0, flag_vent_i = 0;
                                 Real num_days = 0;
                                 disease_parm_d->check_hospitalization( num_days,
-                                                                       flag_ICU_i,
-                                                                       flag_vent_i,
+                                                                       flag_ICU_ptr[i],
+                                                                       flag_vent_ptr[i],
                                                                        age_group_ptr[i],
                                                                        engine );
                                 timer_ptr[i] = ParticleReal(num_days);
                                 if (timer_ptr[i] > 0) flag_hosp_ptr[i] = 1;
-                                if (flag_ICU_i) flag_ICU_ptr[i] = 1;
-                                if (flag_vent_i) flag_vent_ptr[i] = 1;
                                 if (!flag_hosp_ptr[i] && symptomatic_withdraw &&
                                     Random(engine) < symptomatic_withdraw_compliance) {
                                     // only withdraw if not hospitalized
@@ -248,7 +237,6 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
 
             Gpu::synchronize();
         }
-
     }
 }
 #endif

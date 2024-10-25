@@ -386,47 +386,45 @@ void CensusData::initAgents (AgentContainer& pc,       /*!< Agents */
                 int age_group = -1;
 
                 if (family_size == 1) {
-                    if (il2 < 28) { age_group = AgeGroups::o65; }      /* single adult age 65+   */
-                    else if (il2 < 68) { age_group = AgeGroups::a30to49; } /* age 30-49 (ASSUME 40%) */
-                    else { age_group = AgeGroups::a18to29; }               /* single adult age 19-29 */
+                    if (il2 < 28) age_group = AgeGroups::o65;      /* single adult age 65+   */
+                    else if (il2 < 51) age_group = AgeGroups::a30to49; /* age 30-49 (ASSUME 40%) */
+                    else if (il2 < 68) age_group = AgeGroups::a50to64;
+                    else age_group = AgeGroups::a18to29;               /* single adult age 19-29 */
                     nr_arr(i, j, k, age_group) += 1;
                 } else if (family_size == 2) {
                     if (il2 == 0) {
                         /* 1% probability of one parent + one child */
                         int il3 = amrex::Random_int(100, engine);
-                        if (il3 < 2) { age_group = AgeGroups::o65; }        /* one parent, age 65+ */
-                        else if (il3 < 62) { age_group = AgeGroups::a30to49; }  /* one parent 30-64 (ASSUME 60%) */
-                        else { age_group = AgeGroups::a18to29; }                /* one parent 19-29 */
+                        if (il3 < 2) age_group = AgeGroups::o65;        /* one parent, age 65+ */
+                        else if (il3 < 36) age_group = AgeGroups::a30to49;  /* one parent 30-64 (ASSUME 60%) */
+                        else if (il3 < 62) age_group = AgeGroups::a50to64;
+                        else age_group = AgeGroups::a18to29;                /* one parent 19-29 */
                         nr_arr(i, j, k, age_group) += 1;
-                        if (((int) amrex::Random_int(100, engine)) < p_schoolage) {
-                            age_group = AgeGroups::a5to17; /* 22.0% of total population ages 5-18 */
-                        } else {
-                            age_group = AgeGroups::u5;   /* 6.8% of total population ages 0-4 */
-                        }
+                        if (((int) amrex::Random_int(100, engine)) < p_schoolage) age_group = AgeGroups::a5to17;
+                        else age_group = AgeGroups::u5;
                         nr_arr(i, j, k, age_group) += 1;
                     } else {
                         /* 2 adults, 28% over 65 (ASSUME both same age group) */
-                        if (il2 < 28) { age_group = AgeGroups::o65; }      /* single adult age 65+ */
-                        else if (il2 < 68) { age_group = AgeGroups::a30to49; } /* age 30-64 (ASSUME 40%) */
-                        else { age_group = AgeGroups::a18to29; }               /* single adult age 19-29 */
+                        if (il2 < 28) age_group = AgeGroups::o65;      /* single adult age 65+ */
+                        else if (il2 < 51) age_group = AgeGroups::a30to49; /* age 30-64 (ASSUME 40%) */
+                        else if (il2 < 68) age_group = AgeGroups::a50to64;
+                        else age_group = AgeGroups::a18to29;               /* single adult age 19-29 */
                         nr_arr(i, j, k, age_group) += 2;
                     }
                 }
 
                 if (family_size > 2) {
                     /* ASSUME 2 adults, of the same age group */
-                    if (il2 < 2) { age_group = AgeGroups::o65; }  /* parents are age 65+ */
-                    else if (il2 < 62) { age_group = AgeGroups::a30to49; }  /* parents 30-64 (ASSUME 60%) */
-                    else { age_group = AgeGroups::a18to29; }  /* parents 19-29 */
+                    if (il2 < 2) age_group = AgeGroups::o65;  /* parents are age 65+ */
+                    else if (il2 < 36) age_group = AgeGroups::a30to49;  /* parents 30-64 (ASSUME 60%) */
+                    else if (il2 < 62) age_group = AgeGroups::a50to64;
+                    else age_group = AgeGroups::a18to29;  /* parents 19-29 */
                     nr_arr(i, j, k, age_group) += 2;
 
                     /* Now pick the children's age groups */
                     for (int nc = 2; nc < family_size; ++nc) {
-                        if (((int) amrex::Random_int(100, engine)) < p_schoolage) {
-                            age_group = AgeGroups::a5to17; /* 22.0% of total population ages 5-18 */
-                        } else {
-                            age_group = AgeGroups::u5;   /* 6.8% of total population ages 0-4 */
-                        }
+                        if (((int) amrex::Random_int(100, engine)) < p_schoolage) age_group = AgeGroups::a5to17;
+                        else age_group = AgeGroups::u5;
                         nr_arr(i, j, k, age_group) += 1;
                     }
                 }

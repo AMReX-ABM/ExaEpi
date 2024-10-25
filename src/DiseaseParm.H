@@ -42,14 +42,14 @@ struct DiseaseParm
                                                 amrex::Real(.0000375*pCO),
                                                 amrex::Real(.00010*pCO),
                                                 amrex::Real(.00010*pCO),
-                                                amrex::Real(.00015*pCO),
+                                                amrex::Real(.00010*pCO),
                                                 amrex::Real(.00015*pCO) };
     /*! Neighborhood transmission probabilities for each age group (<5, 5-17, 18-29, 30-64, 65+) */
     amrex::Real xmit_hood[AgeGroups::total] = { amrex::Real(.00005*pNH),
                                                 amrex::Real(.00015*pNH),
                                                 amrex::Real(.00040*pNH),
                                                 amrex::Real(.00040*pNH),
-                                                amrex::Real(.00060*pNH),
+                                                amrex::Real(.00040*pNH),
                                                 amrex::Real(.00060*pNH) };
     /*! Transmission probabilities of adults for each age group (<5, 5-17, 18-29, 30-64, 65+) for neighborhood cluster */
     amrex::Real xmit_nc_adult[AgeGroups::total] = { amrex::Real(.08*pHC),
@@ -146,14 +146,14 @@ struct DiseaseParm
                                             amrex::Real(.0104),
                                             amrex::Real(.070),
                                             amrex::Real(.28),
-                                            amrex::Real(1.0),
+                                            amrex::Real(.28),
                                             amrex::Real(1.0) };
     /*! hospital -> ICU probabilities */
     amrex::Real m_CIC[AgeGroups::total] = { amrex::Real(.24),
                                             amrex::Real(.24),
                                             amrex::Real(.24),
                                             amrex::Real(.36),
-                                            amrex::Real(.35),
+                                            amrex::Real(.36),
                                             amrex::Real(.35) };
     /*! ICU -> ventilator probabilities */
     amrex::Real m_CVE[AgeGroups::total] = { amrex::Real(.12),
@@ -176,14 +176,14 @@ struct DiseaseParm
                                                     amrex::Real(0),
                                                     amrex::Real(0),
                                                     amrex::Real(0),
-                                                    amrex::Real(0.26),
+                                                    amrex::Real(0),
                                                     amrex::Real(0.26)},
                                                     // from ventilator
                                                    {amrex::Real(0.20),
                                                     amrex::Real(0.20),
                                                     amrex::Real(0.20),
                                                     amrex::Real(0.45),
-                                                    amrex::Real(1.0),
+                                                    amrex::Real(0.45),
                                                     amrex::Real(1.0)}};
 
 
@@ -202,33 +202,21 @@ struct DiseaseParm
     void check_hospitalization( amrex::Real& a_t_hosp, /*!< number of hospitalization days */
                                 int& a_ICU, /*!< moved to ICU ? */
                                 int& a_ventilator, /*!< moved to ventilator? */
-                                const int a_age_grp, /*!< age group */
+                                const int a_age_group, /*!< age group */
                                 const amrex::RandomEngine& a_reng /*!< random engine */) const
     {
         a_t_hosp = 0.0;
         a_ICU = 0;
         a_ventilator = 0;
-        // fraction of age group 30-64 who are under 50 (assuming uniform distribution)
-        const amrex::Real a_u50frac = amrex::Real(0.57);
-        amrex::Real p_hosp = m_CHR[a_age_grp];
+        amrex::Real p_hosp = m_CHR[a_age_group];
         if (amrex::Random(a_reng) < p_hosp) {
-            if (a_age_grp < AgeGroups::a30to49) {  // age groups 0-4, 5-18, 19-29
-                // Ages 0-49 hospitalized for 3.1 days
-                a_t_hosp = m_t_hosp[AgeGroups_Hosp::u50];
-            } else if (a_age_grp == AgeGroups::o65) {
-                // Age 65+ hospitalized for 6.5 days
-                a_t_hosp = m_t_hosp[AgeGroups_Hosp::o65];
-            } else if (amrex::Random(a_reng) < a_u50frac) {
-                // Proportion of 30-64 that is under 50
-                a_t_hosp = m_t_hosp[AgeGroups_Hosp::u50];
-            } else {
-                // Age 50-64 hospitalized for 7.8 days
-                a_t_hosp = m_t_hosp[AgeGroups_Hosp::a50to64];
-            }
-            if (amrex::Random(a_reng) < m_CIC[a_age_grp]) {
+            if (a_age_group == AgeGroups::o65) a_t_hosp = m_t_hosp[AgeGroups_Hosp::o65];
+            else if (a_age_group == AgeGroups::a50to64) a_t_hosp = m_t_hosp[AgeGroups_Hosp::a50to64];
+            else a_t_hosp = m_t_hosp[AgeGroups_Hosp::u50];
+            if (amrex::Random(a_reng) < m_CIC[a_age_group]) {
                 a_t_hosp += m_t_hosp_offset;  // move to ICU, adds 10 days (m_t_hosp_offset)
                 a_ICU = 1;
-                if (amrex::Random(a_reng) < m_CVE[a_age_grp]) {
+                if (amrex::Random(a_reng) < m_CVE[a_age_group]) {
                     a_t_hosp += m_t_hosp_offset;  // put on ventilator, adds another 10 days
                     a_ventilator = 1;
                 }

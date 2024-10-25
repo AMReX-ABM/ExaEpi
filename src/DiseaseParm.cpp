@@ -112,22 +112,33 @@ void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string
 */
 void DiseaseParm::Initialize ()
 {
-    xmit_comm[0] = .0000125_rt*pCO;
-    xmit_comm[1] = .0000375_rt*pCO;
-    xmit_comm[2] = .00010_rt*pCO;
-    xmit_comm[3] = .00010_rt*pCO;
-    xmit_comm[4] = .00015_rt*pCO;
+    xmit_comm[AgeGroups::u5] = .0000125_rt*pCO;
+    xmit_comm[AgeGroups::a5to17] = .0000375_rt*pCO;
+    xmit_comm[AgeGroups::a18to29] = .00010_rt*pCO;
+    xmit_comm[AgeGroups::a30to49] = .00010_rt*pCO;
+    xmit_comm[AgeGroups::a50to64] = .00010_rt*pCO;
+    xmit_comm[AgeGroups::o65] = .00015_rt*pCO;
 
-    xmit_hood[0] = .00005_rt*pNH;
-    xmit_hood[1] = .00015_rt*pNH;
-    xmit_hood[2] = xmit_hood[3] = .00040_rt*pNH;
-    xmit_hood[4] = .00060_rt*pNH;
+    xmit_hood[AgeGroups::u5] = .00005_rt*pNH;
+    xmit_hood[AgeGroups::a5to17] = .00015_rt*pNH;
+    xmit_hood[AgeGroups::a18to29] = .00040_rt*pNH;
+    xmit_hood[AgeGroups::a30to49] = .00040_rt*pNH;
+    xmit_hood[AgeGroups::a50to64] = .00040_rt*pNH;
+    xmit_hood[AgeGroups::o65] = .00060_rt*pNH;
 
-    xmit_nc_adult[0] = xmit_nc_adult[1] = .08_rt*pHC;
-    xmit_nc_adult[2] = xmit_nc_adult[3] = xmit_nc_adult[4] = .1_rt*pHC;
+    xmit_nc_adult[AgeGroups::u5] = .08_rt*pHC;
+    xmit_nc_adult[AgeGroups::a5to17] = .08_rt*pHC;
+    xmit_nc_adult[AgeGroups::a18to29] = .1_rt*pHC;
+    xmit_nc_adult[AgeGroups::a30to49] = .1_rt*pHC;
+    xmit_nc_adult[AgeGroups::a50to64] = .1_rt*pHC;
+    xmit_nc_adult[AgeGroups::o65] = .1_rt*pHC;
 
-    xmit_nc_child[0] = xmit_nc_child[1] = .15_rt*pHC;
-    xmit_nc_child[2] = xmit_nc_child[3] = xmit_nc_child[4] = .08_rt*pHC;
+    xmit_nc_child[AgeGroups::u5] = .15_rt*pHC;
+    xmit_nc_child[AgeGroups::a5to17] = .15_rt*pHC;
+    xmit_nc_child[AgeGroups::a18to29] = .08_rt*pHC;
+    xmit_nc_child[AgeGroups::a30to49] = .08_rt*pHC;
+    xmit_nc_child[AgeGroups::a50to64] = .08_rt*pHC;
+    xmit_nc_child[AgeGroups::o65] = .08_rt*pHC;
 
     xmit_work = 0.115_rt*pWO;
 
@@ -143,7 +154,7 @@ void DiseaseParm::Initialize ()
       other child-related contacts (neighborhood cluster, neigborhood,
       and community) by the compliance rate, Child_compliance
     */
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < AgeGroups::total; i++) {
         xmit_child_SC[i] = xmit_child[i] * Child_HH_closure;
         xmit_nc_child_SC[i] = xmit_nc_child[i] * (1.0_rt - Child_compliance);
     }
@@ -153,7 +164,7 @@ void DiseaseParm::Initialize ()
         xmit_comm_SC[i] = xmit_comm[i] * (1.0_rt - Child_compliance);
         xmit_hood_SC[i] = xmit_hood[i] * (1.0_rt - Child_compliance);
     }
-    for (int i = 2; i < 5; i++) {
+    for (int i = 2; i < AgeGroups::total; i++) {
         xmit_adult_SC[i] = xmit_adult[i];
         xmit_nc_adult_SC[i] = xmit_nc_adult[i];    // Adult-only contacts remain unchanged
         xmit_comm_SC[i] = xmit_comm[i];
@@ -163,7 +174,7 @@ void DiseaseParm::Initialize ()
     // Multiply contact rates by transmission probability given contact
     xmit_work *= p_trans[0];
 
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < AgeGroups::total; i++) {
         xmit_comm[i] *= p_trans[0];
         xmit_hood[i] *= p_trans[0];
         xmit_nc_adult[i] *= p_trans[0];
@@ -189,7 +200,7 @@ void DiseaseParm::Initialize ()
     xmit_daycare_a2c *= p_trans[0];
     xmit_playgroup_a2c *= p_trans[0];
 
-    for (int i = 1; i < 5; i++) {
+    for (int i = 1; i < AgeGroups::total; i++) {
         xmit_child_SC[i] *= p_trans[0];
         xmit_adult_SC[i] *= p_trans[0];
         xmit_nc_child_SC[i] *= p_trans[0];
@@ -204,25 +215,25 @@ void DiseaseParm::Initialize ()
 /*! \brief Print disease parameters */
 void DiseaseParm::printMatrix () {
     amrex::Print() << "xmit_comm: " << " ";
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < AgeGroups::total; ++i) {
         amrex::Print() << xmit_comm[i] << " ";
     }
     amrex::Print() << "\n";
 
     amrex::Print() << "xmit_hood: " <<  " ";
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < AgeGroups::total; ++i) {
         amrex::Print() << xmit_hood[i] << " ";
     }
     amrex::Print() << "\n";
 
     amrex::Print() << "xmit_nc_adult: " << " ";
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < AgeGroups::total; ++i) {
         amrex::Print() << xmit_nc_adult[i] << " ";
     }
     amrex::Print() << "\n";
 
     amrex::Print() << "xmit_nc_child: " << " ";
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < AgeGroups::total; ++i) {
         amrex::Print() << xmit_nc_child[i] << " ";
     }
     amrex::Print() << "\n";
@@ -231,13 +242,13 @@ void DiseaseParm::printMatrix () {
     amrex::Print() << xmit_work << "\n";
 
     amrex::Print() << "xmit_child_SC: " << " ";
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < AgeGroups::total; ++i) {
         amrex::Print() << xmit_child_SC[i] << " ";
     }
     amrex::Print() << "\n";
 
     amrex::Print() << "xmit_nc_child_SC: " << " ";
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < AgeGroups::total; ++i) {
         amrex::Print() << xmit_nc_child_SC[i] << " ";
     }
     amrex::Print() << "\n";
