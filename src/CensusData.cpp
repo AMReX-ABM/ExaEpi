@@ -740,7 +740,6 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
             // skip non-workers
             if (workgroup_ptr[ip] == 0) return;
 
-            int num_school_types = SchoolCensusIDType::total - 1;
             int choice = Random_int(num_school_types, engine);
 
             for (int k = 0; k < num_school_types; k++) {
