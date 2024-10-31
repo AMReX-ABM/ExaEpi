@@ -681,9 +681,6 @@ void CensusData::read_workerflow (AgentContainer& pc,           /*!< Agent conta
     The_Device_Arena()->free(d_flow);
 
     assignTeachersAndWorkgroup(pc, workgroup_size);
-
-    // check teacher and student counts
-    pc.printStudentTeacherCounts();
 }
 
 void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workgroup_size) {

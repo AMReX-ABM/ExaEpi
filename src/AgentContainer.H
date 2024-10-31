@@ -174,8 +174,10 @@ public:
 
     void printStudentTeacherCounts() const;
 
+    void printAgeGroupCounts() const;
+
     amrex::iMultiFab m_student_counts;
-    amrex::Real m_student_teacher_ratio = 20;
+    amrex::Real m_student_teacher_ratio = 15; /*!< Used only for Census data */
 
     int m_num_diseases; /*!< Number of diseases */
     std::vector<std::string> m_disease_names; /*!< names of the diseases */

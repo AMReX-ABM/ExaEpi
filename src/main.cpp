@@ -223,6 +223,8 @@ void runAgent ()
         } else {
             Abort("Unimplemented ic_type");
         }
+        pc.printStudentTeacherCounts();
+        pc.printAgeGroupCounts();
     }
 
 //#define DUMP_INITIAL_AGENTS_ASCII

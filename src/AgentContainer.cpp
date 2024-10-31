@@ -896,7 +896,7 @@ void AgentContainer::interactNight (MultiFab& a_mask_behavior /*!< Masking behav
 
 void AgentContainer::printStudentTeacherCounts() const {
     ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum,
-                ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum> reduce_ops;
+              ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum> reduce_ops;
     auto r = ParticleReduce<ReduceData<int, int, int, int, int, int, int, int, int, int>> (
                 *this, [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
                                             const int i) noexcept
@@ -930,5 +930,37 @@ void AgentContainer::printStudentTeacherCounts() const {
                 << "  Childcare  " << counts[4] << " " << counts[9] << " " << ((Real)counts[9] / counts[4]) << "\n"
                 << "  Total      " << total_educators << " " << total_students << " "
                 << ((Real)total_students / total_educators) << "\n";
+    }
+}
+
+void AgentContainer::printAgeGroupCounts() const {
+    ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum> reduce_ops;
+    auto r = ParticleReduce<ReduceData<int, int, int, int, int, int>> (
+                *this, [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
+                                            const int i) noexcept
+                -> GpuTuple<int, int, int, int, int, int>
+            {
+                int counts[6] = {0, 0, 0, 0, 0, 0};
+                int age_group = ptd.m_idata[IntIdx::age_group][i];
+                counts[age_group] = 1;
+                return {counts[0], counts[1], counts[2], counts[3], counts[4], counts[5]};
+            }, reduce_ops);
+
+    std::array<Long, 6> counts = {amrex::get<0>(r), amrex::get<1>(r), amrex::get<2>(r), amrex::get<3>(r), amrex::get<4>(r),
+                                  amrex::get<5>(r)};
+    ParallelDescriptor::ReduceLongSum(&counts[0], 6, ParallelDescriptor::IOProcessorNumber());
+    if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
+        int total_agents = 0;
+        for (int i = 0; i < 6; i++) {
+            total_agents += counts[i];
+        }
+        Print() << "Age group counts (percentage):\n" << std::fixed << std::setprecision(1)
+                << "  under 5   " << counts[0] << " " << 100.0 * (Real)counts[0] / total_agents << "\n"
+                << "  5 to 17    " << counts[1] << " " << 100.0 * (Real)counts[1] / total_agents << "\n"
+                << "  18 to 29   " << counts[2] << " " << 100.0 * (Real)counts[2] / total_agents << "\n"
+                << "  30 to 49   " << counts[3] << " " << 100.0 * (Real)counts[3] / total_agents << "\n"
+                << "  50 to 64   " << counts[4] << " " << 100.0 * (Real)counts[4] / total_agents << "\n"
+                << "  over 64    " << counts[5] << " " << 100.0 * (Real)counts[5] / total_agents << "\n"
+                << "  Total      " << total_agents << "\n";
     }
 }

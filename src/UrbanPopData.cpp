@@ -529,8 +529,6 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
             << "Communities: " << all_num_communities << " (balance " << load_balance_communities << ")\n";
 
     num_communities = all_num_communities;
-
-    pc.printStudentTeacherCounts();
 }
 
 
