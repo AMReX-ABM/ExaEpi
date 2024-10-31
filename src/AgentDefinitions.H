@@ -79,15 +79,31 @@ struct IntIdxDisease
 struct SchoolType
 {
     enum {
-        total = 0,   /*!< All School type */
-        high,        /*!< High School */
-        middle,      /*!< Middle School */
-        elem_3,      /*!< Elementary School Neighbordhood 1 & 2 */
-        elem_4,      /*!< Elementary School Neighbordhood 3 & 4 */
-        day_care,     /*!< Day care + Playground */
-        total_school_type
+        none,
+        college,
+        high,
+        middle,
+        elem,
+        day_care,
+        total
     };
 };
+
+/*! \brief School types used only in initializing census data approach */
+struct SchoolCensusIDType
+{
+    enum {
+        none,
+        high_1,         /*!< High School */
+        middle_2,       /*!< Middle School */
+        elem_3,         /*!< Elementary School, nborhoods 1 and 2 */
+        elem_4,         /*!< Elementary School, nborhoods 3 and 4 */
+        day_care_5,     /*!< Day care + Playground */
+        total
+    };
+};
+
+
 
 /*! \brief Age Group */
 struct AgeGroups
@@ -239,33 +255,14 @@ bool isAnAdult (const int      a_idx, /*!< Agent index */
 // 29: "undergrad", 30: "grad"
 
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-static bool inChildcare(const int grade) {
-    return (grade == 0);
+static int getSchoolType(const int grade) {
+    if (grade == 0) return SchoolType::day_care;
+    if ((grade >= 1 && grade <= 7) || (grade >= 15 && grade <= 21)) return SchoolType::elem;
+    if ((grade >= 8 && grade <= 10) || (grade >= 22 && grade <= 24)) return SchoolType::middle;
+    if ((grade >= 11 && grade <= 14) || (grade >= 25 && grade <= 28)) return SchoolType::high;
+    if (grade >= 29) return SchoolType::college;
+    return SchoolType::none;
 }
-
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-static bool inElemSchool(const int grade) {
-    // public or private school
-    // includes preschool
-    return (grade >= 1 && grade <= 7) || (grade >= 15 && grade <= 21);
-}
-
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-static bool inMiddleSchool(const int grade) {
-    return (grade >= 8 && grade <= 10) || (grade >= 22 && grade <= 24);
-}
-
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-static bool inHighSchool(const int grade) {
-    return (grade >= 11 && grade <= 14) || (grade >= 25 && grade <= 28);
-}
-
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-static bool inCollege(const int grade) {
-    return (grade >= 29);
-}
-
-
 
 
 #endif

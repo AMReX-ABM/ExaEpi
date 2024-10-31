@@ -31,15 +31,27 @@ agent.seed = 11
 
 diag.output_filename = "output.dat"
 
-contact.pSC  = 0.2
-contact.pCO  = 1.45
-contact.pNH  = 1.45
-contact.pWO  = 0.5
-contact.pFA  = 1.0
-contact.pBAR = -1.
-
 disease.nstrain = 2
 disease.p_trans = 0.20 0.30
 disease.p_asymp = 0.40 0.40
 disease.reduced_inf = 0.75 0.75
 disease.reinfect_prob = 0.0
+
+
+disease.xmit_comm = 0.000145 0.000145 0.000145 0.000145 0.000145 0.000145
+disease.xmit_hood = 0.00058 0.00058 0.00058 0.00058 0.00058 0.00058
+disease.xmit_hh_adult = 0.4 0.4 0.4 0.4 0.4 0.4
+disease.xmit_hh_child = 0.3 0.3 0.3 0.3 0.3 0.3 
+disease.xmit_nc_adult = 0.05 0.05 0.05 0.05 0.05 0.05
+disease.xmit_nc_child = 0.04 0.04 0.04 0.04 0.04 0.04 
+disease.xmit_school = 0 0.0315 0.0315 0.0315 0.0315 0.0315
+disease.xmit_school_a2c = 0 0.0315 0.0315 0.0315 0.0315 0.0315
+disease.xmit_school_c2a = 0 0.0315 0.0315 0.0315 0.0315 0.0315
+disease.hospitalization_days = 7 7 7
+disease.CHR = 0.070 0.070 0.070 0.070 0.070 0.070
+disease.CIC = 0.24 0.24 0.24 0.24 0.24 0.24
+disease.CVE = 0.12 0.12 0.12 0.12 0.12 0.12
+disease.hospCVF = 0 0 0 0 0 0 
+disease.icuCVF = 0.1 0.1 0.1 0.1 0.1 0.1
+disease.ventCVF = 0.5 0.5 0.5 0.5 0.5 0.5
+

@@ -182,10 +182,10 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
                             ParticleReal xmit_family_prob = 0;
                             ParticleReal xmit_nc_prob = 0;
                             if (adults) {
-                                xmit_family_prob = lparm->xmit_adult[ptd.m_idata[IntIdx::age_group][i]];
+                                xmit_family_prob = lparm->xmit_hh_adult[ptd.m_idata[IntIdx::age_group][i]];
                                 xmit_nc_prob = lparm->xmit_nc_adult[ptd.m_idata[IntIdx::age_group][i]];
                             } else {
-                                xmit_family_prob = lparm->xmit_child[ptd.m_idata[IntIdx::age_group][i]];
+                                xmit_family_prob = lparm->xmit_hh_child[ptd.m_idata[IntIdx::age_group][i]];
                                 xmit_nc_prob = lparm->xmit_nc_child[ptd.m_idata[IntIdx::age_group][i]];
                             }
                             auto community = getCommunityIndex(ptd, i);

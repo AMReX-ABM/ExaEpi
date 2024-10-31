@@ -45,7 +45,7 @@ AgentContainer::AgentContainer (const amrex::Geometry            & a_geom,  /*!<
                                 0,
                                 RealIdx::nattribs,
                                 IntIdx::nattribs> (a_geom, a_dmap, a_ba),
-        m_student_counts(a_ba, a_dmap, SchoolType::total_school_type, 0)
+        m_student_counts(a_ba, a_dmap, SchoolCensusIDType::total - 1, 0)
 {
     BL_PROFILE("AgentContainer::AgentContainer");
 
@@ -64,7 +64,7 @@ AgentContainer::AgentContainer (const amrex::Geometry            & a_geom,  /*!<
         pp.query("symptomatic_withdraw", m_symptomatic_withdraw);
         pp.query("shelter_compliance", m_shelter_compliance);
         pp.query("symptomatic_withdraw_compliance", m_symptomatic_withdraw_compliance);
-        pp.queryarr("student_teacher_ratios", m_student_teacher_ratios);
+        pp.query("student_teacher_ratio", m_student_teacher_ratio);
 
     }
 
@@ -90,7 +90,6 @@ AgentContainer::AgentContainer (const amrex::Geometry            & a_geom,  /*!<
         m_h_parm[d] = new DiseaseParm{};
         m_d_parm[d] = (DiseaseParm*)amrex::The_Arena()->alloc(sizeof(DiseaseParm));
 
-        m_h_parm[d]->readContact();
         // first read inputs common to all diseases
         m_h_parm[d]->readInputs("disease");
         // now read any disease-specific input, if available
@@ -907,11 +906,7 @@ void AgentContainer::printStudentTeacherCounts() const {
                 if (ptd.m_idata[IntIdx::school_id][i] > 0) {
                     int pos = (ptd.m_idata[IntIdx::workgroup][i] > 0 ? 0 : 5);
                     int grade = ptd.m_idata[IntIdx::school_grade][i];
-                    if (inHighSchool(grade)) counts[pos] = 1;
-                    else if (inMiddleSchool(grade)) counts[pos + 1] = 1;
-                    else if (inElemSchool(grade)) counts[pos + 2] = 1;
-                    else if (inChildcare(grade)) counts[pos + 3] = 1;
-                    else if (inCollege(grade)) counts[pos + 4] = 1;
+                    counts[pos + getSchoolType(grade) - SchoolType::college] = 1;
                 }
                 return {counts[0], counts[1], counts[2], counts[3], counts[4],
                         counts[5], counts[6], counts[7], counts[8], counts[9]};
@@ -928,11 +923,11 @@ void AgentContainer::printStudentTeacherCounts() const {
             total_students += counts[i + 5];
         }
         Print() << "School counts: (educators, students, ratio)\n" << std::fixed << std::setprecision(1)
-                << "  High       " << counts[0] << " " << counts[5] << " " << ((Real)counts[5] / counts[0]) << "\n"
-                << "  Middle     " << counts[1] << " " << counts[6] << " " << ((Real)counts[6] / counts[1]) << "\n"
-                << "  Elementary " << counts[2] << " " << counts[7] << " " << ((Real)counts[7] / counts[2]) << "\n"
-                << "  Childcare  " << counts[3] << " " << counts[8] << " " << ((Real)counts[8] / counts[3]) << "\n"
-                << "  College    " << counts[4] << " " << counts[9] << " " << ((Real)counts[9] / counts[4]) << "\n"
+                << "  College    " << counts[0] << " " << counts[5] << " " << ((Real)counts[5] / counts[0]) << "\n"
+                << "  High       " << counts[1] << " " << counts[6] << " " << ((Real)counts[6] / counts[1]) << "\n"
+                << "  Middle     " << counts[2] << " " << counts[7] << " " << ((Real)counts[7] / counts[2]) << "\n"
+                << "  Elementary " << counts[3] << " " << counts[8] << " " << ((Real)counts[8] / counts[3]) << "\n"
+                << "  Childcare  " << counts[4] << " " << counts[9] << " " << ((Real)counts[9] / counts[4]) << "\n"
                 << "  Total      " << total_educators << " " << total_students << " "
                 << ((Real)total_students / total_educators) << "\n";
     }

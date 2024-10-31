@@ -175,9 +175,7 @@ public:
     void printStudentTeacherCounts() const;
 
     amrex::iMultiFab m_student_counts;
-    //std::vector<long> m_student_teacher_ratios = {15, 15, 15, 15, 15, 15};
-    std::vector<long> m_student_teacher_ratios = {20, 20, 20, 20, 20, 20};
-    //std::vector<long> m_student_teacher_ratios = {100, 100, 100, 100, 100, 100};
+    amrex::Real m_student_teacher_ratio = 20;
 
     int m_num_diseases; /*!< Number of diseases */
     std::vector<std::string> m_disease_names; /*!< names of the diseases */
