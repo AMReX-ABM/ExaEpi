@@ -23,8 +23,8 @@ Inputs Parameters
 =================
 
 Runtime parameters are specified in an `inputs` file, which is required to run ExaEpi.
-An example `inputs` file can be bound at `ExaEpi/examples/inputs`. Below, we document
-the runtime parameters than can be set in the inputs file.
+Example `inputs` files can be bound at `ExaEpi/examples/`. The file `inputs.default` lists all of the settings,
+set to the default values where appropriate. Below, we document the runtime parameters than can be set in the inputs file.
 
 The following are inputs for the overall simulation:
 
@@ -35,8 +35,8 @@ The following are inputs for the overall simulation:
     If unspecified, the disease names are set as ``default00``, ``default01``, ``...``.
 * ``agent.ic_type`` (`string`, default ``"census"``)
     Can be either ``census`` or ``urbanpop``.
-    If ``"census"``, initial conditions will be read from the provided census data file.
-    If ``"urbanpop"``, initial conditions will be read from the provided UrbanPop data files.
+    If ``census``, initial conditions will be read from the provided census data file.
+    If ``urbanpop``, initial conditions will be read from the provided UrbanPop data files.
 * ``agent.census_filename`` (`string`)
     The path to the ``*.dat`` file containing the census data used to set initial conditions.
     Must be provided if ``ic_type = census``. Examples of these data files are provided
@@ -58,28 +58,26 @@ The following are inputs for the overall simulation:
     The path to the ``*.dat`` file containing available airports and the counties they serve.
 * ``agent.air_traffic_filename`` (`string`)
     The path to the ``*.dat`` file containing passenger flows among airports.
-* ``agent.initial_case_type`` (`list of strings`, default ``"random"``)
-    The size of the vector must be the same as ``agent.number_of_diseases``. The value can be ``random`` or ``file``.
-    If ``random``, ``agent.num_initial_cases`` must be set.
-    If ``file``, ``agent.case_filename`` must be set.
+* ``agent.initial_case_type`` (`list of strings`, default ``random``)
+    The size of the list must be the same as ``agent.number_of_diseases``. The value can be ``random`` or ``file``.
+    If ``random``, then ``agent.num_initial_cases`` must be set. If ``file``, then ``agent.case_filename`` must be set.
 * ``agent.case_filename`` (`string`)
-    When ``agent.number_of_diseases = 1``: The path to the ``*.cases`` file containing the initial case
-    data to use. Must be provided if ``initial_case_type`` is ``"file"``. Examples of these data files
+    The path to the ``*.cases`` file containing the initial case
+    data for a single disease. Must be provided if ``initial_case_type`` is ``"file"``. Examples of these data files
     are provided in ``ExaEpi/data/CaseData``.
 * ``agent.case_filename_[disease name]`` (`string`)
-    When ``agent.number_of_diseases > 1``:
-    The path to the ``*.cases`` file containing the initial case data for ``[disease name]`` to use,
-    where ``[disease name]`` is from the list of names specified in ``agent.disease_names`` (or the
-    the default value).
-    Must be provided for each disease ``[disease name]``, where ``initial_case_type`` is ``"file"``;
+    The path to the ``*.cases`` file containing the initial case data for ``[disease name]``,
+    where ``[disease name]`` is from the list of names specified in ``agent.disease_names`` (or
+    the default value), for multiple diseases.
+    Must be provided for each disease ``[disease name]`` where ``initial_case_type`` is ``"file"``.
     Examples of these data files are provided in ``ExaEpi/data/CaseData``.
 * ``agent.num_initial_cases`` (`int`, default ``0``)
-    When ``agent.number_of_diseases = 1``:  The number of initial cases to seed. Must be provided if
+    The number of initial cases to seed for a single disease. Must be provided if
     ``initial_case_type`` is ``"random"``. It can be set to 0 for no cases.
 * ``agent.num_initial_cases_[disease name]`` (`int``)
-    When ``agent.number_of_diseases > 1``:  The number of initial cases for to seed for ``[disease name]``,
+    The number of initial cases to seed for ``[disease name]``,
     where ``[disease name]`` is any of the names specified in ``agent.disease_names`` (or the
-    the default value).
+    the default value), for multiple diseases.
     Must be provided if ``initial_case_type`` is ``"random"`` for ``[disease name]``.
 * ``agent.nsteps`` (`integer`, default ``1``)
     The number of days to simulate.
@@ -101,7 +99,7 @@ The following are inputs for the overall simulation:
 * ``agent.shelter_start`` (`integer`, default ``-1``)
     Day on which to start shelter-in-place. Disabled when set to -1.
 * ``agent.shelter_length`` (`integer`, default ``0``)
-    Number of days shelter in-place-is in effect.
+    Number of days shelter-in-place is in effect.
 * ``agent.shelter_compliance`` (`float`, default ``0.95``)
     Fraction of agents that comply with shelter-in-place order.
 * ``agent.symptomatic_withdraw_compliance`` (`float`, default: ``0.95``)
@@ -113,15 +111,13 @@ The following are inputs for the overall simulation:
     Factor for increasing transmission by children witihn households when schools are closed.
 * ``agent.student_teacher_ratio`` (`int`, default: ``15``)
     This option sets the desired student-teacher ratio for schools. This is only used with ``ic_type = census``.
-* ``agent.max_grid_size`` (`integer`, defaults ``16`` for ``ictype = census``,
-                           ``500`` for ``ic_type = urbanpop`` and using GPUs,
-                           ``100`` for ``ic_type = urbanpop`` and not using GPUs)
+* ``agent.max_grid_size`` (`integer`, default ``16`` or ``500`` or ``100``)
     This option sets the maximum grid size used for MPI domain decomposition. If set to
     ``16``, for example, for ``ic_type = census``, the domain will be broken up into grids of `16^2` communities, and
     these grids will be assigned to different MPI ranks / GPUs.
-    The required number is much larger for ``ic_type = urbanpop``, and is set automatically to a reasonable default.
+    The default for ``ictype = census`` is 16, and for ``ic_type = urbanpop`` it is 500 when using GPUs, and 100 otherwise.
 * ``diag.output_filename`` (`list of strings`, default ``output.dat`` for a single disease,
-                            ``output_[disease name].dat`` for multiple diseases)
+    ``output_[disease name].dat`` for multiple diseases)
     Filename for the output data; the number of list elements must be the same as ``agent.number_of_diseases``.
     The default is ``output.dat`` for ``agent.number_of_diseases = 1`` and ``output_[disease name].dat``
     for ``agent.number_of_diseases > 1``, where ``[disease name]`` is from the list of names specified
@@ -131,7 +127,7 @@ The following are inputs for the overall simulation:
 The following inputs specify the disease parameters:
 
 * ``disease.nstrain`` (`integer`, default ``1``)
-    The number of disease strains being modeling. `In the current implementation, only the first strain is used`.
+    The number of disease strains being modeled. `In the current implementation, only the first strain is used`.
 * ``disease.p_trans`` (`list of float`, default ``0.2``)
     Probability of transmission given contact. There must be one entry for each disease strain.
 * ``disease.p_asymp`` (`list of float`, default ``0.4``)
@@ -144,19 +140,19 @@ The following inputs specify the disease parameters:
 * ``disease.immune_length_mean`` (`float`, default ``180``)
     The mean amount of time *in days* agents are immune post-infection
 * ``disease.immune_length_std`` (`float`, default ``60``)
-    The standard deviation associated with the above mean, i.e. the length is drawn from a normal distribution
+    The standard deviation associated with the above mean, i.e. the length is drawn from a normal distribution, in days.
 * ``disease.latent_length_mean`` (`float`, default ``3.0``)
-    Mean length of time from exposure until agent becomes infectious in days.
+    Mean length of time from exposure until agent becomes infectious, in days.
 * ``disease.latent_length_std`` (`float`, default ``1.0``)
-    Standard deviation of the latent period in days.
+    Standard deviation of the latent period, in days.
 * ``disease.infectious_length_mean`` (`float`, default ``6.0``)
     Mean length of the infectious period in days. This counter starts once the latent phase is over.
 * ``disease.infectious_length_std`` (`float`, default ``1.0``)
-    Standard deviation of the infectious period in days.
+    Standard deviation of the infectious period, in days.
 * ``disease.incubation_length_mean`` (`float`, default ``5.0``)
-    Mean length of the time from exposure until symptoms develop in days.
+    Mean length of the time from exposure until symptoms develop, in days.
 * ``disease.incubation_length_std`` (`float`, default ``1.0``)
-    Standard deviation of the time until symptom development in days.
+    Standard deviation of the time until symptom development, in days.
 * ``disease.hospitalization_days`` (`list of float`, default ``3.0 8.0 7.0``)
     Number of hospitalization days for age groups: under 50, 50-64, 65 and over.
 * ``disease.xmit_comm`` (`list of float`, default ``0.000018125 0.000054375 0.000145 0.000145 0.000145 0.0002175``)

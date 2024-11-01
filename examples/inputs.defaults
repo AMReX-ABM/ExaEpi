@@ -1,0 +1,84 @@
+agent.number_of_diseases = 1
+agent.disease_names = default00
+agent.ic_type = census
+# no default, must be set when ic_type = census
+# agent.census_filename
+# no default, must be set when ic_type = census
+# agent.worker_filename
+agent.nborhood_size = 500
+agent.workgroup_size = 20
+# no default, must be set when ic_type = census
+# agent.urbanpop_filename
+# no default, must be set when agent.air_travel_int != -1
+# agent.airports_filename
+# no defalut, must be set when agent.air_travel_int != -1
+agent.air_traffic_filename
+agent.initial_case_type = random
+# no default, must be set when agent.initial_case_type = file for a single disease
+# agent.case_filename
+# no default, must be set for each disease when agent.initial_case_type = file for multiple diseases
+# agent.case_filename_[disease name]
+agent.num_initial_cases = 0
+# no default, must be set for each disease when agent.initial_case_type = random for multiple diseases
+# agent.nmu_initial_cases_[disease name]
+agent.nsteps = 1
+agent.plot_int = -1
+agent.random_travel_int = -1
+agent.random_travel_prob = 0.0001
+agent.air_travel_int = -1
+agent.aggregated_diag_int = -1
+agent.aggregated_diag_prefix = cases
+agent.seed = 0
+agent.shelter_start = -1
+agent.shelter_length = 0
+agent.shelter_compliance = 0.95
+agent.symptomatic_withdraw_compliance = 0.95
+agent.child_compliance = 0.5
+agent.child_HH_closure = 2
+agent.student_teacher_ratio = 15
+# if ic_type = census
+# agent.max_grid_size = 16
+# if ic_type = urbanpop and using GPUs
+# agent.max_grid_size = 500
+# if ic_type = urbanpop and not using GPUs
+# agent.max_grid_size = 100
+
+# defalut for one disease
+diag.output_filename = output.dat
+# default for multiple diseases
+# diag.output_filename = output_[disease name].dat
+
+# Disease options. Use disease.[key] = [value] with only one disease.
+# Use disease_[disease name].[key] = [value] with multiple diseases.
+disease.nstrain = 1
+disease.p_trans = 0.2
+disease.p_asymp = 0.4
+disease.reduced_inf = 0.75
+disease.vac_eff = 0
+disease.immune_length_mean = 180
+disease.immune_length_std = 60
+disease.latent_length_mean = 3.0
+disease.latent_length_std = 1.0
+disease.infectious_length_mean = 6.0
+disease.infectious_length_std = 1.0
+disease.incution_length_mean = 5.0
+disease.incution_length_std = 1.0
+
+disease.hospitalization_days = 3 8 7
+
+disease.xmit_comm = 0.000018125 0.000054375 0.000145 0.000145 0.000145 0.0002175
+disease.xmit_hood = 0.0000725 0.0002175 0.00058 0.00058 0.00058 0.00087
+disease.xmit_hh_adult = 0.3 0.3 0.4 0.4 0.4 0.4
+disease.xmit_hh_child = 0.6 0.6 0.3 0.3 0.3 0.3
+disease.xmit_nc_adult = 0.04 0.04 0.05 0.05 0.05 0.05
+disease.xmit_nc_child = 0.075 0.075 0.04 0.04 0.04 0.04
+disease.xmit_school = 0 0.0315 0.0315 0.0375 0.0435 0.15
+disease.xmit_school_a2c = 0 0.0315 0.0315 0.0375 0.0435 0.15
+disease.xmit_school_c2a = 0 0.0315 0.0315 0.0375 0.0435 0.15
+
+disease.CHR = 0.0104 0.0104 0.070 0.28 0.28 1.0
+disease.CIC = 0.24 0.24 0.24 0.36 0.36 0.35
+disease.CVE = 0.12 0.12 0.12 0.22 0.22 0.22
+disease.hospCVF = 0 0 0 0 0 0
+disease.icuCVF = 0 0 0 0 0 0.26
+disease.ventCVF = 0.20 0.20 0.20 0.45 0.45 1.0
