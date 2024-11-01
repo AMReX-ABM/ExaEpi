@@ -174,7 +174,7 @@ void AgentContainer::moveAgentsToWork ()
             amrex::ParallelFor( np,
             [=] AMREX_GPU_DEVICE (int ip) noexcept
             {
-                if (!isHospitalized(ip, ptd)) {
+                if (!inHospital(ip, ptd)) {
                     ParticleType& p = pstruct[ip];
                     p.pos(0) = (work_i_ptr[ip] + 0.5_prt)*dx[0];
                     p.pos(1) = (work_j_ptr[ip] + 0.5_prt)*dx[1];
@@ -222,7 +222,7 @@ void AgentContainer::moveAgentsToHome ()
             amrex::ParallelFor( np,
             [=] AMREX_GPU_DEVICE (int ip) noexcept
             {
-                if (!isHospitalized(ip, ptd)) {
+                if (!inHospital(ip, ptd)) {
                     ParticleType& p = pstruct[ip];
                     p.pos(0) = (home_i_ptr[ip] + 0.5_prt) * dx[0];
                     p.pos(1) = (home_j_ptr[ip] + 0.5_prt) * dx[1];
@@ -269,7 +269,7 @@ void AgentContainer::moveRandomTravel (const amrex::Real random_travel_prob)
             amrex::ParallelForRNG( np,
             [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept
             {
-                if (!isHospitalized(i, ptd) && !withdrawn_ptr[i]) {
+                if (!inHospital(i, ptd) && !withdrawn_ptr[i]) {
                     ParticleType& p = pstruct[i];
                     if (amrex::Random(engine) < random_travel_prob) {
                         random_travel_ptr[i] = i;
@@ -321,7 +321,7 @@ void AgentContainer::moveAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air
             [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept
             {
                 int unit = unit_arr(home_i_ptr[i], home_j_ptr[i], 0);
-                if (!isHospitalized(i, ptd) && random_travel_ptr[i] <0 && air_travel_ptr[i] <0) {
+                if (!inHospital(i, ptd) && random_travel_ptr[i] <0 && air_travel_ptr[i] <0) {
                     if (withdrawn_ptr[i] == 1) {return ;}
                     if (amrex::Random(engine) < air_travel_prob_ptr[unit]) {
                                 ParticleType& p = pstruct[i];
@@ -548,7 +548,7 @@ void AgentContainer::updateStatus ( MFPtrVec& a_disease_stats /*!< Community-wis
             amrex::ParallelFor( np,
             [=] AMREX_GPU_DEVICE (int ip) noexcept
             {
-                if (isHospitalized(ip, ptd)) {
+                if (inHospital(ip, ptd)) {
                     ParticleType& p = pstruct[ip];
                     p.pos(0) = (hosp_i_ptr[ip] + 0.5_prt)*dx[0];
                     p.pos(1) = (hosp_j_ptr[ip] + 0.5_prt)*dx[1];

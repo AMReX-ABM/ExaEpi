@@ -132,7 +132,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                                 [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine)
                                 noexcept
                 {
-                    if ( !isHospitalized(i, ptd) )  {
+                    if ( !inHospital(i, ptd) )  {
                         // agent is not in hospital
                         return;
                     }
@@ -213,7 +213,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
 
             ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
             {
-                if ( !isHospitalized(i, ptd) )  { return; }
+                if ( !inHospital(i, ptd) )  { return; }
 
                 if (is_alive_ptr[i] == 0) {
 
