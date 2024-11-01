@@ -65,8 +65,10 @@ void ExaEpi::Utils::get_test_params (   TestParams& params,         /*!< Test pa
         pp.get("census_filename", params.census_filename);
         pp.get("workerflow_filename", params.workerflow_filename);
         pp.getarr("initial_case_type", params.initial_case_type,0,params.num_diseases);
-        pp.get("air_traffic_filename", params.air_traffic_filename);
-        pp.get("airports_filename", params.airports_filename);
+        if (params.air_travel_int > 0) {
+            pp.get("air_traffic_filename", params.air_traffic_filename);
+            pp.get("airports_filename", params.airports_filename);
+        }
         if (params.num_diseases == 1) {
             if (params.initial_case_type[0] == "file") {
                 if (pp.contains("case_filename")) {
