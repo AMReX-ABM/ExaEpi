@@ -175,7 +175,7 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                                 symptomatic_ptr[i] = SymptomStatus::presymptomatic;
                             }
                         }
-                        if (counter_ptr[i] == Math::floor(incubation_period_ptr[i])) {
+                        else if (counter_ptr[i] == Math::floor(incubation_period_ptr[i])) {
                             if (symptomatic_ptr[i] != SymptomStatus::asymptomatic) {
                                 symptomatic_ptr[i] = SymptomStatus::symptomatic;
                             }
@@ -200,7 +200,7 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                                 if (flag_vent_i) { flag_vent_ptr[i] = 1; }
                             }
                         }
-                        if (!isHospitalized(i,ptd)) {
+                        else if (!isHospitalized(i,ptd)) {
                             if (counter_ptr[i] >= (latent_period_ptr[i] + infectious_period_ptr[i])) {
                                 status_ptr[i] = Status::immune;
                                 counter_ptr[i] = amrex::RandomNormal(immune_length_mean, immune_length_std, engine);
