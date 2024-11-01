@@ -108,7 +108,6 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
             auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
             auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
 
-            auto symptomatic_withdraw = a_agents.symptomaticWithdraw();
             auto symptomatic_withdraw_compliance = a_agents.symptomaticWithdrawCompliance();
 
             int i_RT = IntIdx::nattribs;
@@ -178,7 +177,7 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                                                                        engine );
                                 timer_ptr[i] = ParticleReal(num_days);
                                 if (timer_ptr[i] > 0) flag_hosp_ptr[i] = 1;
-                                if (!flag_hosp_ptr[i] && symptomatic_withdraw &&
+                                if (!flag_hosp_ptr[i] && symptomatic_withdraw_compliance > 0 &&
                                     Random(engine) < symptomatic_withdraw_compliance) {
                                     // only withdraw if not hospitalized
                                     withdrawn_ptr[i] = 1;

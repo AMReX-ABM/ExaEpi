@@ -61,7 +61,6 @@ AgentContainer::AgentContainer (const amrex::Geometry            & a_geom,  /*!<
 
     {
         amrex::ParmParse pp("agent");
-        pp.query("symptomatic_withdraw", m_symptomatic_withdraw);
         pp.query("shelter_compliance", m_shelter_compliance);
         pp.query("symptomatic_withdraw_compliance", m_symptomatic_withdraw_compliance);
         pp.query("student_teacher_ratio", m_student_teacher_ratio);

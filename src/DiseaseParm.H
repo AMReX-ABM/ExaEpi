@@ -54,30 +54,28 @@ struct DiseaseParm
     /*! probability for transmission within a workgroup, independent of age group currently */
     Real xmit_work = Real(0.0575);
 
-    int nstrain = 2;  /*!< Number of strains */
-    Real p_trans[2] = {Real(0.20), Real(0.30)};     /*!< probability of transimission given contact */
-    Real p_asymp[2] = {Real(0.40), Real(0.40)};     /*!< fraction of cases that are asymptomatic */
-    Real reduced_inf[2] = {Real(0.75), Real(0.75)}; /*!< relative infectiousness of asymptomatic individuals */
-
-    Real infect = Real(1.0); /*!< Overall multiplier for agent's infectiousness */
-
-    Real reinfect_prob = Real(0.0); /*!< Reinfection probability */
+    int nstrain = 1;  /*!< Number of strains */
+    Real p_trans[1] = {Real(0.20)};     /*!< probability of transimission given contact */
+    Real p_asymp[1] = {Real(0.40)};     /*!< fraction of cases that are asymptomatic */
+    Real reduced_inf[1] = {Real(0.75)}; /*!< relative infectiousness of asymptomatic individuals */
 
     Real vac_eff = Real(0.0); /*!< Vaccine efficacy */
 
-    Real Child_compliance; /*!< Child compliance with masking ?? */
-    Real Child_HH_closure; /*!< Multiplier for household contacts during school closure */
+    Real child_compliance; /*!< Child compliance with masking ?? */
+    Real child_HH_closure; /*!< Multiplier for household contacts during school closure */
+
+    Real immune_length_mean = 30 * 6;  /*! mean immunity time in days*/
+    Real immune_length_std = 30 * 2;  /*! spread in immunity time in days*/
 
     Real latent_length_mean = 3.0;   /*!< mean time (in days) until infectious*/
-    Real infectious_length_mean = 6.0;   /*!< mean time (in days) agents are infectious */
-    Real incubation_length_mean = 5.0;   /*!< mean time (in days) until symptoms show */
-
     Real latent_length_std = 1.0;   /*!< std dev (in days) for the above*/
+
+    Real infectious_length_mean = 6.0;   /*!< mean time (in days) agents are infectious */
     Real infectious_length_std = 1.0;   /*!< std dev (in days) for the above */
+
+    Real incubation_length_mean = 5.0;   /*!< mean time (in days) until symptoms show */
     Real incubation_length_std = 1.0;   /*!< std dev (in days) for the above */
 
-    Real immune_length_mean = 30*6;  /*! mean immunity time in days*/
-    Real immune_length_std = 30*2;  /*! spread in immunity time in days*/
 
     /*! number of hospitalization days by age group (#AgeGroups_Hosp); note that the
      *  age groups here are under 50, 50-64, and over 65, and *not* the age groups
@@ -94,7 +92,7 @@ struct DiseaseParm
     /*! ICU -> ventilator probabilities */
     Real m_CVE[AgeGroups::total] = {Real(.12), Real(.12), Real(.12), Real(.22), Real(.22), Real(.22)};
     /*! Probabilites of dying while in hospital, for age groups, in hosp, icu and ventilated */
-    Real m_HospToDeath[AgeGroups_Hosp::total][AgeGroups::total] = {
+    Real m_hospToDeath[AgeGroups_Hosp::total][AgeGroups::total] = {
         {Real(0), Real(0), Real(0), Real(0), Real(0), Real(0)},
         {Real(0), Real(0), Real(0), Real(0), Real(0), Real(0.26)},
         {Real(0.20), Real(0.20), Real(0.20), Real(0.45), Real(0.45), Real(1.0)}};
@@ -102,8 +100,6 @@ struct DiseaseParm
     void readInputs (const std::string&);
 
     void Initialize ();
-
-    void printMatrix ();
 
     /*! \brief Given age group, decide if hospitalized or not;
      *  if so, compute number of hospitalization days and check if

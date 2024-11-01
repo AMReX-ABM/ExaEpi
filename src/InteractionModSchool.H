@@ -158,7 +158,7 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                     auto lparm = agents.getDiseaseParameters_d(d);
                     auto lparm_h = agents.getDiseaseParameters_h(d);
                     Real scale = 1.0_prt;  // TODO this should vary based on cell
-                    Real infect = lparm_h->infect * (1.0_rt - lparm_h->vac_eff);
+                    Real infect = (1.0_rt - lparm_h->vac_eff);
 
                     ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                         if (isInfectious(i, ptd, d) && isCandidate(i, ptd) && isAnAdult(i, ptd) == adults) {

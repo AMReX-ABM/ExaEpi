@@ -36,19 +36,19 @@ void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string
     queryArray(pp, "xmit_school_c2a", xmit_school_c2a, SchoolType::total);
 
     pp.query("nstrain", nstrain);
-    AMREX_ASSERT(nstrain <= 2);
-    pp.query("reinfect_prob", reinfect_prob);
+    // no support yet for multiple strains
+    AMREX_ALWAYS_ASSERT(nstrain < 2);
 
     queryArray(pp, "p_trans", p_trans, nstrain);
     queryArray(pp, "p_asymp", p_asymp, nstrain);
     queryArray(pp, "reduced_inf", reduced_inf, nstrain);
 
-    pp.query("infect", infect);
-    pp.query("reinfect", reinfect_prob);
     pp.query("vac_eff", vac_eff);
+    // no support yet for vaccinations
+    AMREX_ALWAYS_ASSERT(vac_eff == 0);
 
-    pp.query("child_compliance", Child_compliance);
-    pp.query("child_hh_closure", Child_HH_closure);
+    pp.query("child_compliance", child_compliance);
+    pp.query("child_hh_closure", child_HH_closure);
 
     pp.query("latent_length_mean", latent_length_mean);
     pp.query("infectious_length_mean", infectious_length_mean);
@@ -69,9 +69,9 @@ void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string
     queryArray(pp, "CHR", m_CHR, AgeGroups::total);
     queryArray(pp, "CIC", m_CIC, AgeGroups::total);
     queryArray(pp, "CVE", m_CVE, AgeGroups::total);
-    queryArray(pp, "hospCVF", m_HospToDeath[DiseaseStats::hospitalization], AgeGroups::total);
-    queryArray(pp, "icuCVF", m_HospToDeath[DiseaseStats::ICU], AgeGroups::total);
-    queryArray(pp, "ventCVF", m_HospToDeath[DiseaseStats::ventilator], AgeGroups::total);
+    queryArray(pp, "hospCVF", m_hospToDeath[DiseaseStats::hospitalization], AgeGroups::total);
+    queryArray(pp, "icuCVF", m_hospToDeath[DiseaseStats::ICU], AgeGroups::total);
+    queryArray(pp, "ventCVF", m_hospToDeath[DiseaseStats::ventilator], AgeGroups::total);
 }
 
 
@@ -84,7 +84,8 @@ void DiseaseParm::Initialize ()
 {
     // Optimistic scenario: 50% reduction in external child contacts during school dismissal
     //   or remote learning, and no change in household contacts
-    Child_compliance=0.5_rt; Child_HH_closure=1.0_rt;
+    child_compliance = 0.5_rt;
+    child_HH_closure = 2.0_rt;
     // Pessimistic scenario: 30% reduction in external child contacts during school dismissal
     //   or remote learning, and 2x increase in household contacts
     //  sch_compliance=0.3; sch_effect=2.0;
@@ -110,18 +111,18 @@ void DiseaseParm::Initialize ()
     /*
       Double household contact rate involving children, and reduce
       other child-related contacts (neighborhood cluster, neigborhood,
-      and community) by the compliance rate, Child_compliance
+      and community) by the compliance rate, child_compliance
     */
     for (int i = 0; i < AgeGroups::total; i++) {
-        xmit_hh_child_SC[i] = xmit_hh_child[i] * Child_HH_closure;
-        xmit_nc_child_SC[i] = xmit_nc_child[i] * (1.0_rt - Child_compliance);
+        xmit_hh_child_SC[i] = xmit_hh_child[i] * child_HH_closure;
+        xmit_nc_child_SC[i] = xmit_nc_child[i] * (1.0_rt - child_compliance);
     }
     // if receiver is a child
     for (int i = 0; i < AgeGroups::a18to29; i++) {
-        xmit_hh_adult_SC[i] = xmit_hh_adult[i] * Child_HH_closure;
-        xmit_nc_adult_SC[i] = xmit_nc_adult[i] * (1.0_rt - Child_compliance);
-        xmit_comm_SC[i] = xmit_comm[i] * (1.0_rt - Child_compliance);
-        xmit_hood_SC[i] = xmit_hood[i] * (1.0_rt - Child_compliance);
+        xmit_hh_adult_SC[i] = xmit_hh_adult[i] * child_HH_closure;
+        xmit_nc_adult_SC[i] = xmit_nc_adult[i] * (1.0_rt - child_compliance);
+        xmit_comm_SC[i] = xmit_comm[i] * (1.0_rt - child_compliance);
+        xmit_hood_SC[i] = xmit_hood[i] * (1.0_rt - child_compliance);
     }
     // if receiver is an adult, contacts remain unchanged
     for (int i = AgeGroups::a18to29; i < AgeGroups::total; i++) {
@@ -131,73 +132,5 @@ void DiseaseParm::Initialize ()
         xmit_hood_SC[i] = xmit_hood[i];
     }
 
-    infect = 1.0_rt;
 }
 
-/*! \brief Print disease parameters */
-void DiseaseParm::printMatrix () {
-    /*
-    Print() << "xmit_comm: " << " ";
-    for (int i = 0; i < AgeGroups::total; ++i) {
-        Print() << xmit_comm[i] << " ";
-    }
-    Print() << "\n";
-
-    Print() << "xmit_hood: " <<  " ";
-    for (int i = 0; i < AgeGroups::total; ++i) {
-        Print() << xmit_hood[i] << " ";
-    }
-    Print() << "\n";
-
-    Print() << "xmit_nc_adult: " << " ";
-    for (int i = 0; i < AgeGroups::total; ++i) {
-        Print() << xmit_nc_adult[i] << " ";
-    }
-    Print() << "\n";
-
-    Print() << "xmit_nc_child: " << " ";
-    for (int i = 0; i < AgeGroups::total; ++i) {
-        Print() << xmit_nc_child[i] << " ";
-    }
-    Print() << "\n";
-
-    Print() << "xmit_work: " << " ";
-    Print() << xmit_work << "\n";
-
-    Print() << "xmit_child_SC: " << " ";
-    for (int i = 0; i < AgeGroups::total; ++i) {
-        Print() << xmit_child_SC[i] << " ";
-    }
-    Print() << "\n";
-
-    Print() << "xmit_nc_child_SC: " << " ";
-    for (int i = 0; i < AgeGroups::total; ++i) {
-        Print() << xmit_nc_child_SC[i] << " ";
-    }
-    Print() << "\n";
-
-    Print() << "xmit_adult_SC: " << " ";
-    for (int i = 0; i < 2; ++i) {
-        Print() << xmit_adult_SC[i] << " ";
-    }
-    Print() << "\n";
-
-    Print() << "xmit_nc_adult_SC: " << " ";
-    for (int i = 0; i < 2; ++i) {
-        Print() << xmit_nc_adult_SC[i] << " ";
-    }
-    Print() << "\n";
-
-    Print() << "xmit_hood_SC: " << " ";
-    for (int i = 0; i < 2; ++i) {
-        Print() << xmit_hood_SC[i] << " ";
-    }
-    Print() << "\n";
-
-    Print() << "xmit_comm_SC: " << " ";
-    for (int i = 0; i < 2; ++i) {
-        Print() << xmit_comm_SC[i] << " ";
-    }
-    Print() << "\n";
-    */
-}

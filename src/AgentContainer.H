@@ -162,11 +162,6 @@ public:
         return m_num_diseases;
     }
 
-    /*! \brief return the symptomatic withdrawal status */
-    inline int symptomaticWithdraw() const {
-        return m_symptomatic_withdraw;
-    }
-
     /*! \brief return the symptomatic withdrawal compliance */
     inline amrex::Real symptomaticWithdrawCompliance() const {
         return m_symptomatic_withdraw_compliance;
@@ -190,8 +185,6 @@ public:
     short ic_type;
 
 protected:
-    int m_symptomatic_withdraw = 1; /*!< whether symptomatic agents withdraw or not */
-
     amrex::Real m_shelter_compliance = 0.95_rt; /*!< Shelter-in-place compliance rate */
     amrex::Real m_symptomatic_withdraw_compliance = 0.95_rt; /*!< Symptomatic withdrawal compliance rate */
 
