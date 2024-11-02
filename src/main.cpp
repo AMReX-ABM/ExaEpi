@@ -160,8 +160,8 @@ void runAgent ()
                  << std::setw(12) << "Recovered"
                  << std::setw(12) << "Deaths"
                  << std::setw(15) << "Hospitalized"
-                 << std::setw(15) << "Ventilated"
-                 << std::setw(12) << "ICU"
+                 << std::setw(15) << "ICU"
+                 << std::setw(12) << "Ventilated"
                  << std::setw(12) << "Exposed"
                  << std::setw(15) << "Asymptomatic"
                  << std::setw(15) << "Presymptomatic"
@@ -425,12 +425,13 @@ void runAgent ()
 
             std::chrono::duration<double> elapsed_time = std::chrono::high_resolution_clock::now() - start_time;
 
-            Print() << "[Day " << cur_time <<  " " << std::fixed << std::setprecision(1) << elapsed_time.count() << "s] ";
+            Print() << "[Day " << cur_time <<  " " << std::fixed << std::setprecision(1) << elapsed_time.count() << "s] infected: ";
             for (int d = 0; d < params.num_diseases; d++) {
-                if (d > 0) Print() << "; ";
-                Print() << params.disease_names[d] << ": " << num_infected[d] << " infected, " << cumulative_deaths[d] << " deaths";
+                if (d > 0) Print() << ", ";
+                Print() << params.disease_names[d] << " " << num_infected[d];
             }
-            Print() << "\n";
+            // the cumulative deaths are not tracked separately for each disease
+            Print() << "; deaths: " << cumulative_deaths[0] << "\n";
 
             cur_time += 1.0_rt; // time step is one day
         }

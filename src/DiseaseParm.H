@@ -139,8 +139,7 @@ struct DiseaseParm
         a_t_hosp = 0.0;
         a_ICU = 0;
         a_ventilator = 0;
-        Real p_hosp = m_CHR[a_age_group];
-        if (amrex::Random(a_reng) < p_hosp) {
+        if (amrex::Random(a_reng) < m_CHR[a_age_group]) {
             if (a_age_group == AgeGroups::o65) a_t_hosp = m_t_hosp[AgeGroups_Hosp::o65];
             else if (a_age_group == AgeGroups::a50to64) a_t_hosp = m_t_hosp[AgeGroups_Hosp::a50to64];
             else a_t_hosp = m_t_hosp[AgeGroups_Hosp::u50];

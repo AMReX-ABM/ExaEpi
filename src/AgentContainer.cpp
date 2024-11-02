@@ -768,6 +768,9 @@ void AgentContainer::generateCellData (MultiFab& mf /*!< MultiFab with at least 
 
     Returns a vector with 5 components corresponding to each value of #Status; each element is
     the total number of agents at a step with the corresponding #Status (in that order).
+
+    Status list: 0 - never, 1 - infected, 2 - immune, 3 - susceptible, 4 - dead, 5 - exposed, 6 - asymptomatic,
+                 7 - presymptomatic, 8 - symptomatic
 */
 std::array<Long, 9> AgentContainer::getTotals (const int a_d /*!< disease index */) {
     BL_PROFILE("getTotals");
@@ -778,6 +781,7 @@ std::array<Long, 9> AgentContainer::getTotals (const int a_d /*!< disease index 
               {
                   int s[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
                   auto status = ptd.m_runtime_idata[i0(a_d)+IntIdxDisease::status][i];
+
 
                   AMREX_ALWAYS_ASSERT(status >= 0);
                   AMREX_ALWAYS_ASSERT(status <= 4);
