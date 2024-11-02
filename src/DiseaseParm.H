@@ -17,7 +17,7 @@ using amrex::Vector;
 struct CaseTypes
 {
     enum {
-        random = 0, /*!< randomly allocate */
+        rnd = 0, /*!< randomly allocate */
         file        /*!< data read from file */
     };
 };
@@ -29,7 +29,7 @@ struct CaseTypes
 struct DiseaseParm
 {
     /*! Initial case type (random or read from file) */
-    int initial_case_type = CaseTypes::random;
+    int initial_case_type = CaseTypes::rnd;
     /*! Number of initial cases (in case of random initialization) */
     int num_initial_cases = 0;
     /*! Name of disease. This is a char array because this whole structure is memcpy'd to the device */

@@ -24,7 +24,7 @@ void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string
 {
     ParmParse pp(a_pp_str);
 
-    std::string initial_case_type_str = (initial_case_type == CaseTypes::random ? "random" : "file");
+    std::string initial_case_type_str = (initial_case_type == CaseTypes::rnd ? "random" : "file");
     pp.query("initial_case_type", initial_case_type_str);
     if (initial_case_type_str == "file") {
         initial_case_type = CaseTypes::file;
@@ -35,7 +35,7 @@ void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string
         if (pp.contains("case_filename")) pp.get("case_filename", case_filename_str);
         strncpy(case_filename, case_filename_str.c_str(), 254);
     } else if (initial_case_type_str == "random") {
-        initial_case_type = CaseTypes::random;
+        initial_case_type = CaseTypes::rnd;
         pp.query("num_initial_cases", num_initial_cases);
     } else {
         amrex::Abort("initial case type not recognized");
