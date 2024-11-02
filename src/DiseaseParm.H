@@ -14,12 +14,30 @@
 using amrex::Real;
 using amrex::Vector;
 
+struct CaseTypes
+{
+    enum {
+        random = 0, /*!< randomly allocate */
+        file        /*!< data read from file */
+    };
+};
+
 /*! \brief Disease parameters
 
     Structure containing disease parameters.
 */
 struct DiseaseParm
 {
+    /*! Initial case type (random or read from file) */
+    int initial_case_type = CaseTypes::random;
+    /*! Number of initial cases (in case of random initialization) */
+    int num_initial_cases = 0;
+    /*! Name of disease. This is a char array because this whole structure is memcpy'd to the device */
+    char disease_name[50];
+    /*! Initial cases filename (CaseData::InitFromFile):
+        The case data file is an ASCII text file with three columns of numbers:
+        FIPS code, current number of cases, and cumulative number of cases till date. */
+    char case_filename[255];
 
     // Transmission probabilities based on age group of receiver (0-4, 5-17, 18-29, 30-49, 50-64, 65+)
     /*! community transmission, both home and work */
@@ -96,6 +114,13 @@ struct DiseaseParm
         {Real(0), Real(0), Real(0), Real(0), Real(0), Real(0)},
         {Real(0), Real(0), Real(0), Real(0), Real(0), Real(0.26)},
         {Real(0.20), Real(0.20), Real(0.20), Real(0.45), Real(0.45), Real(1.0)}};
+
+
+    DiseaseParm(const std::string& dname) {
+        memset(disease_name, 0, 50);
+        strncpy(disease_name, dname.c_str(), 49);
+        memset(case_filename, 0, 255);
+    }
 
     void readInputs (const std::string&);
 

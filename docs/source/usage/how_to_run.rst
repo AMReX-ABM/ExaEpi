@@ -55,9 +55,11 @@ The following are inputs for the overall simulation:
     Do not specify the extension in this parameter.
     Must be provided if ``ic_type = urbanpop``. Examples of these data files are provided in ``ExaEpi/data/UrbanPop``.
 * ``agent.airports_filename`` (`string`)
-    The path to the ``*.dat`` file containing available airports and the counties they serve.
+    The path to the ``*.dat`` file containing available airports and the counties they serve. Currently this is implemented
+    only for ``ic_type = census``.
 * ``agent.air_traffic_filename`` (`string`)
-    The path to the ``*.dat`` file containing passenger flows among airports.
+    The path to the ``*.dat`` file containing passenger flows among airports. Currently this is implemented
+    only for ``ic_type = census``.
 * ``agent.initial_case_type`` (`list of strings`, default ``random``)
     The size of the list must be the same as ``agent.number_of_diseases``. The value can be ``random`` or ``file``.
     If ``random``, then ``agent.num_initial_cases`` must be set. If ``file``, then ``agent.case_filename`` must be set.
@@ -88,7 +90,8 @@ The following are inputs for the overall simulation:
 * ``agent.random_travel_prob`` (`float`, default ``0.0001``)
     Probability of an agent engaging in random travel in each event.
 * ``agent.air_travel_int`` (`integer`, default ``-1``)
-    The number of time steps between air travel events. Set to -1 to disable all air travel events.
+    The number of time steps between air travel events. Set to -1 to disable all air travel events. Currently this is implemented
+    only for ``ic_type = census``.
 * ``agent.aggregated_diag_int`` (`integer`, default ``-1``)
     The number of time steps between writing aggregated data, for example wastewater data. Set to -1 to disable writing.
 * ``agent.aggregated_diag_prefix`` (`string`, default ``cases``)

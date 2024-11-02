@@ -24,6 +24,23 @@ void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string
 {
     ParmParse pp(a_pp_str);
 
+    std::string initial_case_type_str = (initial_case_type == CaseTypes::random ? "random" : "file");
+    pp.query("initial_case_type", initial_case_type_str);
+    if (initial_case_type_str == "file") {
+        initial_case_type = CaseTypes::file;
+        /*! Initial cases filename (CaseData::InitFromFile):
+        The case data file is an ASCII text file with three columns of numbers:
+        FIPS code, current number of cases, and cumulative number of cases till date. */
+        std::string case_filename_str(case_filename);
+        if (pp.contains("case_filename")) pp.get("case_filename", case_filename_str);
+        strncpy(case_filename, case_filename_str.c_str(), 254);
+    } else if (initial_case_type_str == "random") {
+        initial_case_type = CaseTypes::random;
+        pp.query("num_initial_cases", num_initial_cases);
+    } else {
+        amrex::Abort("initial case type not recognized");
+    }
+
     queryArray(pp, "xmit_comm", xmit_comm, AgeGroups::total);
     queryArray(pp, "xmit_hood", xmit_hood, AgeGroups::total);
     queryArray(pp, "xmit_hh_adult", xmit_hh_adult, AgeGroups::total);

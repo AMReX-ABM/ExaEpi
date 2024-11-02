@@ -110,14 +110,6 @@ void runAgent ()
         amrex::Print() << "    " << params.disease_names[d] << "\n";
     }
 
-    std::vector<CaseData> cases;
-    cases.resize(params.num_diseases);
-    for (int d = 0; d < params.num_diseases; d++) {
-        if (params.initial_case_type[d] == "file") {
-            cases[d].InitFromFile(params.disease_names[d],params.case_filename[d]);
-        }
-    }
-
     Geometry geom;
     BoxArray ba;
     DistributionMapping dm;
@@ -197,34 +189,40 @@ void runAgent ()
 
     AgentContainer pc(geom, dm, ba, params.num_diseases, params.disease_names, params.fast, params.ic_type);
 
-    if (params.air_travel_int > 0) pc.setAirTravel(censusData.unit_mf, air, censusData.demo);
-
     {
         BL_PROFILE_REGION("Initialization");
         if (params.ic_type == ICType::Census) {
             censusData.initAgents(pc, params.nborhood_size);
             censusData.read_workerflow(pc, params.workerflow_filename, params.workgroup_size);
-            if (params.initial_case_type[0] == "file") {
-                setInitialCasesFromFile(pc, cases, params.disease_names, censusData.demo.FIPS, censusData.demo.Start,
-                                        censusData.comm_mf, params.fast);
-            } else {
-                setInitialCasesRandom(pc, params.num_initial_cases, params.disease_names, censusData.demo.Start,
-                                      censusData.comm_mf, params.fast);
-            }
         } else if (params.ic_type == ICType::UrbanPop) {
             urbanPopData.initAgents(pc, params);
-            if (params.initial_case_type[0] == "file") {
-                setInitialCasesFromFile(pc, cases, params.disease_names, urbanPopData.FIPS_codes, urbanPopData.unit_community_start,
-                                        urbanPopData.comm_mf, params.fast);
-            } else {
-                setInitialCasesRandom(pc, params.num_initial_cases, params.disease_names, urbanPopData.unit_community_start,
-                                      urbanPopData.comm_mf, params.fast);
-            }
         } else {
             Abort("Unimplemented ic_type");
         }
+
+        for (int d = 0; d < params.num_diseases; d++) {
+            auto disease_params = pc.getDiseaseParameters_h(d);
+            if (disease_params->initial_case_type == CaseTypes::file) {
+                CaseData cases;
+                cases.InitFromFile(disease_params->disease_name, std::string(disease_params->case_filename));
+                setInitialCasesFromFile(pc, cases, disease_params->disease_name, d,
+                                        (params.ic_type == ICType::Census ? censusData.demo.FIPS : urbanPopData.FIPS_codes),
+                                        (params.ic_type == ICType::Census ? censusData.demo.Start : urbanPopData.unit_community_start),
+                                        (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.comm_mf),
+                                        params.fast);
+            } else {
+                setInitialCasesRandom(pc, disease_params->num_initial_cases, disease_params->disease_name, d,
+                                      (params.ic_type == ICType::Census ? censusData.demo.Start : urbanPopData.unit_community_start),
+                                      (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.comm_mf),
+                                      params.fast);
+            }
+        }
+
         pc.printStudentTeacherCounts();
         pc.printAgeGroupCounts();
+
+        if (params.ic_type == ICType::Census && params.air_travel_int > 0)
+            pc.setAirTravel(censusData.unit_mf, air, censusData.demo);
     }
 
 //#define DUMP_INITIAL_AGENTS_ASCII

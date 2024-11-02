@@ -148,8 +148,9 @@ static int infect_random_community (AgentContainer& pc, /*!< Agent container (pa
         FIPS code. See #ExaEpi::Initialization::infect_random_community().
 */
 void setInitialCasesFromFile (AgentContainer& pc, /*!< Agent container (particle container) */
-                              const std::vector<CaseData>& cases, /*!< Case data */
-                              const std::vector<std::string>& d_names, /*!< Disease names */
+                              CaseData& cases, /*!< Case data */
+                              const std::string& d_name, /*!< Disease name */
+                              int d_idx,        /*!< Disease index */
                               const Vector<int> &FIPS_codes,
                               const Vector<int> &unit_community_start, /*!< Start community number for each unit */
                               iMultiFab &comm_mf,
@@ -159,41 +160,40 @@ void setInitialCasesFromFile (AgentContainer& pc, /*!< Agent container (particle
 
     std::map<std::pair<int, int>, amrex::DenseBins<AgentContainer::ParticleType> > bin_map;
 
-    for (size_t d = 0; d < cases.size(); d++) {
-        Print() << "Initializing infections for " << d_names[d] << "\n";
-        int ntry = 5;
-        int ninf = 0;
-        for (int ihub = 0; ihub < cases[d].N_hubs; ++ihub) {
-            if (cases[d].Size_hubs[ihub] > 0) {
-                int FIPS = cases[d].FIPS_hubs[ihub];
-                std::vector<int> units;
-                units.resize(0);
-                for (int i = 0; i < FIPS_codes.size(); ++i) {
-                    if (FIPS_codes[i] == FIPS) units.push_back(i);
+    Print() << "Initializing infections for " << d_name << "\n";
+    int ntry = 5;
+    int ninf = 0;
+    for (int ihub = 0; ihub < cases.N_hubs; ++ihub) {
+        if (cases.Size_hubs[ihub] > 0) {
+            int FIPS = cases.FIPS_hubs[ihub];
+            std::vector<int> units;
+            units.resize(0);
+            for (int i = 0; i < FIPS_codes.size(); ++i) {
+                if (FIPS_codes[i] == FIPS) units.push_back(i);
+            }
+            //int unit = FIPS_code_to_i[FIPS];
+            if (units.size() > 0) {
+                Print() << "    Attempting to infect: " << cases.Size_hubs[ihub] << " people in FIPS " << FIPS << "... ";
+                int u = 0;
+                int i = 0;
+                while (i < cases.Size_hubs[ihub]) {
+                    int nSuccesses = infect_random_community(pc, unit_community_start, comm_mf, bin_map, units[u],
+                                                             d_idx, ntry, fast_bin);
+                    ninf += nSuccesses;
+                    i += nSuccesses;
+                    u = (u + 1) % units.size(); //sometimes we infect fewer than ntry, but switch to next unit anyway
                 }
-                //int unit = FIPS_code_to_i[FIPS];
-                if (units.size() > 0) {
-                    Print() << "    Attempting to infect: " << cases[d].Size_hubs[ihub] << " people in FIPS " << FIPS << "... ";
-                    int u = 0;
-                    int i = 0;
-                    while (i < cases[d].Size_hubs[ihub]) {
-                        int nSuccesses = infect_random_community(pc, unit_community_start, comm_mf, bin_map, units[u],
-                                                                 d, ntry, fast_bin);
-                        ninf += nSuccesses;
-                        i += nSuccesses;
-                        u = (u + 1) % units.size(); //sometimes we infect fewer than ntry, but switch to next unit anyway
-                    }
-                    Print() << "infected " << i<< " (total " << ninf << ") after processing. \n";
-                }
+                Print() << "infected " << i<< " (total " << ninf << ") after processing. \n";
             }
         }
-        amrex::ignore_unused(ninf);
     }
+    amrex::ignore_unused(ninf);
 }
 
 void setInitialCasesRandom (AgentContainer& pc, /*!< Agent container (particle container) */
-                            std::vector<int> num_cases, /*!< Number of initial cases */
-                            const std::vector<std::string>& d_names, /*!< Disease names */
+                            int num_cases, /*!< Number of initial cases */
+                            const std::string& d_name, /*!< Disease name */
+                            int d_idx,        /*!< Disease index */
                             const Vector<int> &unit_community_start, /*!< Start community number for each unit */
                             iMultiFab &comm_mf,
                             const bool fast_bin)
@@ -202,23 +202,21 @@ void setInitialCasesRandom (AgentContainer& pc, /*!< Agent container (particle c
 
     std::map<std::pair<int, int>, amrex::DenseBins<AgentContainer::ParticleType> > bin_map;
 
-    for (size_t d = 0; d < num_cases.size(); d++) {
-        Print() << "Initializing infections for " << d_names[d] << "\n";
+    Print() << "Initializing infections for " << d_name << "\n";
 
-        int ninf = 0;
-        for (int ihub = 0; ihub < num_cases[d]; ++ihub) {
-            int i = 0;
-            while (i < 1) {
-                int unit = 0;
-                if (ParallelDescriptor::IOProcessor()) unit = Random_int(unit_community_start.size() - 1);
-                ParallelDescriptor::Bcast(&unit, 1);
-                int nSuccesses = infect_random_community(pc, unit_community_start, comm_mf, bin_map, unit, d, 1, fast_bin);
-                ninf += nSuccesses;
-                i+= nSuccesses;
-            }
+    int ninf = 0;
+    for (int ihub = 0; ihub < num_cases; ++ihub) {
+        int i = 0;
+        while (i < 1) {
+            int unit = 0;
+            if (ParallelDescriptor::IOProcessor()) unit = Random_int(unit_community_start.size() - 1);
+            ParallelDescriptor::Bcast(&unit, 1);
+            int nSuccesses = infect_random_community(pc, unit_community_start, comm_mf, bin_map, unit, d_idx, 1, fast_bin);
+            ninf += nSuccesses;
+            i += nSuccesses;
         }
-        amrex::ignore_unused(ninf);
     }
+    amrex::ignore_unused(ninf);
 }
 
 

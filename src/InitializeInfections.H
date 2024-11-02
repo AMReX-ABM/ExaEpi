@@ -17,16 +17,18 @@
 
 
 void setInitialCasesFromFile (AgentContainer& pc,
-                              const std::vector<CaseData>& cases,
-                              const std::vector<std::string>& names,
+                              CaseData& cases,
+                              const std::string& name,
+                              int d_idx,
                               const Vector<int> &FIPS_codes,
                               const Vector<int> &unit_community_start,
                               iMultiFab &comm_mf,
                               const bool fast_bin);
 
 void setInitialCasesRandom (AgentContainer& pc,
-                            std::vector<int> num_cases,
-                            const std::vector<std::string>& names,
+                            int num_cases,
+                            const std::string& name,
+                            int d_idx,
                             const Vector<int> &unit_community_start,
                             iMultiFab &comm_mf,
                             const bool fast_bin);

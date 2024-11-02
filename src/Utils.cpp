@@ -39,10 +39,6 @@ void ExaEpi::Utils::get_test_params (   TestParams& params,         /*!< Test pa
     }
     pp.queryarr("disease_names", params.disease_names,0,params.num_diseases);
 
-    params.initial_case_type.resize(params.num_diseases);
-    params.num_initial_cases.resize(params.num_diseases);
-    params.case_filename.resize(params.num_diseases);
-
     std::string ic_type = "census";
     pp.query( "ic_type", ic_type );
     if (ic_type == "census") {
@@ -63,44 +59,6 @@ void ExaEpi::Utils::get_test_params (   TestParams& params,         /*!< Test pa
     }
 
     pp.query("max_grid_size", params.max_grid_size);
-
-    for (int i = 0; i < params.num_diseases; i++) {
-        // defaults
-        params.initial_case_type[i] = "random";
-        params.num_initial_cases[i] = 0;
-    }
-    pp.queryarr("initial_case_type", params.initial_case_type, 0, params.num_diseases);
-    if (params.num_diseases == 1) {
-        if (params.initial_case_type[0] == "file") {
-            if (pp.contains("case_filename")) {
-                pp.get("case_filename", params.case_filename[0]);
-            } else {
-                std::string key = "case_filename_" + params.disease_names[0];
-                if (pp.contains(key.c_str())) pp.get(key.c_str(), params.case_filename[0]);
-            }
-        } else if (params.initial_case_type[0] == "random") {
-            if (pp.contains("num_initial_cases")) {
-                pp.get("num_initial_cases", params.num_initial_cases[0]);
-            } else {
-                std::string key = "num_initial_cases_" + params.disease_names[0];
-                if (pp.contains(key.c_str())) pp.get(key.c_str(), params.num_initial_cases[0]);
-            }
-        } else {
-            amrex::Abort("initial case type not recognized");
-        }
-    } else {
-        for (int d = 0; d < params.num_diseases; d++) {
-            if (params.initial_case_type[d] == "file") {
-                std::string key = "case_filename_" + params.disease_names[d];
-                if (pp.contains(key.c_str())) pp.get(key.c_str(), params.case_filename[d]);
-            } else if (params.initial_case_type[d] == "random") {
-                std::string key = "num_initial_cases_" + params.disease_names[d];
-                if (pp.contains(key.c_str())) pp.get(key.c_str(), params.num_initial_cases[d]);
-            } else {
-                amrex::Abort("initial case type not recognized");
-            }
-        }
-    }
 
     pp.query("aggregated_diag_int", params.aggregated_diag_int);
     if (params.aggregated_diag_int >= 0) {

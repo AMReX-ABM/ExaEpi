@@ -1,15 +1,18 @@
 # settings for the census input type
-#agent.ic_type = "census"
+# agent.ic_type = "census"
 agent.census_filename = "../CensusData/NM_TX_2010.dat"
 agent.workerflow_filename = "../CensusData/US-wf.bin"
 
-agent.initial_case_type = "file"
-agent.case_filename = "../CaseData/nm-july4.cases"
-
 # settings for the urbanpop input type
-agent.ic_type = "urbanpop"
+# agent.ic_type = "urbanpop"
 agent.urbanpop_filename = "../UrbanPop/NM_35/urbanpop_nm"
 
 agent.nsteps = 70
 #agent.seed = 11
+
+disease.initial_case_type = "file"
+disease.case_filename = "../CaseData/nm-july4.cases"
+
+# disease.initial_case_type = "random"
+# disease.num_initial_cases = 1000
 

@@ -53,7 +53,6 @@ AgentContainer::AgentContainer (const amrex::Geometry            & a_geom,  /*!<
 
     m_num_diseases = a_num_diseases;
     AMREX_ASSERT(m_num_diseases < ExaEpi::max_num_diseases);
-    m_disease_names = a_disease_names;
 
     m_student_counts.setVal(0);  // Initialize the MultiFab to zero
 
@@ -86,13 +85,13 @@ AgentContainer::AgentContainer (const amrex::Geometry            & a_geom,  /*!<
     m_d_parm.resize(m_num_diseases);
 
     for (int d = 0; d < m_num_diseases; d++) {
-        m_h_parm[d] = new DiseaseParm{};
+        m_h_parm[d] = new DiseaseParm{a_disease_names[d]};
         m_d_parm[d] = (DiseaseParm*)amrex::The_Arena()->alloc(sizeof(DiseaseParm));
 
         // first read inputs common to all diseases
         m_h_parm[d]->readInputs("disease");
         // now read any disease-specific input, if available
-        m_h_parm[d]->readInputs(std::string("disease_"+m_disease_names[d]));
+        m_h_parm[d]->readInputs(std::string("disease_" + a_disease_names[d]));
         m_h_parm[d]->Initialize();
 
 #ifdef AMREX_USE_GPU
