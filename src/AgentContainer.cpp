@@ -677,8 +677,8 @@ void AgentContainer::infectAgents ()
                             if (latent_period_ptr[i] < 0) { latent_period_ptr[i] = 0.0_rt; }
                             if (infectious_period_ptr[i] < 0) { infectious_period_ptr[i] = 0.0_rt; }
                             if (incubation_period_ptr[i] < 0) { incubation_period_ptr[i] = 0.0_rt; }
-                            if (latent_period_ptr[i] > (infectious_period_ptr[i]+incubation_period_ptr[i])) {
-                                latent_period_ptr[i] = std::floor(infectious_period_ptr[i]+incubation_period_ptr[i]);
+                            if (incubation_period_ptr[i] > (infectious_period_ptr[i]+latent_period_ptr[i])) {
+                                incubation_period_ptr[i] = std::floor(infectious_period_ptr[i]+latent_period_ptr[i]);
                             }
                             return;
                         }
