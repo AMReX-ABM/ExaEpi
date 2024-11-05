@@ -671,11 +671,11 @@ void AgentContainer::infectAgents ()
                         if (amrex::Random(engine) < prob_ptr[i]) {
                             status_ptr[i] = Status::infected;
                             counter_ptr[i] = 0.0_rt;
-                            latent_period_ptr[i]     = std::max(0.0_rt,amrex::RandomNormal(lparm->latent_length_mean,     lparm->latent_length_std,     engine));
-                            infectious_period_ptr[i] = std::max(0.0_rt,amrex::RandomNormal(lparm->infectious_length_mean, lparm->infectious_length_std, engine));
-                            incubation_period_ptr[i] = std::max(0.0_rt,amrex::RandomNormal(lparm->incubation_length_mean, lparm->incubation_length_std, engine));
-                            while ((latent_period_ptr[i] > (infectious_period_ptr[i]+incubation_period_ptr[i]))) {
-                                latent_period_ptr[i] -= std::min(0.5_rt,latent_period_ptr[i]);
+                            latent_period_ptr[i]     = std::max(amrex::ParticleReal(0.0),amrex::RandomNormal(lparm->latent_length_mean,     lparm->latent_length_std,     engine));
+                            infectious_period_ptr[i] = std::max(amrex::ParticleReal(0.0),amrex::RandomNormal(lparm->infectious_length_mean, lparm->infectious_length_std, engine));
+                            incubation_period_ptr[i] = std::max(amrex::ParticleReal(0.0),amrex::RandomNormal(lparm->incubation_length_mean, lparm->incubation_length_std, engine));
+                            if (latent_period_ptr[i] > (infectious_period_ptr[i]+incubation_period_ptr[i])) {
+                                latent_period_ptr[i] = std::floor(infectious_period_ptr[i]+incubation_period_ptr[i]);
                             }
                             return;
                         }
