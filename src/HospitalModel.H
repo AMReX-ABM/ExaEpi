@@ -192,14 +192,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                     for (int d = 0; d < n_disease; d++) {
                         sum_timers += timer_ptrs[d][i];
                     }
-                    bool is_infected = false;
-                    for (int d = 0; d < n_disease; d++) {
-                        if (status_ptrs[d][i] == Status::infected) {
-                            is_infected = true;
-                            break;
-                        }
-                    }
-                    if (sum_timers == 0 || !is_infected) {
+                    if (sum_timers == 0) {
                         // discharge patient
                         hosp_i_ptr[i] = -1;
                         hosp_j_ptr[i] = -1;

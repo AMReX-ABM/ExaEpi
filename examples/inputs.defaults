@@ -1,9 +1,9 @@
 agent.number_of_diseases = 1
 agent.disease_names = default00
 agent.ic_type = census
-# no default, must be set when ic_type = census
+# no default, must be set when ic_type is census
 # agent.census_filename
-# no default, must be set when ic_type = census
+# no default, must be set when ic_type is census
 # agent.worker_filename
 agent.nborhood_size = 500
 agent.workgroup_size = 20
@@ -12,13 +12,7 @@ agent.workgroup_size = 20
 # no default, must be set when agent.air_travel_int != -1
 # agent.airports_filename
 # no defalut, must be set when agent.air_travel_int != -1
-agent.air_traffic_filename
-agent.initial_case_type = random
-# no default, must be set when agent.initial_case_type = file for a single disease
-# agent.case_filename
-# no default, must be set for each disease when agent.initial_case_type = file for multiple diseases
-# agent.case_filename_[disease name]
-agent.num_initial_cases = 0
+# agent.air_traffic_filename
 # no default, must be set for each disease when agent.initial_case_type = random for multiple diseases
 # agent.nmu_initial_cases_[disease name]
 agent.nsteps = 1
@@ -36,11 +30,11 @@ agent.symptomatic_withdraw_compliance = 0.95
 agent.child_compliance = 0.5
 agent.child_HH_closure = 2
 agent.student_teacher_ratio = 15
-# if ic_type = census
+# if ic_type is census
 # agent.max_grid_size = 16
-# if ic_type = urbanpop and using GPUs
+# if ic_type is urbanpop and using GPUs
 # agent.max_grid_size = 500
-# if ic_type = urbanpop and not using GPUs
+# if ic_type is urbanpop and not using GPUs
 # agent.max_grid_size = 100
 
 # defalut for one disease
@@ -50,6 +44,16 @@ diag.output_filename = output.dat
 
 # Disease options. Use disease.[key] = [value] with only one disease.
 # Use disease_[disease name].[key] = [value] with multiple diseases.
+
+disease.initial_case_type = random
+# no default, must be set when disease.initial_case_type = file for a single disease
+# disease.case_filename
+# no default, must be set for each disease when disease_[disease name].initial_case_type = file for multiple diseases
+# disease.case_filename_[disease name]
+disease.num_initial_cases = 0
+# no default, must be set for each disease when disease_[disease name].num_initial_cases = random for multiple diseases
+# disease.num_initial_cases_[disease name] = 0
+
 disease.nstrain = 1
 disease.p_trans = 0.2
 disease.p_asymp = 0.4
