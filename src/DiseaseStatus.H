@@ -169,7 +169,7 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                                 symptomatic_ptr[i] = SymptomStatus::symptomatic;
                             }
                             if (symptomatic_ptr[i] == SymptomStatus::symptomatic) {
-                                if (symptomatic_withdraw_compliance && (Random(engine) < symptomatic_withdraw_compliance)) {
+                                if (symptomatic_withdraw_compliance > 0.0_rt && (Random(engine) < symptomatic_withdraw_compliance)) {
                                     withdrawn_ptr[i] = 1;
                                 }
                                 int marked_for_ICU_i = 0, marked_for_vent_i = 0;
