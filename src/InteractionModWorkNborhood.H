@@ -54,7 +54,7 @@ template <typename PTDType>
 struct WorkNborhoodCandidate {
     AMREX_GPU_HOST_DEVICE
     bool operator() (const int idx, const PTDType& ptd) const noexcept {
-        return !isHospitalized(idx, ptd) &&
+        return !inHospital(idx, ptd) &&
                !ptd.m_idata[IntIdx::withdrawn][idx] &&
                ptd.m_idata[IntIdx::random_travel][idx] < 0;
     }

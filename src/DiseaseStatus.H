@@ -113,12 +113,12 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
             int i_RT = IntIdx::nattribs;
             int r_RT = RealIdx::nattribs;
 
-            Gpu::DeviceVector<int> flag_hosp(np, 0);
-            Gpu::DeviceVector<int> flag_ICU(np, 0);
-            Gpu::DeviceVector<int> flag_vent(np, 0);
-            auto flag_hosp_ptr = flag_hosp.data();
-            auto flag_ICU_ptr = flag_ICU.data();
-            auto flag_vent_ptr = flag_vent.data();
+            Gpu::DeviceVector<int> marked_for_hosp(np, 0);
+            Gpu::DeviceVector<int> marked_for_ICU(np, 0);
+            Gpu::DeviceVector<int> marked_for_vent(np, 0);
+            auto marked_for_hosp_ptr = marked_for_hosp.data();
+            auto marked_for_ICU_ptr = marked_for_ICU.data();
+            auto marked_for_vent_ptr = marked_for_vent.data();
 
             for (int d = 0; d < n_disease; d++ ) {
 
@@ -163,28 +163,29 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                                 symptomatic_ptr[i] = SymptomStatus::presymptomatic;
                             }
                         }
-                        if (counter_ptr[i] == Math::floor(incubation_period_ptr[i])) {
-                            // symptoms can now appear, if non-asynmptomatic
+                        else if (counter_ptr[i] == Math::floor(incubation_period_ptr[i])) {
                             if (symptomatic_ptr[i] != SymptomStatus::asymptomatic) {
                                 AMREX_ASSERT(symptomatic_ptr[i] == SymptomStatus::presymptomatic);
                                 symptomatic_ptr[i] = SymptomStatus::symptomatic;
-                                // could be hospitalized when symptoms first appear
+                            }
+                            if (symptomatic_ptr[i] == SymptomStatus::symptomatic) {
+                                if (symptomatic_withdraw_compliance && (Random(engine) < symptomatic_withdraw_compliance)) {
+                                    withdrawn_ptr[i] = 1;
+                                }
+                                int marked_for_ICU_i = 0, marked_for_vent_i = 0;
                                 Real num_days = 0;
                                 disease_parm_d->check_hospitalization( num_days,
-                                                                       flag_ICU_ptr[i],
-                                                                       flag_vent_ptr[i],
+                                                                       marked_for_ICU_i,
+                                                                       marked_for_vent_i,
                                                                        age_group_ptr[i],
                                                                        engine );
                                 timer_ptr[i] = ParticleReal(num_days);
-                                if (timer_ptr[i] > 0) flag_hosp_ptr[i] = 1;
-                                if (!flag_hosp_ptr[i] && symptomatic_withdraw_compliance > 0 &&
-                                    Random(engine) < symptomatic_withdraw_compliance) {
-                                    // only withdraw if not hospitalized
-                                    withdrawn_ptr[i] = 1;
-                                }
+                                if (timer_ptr[i] > 0) { marked_for_hosp_ptr[i] = 1; }
+                                if (marked_for_ICU_i) { marked_for_ICU_ptr[i] = 1; }
+                                if (marked_for_vent_i) { marked_for_vent_ptr[i] = 1; }
                             }
                         }
-                        if (!isHospitalized(i,ptd) && !flag_hosp_ptr[i]) {
+                        else if (!inHospital(i,ptd)) {
                             if (counter_ptr[i] >= (latent_period_ptr[i] + infectious_period_ptr[i])) {
                                 status_ptr[i] = Status::immune;
                                 counter_ptr[i] = RandomNormal(immune_length_mean, immune_length_std, engine);
@@ -200,9 +201,9 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
 
             ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
             {
-                if (flag_hosp_ptr[i] == 1) {
-                    // could have already been assignedto a hospital from another disease
-                    if (!isHospitalized(i, ptd)) assign_hospital( i, hosp_i_ptr, hosp_j_ptr, ptd);
+                if (marked_for_hosp_ptr[i] == 1) {
+                    AMREX_ALWAYS_ASSERT(!inHospital(i, ptd));
+                    assign_hospital( i, hosp_i_ptr, hosp_j_ptr, ptd);
                 }
             });
 
@@ -210,21 +211,21 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                 auto ds_arr = (*a_stats[d])[mfi].array();
                 ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
                 {
-                    if (flag_hosp_ptr[i] == 1) {
+                    if (marked_for_hosp_ptr[i] == 1) {
                         Gpu::Atomic::AddNoRet( &ds_arr(  home_i_ptr[i],
                                                          home_j_ptr[i],
                                                          0,
                                                          DiseaseStats::hospitalization ),
                                                1.0_rt );
                     }
-                    if (flag_ICU_ptr[i] == 1) {
+                    if (marked_for_ICU_ptr[i] == 1) {
                         Gpu::Atomic::AddNoRet( &ds_arr(  home_i_ptr[i],
                                                          home_j_ptr[i],
                                                          0,
                                                          DiseaseStats::ICU ),
                                                1.0_rt );
                     }
-                    if (flag_vent_ptr[i] == 1) {
+                    if (marked_for_vent_ptr[i] == 1) {
                         Gpu::Atomic::AddNoRet( &ds_arr(  home_i_ptr[i],
                                                          home_j_ptr[i],
                                                          0,
