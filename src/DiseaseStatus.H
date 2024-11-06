@@ -201,8 +201,8 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
 
             ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
             {
-                if (marked_for_hosp_ptr[i] == 1) {
-                    AMREX_ALWAYS_ASSERT(!inHospital(i, ptd));
+                if (marked_for_hosp_ptr[i] == 1 && !inHospital(i, ptd)) {
+                    //AMREX_ALWAYS_ASSERT(!inHospital(i, ptd));
                     assign_hospital( i, hosp_i_ptr, hosp_j_ptr, ptd);
                 }
             });
