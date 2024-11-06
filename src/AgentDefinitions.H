@@ -218,7 +218,7 @@ template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 bool notSusceptible ( const int      a_idx, /*!< Agent index */
                       const PTDType& a_ptd, /*!< Particle tile data */
-                     const int       a_d    /*!< Disease index */ )
+                      const int       a_d    /*!< Disease index */ )
 {
     return (   (a_ptd.m_runtime_idata[i0(a_d)+IntIdxDisease::status][a_idx] == Status::immune)
             || (a_ptd.m_runtime_idata[i0(a_d)+IntIdxDisease::status][a_idx] == Status::dead)
@@ -263,6 +263,5 @@ static int getSchoolType(const int grade) {
     if (grade >= 29) return SchoolType::college;
     return SchoolType::none;
 }
-
 
 #endif

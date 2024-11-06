@@ -155,4 +155,30 @@ struct DiseaseParm
     }
 
 };
+
+
+/*! \brief Set this agent to infected status, and initialize disease periods. */
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+void setInfected ( int* status,
+                   amrex::Real* counter,
+                   amrex::Real* latent_period,
+                   amrex::Real* infectious_period,
+                   amrex::Real* incubation_period,
+                   amrex::RandomEngine const& engine,
+                   const DiseaseParm* lparm)
+{
+    *status = Status::infected;
+    *counter = amrex::Real(0);
+    *latent_period = amrex::RandomNormal(lparm->latent_length_mean, lparm->latent_length_std, engine);
+    *infectious_period = amrex::RandomNormal(lparm->infectious_length_mean, lparm->infectious_length_std, engine);
+    *incubation_period = amrex::RandomNormal(lparm->incubation_length_mean, lparm->incubation_length_std, engine);
+    if (*latent_period < 0) { *latent_period = amrex::Real(0);}
+        if (*infectious_period < 0) { *infectious_period = amrex::Real(0);}
+    if (*incubation_period < 0) { *incubation_period = amrex::Real(0);}
+    if (*incubation_period > (*infectious_period + *latent_period)) {
+        *incubation_period = std::floor(*infectious_period + *latent_period);
+    }
+}
+
+
 #endif

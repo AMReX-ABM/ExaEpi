@@ -84,7 +84,7 @@ static int infect_random_community (AgentContainer& pc, /*!< Agent container (pa
 
         auto comm_arr = comm_mf[mfi].array();
 
-        const auto* lparm = pc.getDiseaseParameters_d(d_idx);
+        const auto lparm = pc.getDiseaseParameters_d(d_idx);
 
         Gpu::DeviceScalar<int> num_infected_d(num_infected);
         int* num_infected_p = num_infected_d.dataPtr();
@@ -112,11 +112,8 @@ static int infect_random_community (AgentContainer& pc, /*!< Agent container (pa
                         ip += ninfect;
                     }
                 } else {
-                    status_ptr[pindex] = Status::infected;
-                    counter_ptr[pindex] = 0;
-                    latent_period_ptr[pindex] = RandomNormal(lparm->latent_length_mean, lparm->latent_length_std, engine);
-                    infectious_period_ptr[pindex] = RandomNormal(lparm->infectious_length_mean, lparm->infectious_length_std, engine);
-                    incubation_period_ptr[pindex] = RandomNormal(lparm->incubation_length_mean, lparm->incubation_length_std, engine);
+                    setInfected(&(status_ptr[pindex]), &(counter_ptr[pindex]), &(latent_period_ptr[pindex]),
+                                &(infectious_period_ptr[pindex]), &(incubation_period_ptr[pindex]), engine, lparm);
                     ++ni;
                 }
             }
