@@ -85,13 +85,13 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
             int r_RT = RealIdx::nattribs;
 
             GpuArray<int*,ExaEpi::max_num_diseases> status_ptrs, symptomatic_ptrs;
-            GpuArray<ParticleReal*,ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs, latent_per_ptrs;
+            GpuArray<ParticleReal*,ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs, incubation_per_ptrs;
             for (int d = 0; d < n_disease; d++) {
                 status_ptrs[d] = soa.GetIntData(i_RT+i0(d)+IntIdxDisease::status).data();
                 symptomatic_ptrs[d] = soa.GetIntData(i_RT+i0(d)+IntIdxDisease::symptomatic).data();
                 counter_ptrs[d] = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::disease_counter).data();
                 timer_ptrs[d] = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::treatment_timer).data();
-                latent_per_ptrs[d] = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::latent_period).data();
+                incubation_per_ptrs[d] = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::incubation_period).data();
             }
 
             Gpu::DeviceVector<int> is_alive;
@@ -132,11 +132,11 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                                 [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine)
                                 noexcept
                 {
-                    if ( !isHospitalized(i, ptd) )  {
+                    if ( !inHospital(i, ptd) )  {
                         // agent is not in hospital
                         return;
                     }
-                    if (counter_ptrs[d][i] == Math::ceil(latent_per_ptrs[d][i])) {
+                    if (counter_ptrs[d][i] == Math::floor(incubation_per_ptrs[d][i])) {
                         // agent just started treatment
                         return;
                     }
@@ -213,7 +213,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
 
             ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
             {
-                if ( !isHospitalized(i, ptd) )  { return; }
+                if ( !inHospital(i, ptd) )  { return; }
 
                 if (is_alive_ptr[i] == 0) {
 

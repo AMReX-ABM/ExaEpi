@@ -208,8 +208,8 @@ bool notSusceptible ( const int      a_idx, /*!< Agent index */
 /*! \brief Is an agent hospitalized? */
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-bool isHospitalized ( const int      a_idx, /*!< Agent index */
-                      const PTDType& a_ptd  /*!< Particle tile data */ )
+bool inHospital ( const int      a_idx, /*!< Agent index */
+                  const PTDType& a_ptd  /*!< Particle tile data */ )
 {
     return (   (a_ptd.m_idata[IntIdx::hosp_i][a_idx] >= 0)
             && (a_ptd.m_idata[IntIdx::hosp_j][a_idx] >= 0) );

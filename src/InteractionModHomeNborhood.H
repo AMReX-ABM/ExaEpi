@@ -47,7 +47,7 @@ struct HomeNborhoodCandidate {
     AMREX_GPU_HOST_DEVICE
     bool operator() (const int idx, const PTDType& ptd) const noexcept {
         // this is the only case where we allow random travelers to interact
-        return !isHospitalized(idx, ptd) && !ptd.m_idata[IntIdx::withdrawn][idx];
+        return !inHospital(idx, ptd) && !ptd.m_idata[IntIdx::withdrawn][idx];
     }
 };
 

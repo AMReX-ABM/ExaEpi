@@ -117,18 +117,18 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
             int i_RT = IntIdx::nattribs;
             int r_RT = RealIdx::nattribs;
 
-            Gpu::DeviceVector<int> flag_hosp, flag_ICU, flag_vent;
-            flag_hosp.resize(np);
-            flag_ICU.resize(np);
-            flag_vent.resize(np);
-            auto flag_hosp_ptr = flag_hosp.data();
-            auto flag_ICU_ptr = flag_ICU.data();
-            auto flag_vent_ptr = flag_vent.data();
+            Gpu::DeviceVector<int> marked_for_hosp, marked_for_ICU, marked_for_vent;
+            marked_for_hosp.resize(np);
+            marked_for_ICU.resize(np);
+            marked_for_vent.resize(np);
+            auto marked_for_hosp_ptr = marked_for_hosp.data();
+            auto marked_for_ICU_ptr = marked_for_ICU.data();
+            auto marked_for_vent_ptr = marked_for_vent.data();
             ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
             {
-                flag_hosp_ptr[i] = 0;
-                flag_ICU_ptr[i] = 0;
-                flag_vent_ptr[i] = 0;
+                marked_for_hosp_ptr[i] = 0;
+                marked_for_ICU_ptr[i] = 0;
+                marked_for_vent_ptr[i] = 0;
             });
             Gpu::synchronize();
 
@@ -175,7 +175,7 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                                 symptomatic_ptr[i] = SymptomStatus::presymptomatic;
                             }
                         }
-                        if (counter_ptr[i] == Math::floor(incubation_period_ptr[i])) {
+                        else if (counter_ptr[i] == Math::floor(incubation_period_ptr[i])) {
                             if (symptomatic_ptr[i] != SymptomStatus::asymptomatic) {
                                 symptomatic_ptr[i] = SymptomStatus::symptomatic;
                             }
@@ -186,21 +186,21 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                             }
 
                             if (symptomatic_ptr[i] == SymptomStatus::symptomatic) {
-                                int flag_ICU_i = 0, flag_vent_i = 0;
+                                int marked_for_ICU_i = 0, marked_for_vent_i = 0;
                                 Real num_days = 0;
                                 disease_parm_d->check_hospitalization( num_days,
-                                                                       flag_ICU_i,
-                                                                       flag_vent_i,
+                                                                       marked_for_ICU_i,
+                                                                       marked_for_vent_i,
                                                                        age_group_ptr[i],
                                                                        u50frac,
                                                                        engine );
                                 timer_ptr[i] = ParticleReal(num_days);
-                                if (timer_ptr[i] > 0) { flag_hosp_ptr[i] = 1; }
-                                if (flag_ICU_i) { flag_ICU_ptr[i] = 1; }
-                                if (flag_vent_i) { flag_vent_ptr[i] = 1; }
+                                if (timer_ptr[i] > 0) { marked_for_hosp_ptr[i] = 1; }
+                                if (marked_for_ICU_i) { marked_for_ICU_ptr[i] = 1; }
+                                if (marked_for_vent_i) { marked_for_vent_ptr[i] = 1; }
                             }
                         }
-                        if (!isHospitalized(i,ptd)) {
+                        else if (!inHospital(i,ptd)) {
                             if (counter_ptr[i] >= (latent_period_ptr[i] + infectious_period_ptr[i])) {
                                 status_ptr[i] = Status::immune;
                                 counter_ptr[i] = amrex::RandomNormal(immune_length_mean, immune_length_std, engine);
@@ -216,8 +216,8 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
 
             ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
             {
-                if (flag_hosp_ptr[i] == 1) {
-                    AMREX_ALWAYS_ASSERT(!isHospitalized(i, ptd));
+                if (marked_for_hosp_ptr[i] == 1) {
+                    AMREX_ALWAYS_ASSERT(!inHospital(i, ptd));
                     assign_hospital( i, hosp_i_ptr, hosp_j_ptr, ptd);
                 }
             });
@@ -226,21 +226,21 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                 auto ds_arr = (*a_stats[d])[mfi].array();
                 ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
                 {
-                    if (flag_hosp_ptr[i] == 1) {
+                    if (marked_for_hosp_ptr[i] == 1) {
                         Gpu::Atomic::AddNoRet( &ds_arr(  home_i_ptr[i],
                                                          home_j_ptr[i],
                                                          0,
                                                          DiseaseStats::hospitalization ),
                                                1.0_rt );
                     }
-                    if (flag_ICU_ptr[i] == 1) {
+                    if (marked_for_ICU_ptr[i] == 1) {
                         Gpu::Atomic::AddNoRet( &ds_arr(  home_i_ptr[i],
                                                          home_j_ptr[i],
                                                          0,
                                                          DiseaseStats::ICU ),
                                                1.0_rt );
                     }
-                    if (flag_vent_ptr[i] == 1) {
+                    if (marked_for_vent_ptr[i] == 1) {
                         Gpu::Atomic::AddNoRet( &ds_arr(  home_i_ptr[i],
                                                          home_j_ptr[i],
                                                          0,
