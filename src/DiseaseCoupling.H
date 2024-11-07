@@ -137,8 +137,10 @@ struct DiseaseCouplingParm
             cs_arr[i] = 1.0;
             for (int d = 0; d < nd; d++) {
                 if (d == a_d) { continue; }
-                auto status = a_ptd.m_runtime_idata[i0(d)+IntIdxDisease::status][i];
-                if (status == Status::infected) {
+                auto status  = a_ptd.m_runtime_idata[i0(d)+IntIdxDisease::status][i];
+                auto counter = a_ptd.m_runtime_rdata[r0(d)+RealIdxDisease::disease_counter][i];
+                auto incub   = a_ptd.m_runtime_rdata[r0(d)+RealIdxDisease::incubation_period][i];
+                if ((status == Status::infected) && (counter >= incub)) {
                     cs_arr[i] *= cosus_mat_arr[idx1D(a_d,d,nd)];
                 }
             }
