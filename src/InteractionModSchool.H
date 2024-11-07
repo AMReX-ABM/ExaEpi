@@ -157,7 +157,7 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                     auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                     auto lparm = agents.getDiseaseParameters_d(d);
                     auto lparm_h = agents.getDiseaseParameters_h(d);
-                    Real scale = 1.0_prt;  // TODO this should vary based on cell
+                    Real scale = 1.0_rt;  // TODO this should vary based on cell
                     Real infect = (1.0_rt - lparm_h->vac_eff);
 
                     ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
@@ -179,11 +179,11 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                             int pos = (community * max_school_id + school_id_ptr[i]) * max_school_grade + school_grade_ptr[i];
                             if (getSchoolType(school_grade_ptr[i]) == SchoolType::day_care) {
                                 int num_infected_daycare = infected_daycare_d_ptr[pos];
-                                ParticleReal daycare_prob = 1.0_prt - infect * lparm->xmit_school[SchoolType::day_care] * scale;
+                                Real daycare_prob = 1.0_rt - infect * lparm->xmit_school[SchoolType::day_care] * scale;
                                 prob_ptr[i] *= static_cast<ParticleReal>(std::pow(daycare_prob, num_infected_daycare));
                             } else {
                                 int num_infected_school = infected_school_d_ptr[pos];
-                                ParticleReal xmit = 0;
+                                Real xmit = 0.0_rt;
                                 if (adults) {   // transmitters are adults
                                     if (age_group_ptr[i] <= AgeGroups::a5to17) {  // Adult teacher/staff -> child student
                                         xmit = lparm->xmit_school_a2c[getSchoolType(school_grade_ptr[i])];
@@ -197,7 +197,7 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                                         xmit = lparm->xmit_school_c2a[getSchoolType(school_grade_ptr[i])];
                                     }
                                 }
-                                ParticleReal school_prob = 1.0_prt - infect * xmit * scale;
+                                Real school_prob = 1.0_rt - infect * xmit * scale;
                                 prob_ptr[i] *= static_cast<ParticleReal>(std::pow(school_prob, num_infected_school));
                             }
                         }

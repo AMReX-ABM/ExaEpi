@@ -177,13 +177,13 @@ void AgentContainer::moveAgentsToWork ()
                 if (!inHospital(ip, ptd)) {
                     ParticleType& p = pstruct[ip];
                     if (is_census) { // using census data
-                        p.pos(0) = (work_i_ptr[ip] + 0.5_prt)*dx[0];
-                        p.pos(1) = (work_j_ptr[ip] + 0.5_prt)*dx[1];
+                        p.pos(0) = static_cast<ParticleReal>((work_i_ptr[ip] + 0.5_rt) * dx[0]);
+                        p.pos(1) = static_cast<ParticleReal>((work_j_ptr[ip] + 0.5_rt) * dx[1]);
                     } else {
                         Real lng, lat;
                         (*grid_to_lnglat_ptr)(work_i_ptr[ip], work_j_ptr[ip], lng, lat);
-                        p.pos(0) = lng;
-                        p.pos(1) = lat;
+                        p.pos(0) = static_cast<ParticleReal>(lng);
+                        p.pos(1) = static_cast<ParticleReal>(lat);
                     }
                 }
             });
@@ -234,13 +234,13 @@ void AgentContainer::moveAgentsToHome ()
                 if (!inHospital(ip, ptd)) {
                     ParticleType& p = pstruct[ip];
                     if (is_census) { // using census data
-                        p.pos(0) = (home_i_ptr[ip] + 0.5_prt) * dx[0];
-                        p.pos(1) = (home_j_ptr[ip] + 0.5_prt) * dx[1];
+                        p.pos(0) = static_cast<ParticleReal>((home_i_ptr[ip] + 0.5_rt) * dx[0]);
+                        p.pos(1) = static_cast<ParticleReal>((home_j_ptr[ip] + 0.5_rt) * dx[1]);
                     } else {
                         Real lng, lat;
                         (*grid_to_lnglat_ptr)(home_i_ptr[ip], home_j_ptr[ip], lng, lat);
-                        p.pos(0) = lng;
-                        p.pos(1) = lat;
+                        p.pos(0) = static_cast<ParticleReal>(lng);
+                        p.pos(1) = static_cast<ParticleReal>(lat);
                     }
                 }
             });
@@ -395,8 +395,8 @@ void AgentContainer::setAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air,
                 int unit = unit_arr(home_i_ptr[i], home_j_ptr[i], 0);
                 int orgAirport= assigned_airport_ptr[unit];
                 int destAirport=-1;
-                float lowProb=0.0;
-                float random= amrex::Random(engine);
+                Real lowProb = 0.0_rt;
+                Real random = amrex::Random(engine);
                 //choose a destination airport for the agent (number of airports is often small, so let's visit in sequential order)
                 for(int idx= dest_airports_offset_ptr[orgAirport]; idx<dest_airports_offset_ptr[orgAirport+1]; idx++){
                         float hiProb= dest_airports_prob_ptr[idx];
@@ -408,7 +408,7 @@ void AgentContainer::setAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air,
                 }
                 if(destAirport >=0){
                   int destUnit=-1;
-                  float random1= amrex::Random(engine);
+                  Real random1= amrex::Random(engine);
                   int low=arrivalUnits_offset_ptr[destAirport], high=arrivalUnits_offset_ptr[destAirport+1];
                   if(high-low<=16){
                           //this sequential algo. is very slow when we have to go through hundreds or thoudsands of units to select a destination
@@ -480,13 +480,13 @@ void AgentContainer::returnRandomTravel ()
                     ParticleType& p = pstruct[i];
                     random_travel_ptr[i] = -1;
                     if (is_census) {
-                        p.pos(0) = (home_i_ptr[i] + 0.5_prt) * dx[0];
-                        p.pos(1) = (home_j_ptr[i] + 0.5_prt) * dx[1];
+                        p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
+                        p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
                     } else {
                         Real lng, lat;
                         (*grid_to_lnglat_ptr)(home_i_ptr[i], home_j_ptr[i], lng, lat);
-                        p.pos(0) = lng;
-                        p.pos(1) = lat;
+                        p.pos(0) = static_cast<ParticleReal>(lng);
+                        p.pos(1) = static_cast<ParticleReal>(lat);
                     }
                 }
             });
@@ -508,6 +508,9 @@ void AgentContainer::returnAirTravel ()
         auto& plev  = GetParticles(lev);
         const auto dx = Geom(lev).CellSizeArray();
 
+        bool is_census = (ic_type == ExaEpi::ICType::Census);
+        auto grid_to_lnglat_ptr = &grid_to_lnglat;
+
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -527,8 +530,15 @@ void AgentContainer::returnAirTravel ()
                 if (air_travel_ptr[i] >= 0) {
                     ParticleType& p = pstruct[i];
                     air_travel_ptr[i] = -1;
-                    p.pos(0) = (home_i_ptr[i] + 0.5_prt) * dx[0];
-                    p.pos(1) = (home_j_ptr[i] + 0.5_prt) * dx[1];
+                    if (is_census) { // using census data
+                        p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
+                        p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
+                    } else {
+                        Real lng, lat;
+                        (*grid_to_lnglat_ptr)(home_i_ptr[i], home_j_ptr[i], lng, lat);
+                        p.pos(0) = static_cast<ParticleReal>(lng);
+                        p.pos(1) = static_cast<ParticleReal>(lat);
+                    }
                 }
             });
         }
@@ -577,13 +587,13 @@ void AgentContainer::updateStatus ( MFPtrVec& a_disease_stats /*!< Community-wis
                 if (inHospital(ip, ptd)) {
                     ParticleType& p = pstruct[ip];
                     if (is_census) {
-                        p.pos(0) = (hosp_i_ptr[ip] + 0.5_prt) * dx[0];
-                        p.pos(1) = (hosp_j_ptr[ip] + 0.5_prt) * dx[1];
+                        p.pos(0) = static_cast<ParticleReal>((hosp_i_ptr[ip] + 0.5_prt) * dx[0]);
+                        p.pos(1) = static_cast<ParticleReal>((hosp_j_ptr[ip] + 0.5_prt) * dx[1]);
                     } else {
                         Real lng, lat;
                         (*grid_to_lnglat_ptr)(hosp_i_ptr[ip], hosp_j_ptr[ip], lng, lat);
-                        p.pos(0) = lng;
-                        p.pos(1) = lat;
+                        p.pos(0) = static_cast<ParticleReal>(lng);
+                        p.pos(1) = static_cast<ParticleReal>(lat);
                     }
                 }
             });
@@ -700,7 +710,7 @@ void AgentContainer::infectAgents ()
                 amrex::ParallelForRNG( np,
                 [=] AMREX_GPU_DEVICE (int i, amrex::RandomEngine const& engine) noexcept
                 {
-                    prob_ptr[i] = 1.0_rt - prob_ptr[i];
+                    prob_ptr[i] = 1.0_prt - prob_ptr[i];
                     if ( status_ptr[i] == Status::never ||
                          status_ptr[i] == Status::susceptible ) {
                         if (amrex::Random(engine) < prob_ptr[i]) {

@@ -153,7 +153,7 @@ def print_header(df):
 #include <sstream>
 
 using std::string;
-using float32_t = amrex::Real;
+using float32_t = amrex::ParticleReal;
 
 namespace UrbanPop {{
 

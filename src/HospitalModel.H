@@ -149,7 +149,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
 
                     AMREX_ALWAYS_ASSERT(status_ptrs[d][i] == Status::infected);
                     // decrement days in hospital
-                    timer_ptrs[d][i] -= 1.0_rt;
+                    timer_ptrs[d][i] -= 1.0_prt;
                     if (timer_ptrs[d][i] == 0) {
                         // finished hospitalization period
                         flag_status_ptr[i] = DiseaseStats::hospitalization + 1;
@@ -169,10 +169,11 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                         } else {
                             // If alive, hospitalized patient recovers
                             status_ptrs[d][i] = Status::immune;
-                            counter_ptrs[d][i] = RandomNormal(immune_length_mean, immune_length_std, engine);
+                            counter_ptrs[d][i] =
+                                static_cast<ParticleReal>(RandomNormal(immune_length_mean, immune_length_std, engine));
                             symptomatic_ptrs[d][i] = SymptomStatus::presymptomatic;
                             withdrawn_ptr[i] = 0;
-                            timer_ptrs[d][i] = 0.0_rt;
+                            timer_ptrs[d][i] = 0.0_prt;
                         }
                     }
                 });
@@ -207,13 +208,13 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                         withdrawn_ptr[i] = 0;
                         PType& p = pstruct[i];
                         if (is_census) {
-                            p.pos(0) = (home_i_ptr[i] + 0.5_prt) * dx[0];
-                            p.pos(1) = (home_j_ptr[i] + 0.5_prt) * dx[1];
+                            p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
+                            p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
                         } else {
                             Real lng, lat;
                             (*grid_to_lnglat_ptr)(home_i_ptr[i], home_j_ptr[i], lng, lat);
-                            p.pos(0) = lng;
-                            p.pos(1) = lat;
+                            p.pos(0) = static_cast<ParticleReal>(lng);
+                            p.pos(1) = static_cast<ParticleReal>(lat);
                         }
                     }
                 }

@@ -67,14 +67,20 @@ bool BlockGroup::read_agents(ifstream &f, Vector<UrbanPopAgent> &agents, Vector<
             Abort("File is corrupted: wrong geoid, read " + to_string(agent.home_geoid) + " expected " + to_string(geoid) + "\n");
         int home_x, home_y;
         lnglat_to_grid(agent.home_lng, agent.home_lat, home_x, home_y);
-        grid_to_lnglat(home_x, home_y, agent.home_lng, agent.home_lat);
+        Real home_lng, home_lat;
+        grid_to_lnglat(home_x, home_y, home_lng, home_lat);
+        agent.home_lng = static_cast<ParticleReal>(home_lng);
+        agent.home_lat = static_cast<ParticleReal>(home_lat);
         AMREX_ASSERT(home_x == x && home_y == y);
         AMREX_ASSERT(agent.home_lng == lng && agent.home_lat == lat);
         AMREX_ASSERT(agent.work_lat != -1 && agent.work_lng != -1);
         households.insert(agent.household_id);
         int work_x, work_y;
         lnglat_to_grid(agent.work_lng, agent.work_lat, work_x, work_y);
-        grid_to_lnglat(work_x, work_y, agent.work_lng, agent.work_lat);
+        Real work_lng, work_lat;
+        grid_to_lnglat(work_x, work_y, work_lng, work_lat);
+        agent.work_lng = static_cast<ParticleReal>(work_lng);
+        agent.work_lat = static_cast<ParticleReal>(work_lat);
         if (agent.role == ROLE::worker && agent.naics != NAICS::wfh) {
             num_employed++;
             auto it = xy_to_block_groups.find(IntVect(work_x, work_y));
@@ -452,7 +458,10 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
             else age_group_ptr[i] = AgeGroups::o65;
             family_ptr[i] = agent.household_id;
             lnglat_to_grid(agent.work_lng, agent.work_lat, work_i_ptr[i], work_j_ptr[i]);
-            grid_to_lnglat(work_i_ptr[i], work_j_ptr[i], agent.work_lng, agent.work_lat);
+            Real work_lng, work_lat;
+            grid_to_lnglat(work_i_ptr[i], work_j_ptr[i], work_lng, work_lat);
+            agent.work_lng = static_cast<ParticleReal>(work_lng);
+            agent.work_lat = static_cast<ParticleReal>(work_lat);
             int max_nborhood = group_home_populations_ptr[i] / nborhood_size + 1;
             nborhood_ptr[i] = Random_int(max_nborhood, engine) + 1;
             school_grade_ptr[i] = agent.grade;

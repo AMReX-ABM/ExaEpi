@@ -425,15 +425,15 @@ void CensusData::initAgents (AgentContainer& pc,       /*!< Agents */
                     }
                 }
 
-                agent.pos(0) = (i + 0.5_rt)*dx[0];
-                agent.pos(1) = (j + 0.5_rt)*dx[1];
+                agent.pos(0) = static_cast<ParticleReal>((i + 0.5_rt) * dx[0]);
+                agent.pos(1) = static_cast<ParticleReal>((j + 0.5_rt) * dx[1]);
                 agent.id()  = pid+ip;
                 agent.cpu() = my_proc;
 
                 for (int d = 0; d < n_disease; d++) {
                     status_ptrs[d][ip] = 0;
-                    counter_ptrs[d][ip] = 0.0_rt;
-                    timer_ptrs[d][ip] = 0.0_rt;
+                    counter_ptrs[d][ip] = 0.0_prt;
+                    timer_ptrs[d][ip] = 0.0_prt;
                 }
                 age_group_ptr[ip] = age_group;
                 family_ptr[ip] = family_id_start + (ii / family_size);

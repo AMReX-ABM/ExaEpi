@@ -146,10 +146,10 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                         return;
                     }
                     else if (status_ptr[i] == Status::immune) {
-                        counter_ptr[i] -= 1.0_rt;
-                        if (counter_ptr[i] < 0.0_rt) {
-                            counter_ptr[i] = 0.0_rt;
-                            timer_ptr[i] = 0.0_rt;
+                        counter_ptr[i] -= 1.0_prt;
+                        if (counter_ptr[i] < 0.0_prt) {
+                            counter_ptr[i] = 0.0_prt;
+                            timer_ptr[i] = 0.0_prt;
                             status_ptr[i] = Status::susceptible;
                             return;
                         }
@@ -188,7 +188,8 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                         else if (!inHospital(i,ptd)) {
                             if (counter_ptr[i] >= (latent_period_ptr[i] + infectious_period_ptr[i])) {
                                 status_ptr[i] = Status::immune;
-                                counter_ptr[i] = RandomNormal(immune_length_mean, immune_length_std, engine);
+                                counter_ptr[i] =
+                                    static_cast<ParticleReal>(RandomNormal(immune_length_mean, immune_length_std, engine));
                                 symptomatic_ptr[i] = SymptomStatus::presymptomatic;
                                 withdrawn_ptr[i] = 0;
                             }
