@@ -1,35 +1,59 @@
+# The number of diseases
 agent.number_of_diseases = 1
+# A list of strings of the names of the diseases, one for each disease. Will default to disease00, disease01, ...
 agent.disease_names = default00
+# The type of initialization: census or urbanpop.
 agent.ic_type = census
+# The input data file for census ic_type.
 # no default, must be set when ic_type is census
 # agent.census_filename
+# The input worker flow filename for census ic_type.
 # no default, must be set when ic_type is census
 # agent.worker_filename
+# The number of agents in a neighborhood.
 agent.nborhood_size = 500
+# The number of agents in a workgroup.
 agent.workgroup_size = 20
+# The input data file for urbanpop ic_type. Do not include the extension. There must be two files, with extensions .csv and .idx.
 # no default, must be set when ic_type = census
 # agent.urbanpop_filename
+# The input data file containing the airports.
 # no default, must be set when agent.air_travel_int != -1
 # agent.airports_filename
+# The input data file containing air traffic.
 # no defalut, must be set when agent.air_travel_int != -1
 # agent.air_traffic_filename
-# no default, must be set for each disease when agent.initial_case_type = random for multiple diseases
-# agent.nmu_initial_cases_[disease name]
+# The nnumber of time steps (days) for the simulation.
 agent.nsteps = 1
+# The plotting interval in time steps; set to -1 for no plotting.
 agent.plot_int = -1
+# The time steps between random travel events; set to -1 for no random travel.
 agent.random_travel_int = -1
+# The probability of an agent traveling randomly in any travel event.
 agent.random_travel_prob = 0.0001
+# The time steps between air travel events; set to -1 for no air travel.
 agent.air_travel_int = -1
+# The time steps between writing aggregated data; set to -1 to disable writing.
 agent.aggregated_diag_int = -1
+# The prefix to use when writing aggregated data.
 agent.aggregated_diag_prefix = cases
+# The random seed used in the simulation.
 agent.seed = 0
+# The time step on which to start shelter-in-place; set to -1 to disable.
 agent.shelter_start = -1
+# The time steps that shelter-in-place lasts.
 agent.shelter_length = 0
+# The compliance rate for shelter-in-place, i.e. the probability of an agent actually sheltering.
 agent.shelter_compliance = 0.95
+# The probability of an agent withdrawing when first becoming symptomatic.
 agent.symptomatic_withdraw_compliance = 0.95
+# The compliance rate for children when schools are closed. This reduces the probability of transmission in the neighborhood.
 agent.child_compliance = 0.5
+# A factor for increasing transmission by children within households when schools are closed.
 agent.child_HH_closure = 2
+# The ratio of educators to teachers. This is only used for the census data.
 agent.student_teacher_ratio = 15
+# The maximum grid size used for MPI domain decomposition. Adjusting this can change the computation time and load balance.
 # if ic_type is census
 # agent.max_grid_size = 16
 # if ic_type is urbanpop and using GPUs
@@ -37,6 +61,7 @@ agent.student_teacher_ratio = 15
 # if ic_type is urbanpop and not using GPUs
 # agent.max_grid_size = 100
 
+# A list of file names, one per disease, each one of which will be the output for the counts of the statuses for that disease.
 # defalut for one disease
 diag.output_filename = output.dat
 # default for multiple diseases
@@ -45,44 +70,87 @@ diag.output_filename = output.dat
 # Disease options. Use disease.[key] = [value] with only one disease.
 # Use disease_[disease name].[key] = [value] with multiple diseases.
 
+# The process to set the initial cases. Random means allocate randomly, and file means allocate from a file of data inputs.
 disease.initial_case_type = random
+# Input data file containing initial cases, one per disease. Only used if the initial_case_type is random.
 # no default, must be set when disease.initial_case_type = file for a single disease
 # disease.case_filename
+# The number of initial cases for each disease. Not needed when reading initial cases from files.
+# no default, must be set for each disease when agent.initial_case_type = random for multiple diseases
+# agent.nmu_initial_cases_[disease name]
 # no default, must be set for each disease when disease_[disease name].initial_case_type = file for multiple diseases
 # disease.case_filename_[disease name]
 disease.num_initial_cases = 0
 # no default, must be set for each disease when disease_[disease name].num_initial_cases = random for multiple diseases
 # disease.num_initial_cases_[disease name] = 0
 
+# Number of disease strains. Currently only one strain is supported.
 disease.nstrain = 1
+# Probability of transmission given contact.
 disease.p_trans = 0.2
+# Probability of being asymptomatic.
 disease.p_asymp = 0.4
+# Relative infectiousness of asymptomatic indivudals.
 disease.reduced_inf = 0.75
+# Vaccine efficacy. Not yet implemented; leave at 0.
 disease.vac_eff = 0
+# Mean length in days that agents are immune after recovery from an infection.
 disease.immune_length_mean = 180
+# Standard deviation in days.
 disease.immune_length_std = 60
+# Mean length in days from infection until an agent becomes infectious.
 disease.latent_length_mean = 3.0
+# Standard deviation in days.
 disease.latent_length_std = 1.0
+# Mean length in days for the time an agent is infectious.
 disease.infectious_length_mean = 6.0
+# Standard deviation in days.
 disease.infectious_length_std = 1.0
+# Mean length in days from the time of infectioun untli symptoms develop.
 disease.incution_length_mean = 5.0
+# Standard deviation in days.
 disease.incution_length_std = 1.0
 
+# Number of days in hospital for the age groups under 50, 50 to 64 and over 64.
 disease.hospitalization_days = 3 8 7
 
+# Transmission probabilites at the community level, for both work and home locations,
+# for the age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
 disease.xmit_comm = 0.000018125 0.000054375 0.000145 0.000145 0.000145 0.0002175
+# Transmission probabilites at the neighborhood level, for both work and home locations,
+# for the age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
 disease.xmit_hood = 0.0000725 0.0002175 0.00058 0.00058 0.00058 0.00087
+# Transmission probabilites at the household level, where the infectious agent is an adult,
+# for the age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
 disease.xmit_hh_adult = 0.3 0.3 0.4 0.4 0.4 0.4
+# Transmission probabilites at the household level, where the infectious agent is a child,
+# for the age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
 disease.xmit_hh_child = 0.6 0.6 0.3 0.3 0.3 0.3
+# Transmission probabilites at the neighborhood cluster level, where the infectious agent is an adult,
+# for the age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
 disease.xmit_nc_adult = 0.04 0.04 0.05 0.05 0.05 0.05
+# Transmission probabilites at the neighborhood cluster level, where the infectious agent is a child,
+# for the age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
 disease.xmit_nc_child = 0.075 0.075 0.04 0.04 0.04 0.04
+# Transmission probabilites within schools, where both agents are adults or both are children,
+# for school levels none, college, high, middle, elementary, daycare. Ignored for none.
 disease.xmit_school = 0 0.0315 0.0315 0.0375 0.0435 0.15
+# Transmission probabilites within schools, where transmitter is an adult and receiver is a child,
+# for school levels none, college, high, middle, elementary, daycare. Ignored for none.
 disease.xmit_school_a2c = 0 0.0315 0.0315 0.0375 0.0435 0.15
+# Transmission probabilites within schools, where transmitter is a child and receiver is an adult,
+# for school levels none, college, high, middle, elementary, daycare. Ignored for none.
 disease.xmit_school_c2a = 0 0.0315 0.0315 0.0375 0.0435 0.15
 
+# Probability of hospitalization when disease symptoms first appear, for age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
 disease.CHR = 0.0104 0.0104 0.070 0.28 0.28 1.0
+# Probability of moving from hospitalization to ICU, for age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
 disease.CIC = 0.24 0.24 0.24 0.36 0.36 0.35
+# Probability of moving from ICU to ventilator, for age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
 disease.CVE = 0.12 0.12 0.12 0.22 0.22 0.22
+# Probability of death when in hospital, for age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
 disease.hospCVF = 0 0 0 0 0 0
+# Probability of death when in the ICU, for age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
 disease.icuCVF = 0 0 0 0 0 0.26
+# Probability of death when on a ventilator, for age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
 disease.ventCVF = 0.20 0.20 0.20 0.45 0.45 1.0
