@@ -1,9 +1,9 @@
-/*! @file InteractionModRandom.H
- * \brief Contains the class describing agent interactions for random travel
+/*! @file InteractionModAirTravel.H
+ * \brief Contains the class describing agent interactions for air travel
  */
 
-#ifndef _INTERACTION_MOD_RANDOM_H_
-#define _INTERACTION_MOD_RANDOM_H_
+#ifndef _INTERACTION_MOD_AIRTRAVEL_H_
+#define _INTERACTION_MOD_AIRTRAVEL_H_
 
 #include "InteractionModel.H"
 #include "DiseaseParm.H"
@@ -14,10 +14,10 @@ using namespace amrex;
 /*! \brief One-on-one interaction between an infectious agent and a susceptible agent.
  *
  * This function defines the one-on-one interaction between an infectious agent and a
- * susceptible agent on random travel. */
+ * susceptible agent on air travel. */
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-static void binaryInteractionRandom ( const int a_i, /*!< Index of infectious agent */
+static void binaryInteractionAirTravel ( const int a_i, /*!< Index of infectious agent */
                                       const int a_j, /*!< Index of susceptible agent */
                                       const PTDType& a_ptd_i, /*!< Particle tile data for infectious agent */
                                       const PTDType& a_ptd_j, /*!< Particle tile data for susceptible agent*/
@@ -38,6 +38,9 @@ static void binaryInteractionRandom ( const int a_i, /*!< Index of infectious ag
     auto random_travel_ptr_i = a_ptd_i.m_idata[IntIdx::random_travel];
     auto random_travel_ptr_j = a_ptd_j.m_idata[IntIdx::random_travel];
     if (random_travel_ptr_i[a_i] || random_travel_ptr_j[a_j]) {return;}
+    auto air_travel_ptr_i = a_ptd_i.m_idata[IntIdx::air_travel];
+    auto air_travel_ptr_j = a_ptd_j.m_idata[IntIdx::air_travel];
+    if (air_travel_ptr_i[a_i] || air_travel_ptr_j[a_j]) {return;}
 
     //infect *= i_mask;
     //infect *= j_mask;
@@ -63,24 +66,24 @@ static void binaryInteractionRandom ( const int a_i, /*!< Index of infectious ag
     Gpu::Atomic::Multiply(&a_prob_ptr[a_j], prob);
 }
 
-/*! \brief Class describing agent interactions for random travel */
+/*! \brief Class describing agent interactions for air travel */
 template <typename AC, typename ACT, typename ACTD, typename A>
-class InteractionModRandom : public InteractionModel<AC,ACT,ACTD,A>
+class InteractionModAirTravel : public InteractionModel<AC,ACT,ACTD,A>
 {
     public:
 
         /*! \brief null constructor */
-        InteractionModRandom() { }
+        InteractionModAirTravel() { }
 
         /*! \brief default destructor */
-        virtual ~InteractionModRandom() = default;
+        virtual ~InteractionModAirTravel() = default;
 
-        /*! \brief Simulate agent interaction for random travel */
+        /*! \brief Simulate agent interaction for air travel */
         void interactAgents( AC&, MultiFab&) override {
             amrex::Abort("Do not use this interface for this interaction model");
         }
 
-        /*! \brief Simulate agent interaction for random travel */
+        /*! \brief Simulate agent interaction for air travel */
         void interactAgents( AC&, MultiFab&, AC&) override ;
 
     protected:
@@ -88,14 +91,14 @@ class InteractionModRandom : public InteractionModel<AC,ACT,ACTD,A>
     private:
 };
 
-/*! Simulate the interactions for agents on random travel
+/*! Simulate the interactions for agents on air travel
 */
 template <typename AC, typename ACT, typename ACTD, typename A>
-void InteractionModRandom<AC,ACT,ACTD,A>::interactAgents(AC& a_agents, /*!< Agent container */
+void InteractionModAirTravel<AC,ACT,ACTD,A>::interactAgents(AC& a_agents, /*!< Agent container */
                                                          MultiFab& /*a_mask*/, /*!< Masking behavior */
-                                                         AC& a_on_random_travel)
+                                                         AC& a_on_air_travel)
 {
-    BL_PROFILE("InteractionModRandom::interactAgents");
+    BL_PROFILE("InteractionModAirTravel::interactAgents");
     int n_disease = a_agents.numDiseases();
 
     IntVect bin_size = {AMREX_D_DECL(1, 1, 1)};
@@ -107,9 +110,9 @@ void InteractionModRandom<AC,ACT,ACTD,A>::interactAgents(AC& a_agents, /*!< Agen
         const auto domain = geom.Domain();
 
         this->makeBins( a_agents, bin_size, lev, ExaEpi::InteractionNames::home );
-        this->makeBins( a_on_random_travel, bin_size, lev, ExaEpi::InteractionNames::random );
+        this->makeBins( a_on_air_travel, bin_size, lev, ExaEpi::InteractionNames::airTravel );
 
-        // we make two passes here, in the first case, agents on random travel infect local agents
+        // we make two passes here, in the first case, agents on air travel infect local agents
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -117,11 +120,11 @@ void InteractionModRandom<AC,ACT,ACTD,A>::interactAgents(AC& a_agents, /*!< Agen
         {
             auto pair_ind = std::make_pair(mfi.index(), mfi.LocalTileIndex());
             auto bins_ptr = a_agents.getBins(pair_ind, ExaEpi::InteractionNames::home);
-            auto travel_bins_ptr = a_on_random_travel.getBins(pair_ind, ExaEpi::InteractionNames::random);
+            auto travel_bins_ptr = a_on_air_travel.getBins(pair_ind, ExaEpi::InteractionNames::airTravel);
 
             auto& ptile = a_agents.ParticlesAt(lev, mfi);
             const auto& ptd = ptile.getParticleTileData();
-            auto& travel_ptile = a_on_random_travel.ParticlesAt(lev, mfi);
+            auto& travel_ptile = a_on_air_travel.ParticlesAt(lev, mfi);
             const auto& travel_ptd = travel_ptile.getParticleTileData();
 
             auto& aos   = ptile.GetArrayOfStructs();
@@ -163,7 +166,7 @@ void InteractionModRandom<AC,ACT,ACTD,A>::interactAgents(AC& a_agents, /*!< Agen
 
                         if ( isInfectious<ACTD>(j, travel_ptd, d) ) {
                             Real social_scale = 1.0_prt;  // TODO this should vary based on cell
-                            binaryInteractionRandom<ACTD>( j, i, travel_ptd, ptd, lparm, social_scale, prob_ptr );
+                            binaryInteractionAirTravel<ACTD>( j, i, travel_ptd, ptd, lparm, social_scale, prob_ptr );
                         }
                     }
                 });
@@ -179,11 +182,11 @@ void InteractionModRandom<AC,ACT,ACTD,A>::interactAgents(AC& a_agents, /*!< Agen
         {
             auto pair_ind = std::make_pair(mfi.index(), mfi.LocalTileIndex());
             auto bins_ptr = a_agents.getBins(pair_ind, ExaEpi::InteractionNames::home);
-            auto travel_bins_ptr = a_on_random_travel.getBins(pair_ind, ExaEpi::InteractionNames::random);
+            auto travel_bins_ptr = a_on_air_travel.getBins(pair_ind, ExaEpi::InteractionNames::airTravel);
 
             auto& ptile = a_agents.ParticlesAt(lev, mfi);
             const auto& ptd = ptile.getParticleTileData();
-            auto& travel_ptile = a_on_random_travel.ParticlesAt(lev, mfi);
+            auto& travel_ptile = a_on_air_travel.ParticlesAt(lev, mfi);
             const auto& travel_ptd = travel_ptile.getParticleTileData();
 
             auto& aos   = ptile.GetArrayOfStructs();
@@ -199,7 +202,7 @@ void InteractionModRandom<AC,ACT,ACTD,A>::interactAgents(AC& a_agents, /*!< Agen
 
             for (int d = 0; d < n_disease; d++) {
 
-                auto prob_ptr = this->getAgentProbPtr(a_on_random_travel,lev,mfi,d);
+                auto prob_ptr = this->getAgentProbPtr(a_on_air_travel,lev,mfi,d);
                 //auto mask_arr = a_mask[mfi].array();
                 auto lparm = a_agents.getDiseaseParameters_d(d);
 
@@ -225,7 +228,7 @@ void InteractionModRandom<AC,ACT,ACTD,A>::interactAgents(AC& a_agents, /*!< Agen
 
                         if ( isInfectious<ACTD>(j, ptd, d) ) {
                             Real social_scale = 1.0_prt;  // TODO this should vary based on cell
-                            binaryInteractionRandom<ACTD>( j, i, ptd, travel_ptd, lparm, social_scale, prob_ptr );
+                            binaryInteractionAirTravel<ACTD>( j, i, ptd, travel_ptd, lparm, social_scale, prob_ptr );
                         }
                     }
                 });

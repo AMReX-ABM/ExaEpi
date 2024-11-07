@@ -11,7 +11,7 @@
 #include <AMReX_iMultiFab.H>
 
 #include "AgentContainer.H"
-#include "DemographicData.H"
+#include "CensusData.H"
 
 #include <string>
 
@@ -24,20 +24,14 @@ namespace IO
 {
 
     void writePlotFile (    const AgentContainer& pc,
-                            const amrex::iMultiFab& num_residents,
-                            const amrex::iMultiFab& unit_mf,
-                            const amrex::iMultiFab& FIPS_mf,
-                            const amrex::iMultiFab& comm_mf,
+                            const CensusData& censusData,
                             const int num_diseases,
                             const std::vector<std::string>& disease_names,
                             const amrex::Real cur_time,
                             const int step);
 
     void writeFIPSData (    const AgentContainer& pc,
-                            const amrex::iMultiFab& unit_mf,
-                            const amrex::iMultiFab& FIPS_mf,
-                            const amrex::iMultiFab& comm_mf,
-                            const DemographicData& demo,
+                            const CensusData& censusData,
                             const std::string& prefix,
                             const int num_diseases,
                             const std::vector<std::string>& disease_names,

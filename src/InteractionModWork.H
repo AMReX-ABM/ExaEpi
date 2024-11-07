@@ -10,173 +10,139 @@
 
 using namespace amrex;
 
+
+template <typename ParticleType>
+struct GetWorkerBin
+{
+    GpuArray<Real,AMREX_SPACEDIM> plo;
+    GpuArray<Real,AMREX_SPACEDIM> dxi;
+    Box domain;
+    IntVect bin_size;
+    Box box;
+    int max_wg;
+
+    AMREX_GPU_HOST_DEVICE
+    unsigned int operator() (const ParticleType& p) const noexcept
+    {
+        Box tbx;
+        auto iv = getParticleCell(p, plo, dxi, domain);
+        auto tid = getTileIndex(iv, box, true, bin_size, tbx);
+        auto wg = p.idata(0);
+        return static_cast<unsigned int>(tid * max_wg + wg);
+    }
+};
+
 /*! \brief One-on-one interaction between an infectious agent and a susceptible agent.
  *
  * This function defines the one-on-one interaction between an infectious agent and a
  * susceptible agent at work. */
 template <typename PTDType>
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-static void binaryInteractionWork ( const int a_i, /*!< Index of infectious agent */
-                                    const int a_j, /*!< Index of susceptible agent */
-                                    const PTDType& a_ptd, /*!< Particle tile data */
-                                    const DiseaseParm* const a_lparm, /*!< disease paramters */
-                                    const Real a_work_scale, /*!< Work scale */
-                                    ParticleReal* const a_prob_ptr, /*!< infection probability */
-                                    const int a_thread /*!< agent index of this thread */)
-{
-    Real infect = a_lparm->infect;
-    infect *= (1.0_rt - a_lparm->vac_eff);
-
-    auto work_i_ptr = a_ptd.m_idata[IntIdx::work_i];
-    auto workgroup_ptr = a_ptd.m_idata[IntIdx::workgroup];
-    auto withdrawn_ptr = a_ptd.m_idata[IntIdx::withdrawn];
-    if (withdrawn_ptr[a_i] || withdrawn_ptr[a_j]) { return; }
-    auto random_travel_ptr = a_ptd.m_idata[IntIdx::random_travel];
-    if ((random_travel_ptr[a_i] >= 0) || (random_travel_ptr[a_j] >= 0)) {return;}
-
-    //infect *= i_mask;
-    //infect *= j_mask;
-    ParticleReal prob = 1.0_prt;
-
-    /* Workgroup transmission */
-    if (workgroup_ptr[a_i] && (work_i_ptr[a_i] >= 0)) { // transmitter i at work
-        if ((work_i_ptr[a_j] >= 0) && (workgroup_ptr[a_i] == workgroup_ptr[a_j])) {  // coworker
-            prob *= 1.0_prt - infect * a_lparm->xmit_work * a_work_scale;
-        }
+struct BinaryInteractionWork {
+    AMREX_GPU_HOST_DEVICE
+    ParticleReal operator() (const int infectious_i,
+                             const int susceptible_i,
+                             const PTDType& a_ptd,
+                             const DiseaseParm* const a_lparm,
+                             const Real a_work_scale) const noexcept {
+        AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::workgroup][infectious_i] == a_ptd.m_idata[IntIdx::workgroup][susceptible_i]);
+        AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::work_i][infectious_i] == a_ptd.m_idata[IntIdx::work_i][susceptible_i] &&
+                            a_ptd.m_idata[IntIdx::work_j][infectious_i] == a_ptd.m_idata[IntIdx::work_j][susceptible_i]);
+        //infect *= i_mask;
+        //infect *= j_mask;
+        return a_lparm->xmit_work * a_work_scale;
     }
+};
 
-    AMREX_ASSERT(a_j == a_thread);
-    a_prob_ptr[a_j] *= prob;
-}
+template <typename PTDType>
+struct WorkCandidate {
+    AMREX_GPU_HOST_DEVICE
+    bool operator() (const int idx, const PTDType& ptd) const noexcept {
+        return !isHospitalized(idx, ptd) &&
+                ptd.m_idata[IntIdx::work_i][idx] >= 0 &&
+                ptd.m_idata[IntIdx::workgroup][idx] > 0 &&
+                !ptd.m_idata[IntIdx::withdrawn][idx] &&
+                ptd.m_idata[IntIdx::air_travel][idx] < 0 &&
+                ptd.m_idata[IntIdx::random_travel][idx] < 0;
+    }
+};
+
 
 /*! \brief Class describing agent interactions at work */
-template <typename AC, typename ACT, typename ACTD, typename A>
-class InteractionModWork : public InteractionModel<AC,ACT,ACTD,A>
+template <typename PCType, typename PTDType, typename PType>
+class InteractionModWork : public InteractionModel<PCType, PTDType, PType>
 {
     public:
 
         /*! \brief null constructor */
-        InteractionModWork() { }
+        InteractionModWork (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
 
         /*! \brief default destructor */
-        virtual ~InteractionModWork() = default;
+        virtual ~InteractionModWork () = default;
 
         /*! \brief Simulate agent interaction at work */
-        virtual void interactAgents( AC&, MultiFab& ) override;
-
-        /*! \brief Simulate agent interaction at work */
-        virtual void interactAgents( AC&, MultiFab&, AC& ) override {
-            amrex::Abort("Do not use this interface for this interaction model");
+        virtual void interactAgents (PCType& agents, MultiFab&) override {
+#ifdef FAST_INTERACTIONS
+            fastInteractWork(agents);
+#else
+            interactAgentsImpl<InteractionModWork<PCType, PTDType, PType>, PCType, PTDType,
+                               WorkCandidate<PTDType>,
+                               BinaryInteractionWork<PTDType>>(*this, agents, IntIdx::workgroup);
+#endif
         }
 
-    protected:
+        void fastInteractWork (PCType &agents);
 
-    private:
 };
 
-/*! Simulate the interactions between agents at workplace and compute
-    the infection probability for each agent:
+template <typename PCType, typename PTDType, typename PType>
+void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agents) {
+    BL_PROFILE(__func__);
+    int n_disease = agents.numDiseases();
 
-    + Create bins of agents if not already created (see
-      #amrex::GetParticleBin, #amrex::DenseBins):
-      + The bin size is 1 cell
-      + #amrex::GetParticleBin maps a particle to its bin index
-      + amrex::DenseBins::build() creates the bin-sorted array of particle indices and
-        the offset array for each bin (where the offset of a bin is its starting location
-        in the bin-sorted array of particle indices).
+    WorkCandidate<PTDType> isCandidate;
 
-    + For each agent *i* in the bin-sorted array of agents:
-      + Find its bin and the range of indices in the bin-sorted array for agents in its bin
-      + If the agent is #Status::immune, do nothing.
-      + If the agent is #Status::infected with the number of days infected (RealIdxDisease::disease_counter)
-        less than the incubation length, do nothing.
-      + Else, for each agent *j* in the same bin:
-        + If the agent is #Status::immune, do nothing.
-        + If the agent is #Status::infected with the number of days infected (RealIdxDisease::disease_counter)
-          less than the incubation length, do nothing.
-        + Else if *i* is not infected and *j* is infected, compute probability of *i* getting infected
-          from *j* (see below).
-
-    Summary of how the probability of agent A getting infected from agent B is computed:
-    + Compute infection probability reduction factor from vaccine efficacy (#DiseaseParm::vac_eff)
-    + At workplace - if agents are at work, and B has a workgroup and work location assigned: If A
-      and B have the same workgroup and work location, use the workplace transmission
-      probability (#DiseaseParm::xmit_work).
-*/
-template <typename AC, typename ACT, typename ACTD, typename A>
-void InteractionModWork<AC,ACT,ACTD,A>::interactAgents(AC& a_agents, /*!< Agent container */
-                                                       MultiFab& /*a_mask*/ /*!< Masking behavior */)
-{
-    BL_PROFILE("InteractionModWork::interactAgents");
-    int n_disease = a_agents.numDiseases();
-
-    IntVect bin_size = {AMREX_D_DECL(1, 1, 1)};
-    for (int lev = 0; lev < a_agents.numLevels(); ++lev)
-    {
-        const Geometry& geom = a_agents.Geom(lev);
-        const auto dxi = geom.InvCellSizeArray();
-        const auto plo = geom.ProbLoArray();
-        const auto domain = geom.Domain();
-
-        this->makeBins( a_agents, bin_size, lev, ExaEpi::InteractionNames::work );
-
+    for (int lev = 0; lev < agents.numLevels(); ++lev) {
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for(MFIter mfi = a_agents.MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
-        {
-            auto pair_ind = std::make_pair(mfi.index(), mfi.LocalTileIndex());
-            auto bins_ptr = a_agents.getBins(pair_ind, ExaEpi::InteractionNames::work);
-
-            auto& ptile = a_agents.ParticlesAt(lev, mfi);
+        for (MFIter mfi = agents.MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            auto& ptile = agents.ParticlesAt(lev, mfi);
             const auto& ptd = ptile.getParticleTileData();
-            auto& aos   = ptile.GetArrayOfStructs();
-            const auto np = aos.numParticles();
-            auto pstruct_ptr = aos().dataPtr();
+            const auto np = ptile.GetArrayOfStructs().numParticles();
+            auto& soa = ptile.GetStructOfArrays();
+            auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
 
-            auto binner = GetParticleBin{plo, dxi, domain, bin_size, mfi.validbox()};
-            AMREX_ALWAYS_ASSERT(bins_ptr->numBins() >= 0);
-            auto inds = bins_ptr->permutationPtr();
-            auto offsets = bins_ptr->offsetsPtr();
+            GetCommunityIndex<PTDType> getCommunityIndex(agents.Geom(lev), mfi.validbox());
+
+            int max_communities = getCommunityIndex.max();
+            int max_workgroup = agents.getMaxGroup(IntIdx::workgroup) + 1;
+            AMREX_ALWAYS_ASSERT(max_workgroup <= np);
+
 
             for (int d = 0; d < n_disease; d++) {
+                Gpu::DeviceVector<int> infected_workgroup_d(max_communities * max_workgroup, 0);
+                auto infected_workgroup_d_ptr = infected_workgroup_d.data();
 
-                auto prob_ptr = this->getAgentProbPtr(a_agents,lev,mfi,d);
-                //auto mask_arr = a_mask[mfi].array();
-                auto lparm = a_agents.getDiseaseParameters_d(d);
+                auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
+                auto lparm = agents.getDiseaseParameters_d(d);
+                auto lparm_h = agents.getDiseaseParameters_h(d);
+                Real scale = 1.0_prt;  // TODO this should vary based on cell
+                Real infect = lparm_h->infect * (1.0_rt - lparm_h->vac_eff);
 
-                ParallelForRNG( bins_ptr->numItems(),
-                                [=] AMREX_GPU_DEVICE (int ii, RandomEngine const& /*engine*/)
-                                noexcept
-                {
-                    auto i = inds[ii];
-                    int i_cell = binner(pstruct_ptr[i]);
-                    auto cell_start = offsets[i_cell];
-                    auto cell_stop  = offsets[i_cell+1];
+                ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
+                    if (isInfectious(i, ptd, d) && isCandidate(i, ptd)) {
+                        auto community = getCommunityIndex(ptd, i);
+                        Gpu::Atomic::Add(&infected_workgroup_d_ptr[community * max_workgroup + workgroup_ptr[i]], 1);
+                    }
+                });
+                Gpu::synchronize();
 
-                    AMREX_ALWAYS_ASSERT( (Long) i < np);
-
-                    if ( notSusceptible<ACTD>(i, ptd, d) )  { return; }
-                    if ( isHospitalized(i, ptd) )  { return; }
-
-                    //Real i_mask = mask_arr(home_i_ptr[i], home_j_ptr[i], 0);
-                    for (auto jj = cell_start; jj < cell_stop; ++jj) {
-
-                        auto j = inds[jj];
-                        AMREX_ALWAYS_ASSERT( (Long) j < np);
-                        //Real j_mask = mask_arr(home_i_ptr[j], home_j_ptr[j], 0);
-                        if (i == j) continue;
-                        if ( isHospitalized(j, ptd) )  { continue; }
-
-                        if ( isInfectious<ACTD>(j, ptd, d) ) {
-                            Real work_scale = 1.0_prt;  // TODO this should vary based on cell
-                            binaryInteractionWork<ACTD>( j, i,
-                                                         ptd,
-                                                         lparm,
-                                                         work_scale,
-                                                         prob_ptr,
-                                                         i );
-                        }
+                ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
+                    if (isSusceptible(i, ptd, d) && isCandidate(i, ptd)) {
+                        auto community = getCommunityIndex(ptd, i);
+                        int num_infected_workgroup = infected_workgroup_d_ptr[community * max_workgroup + workgroup_ptr[i]];
+                        ParticleReal workgroup_prob = 1.0_prt - infect * lparm->xmit_work * scale;
+                        prob_ptr[i] *= static_cast<ParticleReal>(std::pow(workgroup_prob, num_infected_workgroup));
                     }
                 });
                 Gpu::synchronize();
@@ -184,5 +150,7 @@ void InteractionModWork<AC,ACT,ACTD,A>::interactAgents(AC& a_agents, /*!< Agent 
         }
     }
 }
+
+
 
 #endif

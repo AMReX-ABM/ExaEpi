@@ -29,9 +29,9 @@ struct RealIdxDisease
         treatment_timer = 0,    /*!< Timer since hospital admission */
         disease_counter,        /*!< Counter since start of infection */
         prob,                   /*!< Probability of infection */
-        incubation_period,      /*!< Time until infectious */
+        latent_period,          /*!< Time until infectious */
         infectious_period,      /*!< Length of time infectious */
-        symptomdev_period,      /*!< Time until symptoms would develop */
+        incubation_period,      /*!< Time until symptoms would develop */
         nattribs                /*!< number of real-type attribute*/
     };
 };
@@ -48,12 +48,15 @@ struct IntIdx
         work_j          /*!< work location index */,
         hosp_i          /*!< hosp location index */,
         hosp_j          /*!< hosp location index */,
+        trav_i          /*!< air travel location index */,
+        trav_j          /*!< air travel location index */,
         nborhood,       /*!< home neighborhood ID */
         school,         /*!< school type (elementary, middle, high, none) */
         workgroup,      /*!< workgroup ID */
         work_nborhood,  /*!< work neighborhood ID */
         withdrawn,      /*!< quarantine status */
         random_travel,  /*!< on long distance travel? */
+        air_travel,     /*!< on long distance travel by Air? */
         nattribs        /*!< number of integer-type attribute */
     };
 };
@@ -163,7 +166,7 @@ bool notInfectiousButInfected ( const int      a_idx, /*!< Agent index */
 {
     return (    (a_ptd.m_runtime_idata[i0(a_d)+IntIdxDisease::status][a_idx] == Status::infected)
              && (a_ptd.m_runtime_rdata[r0(a_d)+RealIdxDisease::disease_counter][a_idx]
-                 <= a_ptd.m_runtime_rdata[r0(a_d)+RealIdxDisease::incubation_period][a_idx]) );
+                 <= a_ptd.m_runtime_rdata[r0(a_d)+RealIdxDisease::latent_period][a_idx]) );
 }
 
 /*! \brief Is an agent infectious? */
@@ -175,7 +178,7 @@ bool isInfectious ( const int      a_idx, /*!< Agent index */
 {
     return (   (a_ptd.m_runtime_idata[i0(a_d)+IntIdxDisease::status][a_idx] == Status::infected)
             && (a_ptd.m_runtime_rdata[r0(a_d)+RealIdxDisease::disease_counter][a_idx]
-                >= a_ptd.m_runtime_rdata[r0(a_d)+RealIdxDisease::incubation_period][a_idx]) );
+                >= a_ptd.m_runtime_rdata[r0(a_d)+RealIdxDisease::latent_period][a_idx]) );
 }
 
 /*! \brief Is an agent susceptible? */
@@ -211,5 +214,15 @@ bool isHospitalized ( const int      a_idx, /*!< Agent index */
     return (   (a_ptd.m_idata[IntIdx::hosp_i][a_idx] >= 0)
             && (a_ptd.m_idata[IntIdx::hosp_j][a_idx] >= 0) );
 }
+
+/*! \brief Is agent an adult? */
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+bool isAnAdult (const int      a_idx, /*!< Agent index */
+                const PTDType& a_ptd  /*!< Particle tile data */ )
+{
+    return a_ptd.m_idata[IntIdx::age_group][a_idx] > 1;
+}
+
 
 #endif

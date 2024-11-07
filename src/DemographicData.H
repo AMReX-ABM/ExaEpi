@@ -17,9 +17,9 @@ struct DemographicData
     DemographicData () {}
 
     /*! \brief Constructor with initializes from a given census file */
-    DemographicData (const::std::string& fname);
+    DemographicData (const::std::string& fname, const int workgroup_size);
 
-    void InitFromFile (const std::string& fname);
+    void InitFromFile (const std::string& fname, const int workgroup_size);
 
     void Print () const;
 
@@ -36,6 +36,7 @@ struct DemographicData
                         Tract;  /*!< Census tract array */
     amrex::Vector<int> Start;         /*!< Starting community number for each unit */
     amrex::Vector<int> Population;    /*!< Population of each unit */
+    std::map<int, int> CountyPop; /*!< Population of each county */
     amrex::Vector<int> N5,      /*!< number of people in age-group: under-5 */
                        N17,     /*!< number of people in age-group: 5-17 */
                        N29,     /*!< number of people in age-group: 18-29 */
@@ -73,6 +74,8 @@ struct DemographicData
     amrex::Gpu::DeviceVector<int> Ndaywork_d; /*!< Number of daytime workers (GPU device) */
     amrex::Gpu::DeviceVector<int> myIDtoUnit_d; /*!< Given myID #, what Unit # is it? (GPU device) */
     amrex::Gpu::DeviceVector<int> Unit_on_proc_d; /*!< Is any part of this unit on this processor? (GPU device) */
+
+    static const int COMMUNITY_SIZE = 2000;
 };
 
 #endif

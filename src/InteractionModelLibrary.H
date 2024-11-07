@@ -5,10 +5,10 @@
 #define _INTERACTION_MOD_LIB__H_
 
 #include "InteractionModel.H"
-#include "InteractionModGeneric.H"
+//#include "InteractionModGeneric.H"
 #include "InteractionModHome.H"
-#include "InteractionModNborhood.H"
-#include "InteractionModRandom.H"
+#include "InteractionModHomeNborhood.H"
+#include "InteractionModWorkNborhood.H"
 #include "InteractionModSchool.H"
 #include "InteractionModWork.H"
 

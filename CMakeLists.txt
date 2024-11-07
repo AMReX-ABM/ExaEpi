@@ -5,6 +5,9 @@ project( ExaEpi
    #VERSION  ${AMREX_PKG_VERSION}
    )
 
+# Defines a DEBUG symbol for use in the code
+add_compile_options("$<$<CONFIG:DEBUG>:-DDEBUG>")
+
 set( CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake )
 
 set(AMReX_PARTICLES       ON)
@@ -72,3 +75,4 @@ foreach (_subdir IN LISTS AMREX_AGENT_SUBDIRS)
       add_subdirectory(${_dir})
    endforeach ()
 endforeach ()
+

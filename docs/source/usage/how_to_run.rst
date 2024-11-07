@@ -33,10 +33,8 @@ The following are inputs for the overall simulation:
 * ``agent.disease_names`` (vector of `strings`)
     Names of the diseases; the size of the vector must be the same as ``agent.number_of_diseases``.
     If unspecified, the disease names are set as ``default00``, ``default01``, ``...``.
-* ``agent.ic_type`` (`string`: either ``"census"`` or ``"demo"``)
+* ``agent.ic_type`` (`string`: either ``"census"``)
     If ``"census"``, initial conditions will be read from the provided census data file.
-    If ``"demo"``, agents will be initialized according to a power law distribution.
-    Note that the ``"demo"`` `ic_type` is deprecated and will be removed in the future.
 * ``agent.census_filename`` (`string`)
     The path to the ``*.dat`` file containing the census data used to set initial conditions.
     Must be provided if ``ic_type`` is ``"census"``. Examples of these data files are provided
@@ -45,6 +43,10 @@ The following are inputs for the overall simulation:
     The path to the ``*.bin`` file containing worker flow information.
     Must be provided if ``ic_type`` is ``"census"``. Examples of these data files are provided
     in ``ExaEpi/data/CensusData``.
+* ``agent.airports_filename`` (`string`)
+    The path to the ``*.dat`` file containing available airports and the counties they serve.
+* ``agent.air_traffic_filename`` (`string`)
+    The path to the ``*.dat`` file containing passenger flows among airports.
 * ``agent.initial_case_type`` (vector of `strings`: each of which is either ``"random"`` or ``"file"``)
     The size of the vector must be the same as ``agent.number_of_diseases``.
     If ``random``, ``agent.num_initial_cases`` must be set.
@@ -74,6 +76,9 @@ The following are inputs for the overall simulation:
     The number of time steps between successive plot file writes.
 * ``agent.random_travel_int`` (`integer`)
     The number of time steps between long distance travel events - note that this is
+    currently only meaningful if `ic_type` = ``"census"``.
+* ``agent.air_travel_int`` (`integer`)
+    The number of time steps between air travel events - similar to random travel, this option is
     currently only meaningful if `ic_type` = ``"census"``.
 * ``agent.aggregated_diag_int``
     The number of time steps between writing aggregated data, for example wastewater data.

@@ -4,22 +4,24 @@ set(_sources
          AgentDefinitions.H
          AgentContainer.H
          AgentContainer.cpp
+         AirTravelFlow.H
+         AirTravelFlow.cpp
          CaseData.H
          CaseData.cpp
          DiseaseCoupling.H
+         CensusData.H
+         CensusData.cpp
          DiseaseParm.H
          DiseaseParm.cpp
          DemographicData.H
          DemographicData.cpp
-         Initialization.H
-         Initialization.cpp
          IO.H
          IO.cpp
          InteractionModel.H
-         InteractionModGeneric.H
+         #InteractionModGeneric.H
          InteractionModHome.H
-         InteractionModNborhood.H
-         InteractionModRandom.H
+         InteractionModHomeNborhood.H
+         InteractionModWorkNborhood.H
          InteractionModSchool.H
          InteractionModWork.H
          InteractionModelLibrary.H

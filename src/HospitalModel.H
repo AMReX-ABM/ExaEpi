@@ -12,31 +12,28 @@
 using namespace amrex;
 
 /*! \brief Class describing agent interactions and treatment at hospital */
-template <typename AC, typename ACT, typename ACTD, typename A>
-class HospitalModel : public InteractionModel<AC,ACT,ACTD,A>
+template <typename PCType, typename PTDType, typename PType>
+class HospitalModel : public InteractionModel<PCType, PTDType, PType>
 {
     public:
 
         /*! \brief null constructor */
-        HospitalModel() { }
+        HospitalModel (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
 
         /*! \brief default destructor */
-        virtual ~HospitalModel() = default;
+        virtual ~HospitalModel () = default;
 
         /*! \brief Simulate agent interaction at hospital */
-        virtual void interactAgents( AC&, MultiFab& ) override
+        virtual void interactAgents (PCType&, MultiFab&) override
         {
             // not yet implemented
         }
-
-        /*! \brief Simulate agent interaction in the hospital for agents on travel */
-        virtual void interactAgents( AC&, MultiFab&, AC& ) override {}
 
         using MFPtr = std::unique_ptr<MultiFab>;
         using MFPtrVec = std::vector<MFPtr>;
 
         /*! \brief Simulate treatment of agents in a hospital */
-        virtual void treatAgents( AC&, MFPtrVec& );
+        virtual void treatAgents (PCType&, MFPtrVec&);
 
     protected:
 
@@ -51,9 +48,9 @@ class HospitalModel : public InteractionModel<AC,ACT,ACTD,A>
       + Else: implement the treatment
               discharge once treatment is complete
 */
-template <typename AC, typename ACT, typename ACTD, typename A>
-void HospitalModel<AC,ACT,ACTD,A>::treatAgents(AC& a_agents, /*!< Agent container */
-                                               MFPtrVec& a_dstats /*!< disease stats */ )
+template <typename PCType, typename PTDType, typename PType>
+void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< Agent container */
+                                                        MFPtrVec& a_dstats /*!< disease stats */ )
 {
     BL_PROFILE("HospitalModel::interactAgents");
     int n_disease = a_agents.numDiseases();
@@ -74,7 +71,7 @@ void HospitalModel<AC,ACT,ACTD,A>::treatAgents(AC& a_agents, /*!< Agent containe
             const auto& ptd = ptile.getParticleTileData();
             auto& soa   = ptile.GetStructOfArrays();
             auto& aos   = ptile.GetArrayOfStructs();
-            A* pstruct = &(aos[0]);
+            PType* pstruct = &(aos[0]);
             const auto np = ptile.numParticles();
 
             auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
@@ -88,13 +85,13 @@ void HospitalModel<AC,ACT,ACTD,A>::treatAgents(AC& a_agents, /*!< Agent containe
             int r_RT = RealIdx::nattribs;
 
             GpuArray<int*,ExaEpi::max_num_diseases> status_ptrs, symptomatic_ptrs;
-            GpuArray<ParticleReal*,ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs, incub_per_ptrs;
+            GpuArray<ParticleReal*,ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs, latent_per_ptrs;
             for (int d = 0; d < n_disease; d++) {
                 status_ptrs[d] = soa.GetIntData(i_RT+i0(d)+IntIdxDisease::status).data();
                 symptomatic_ptrs[d] = soa.GetIntData(i_RT+i0(d)+IntIdxDisease::symptomatic).data();
                 counter_ptrs[d] = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::disease_counter).data();
                 timer_ptrs[d] = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::treatment_timer).data();
-                incub_per_ptrs[d] = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::incubation_period).data();
+                latent_per_ptrs[d] = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::latent_period).data();
             }
 
             Gpu::DeviceVector<int> is_alive;
@@ -139,7 +136,7 @@ void HospitalModel<AC,ACT,ACTD,A>::treatAgents(AC& a_agents, /*!< Agent containe
                         // agent is not in hospital
                         return;
                     }
-                    if (counter_ptrs[d][i] == Math::ceil(incub_per_ptrs[d][i])) {
+                    if (counter_ptrs[d][i] == Math::ceil(latent_per_ptrs[d][i])) {
                         // agent just started treatment
                         return;
                     }
@@ -240,7 +237,7 @@ void HospitalModel<AC,ACT,ACTD,A>::treatAgents(AC& a_agents, /*!< Agent containe
                         hosp_i_ptr[i] = -1;
                         hosp_j_ptr[i] = -1;
                         withdrawn_ptr[i] = 0;
-                        A& p = pstruct[i];
+                        PType& p = pstruct[i];
                         p.pos(0) = (home_i_ptr[i] + 0.5_prt)*dx[0];
                         p.pos(1) = (home_j_ptr[i] + 0.5_prt)*dx[1];
                     }

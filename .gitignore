@@ -4,3 +4,5 @@ docs/doxyhtml
 docs/doxyxml
 docs/exaepi-doxygen-web.tag.xml
 docs/amrex-doxygen-web.tag.xml
+.vscode
+.build
