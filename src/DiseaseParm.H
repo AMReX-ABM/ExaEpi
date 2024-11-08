@@ -76,7 +76,7 @@ struct DiseaseParm
     int nstrain = 1;  /*!< Number of strains */
     Real p_trans[1] = {Real(0.20)};     /*!< probability of transimission given contact */
     Real p_asymp[1] = {Real(0.40)};     /*!< fraction of cases that are asymptomatic */
-    Real reduced_inf[1] = {Real(0.75)}; /*!< relative infectiousness of asymptomatic individuals */
+    Real asymp_relative_inf[1] = {Real(0.75)}; /*!< relative infectiousness of asymptomatic individuals */
 
     Real vac_eff = Real(0.0); /*!< Vaccine efficacy */
 
@@ -101,7 +101,8 @@ struct DiseaseParm
      *  used in other parts of the code (#AgeGroups) */
     Real m_t_hosp[AgeGroups_Hosp::total] = {Real(3), Real(8), Real(7)};
     /*! Offset to separate the timers for hospital, ICU, and ventilator;
-     * needs to be greater than the maximum of #DiseaseParm::m_t_hosp */
+     * needs to be greater than the maximum of #DiseaseParm::m_t_hosp
+     * Set automatically when the hospital days are set. */
     Real m_t_hosp_offset = 10;
 
     /*! sick -> hospital probabilities */

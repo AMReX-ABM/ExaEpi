@@ -90,8 +90,8 @@ disease.nstrain = 1
 disease.p_trans = 0.2
 # Probability of being asymptomatic.
 disease.p_asymp = 0.4
-# Relative infectiousness of asymptomatic indivudals.
-disease.reduced_inf = 0.75
+# Relative infectiousness of asymptomatic indivudals. Curnently not implemented.
+disease.asymp_relative_inf = 0.75
 # Vaccine efficacy. Not yet implemented; leave at 0.
 disease.vac_eff = 0
 # Mean length in days that agents are immune after recovery from an infection.
@@ -107,9 +107,9 @@ disease.infectious_length_mean = 6.0
 # Standard deviation in days.
 disease.infectious_length_std = 1.0
 # Mean length in days from the time of infectioun untli symptoms develop.
-disease.incution_length_mean = 5.0
+disease.incubation_length_mean = 5.0
 # Standard deviation in days.
-disease.incution_length_std = 1.0
+disease.incubation_length_std = 1.0
 
 # Number of days in hospital for the age groups under 50, 50 to 64 and over 64.
 disease.hospitalization_days = 3 8 7

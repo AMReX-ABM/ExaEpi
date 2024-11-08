@@ -135,8 +135,9 @@ The following inputs specify the disease parameters:
     Probability of transmission given contact. There must be one entry for each disease strain.
 * ``disease.p_asymp`` (`list of float`, default ``0.4``)
     The fraction of cases that are asymptomatic. There must be one entry for each disease strain.
-* ``disease.reduced_inf`` (`list of float`, default ``0.75``)
-    The relative infectiousness of asymptomatic individuals. There must be one entry for each disease strain.
+* ``disease.asymp_relative_inf`` (`list of float`, default ``0.75``)
+    The relative infectiousness of asymptomatic individuals, from 0 to 1. There must be one entry for each disease strain.
+    `This is not yet implemented`.
 * ``disease.vac_eff`` (`float`, default ``0``)
     The vaccine efficacy - the probability of transmission will be multiplied by one minus this factor.
     `Vaccination is not yet implemented, so this factor must be left at 0`.

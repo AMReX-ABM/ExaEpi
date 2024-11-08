@@ -58,7 +58,7 @@ void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string
 
     queryArray(pp, "p_trans", p_trans, nstrain);
     queryArray(pp, "p_asymp", p_asymp, nstrain);
-    queryArray(pp, "reduced_inf", reduced_inf, nstrain);
+    queryArray(pp, "asymp_relative_inf", asymp_relative_inf, nstrain);
 
     pp.query("vac_eff", vac_eff);
     // no support yet for vaccinations
@@ -78,9 +78,10 @@ void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string
     pp.query("immune_length_mean", immune_length_mean);
     pp.query("immune_length_std", immune_length_std);
 
+    m_t_hosp_offset = 0;
     queryArray(pp, "hospitalization_days", m_t_hosp, AgeGroups_Hosp::total);
     for (int i = 0; i < AgeGroups_Hosp::total; i++) {
-        if (m_t_hosp[i] > m_t_hosp_offset) m_t_hosp_offset = m_t_hosp[i] + 1;
+        if (m_t_hosp[i] > m_t_hosp_offset) m_t_hosp_offset = m_t_hosp[i] + 3;
     }
 
     queryArray(pp, "CHR", m_CHR, AgeGroups::total);
