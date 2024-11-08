@@ -141,11 +141,9 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                                 [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept
                 {
                     prob_ptr[i] = 1.0_rt;
-                    if ( status_ptr[i] == Status::never ||
-                         status_ptr[i] == Status::susceptible ) {
+                    if (status_ptr[i] == Status::never || status_ptr[i] == Status::susceptible) {
                         return;
-                    }
-                    else if (status_ptr[i] == Status::immune) {
+                    } else if (status_ptr[i] == Status::immune) {
                         counter_ptr[i] -= 1.0_prt;
                         if (counter_ptr[i] < 0.0_prt) {
                             counter_ptr[i] = 0.0_prt;
@@ -153,39 +151,31 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                             status_ptr[i] = Status::susceptible;
                             return;
                         }
-                    }
-                    else if (status_ptr[i] == Status::infected) {
+                    } else if (status_ptr[i] == Status::infected) {
                         counter_ptr[i] += 1;
-                        if (counter_ptr[i] == 1) { // just infected
+                        if (counter_ptr[i] == 1) {
+                            // just infected, check to see if this agent will be asymptomatic
                             if (Random(engine) < disease_parm_d->p_asymp[0]) {
                                 symptomatic_ptr[i] = SymptomStatus::asymptomatic;
                             } else {
                                 symptomatic_ptr[i] = SymptomStatus::presymptomatic;
                             }
-                        }
-                        else if (counter_ptr[i] == Math::floor(incubation_period_ptr[i])) {
-                            if (symptomatic_ptr[i] != SymptomStatus::asymptomatic) {
-                                AMREX_ASSERT(symptomatic_ptr[i] == SymptomStatus::presymptomatic);
+                        } else if (counter_ptr[i] == Math::floor(incubation_period_ptr[i])) {
+                            AMREX_ASSERT(symptomatic_ptr[i] != SymptomStatus::symptomatic);
+                            // at end of incubation period, symptoms start to show unless asymptomatic
+                            if (symptomatic_ptr[i] == SymptomStatus::presymptomatic) {
                                 symptomatic_ptr[i] = SymptomStatus::symptomatic;
-                            }
-                            if (symptomatic_ptr[i] == SymptomStatus::symptomatic) {
                                 if (symptomatic_withdraw_compliance > 0.0_rt && (Random(engine) < symptomatic_withdraw_compliance)) {
                                     withdrawn_ptr[i] = 1;
                                 }
-                                int marked_for_ICU_i = 0, marked_for_vent_i = 0;
-                                Real num_days = 0;
-                                disease_parm_d->check_hospitalization( num_days,
-                                                                       marked_for_ICU_i,
-                                                                       marked_for_vent_i,
-                                                                       age_group_ptr[i],
-                                                                       engine );
-                                timer_ptr[i] = ParticleReal(num_days);
+                                disease_parm_d->check_hospitalization(&(timer_ptr[i]),
+                                                                      &(marked_for_ICU_ptr[i]),
+                                                                      &(marked_for_vent_ptr[i]),
+                                                                      age_group_ptr[i],
+                                                                      engine);
                                 if (timer_ptr[i] > 0) { marked_for_hosp_ptr[i] = 1; }
-                                if (marked_for_ICU_i) { marked_for_ICU_ptr[i] = 1; }
-                                if (marked_for_vent_i) { marked_for_vent_ptr[i] = 1; }
                             }
-                        }
-                        else if (!inHospital(i,ptd)) {
+                        } else if (!inHospital(i,ptd)) {
                             if (counter_ptr[i] >= (latent_period_ptr[i] + infectious_period_ptr[i])) {
                                 status_ptr[i] = Status::immune;
                                 counter_ptr[i] =
@@ -202,8 +192,8 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
 
             ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
             {
+                // check if not in hospital because this agent could have already been assigned a hospital for another disease
                 if (marked_for_hosp_ptr[i] == 1 && !inHospital(i, ptd)) {
-                    //AMREX_ALWAYS_ASSERT(!inHospital(i, ptd));
                     assign_hospital( i, hosp_i_ptr, hosp_j_ptr, ptd);
                 }
             });

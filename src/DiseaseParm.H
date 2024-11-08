@@ -86,13 +86,13 @@ struct DiseaseParm
     Real immune_length_mean = 30 * 6;  /*! mean immunity time in days*/
     Real immune_length_std = 30 * 2;  /*! spread in immunity time in days*/
 
-    Real latent_length_mean = 3.0;   /*!< mean time (in days) until infectious*/
+    Real latent_length_mean = 3.0;   /*!< mean time (in days) from initial infection until infectious*/
     Real latent_length_std = 1.0;   /*!< std dev (in days) for the above*/
 
-    Real infectious_length_mean = 6.0;   /*!< mean time (in days) agents are infectious */
+    Real infectious_length_mean = 6.0;   /*!< mean time (in days) agents are infectious, from the end of the latent period */
     Real infectious_length_std = 1.0;   /*!< std dev (in days) for the above */
 
-    Real incubation_length_mean = 5.0;   /*!< mean time (in days) until symptoms show */
+    Real incubation_length_mean = 5.0;   /*!< mean time (in days) from initial infection until symptoms show */
     Real incubation_length_std = 1.0;   /*!< std dev (in days) for the above */
 
 
@@ -131,25 +131,25 @@ struct DiseaseParm
      *  if so, compute number of hospitalization days and check if
      *  moved to ICU and ventilator */
     AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-    void check_hospitalization (Real& a_t_hosp, /*!< number of hospitalization days */
-                                int& a_ICU, /*!< moved to ICU ? */
-                                int& a_ventilator, /*!< moved to ventilator? */
+    void check_hospitalization (ParticleReal* a_t_hosp, /*!< number of hospitalization days */
+                                int* a_ICU, /*!< moved to ICU ? */
+                                int* a_ventilator, /*!< moved to ventilator? */
                                 const int a_age_group, /*!< age group */
                                 const amrex::RandomEngine& a_reng /*!< random engine */) const
     {
-        a_t_hosp = 0.0;
-        a_ICU = 0;
-        a_ventilator = 0;
+        *a_t_hosp = ParticleReal(0);
+        *a_ICU = 0;
+        *a_ventilator = 0;
         if (amrex::Random(a_reng) < m_CHR[a_age_group]) {
-            if (a_age_group == AgeGroups::o65) a_t_hosp = m_t_hosp[AgeGroups_Hosp::o65];
-            else if (a_age_group == AgeGroups::a50to64) a_t_hosp = m_t_hosp[AgeGroups_Hosp::a50to64];
-            else a_t_hosp = m_t_hosp[AgeGroups_Hosp::u50];
+            if (a_age_group == AgeGroups::o65) *a_t_hosp = m_t_hosp[AgeGroups_Hosp::o65];
+            else if (a_age_group == AgeGroups::a50to64) *a_t_hosp = m_t_hosp[AgeGroups_Hosp::a50to64];
+            else *a_t_hosp = m_t_hosp[AgeGroups_Hosp::u50];
             if (amrex::Random(a_reng) < m_CIC[a_age_group]) {
-                a_t_hosp += m_t_hosp_offset;  // move to ICU, adds 10 days (m_t_hosp_offset)
-                a_ICU = 1;
+                *a_t_hosp += m_t_hosp_offset;  // move to ICU, adds 10 days (m_t_hosp_offset)
+                *a_ICU = 1;
                 if (amrex::Random(a_reng) < m_CVE[a_age_group]) {
-                    a_t_hosp += m_t_hosp_offset;  // put on ventilator, adds another 10 days
-                    a_ventilator = 1;
+                    *a_t_hosp += m_t_hosp_offset;  // put on ventilator, adds another 10 days
+                    *a_ventilator = 1;
                 }
             }
         }
@@ -177,7 +177,7 @@ void setInfected ( int* status,
     *incubation_period =
         static_cast<ParticleReal>(amrex::RandomNormal(lparm->incubation_length_mean, lparm->incubation_length_std, engine));
     if (*latent_period < 0) { *latent_period = amrex::Real(0);}
-        if (*infectious_period < 0) { *infectious_period = amrex::Real(0);}
+    if (*infectious_period < 0) { *infectious_period = amrex::Real(0);}
     if (*incubation_period < 0) { *incubation_period = amrex::Real(0);}
     if (*incubation_period > (*infectious_period + *latent_period)) {
         *incubation_period = std::floor(*infectious_period + *latent_period);
