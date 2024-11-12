@@ -189,6 +189,8 @@ void runAgent ()
     mask_behavior.setVal(1);
 
     AgentContainer pc(geom, dm, ba, params.num_diseases, params.disease_names, params.fast);
+    bool stable_redistribute = !params.fast;
+    pc.setStableRedistribute(stable_redistribute);
     if (params.air_travel_int > 0) pc.setAirTravel(censusData.unit_mf, air, censusData.demo);
 
     {
