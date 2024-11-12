@@ -117,7 +117,7 @@ struct DiseaseCouplingParm
                 auto status = a_ptd.m_runtime_idata[i0(d)+IntIdxDisease::status][i];
                 auto flag_disease = static_cast<ParticleReal>(status == Status::immune);
                 auto imm_fac = coimm_mat_arr[idx1D(a_d,d,nd)] * flag_disease;
-                ci_arr[i] = std::max(ci_arr[i], imm_fac);
+                ci_arr[i] = std::max((ParticleReal)ci_arr[i], (ParticleReal)imm_fac);
             }
         });
     }
