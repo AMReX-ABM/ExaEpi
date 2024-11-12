@@ -84,7 +84,7 @@ struct TestParams
     int nborhood_size = 500;
     int workgroup_size = 20;
 
-    bool fast = true;       /*!< Use the fast implementations for various operations, e.g. binning, at the cost of
+    bool fast = false;       /*!< Use the fast implementations for various operations, e.g. binning, at the cost of
                                  exact reproducibility for a given random seed. */
 };
 
