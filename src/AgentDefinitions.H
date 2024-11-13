@@ -69,7 +69,6 @@ struct IntIdxDisease
 {
     enum {
         status = 0,     /*!< Disease status (#Status) */
-        strain,         /*!< virus strain */
         symptomatic,    /*!< currently symptomatic? 0: no, but will be, 1: yes, 2: no, and will remain so until recovered */
         nattribs        /*!< number of integer-type attribute */
     };

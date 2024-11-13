@@ -256,7 +256,6 @@ void runAgent ()
                  << "withdrawn "
                  << "random_travel "
                  << "status "
-                 << "strain "
                  << "symptomatic\n";
         agents_f.close();
     }

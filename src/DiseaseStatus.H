@@ -155,7 +155,7 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                         counter_ptr[i] += 1;
                         if (counter_ptr[i] == 1) {
                             // just infected, check to see if this agent will be asymptomatic
-                            if (Random(engine) < disease_parm_d->p_asymp[0]) {
+                            if (Random(engine) < disease_parm_d->p_asymp) {
                                 symptomatic_ptr[i] = SymptomStatus::asymptomatic;
                             } else {
                                 symptomatic_ptr[i] = SymptomStatus::presymptomatic;

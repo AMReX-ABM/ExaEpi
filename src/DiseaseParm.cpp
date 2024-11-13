@@ -52,13 +52,9 @@ void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string
     queryArray(pp, "xmit_school_a2c", xmit_school_a2c, SchoolType::total);
     queryArray(pp, "xmit_school_c2a", xmit_school_c2a, SchoolType::total);
 
-    pp.query("nstrain", nstrain);
-    // no support yet for multiple strains
-    AMREX_ALWAYS_ASSERT(nstrain < 2);
-
-    queryArray(pp, "p_trans", p_trans, nstrain);
-    queryArray(pp, "p_asymp", p_asymp, nstrain);
-    queryArray(pp, "asymp_relative_inf", asymp_relative_inf, nstrain);
+    pp.query("p_trans", p_trans);
+    pp.query("p_asymp", p_asymp);
+    pp.query("asymp_relative_inf", asymp_relative_inf);
 
     pp.query("vac_eff", vac_eff);
     // no support yet for vaccinations
@@ -109,21 +105,21 @@ void DiseaseParm::Initialize ()
     //  sch_compliance=0.3; sch_effect=2.0;
 
     // Multiply contact rates by transmission probability given contact
-    xmit_work *= p_trans[0];
+    xmit_work *= p_trans;
 
     for (int i = 0; i < AgeGroups::total; i++) {
-        xmit_comm[i] *= p_trans[0];
-        xmit_hood[i] *= p_trans[0];
-        xmit_nc_adult[i] *= p_trans[0];
-        xmit_nc_child[i] *= p_trans[0];
-        xmit_hh_adult[i] *= p_trans[0];
-        xmit_hh_child[i] *= p_trans[0];
+        xmit_comm[i] *= p_trans;
+        xmit_hood[i] *= p_trans;
+        xmit_nc_adult[i] *= p_trans;
+        xmit_nc_child[i] *= p_trans;
+        xmit_hh_adult[i] *= p_trans;
+        xmit_hh_child[i] *= p_trans;
     }
 
     for (int i = 0; i < 5; i++) {
-        xmit_school[i] *= p_trans[0];
-        xmit_school_a2c[i] *= p_trans[0];
-        xmit_school_c2a[i] *= p_trans[0];
+        xmit_school[i] *= p_trans;
+        xmit_school_a2c[i] *= p_trans;
+        xmit_school_c2a[i] *= p_trans;
     }
 
     /*

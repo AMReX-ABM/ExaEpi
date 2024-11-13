@@ -420,7 +420,6 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
             soa.GetRealData(r_RT + r0(d) + RealIdxDisease::infectious_period).assign(0.0_rt);
             soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).assign(0.0_rt);
             soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).assign(0);
-            soa.GetIntData(i_RT + i0(d) + IntIdxDisease::strain).assign(0);
             soa.GetIntData(i_RT + i0(d) + IntIdxDisease::symptomatic).assign(0);
         }
         auto np = soa.numParticles();

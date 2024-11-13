@@ -133,7 +133,6 @@ void writePlotFile (const AgentContainer& pc, /*!< Agent (particle) container */
             real_varnames.push_back("infectious_period"); write_real_comp.push_back(static_cast<int>(step==0));
             real_varnames.push_back("incubation_period"); write_real_comp.push_back(static_cast<int>(step==0));
             int_varnames.push_back ("status"); write_int_comp.push_back(1);
-            int_varnames.push_back ("strain"); write_int_comp.push_back(static_cast<int>(step==0));
             int_varnames.push_back ("symptomatic"); write_int_comp.push_back(1);
         } else {
             for (int d = 0; d < num_diseases; d++) {
@@ -144,7 +143,6 @@ void writePlotFile (const AgentContainer& pc, /*!< Agent (particle) container */
                 real_varnames.push_back(disease_names[d]+"_infectious_period"); write_real_comp.push_back(static_cast<int>(step==0));
                 real_varnames.push_back(disease_names[d]+"_incubation_period"); write_real_comp.push_back(static_cast<int>(step==0));
                 int_varnames.push_back (disease_names[d]+"_status"); write_int_comp.push_back(1);
-                int_varnames.push_back (disease_names[d]+"_strain"); write_int_comp.push_back(static_cast<int>(step==0));
                 int_varnames.push_back (disease_names[d]+"_symptomatic"); write_int_comp.push_back(1);
             }
         }

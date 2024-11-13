@@ -73,10 +73,9 @@ struct DiseaseParm
     /*! probability for transmission within a workgroup, independent of age group currently */
     Real xmit_work = Real(0.0575);
 
-    int nstrain = 1;  /*!< Number of strains */
-    Real p_trans[1] = {Real(0.20)};     /*!< probability of transimission given contact */
-    Real p_asymp[1] = {Real(0.40)};     /*!< fraction of cases that are asymptomatic */
-    Real asymp_relative_inf[1] = {Real(0.75)}; /*!< relative infectiousness of asymptomatic individuals */
+    Real p_trans = Real(0.20);     /*!< probability of transimission given contact */
+    Real p_asymp = Real(0.40);     /*!< fraction of cases that are asymptomatic */
+    Real asymp_relative_inf = Real(0.75); /*!< relative infectiousness of asymptomatic individuals */
 
     Real vac_eff = Real(0.0); /*!< Vaccine efficacy */
 

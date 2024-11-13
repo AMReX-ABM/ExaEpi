@@ -71,7 +71,6 @@ AgentContainer::AgentContainer (const amrex::Geometry            & a_geom,  /*!<
 
         /* Create the interaction model objects and push to container */
         m_interactions.clear();
-        //m_interactions[InteractionNames::generic] = new InteractionModGeneric<PCType,PTileType,PTDType,PType>;
         m_interactions[InteractionNames::home] = new InteractionModHome<PCType, PTDType, PType>(fast);
         m_interactions[InteractionNames::work] = new InteractionModWork<PCType, PTDType, PType>(fast);
         m_interactions[InteractionNames::school] = new InteractionModSchool<PCType, PTDType, PType>(fast);
