@@ -188,6 +188,8 @@ void runAgent ()
     mask_behavior.setVal(1);
 
     AgentContainer pc(geom, dm, ba, params.num_diseases, params.disease_names, params.fast, params.ic_type);
+    bool stable_redistribute = !params.fast;
+    pc.setStableRedistribute(stable_redistribute);
 
     {
         BL_PROFILE_REGION("Initialization");
