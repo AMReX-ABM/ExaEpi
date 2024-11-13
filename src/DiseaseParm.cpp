@@ -19,6 +19,17 @@ void queryArray(ParmParse &pp, const std::string& s, Real* a, int n) {
     }
 }
 
+void queryArray(ParmParse &pp, const std::string& s, int* a, int n) {
+    Vector<int> tmp(n, 0);
+    for (int i = 0; i < n; i++) {
+        tmp[i] = a[i];
+    }
+    pp.queryarr(s.c_str(), tmp, 0, n);
+    for (int i = 0; i < n; i++) {
+        a[i] = tmp[i];
+    }
+}
+
 /*! \brief Read disease inputs from input file */
 void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string */)
 {

@@ -184,5 +184,8 @@ void setInfected ( int* status,
     }
 }
 
+void queryArray(amrex::ParmParse &pp, const std::string& s, amrex::Real* a, int n);
+void queryArray(amrex::ParmParse &pp, const std::string& s, int* a, int n);
+
 
 #endif

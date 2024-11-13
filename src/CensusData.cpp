@@ -83,7 +83,7 @@ void assign_school (int* school_grade, int* school_id, const int age_group, cons
         // assume 50% in daycare
         if (Random_int(100, engine) < 50) {
             *school_grade = 0;
-            *school_id = SchoolCensusIDType::day_care_5 + nborhood; // one daycare per nborhood
+            *school_id = SchoolCensusIDType::daycare_5 + nborhood; // one daycare per nborhood
         } else {
             *school_grade = -1;
             *school_id = SchoolCensusIDType::none; // no school
@@ -457,8 +457,8 @@ void CensusData::initAgents (AgentContainer& pc,       /*!< Agents */
                 school_closed_ptr[ip] = 0;
 
                 // Increment the appropriate student counter based on the school assignment
-                if (school_id_ptr[ip] >= SchoolCensusIDType::day_care_5) {
-                    Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, SchoolCensusIDType::day_care_5 - 1), 1);
+                if (school_id_ptr[ip] >= SchoolCensusIDType::daycare_5) {
+                    Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, SchoolCensusIDType::daycare_5 - 1), 1);
                 } else if (school_id_ptr[ip] > SchoolCensusIDType::none) {
                     Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, school_id_ptr[ip] - 1), 1);
                 }
@@ -707,8 +707,13 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
             int comm = comm_arr(i, j, k);
             for (int s = 0; s < num_school_types; s++) {
-                teacher_counts_ptr[s][comm] = (int)(std::round((Real)student_counts_arr(i, j, k, s) / student_teacher_ratio));
+                //teacher_counts_ptr[s][comm] = (int)(std::round((Real)student_counts_arr(i, j, k, s);
             }
+            teacher_counts_ptr[SchoolCensusIDType::high_1 - 1][comm] /= student_teacher_ratio[SchoolType::high];
+            teacher_counts_ptr[SchoolCensusIDType::middle_2 - 1][comm] /= student_teacher_ratio[SchoolType::middle];
+            teacher_counts_ptr[SchoolCensusIDType::elem_3 - 1][comm] /= student_teacher_ratio[SchoolType::elem];
+            teacher_counts_ptr[SchoolCensusIDType::elem_4 - 1][comm] /= student_teacher_ratio[SchoolType::elem];
+            teacher_counts_ptr[SchoolCensusIDType::daycare_5 - 1][comm] /= student_teacher_ratio[SchoolType::daycare];
         });
     }
 #ifdef AMREX_USE_OMP
@@ -766,7 +771,7 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
                             school_grade_ptr[ip] = 5;  // 3rd grade - generic for elementary
                             work_nborhood_ptr[ip] = 2; // assuming the first elementary school is located in Neighbordhood 3
                             break;
-                        case SchoolCensusIDType::day_care_5:
+                        case SchoolCensusIDType::daycare_5:
                             school_grade_ptr[ip] = 0; // generic for daycare
                             work_nborhood_ptr[ip] = Random_int(4, engine); // randomly select nborhood
                             school_id_ptr[ip] += work_nborhood_ptr[ip];

@@ -164,7 +164,7 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                         if (isInfectious(i, ptd, d) && isCandidate(i, ptd) && isAnAdult(i, ptd) == adults) {
                             auto community = getCommunityIndex(ptd, i);
                             int pos = (community * max_school_id + school_id_ptr[i]) * max_school_grade + school_grade_ptr[i];
-                            if (getSchoolType(school_grade_ptr[i]) == SchoolType::day_care) {
+                            if (getSchoolType(school_grade_ptr[i]) == SchoolType::daycare) {
                                 Gpu::Atomic::Add(&infected_daycare_d_ptr[pos], 1);
                             } else {
                                 Gpu::Atomic::Add(&infected_school_d_ptr[pos], 1);
@@ -177,9 +177,9 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                         if (isSusceptible(i, ptd, d) && isCandidate(i, ptd)) {
                             auto community = getCommunityIndex(ptd, i);
                             int pos = (community * max_school_id + school_id_ptr[i]) * max_school_grade + school_grade_ptr[i];
-                            if (getSchoolType(school_grade_ptr[i]) == SchoolType::day_care) {
+                            if (getSchoolType(school_grade_ptr[i]) == SchoolType::daycare) {
                                 int num_infected_daycare = infected_daycare_d_ptr[pos];
-                                Real daycare_prob = 1.0_rt - infect * lparm->xmit_school[SchoolType::day_care] * scale;
+                                Real daycare_prob = 1.0_rt - infect * lparm->xmit_school[SchoolType::daycare] * scale;
                                 prob_ptr[i] *= static_cast<ParticleReal>(std::pow(daycare_prob, num_infected_daycare));
                             } else {
                                 int num_infected_school = infected_school_d_ptr[pos];

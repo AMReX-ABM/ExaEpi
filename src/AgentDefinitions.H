@@ -83,7 +83,7 @@ struct SchoolType
         high,
         middle,
         elem,
-        day_care,
+        daycare,
         total
     };
 };
@@ -97,7 +97,7 @@ struct SchoolCensusIDType
         middle_2,       /*!< Middle School */
         elem_3,         /*!< Elementary School, nborhoods 1 and 2 */
         elem_4,         /*!< Elementary School, nborhoods 3 and 4 */
-        day_care_5,     /*!< Day care + Playground */
+        daycare_5,     /*!< Day care + Playground */
         total
     };
 };
@@ -255,7 +255,7 @@ bool isAnAdult (const int      a_idx, /*!< Agent index */
 
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 static int getSchoolType(const int grade) {
-    if (grade == 0) return SchoolType::day_care;
+    if (grade == 0) return SchoolType::daycare;
     if ((grade >= 1 && grade <= 7) || (grade >= 15 && grade <= 21)) return SchoolType::elem;
     if ((grade >= 8 && grade <= 10) || (grade >= 22 && grade <= 24)) return SchoolType::middle;
     if ((grade >= 11 && grade <= 14) || (grade >= 25 && grade <= 28)) return SchoolType::high;

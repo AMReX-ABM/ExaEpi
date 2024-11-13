@@ -172,7 +172,8 @@ public:
     void printAgeGroupCounts() const;
 
     amrex::iMultiFab m_student_counts;
-    amrex::Real m_student_teacher_ratio = 15; /*!< Used only for Census data */
+    /// Used only for Census data. A ratio for each school type: none, college, high, middle, elem, daycare
+    int m_student_teacher_ratio[SchoolType::total] = {0, 15, 15, 15, 15, 15};
 
     int m_num_diseases; /*!< Number of diseases */
 
