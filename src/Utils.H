@@ -23,7 +23,7 @@ struct TestParams
 {
     amrex::IntVect size;                /*!< domain size; (used only for ic_type = demo)
                                              (see ExaEpi::Utils::get_geometry) */
-    int max_grid_size;                  /*!< box size */
+    int max_box_size;                   /*!< box size */
     int nsteps = 1;                     /*!< number of simulation steps */
     int plot_int = -1;                  /*!< plot interval (see ExaEpi::IO::writePlotFile) */
     int random_travel_int = -1;         /*!< steps between random travel events

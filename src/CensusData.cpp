@@ -55,11 +55,11 @@ void CensusData::init (ExaEpi::TestParams &params, Geometry &geom, BoxArray &ba,
     geom = get_geometry(demo);
 
     ba.define(geom.Domain());
-    ba.maxSize(params.max_grid_size);
+    ba.maxSize(params.max_box_size);
     dm.define(ba);
 
     Print() << "Base domain is: " << geom.Domain() << "\n";
-    Print() << "Max grid size is: " << params.max_grid_size << "\n";
+    Print() << "Max box size is: " << params.max_box_size << "\n";
     Print() << "Number of boxes is: " << ba.size() << " over " << ParallelDescriptor::NProcs() << " ranks. \n";
 
     num_residents_mf.define(ba, dm, 6, 0);

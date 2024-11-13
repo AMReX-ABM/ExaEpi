@@ -61,7 +61,7 @@ int main (int argc, /*!< Number of command line arguments */
         (see CaseData::InitFromFile)
     + Get computational domain from ExaEpi::Utils::get_geometry. Each grid cell corresponds to
       a community.
-    + Create box arrays and distribution mapping based on #ExaEpi::TestParams::max_grid_size.
+    + Create box arrays and distribution mapping based on #ExaEpi::TestParams::max_box_size.
     + Initialize the following MultiFabs:
       + Number of residents: 6 components - number of residents in age groups under-5, 5-17,
         18-29, 30-64, 65+, total.

@@ -45,20 +45,20 @@ void ExaEpi::Utils::get_test_params (   TestParams& params,         /*!< Test pa
         params.ic_type = ICType::Census;
         pp.get("census_filename", params.census_filename);
         pp.get("workerflow_filename", params.workerflow_filename);
-        params.max_grid_size = 16;
+        params.max_box_size = 16;
     } else if (ic_type == "urbanpop") {
         params.ic_type = ICType::UrbanPop;
         pp.get("urbanpop_filename", params.urbanpop_filename);
 #ifdef AMREX_USE_CUDA
-        params.max_grid_size = 500;
+        params.max_box_size = 500;
 #else
-        params.max_grid_size = 100;
+        params.max_box_size = 100;
 #endif
     } else {
         amrex::Abort("ic_type not recognized (currently supported 'census')");
     }
 
-    pp.query("max_grid_size", params.max_grid_size);
+    pp.query("max_box_size", params.max_box_size);
 
     pp.query("aggregated_diag_int", params.aggregated_diag_int);
     if (params.aggregated_diag_int >= 0) {

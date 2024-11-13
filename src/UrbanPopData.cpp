@@ -229,9 +229,9 @@ void UrbanPopData::init (ExaEpi::TestParams &params, Geometry &geom, BoxArray &b
     gspacing_y = geom.CellSizeArray()[1];
     Print() << "Geographic area: (" << min_lng << ", " << min_lat << ") " << max_lng << ", " << max_lat << ")\n";
     Print() << "Base domain: " << geom.Domain() << "\n";
-    Print() << "Geometry: " << geom << "\n";
+    //Print() << "Geometry: " << geom << "\n";
     Print() << "Actual grid spacing: " << gspacing_x << ", "  << gspacing_y << "\n";
-    Print() << "Max grid size is: " << params.max_grid_size << "\n";
+    Print() << "Max box size is: " << params.max_box_size << "\n";
 
     LngLatToGrid lnglat_to_grid(min_lng, min_lat, gspacing_x, gspacing_y);
     GridToLngLat grid_to_lnglat(min_lng, min_lat, gspacing_x, gspacing_y);
@@ -239,7 +239,7 @@ void UrbanPopData::init (ExaEpi::TestParams &params, Geometry &geom, BoxArray &b
     // create a box array with a single box representing the domain. Every process does this.
     ba.define(geom.Domain());
     // split the box array by forcing the box size to be limited to a given number of grid points
-    ba.maxSize(params.max_grid_size);
+    ba.maxSize(params.max_box_size);
     //ba.maxSize(0.25 * grid_x / NProcs());
     Print() << "Number of boxes: " << ba.size() << "\n";
 

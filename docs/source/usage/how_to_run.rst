@@ -114,10 +114,10 @@ The following are inputs for the overall simulation:
     Factor for increasing transmission by children witihn households when schools are closed.
 * ``agent.student_teacher_ratio`` (`int`, default: ``15``)
     This option sets the desired student-teacher ratio for schools. This is only used with ``ic_type = census``.
-* ``agent.max_grid_size`` (`integer`, default ``16`` or ``500`` or ``100``)
-    This option sets the maximum grid size used for MPI domain decomposition. If set to
-    ``16``, for example, for ``ic_type = census``, the domain will be broken up into grids of `16^2` communities, and
-    these grids will be assigned to different MPI ranks / GPUs.
+* ``agent.max_box_size`` (`integer`, default ``16`` or ``500`` or ``100``)
+    This option sets the maximum box size used for MPI domain decomposition. If set to
+    ``16``, for example, for ``ic_type = census``, the domain will be broken up into boxes of `16^2` communities, and
+    these boxes will be assigned to different MPI ranks / GPUs.
     The default for ``ictype = census`` is 16, and for ``ic_type = urbanpop`` it is 500 when using GPUs, and 100 otherwise.
 * ``diag.output_filename`` (`list of strings`, default ``output.dat`` for a single disease,
     ``output_[disease name].dat`` for multiple diseases)
