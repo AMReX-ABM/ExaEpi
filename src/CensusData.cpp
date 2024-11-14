@@ -707,7 +707,7 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
             int comm = comm_arr(i, j, k);
             for (int s = 0; s < num_school_types; s++) {
-                //teacher_counts_ptr[s][comm] = (int)(std::round((Real)student_counts_arr(i, j, k, s);
+                teacher_counts_ptr[s][comm] = student_counts_arr(i, j, k, s);
             }
             teacher_counts_ptr[SchoolCensusIDType::high_1 - 1][comm] /= student_teacher_ratio[SchoolType::high];
             teacher_counts_ptr[SchoolCensusIDType::middle_2 - 1][comm] /= student_teacher_ratio[SchoolType::middle];

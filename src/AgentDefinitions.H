@@ -78,7 +78,7 @@ struct IntIdxDisease
 struct SchoolType
 {
     enum {
-        none,
+        none,          /*!< Not in school */
         college,
         high,
         middle,
@@ -92,12 +92,12 @@ struct SchoolType
 struct SchoolCensusIDType
 {
     enum {
-        none,
+        none,           /*!< Not in school */
         high_1,         /*!< High School */
         middle_2,       /*!< Middle School */
         elem_3,         /*!< Elementary School, nborhoods 1 and 2 */
         elem_4,         /*!< Elementary School, nborhoods 3 and 4 */
-        daycare_5,     /*!< Day care + Playground */
+        daycare_5,      /*!< Day care + Playground */
         total
     };
 };
