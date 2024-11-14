@@ -30,7 +30,7 @@ void override_amrex_defaults ()
 {
     amrex::ParmParse pp("amrex");
     // ExaEpi should never require mananaged memory in the Arena
-    bool the_arena_is_managed = false;
+    bool the_arena_is_managed = true;
     pp.queryAdd("the_arena_is_managed", the_arena_is_managed);
 
     amrex::ParmParse pp2("particles");
