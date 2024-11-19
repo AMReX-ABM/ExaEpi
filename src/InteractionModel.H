@@ -255,7 +255,8 @@ struct GetCommunityIndex
             auto d_ptr = comm_to_local_index_d_ptr;
 
             num_comms = 0;
-            int* num_comms_ptr = &num_comms;
+            Gpu::DeviceScalar<int> num_comms_d(num_comms);
+            int* num_comms_ptr = num_comms_d.dataPtr();
             auto bx = valid_box;
 
             auto bsize = bin_size;
@@ -267,6 +268,7 @@ struct GetCommunityIndex
                 }
             });
             Gpu::synchronize();
+            num_comms = num_comms_d.dataValue();
         }
 
         AMREX_GPU_HOST_DEVICE

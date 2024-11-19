@@ -173,7 +173,7 @@ public:
 
     amrex::iMultiFab m_student_counts;
     /// Used only for Census data. A ratio for each school type: none, college, high, middle, elem, daycare
-    int m_student_teacher_ratio[SchoolType::total] = {0, 15, 15, 15, 15, 15};
+    amrex::GpuArray<int, SchoolType::total> m_student_teacher_ratio = {0, 15, 15, 15, 15, 15};
 
     int m_num_diseases; /*!< Number of diseases */
 
