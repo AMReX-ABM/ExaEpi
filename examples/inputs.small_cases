@@ -1,7 +1,6 @@
 agent.ic_type = "census"
 agent.census_filename = "../../data/CensusData/CA.dat"
 agent.workerflow_filename = "../../data/CensusData/CA-wf.bin"
-agent.case_filename = "../../data/CaseData/small.cases"
 
 agent.nsteps = 60
 agent.plot_int = 10
@@ -15,6 +14,8 @@ contact.pWO  = 0.5
 contact.pFA  = 1.0
 contact.pBAR = -1.
 
+disease.initial_case_type = "file"
+disease.case_filename = "../../data/CaseData/small.cases"
 disease.nstrain = 1
 disease.p_trans = 0.1
 disease.p_asymp = 0.4

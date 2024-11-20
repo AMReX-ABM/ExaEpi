@@ -1,7 +1,9 @@
 agent.ic_type = "census"
 agent.census_filename = "../../data/CensusData/BayArea.dat"
 agent.workerflow_filename = "../../data/CensusData/BayArea-wf.bin"
-agent.case_filename = "../../data/CaseData/July4.cases"
+
+disease.initial_case_type = "random"
+disease.num_initial_cases = 5
 
 agent.nsteps = 10
 agent.plot_int = -1
@@ -16,6 +18,7 @@ contact.pWO  = 0.5
 contact.pFA  = 1.0
 contact.pBAR = -1.
 
+disease.case_filename = "../../data/CaseData/July4.cases"
 disease.nstrain = 2
 disease.p_trans = 0.20 0.30
 disease.p_asymp = 0.40 0.40
