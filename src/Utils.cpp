@@ -45,6 +45,10 @@ void ExaEpi::Utils::get_test_params (   TestParams& params,         /*!< Test pa
         params.ic_type = ICType::Census;
         pp.get("census_filename", params.census_filename);
         pp.get("workerflow_filename", params.workerflow_filename);
+        if (params.air_travel_int > 0) {
+            pp.get("air_traffic_filename", params.air_traffic_filename);
+            pp.get("airports_filename", params.airports_filename);
+        }
         params.max_box_size = 16;
     } else if (ic_type == "urbanpop") {
         params.ic_type = ICType::UrbanPop;
