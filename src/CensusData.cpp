@@ -683,18 +683,20 @@ void CensusData::read_workerflow (AgentContainer& pc,           /*!< Agent conta
     assignTeachersAndWorkgroup(pc, workgroup_size);
 }
 
+
 void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workgroup_size) {
     const Box& domain = pc.Geom(0).Domain();
-
     auto Ncommunity = demo.Ncommunity;
-    const int num_school_types = SchoolCensusIDType::total - 1;
-    Gpu::DeviceVector<int> teacher_counts_array[num_school_types];
-    int* teacher_counts_ptr[num_school_types];
-    for (int i = 0; i < num_school_types; i++) {
-        teacher_counts_array[i].resize(Ncommunity, 0);
-        teacher_counts_ptr[i] = teacher_counts_array[i].data();
-    }
-
+    Gpu::HostVector<int> high_teachers_array(Ncommunity, 0);
+    Gpu::HostVector<int> middle_teachers_array(Ncommunity, 0);
+    Gpu::HostVector<int> elem3_teachers_array(Ncommunity, 0);
+    Gpu::HostVector<int> elem4_teachers_array(Ncommunity, 0);
+    Gpu::HostVector<int> daycare_teachers_array(Ncommunity, 0);
+    auto high_teachers_ptr = high_teachers_array.data();
+    auto middle_teachers_ptr = middle_teachers_array.data();
+    auto elem3_teachers_ptr = elem3_teachers_array.data();
+    auto elem4_teachers_ptr = elem4_teachers_array.data();
+    auto daycare_teachers_ptr = daycare_teachers_array.data();
     auto student_teacher_ratio = pc.m_student_teacher_ratio;
 
 #ifdef AMREX_USE_OMP
@@ -706,16 +708,21 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
         auto bx = mfi.tilebox();
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
             int comm = comm_arr(i, j, k);
-            for (int s = 0; s < num_school_types; s++) {
-                teacher_counts_ptr[s][comm] = student_counts_arr(i, j, k, s);
-            }
-            teacher_counts_ptr[SchoolCensusIDType::high_1 - 1][comm] /= student_teacher_ratio[SchoolType::high];
-            teacher_counts_ptr[SchoolCensusIDType::middle_2 - 1][comm] /= student_teacher_ratio[SchoolType::middle];
-            teacher_counts_ptr[SchoolCensusIDType::elem_3 - 1][comm] /= student_teacher_ratio[SchoolType::elem];
-            teacher_counts_ptr[SchoolCensusIDType::elem_4 - 1][comm] /= student_teacher_ratio[SchoolType::elem];
-            teacher_counts_ptr[SchoolCensusIDType::daycare_5 - 1][comm] /= student_teacher_ratio[SchoolType::daycare];
+            if (comm >= Ncommunity) return;
+            high_teachers_ptr[comm] =
+                student_counts_arr(i, j, k, SchoolCensusIDType::high_1 - 1) / student_teacher_ratio[SchoolType::high];
+            middle_teachers_ptr[comm] =
+                student_counts_arr(i, j, k, SchoolCensusIDType::middle_2 - 1) / student_teacher_ratio[SchoolType::middle];
+            elem3_teachers_ptr[comm] =
+                student_counts_arr(i, j, k, SchoolCensusIDType::elem_3 - 1) / student_teacher_ratio[SchoolType::elem];
+            elem4_teachers_ptr[comm] =
+                student_counts_arr(i, j, k, SchoolCensusIDType::elem_4 - 1) / student_teacher_ratio[SchoolType::elem];
+            daycare_teachers_ptr[comm] =
+                student_counts_arr(i, j, k, SchoolCensusIDType::daycare_5 - 1) / student_teacher_ratio[SchoolType::daycare];
         });
+        Gpu::synchronize();
     }
+
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -725,63 +732,89 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
 
         auto np = soa.numParticles();
 
-        auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
-        auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
-        auto work_i_ptr = soa.GetIntData(IntIdx::work_i).data();
-        auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
-        auto school_grade_ptr = soa.GetIntData(IntIdx::school_grade).data();
-        auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
-        auto work_nborhood_ptr = soa.GetIntData(IntIdx::work_nborhood).data();
+        Gpu::HostVector<int> age_group_h(np);
+        Gpu::HostVector<int> workgroup_h(np);
+        Gpu::HostVector<int> work_i_h(np);
+        Gpu::HostVector<int> work_j_h(np);
+        Gpu::HostVector<int> school_grade_h(np);
+        Gpu::HostVector<int> school_id_h(np);
+        Gpu::HostVector<int> work_nborhood_h(np);
 
-        ParallelForRNG (np, [=] AMREX_GPU_DEVICE (int ip, RandomEngine const& engine) noexcept {
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::age_group).begin(),
+                  soa.GetIntData(IntIdx::age_group).end(), age_group_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::workgroup).begin(),
+                  soa.GetIntData(IntIdx::workgroup).end(), workgroup_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_i).begin(),
+                  soa.GetIntData(IntIdx::work_i).end(), work_i_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_j).begin(),
+                  soa.GetIntData(IntIdx::work_j).end(), work_j_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::school_grade).begin(),
+                  soa.GetIntData(IntIdx::school_grade).end(), school_grade_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::school_id).begin(),
+                  soa.GetIntData(IntIdx::school_id).end(), school_id_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_nborhood).begin(),
+                  soa.GetIntData(IntIdx::work_nborhood).end(), work_nborhood_h.begin());
 
-            int comm_to = (int)domain.index(IntVect(AMREX_D_DECL(work_i_ptr[ip], work_j_ptr[ip], 0)));
-            if (comm_to >= Ncommunity) return;
+        auto age_group_ptr = age_group_h.data();
+        auto workgroup_ptr = workgroup_h.data();
+        auto work_i_ptr = work_i_h.data();
+        auto work_j_ptr = work_j_h.data();
+        auto school_grade_ptr = school_grade_h.data();
+        auto school_id_ptr = school_id_h.data();
+        auto work_nborhood_ptr = work_nborhood_h.data();
+
+        for (int ip = 0; ip < np; ++ip) {
+            int comm = (int) domain.index(IntVect(AMREX_D_DECL(work_i_ptr[ip], work_j_ptr[ip], 0)));
+            if (comm >= Ncommunity) continue;
             // skip non-working age
-            if (age_group_ptr[ip] < AgeGroups::a18to29 || age_group_ptr[ip] > AgeGroups::a50to64) return;
+            if (age_group_ptr[ip] < AgeGroups::a18to29 || age_group_ptr[ip] > AgeGroups::a50to64) continue;
             // skip non-workers
-            if (workgroup_ptr[ip] == 0) return;
+            if (workgroup_ptr[ip] == 0) continue;
 
-            int choice = Random_int(num_school_types, engine);
-
-            for (int k = 0; k < num_school_types; k++) {
-                int pos = (k + choice) % num_school_types;
-                AMREX_ALWAYS_ASSERT(pos < num_school_types);
-                int count = Gpu::Atomic::Add(&(teacher_counts_ptr[pos][comm_to]), -1);
-                if (count > 0) {
-                    // school_id of 0 is reserved for no school
-                    school_id_ptr[ip] = pos + 1;
-                    // workgroup is the whole school, i.e. adults interact with all other adults in the school
-                    workgroup_ptr[ip] = school_id_ptr[ip];
-                    // teachers are assigned the grade they teach
-                    switch (school_id_ptr[ip]) {
-                        case SchoolCensusIDType::high_1:
-                            school_grade_ptr[ip] = 12;  // 10th grade - generic for high school
-                            work_nborhood_ptr[ip] = 3; // assuming the high school is located in Neighbordhood 4
-                            break;
-                        case SchoolCensusIDType::middle_2:
-                            school_grade_ptr[ip] = 9;  // 7th grade - generic for middle
-                            work_nborhood_ptr[ip] = 1; // assuming the middle school is located in Neighbordhood 2
-                            break;
-                        case SchoolCensusIDType::elem_3:
-                            school_grade_ptr[ip] = 5;  // 3rd grade - generic for elementary
-                            work_nborhood_ptr[ip] = 0; // assuming the first elementary school is located in Neighbordhood 1
-                            break;
-                        case SchoolCensusIDType::elem_4:
-                            school_grade_ptr[ip] = 5;  // 3rd grade - generic for elementary
-                            work_nborhood_ptr[ip] = 2; // assuming the first elementary school is located in Neighbordhood 3
-                            break;
-                        case SchoolCensusIDType::daycare_5:
-                            school_grade_ptr[ip] = 0; // generic for daycare
-                            work_nborhood_ptr[ip] = Random_int(4, engine); // randomly select nborhood
-                            school_id_ptr[ip] += work_nborhood_ptr[ip];
-                            break;
-                    }
-                    return;
+            int high_teachers = high_teachers_ptr[comm];
+            int middle_teachers = middle_teachers_ptr[comm];
+            int elem3_teachers = elem3_teachers_ptr[comm];
+            int elem4_teachers = elem4_teachers_ptr[comm];
+            int daycare_teachers = daycare_teachers_ptr[comm];
+            int total_teachers = high_teachers + middle_teachers + elem3_teachers + elem4_teachers + daycare_teachers;
+            if (total_teachers > 0) {
+                int choice = Random_int(total_teachers);
+                if (choice < high_teachers) {
+                    school_grade_ptr[ip] = 12;  // 10th grade - generic for high school
+                    school_id_ptr[ip] = SchoolCensusIDType::high_1;
+                    work_nborhood_ptr[ip] = 3; // assuming the high school is located in Neighbordhood 3
+                    workgroup_ptr[ip] = 1;
+                    high_teachers_ptr[comm]--;
+                } else if (choice < high_teachers + middle_teachers) {
+                    school_grade_ptr[ip] = 9;  // 7th grade - generic for middle
+                    school_id_ptr[ip] = SchoolCensusIDType::middle_2;
+                    work_nborhood_ptr[ip] = 1; // assuming the middle school is located in Neighbordhood 2
+                    workgroup_ptr[ip] = 2;
+                    middle_teachers_ptr[comm]--;
+                } else if (choice < high_teachers + middle_teachers + elem3_teachers) {
+                    school_grade_ptr[ip] = 5;  // 3rd grade - generic for elementary
+                    school_id_ptr[ip] = SchoolCensusIDType::elem_3;
+                    work_nborhood_ptr[ip] = 0; // assuming the first elementary school is located in Neighbordhood 1
+                    workgroup_ptr[ip] = 3;
+                    elem3_teachers_ptr[comm]--;
+                } else if (choice < high_teachers + middle_teachers + elem3_teachers + elem4_teachers) {
+                    school_grade_ptr[ip] = 5;  // 3rd grade - generic for elementary
+                    school_id_ptr[ip] = SchoolCensusIDType::elem_4;
+                    work_nborhood_ptr[ip] = 2; // assuming the first elementary school is located in Neighbordhood 3
+                    workgroup_ptr[ip] = 4;
+                    elem4_teachers_ptr[comm]--;
+                } else {
+                    school_grade_ptr[ip] = 0; // generic for daycare
+                    work_nborhood_ptr[ip] = Random_int(4); // randomly select nborhood
+                    school_id_ptr[ip] = SchoolCensusIDType::daycare_5 + work_nborhood_ptr[ip];
+                    workgroup_ptr[ip] = 5;
+                    daycare_teachers_ptr[comm]--;
                 }
             }
-        });
-        Gpu::synchronize();
+        }
+        Gpu::copy(Gpu::hostToDevice, school_grade_h.begin(), school_grade_h.end(), soa.GetIntData(IntIdx::school_grade).begin());
+        Gpu::copy(Gpu::hostToDevice, school_id_h.begin(), school_id_h.end(), soa.GetIntData(IntIdx::school_id).begin());
+        Gpu::copy(Gpu::hostToDevice, workgroup_h.begin(), workgroup_h.end(), soa.GetIntData(IntIdx::workgroup).begin());
+        Gpu::copy(Gpu::hostToDevice, work_nborhood_h.begin(), work_nborhood_h.end(), soa.GetIntData(IntIdx::work_nborhood).begin());
     }
 }
-

@@ -139,8 +139,8 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
                     if (isInfectious(i, ptd, d) && isCandidate(i, ptd)) {
                         auto community = getCommunityIndex(ptd, i);
                         auto nborhood = nborhood_ptr[i];
-                        Gpu::Atomic::Add(&infected_community_d_ptr[community], 1);
-                        Gpu::Atomic::Add(&infected_nborhood_d_ptr[community * max_nborhood + nborhood], 1);
+                        Gpu::Atomic::AddNoRet(&infected_community_d_ptr[community], 1);
+                        Gpu::Atomic::AddNoRet(&infected_nborhood_d_ptr[community * max_nborhood + nborhood], 1);
                     }
                 });
                 Gpu::synchronize();

@@ -163,12 +163,12 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
                             auto community = getCommunityIndex(ptd, i);
                             AMREX_ALWAYS_ASSERT(community <= max_communities);
                             int family_i = community * max_family + family_ptr[i];
-                            Gpu::Atomic::Add(&infected_family_d_ptr[family_i], 1);
+                            Gpu::Atomic::AddNoRet(&infected_family_d_ptr[family_i], 1);
                             if (!ptd.m_idata[IntIdx::withdrawn][i]) {
-                                Gpu::Atomic::Add(&infected_family_not_withdrawn_d_ptr[family_i], 1);
+                                Gpu::Atomic::AddNoRet(&infected_family_not_withdrawn_d_ptr[family_i], 1);
                                 int cluster = family_ptr[i] / FAMILIES_PER_CLUSTER;
                                 int nc = (community * max_nborhood + nborhood_ptr[i]) * num_ncs + cluster;
-                                Gpu::Atomic::Add(&infected_nc_d_ptr[nc], 1);
+                                Gpu::Atomic::AddNoRet(&infected_nc_d_ptr[nc], 1);
                             }
                         }
                     });

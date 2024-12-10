@@ -147,7 +147,7 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
                     if (isInfectious(i, ptd, d) && isCandidate(i, ptd)) {
                         auto community = getCommunityIndex(ptd, i);
                         int wgroup_i = (community * max_workgroup + workgroup_ptr[i]) * max_naics + naics_ptr[i];
-                        Gpu::Atomic::Add(&infected_workgroup_d_ptr[wgroup_i], 1);
+                        Gpu::Atomic::AddNoRet(&infected_workgroup_d_ptr[wgroup_i], 1);
                     }
                 });
                 Gpu::synchronize();

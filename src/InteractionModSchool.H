@@ -165,9 +165,9 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                             auto community = getCommunityIndex(ptd, i);
                             int pos = (community * max_school_id + school_id_ptr[i]) * max_school_grade + school_grade_ptr[i];
                             if (getSchoolType(school_grade_ptr[i]) == SchoolType::daycare) {
-                                Gpu::Atomic::Add(&infected_daycare_d_ptr[pos], 1);
+                                Gpu::Atomic::AddNoRet(&infected_daycare_d_ptr[pos], 1);
                             } else {
-                                Gpu::Atomic::Add(&infected_school_d_ptr[pos], 1);
+                                Gpu::Atomic::AddNoRet(&infected_school_d_ptr[pos], 1);
                             }
                         }
                     });

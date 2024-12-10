@@ -144,8 +144,8 @@ void InteractionModWorkNborhood<PCType, PTDType, PType>::fastInteractWorkNborhoo
                         // always use work nborhood, because even age group 0 could be in another nborhood during the day for
                         // daycare
                         int nborhood = work_nborhood_ptr[i];
-                        Gpu::Atomic::Add(&infected_community_d_ptr[community], 1);
-                        Gpu::Atomic::Add(&infected_nborhood_d_ptr[community * max_nborhood + nborhood], 1);
+                        Gpu::Atomic::AddNoRet(&infected_community_d_ptr[community], 1);
+                        Gpu::Atomic::AddNoRet(&infected_nborhood_d_ptr[community * max_nborhood + nborhood], 1);
                     }
                 });
                 Gpu::synchronize();
