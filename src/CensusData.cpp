@@ -709,16 +709,16 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
             int comm = comm_arr(i, j, k);
             if (comm >= Ncommunity || comm < 0) return;
-            high_teachers_ptr[comm] = std::round(
-                double(student_counts_arr(i, j, k, SchoolCensusIDType::high_1 - 1)) / student_teacher_ratio[SchoolType::high]);
-            middle_teachers_ptr[comm] = std::round(
-                (double)student_counts_arr(i, j, k, SchoolCensusIDType::middle_2 - 1) / student_teacher_ratio[SchoolType::middle]);
-            elem3_teachers_ptr[comm] = std::round(
-                (double)student_counts_arr(i, j, k, SchoolCensusIDType::elem_3 - 1) / student_teacher_ratio[SchoolType::elem]);
-            elem4_teachers_ptr[comm] = std::round(
-                (double)student_counts_arr(i, j, k, SchoolCensusIDType::elem_4 - 1) / student_teacher_ratio[SchoolType::elem]);
-            daycare_teachers_ptr[comm] = std::round(
-                (double)student_counts_arr(i, j, k, SchoolCensusIDType::daycare_5 - 1) / student_teacher_ratio[SchoolType::daycare]);
+            high_teachers_ptr[comm] = int(std::round(
+                double(student_counts_arr(i, j, k, SchoolCensusIDType::high_1 - 1)) / student_teacher_ratio[SchoolType::high]));
+            middle_teachers_ptr[comm] = int(std::round(
+                (double)student_counts_arr(i, j, k, SchoolCensusIDType::middle_2 - 1) / student_teacher_ratio[SchoolType::middle]));
+            elem3_teachers_ptr[comm] = int(std::round(
+                (double)student_counts_arr(i, j, k, SchoolCensusIDType::elem_3 - 1) / student_teacher_ratio[SchoolType::elem]));
+            elem4_teachers_ptr[comm] = int(std::round(
+                (double)student_counts_arr(i, j, k, SchoolCensusIDType::elem_4 - 1) / student_teacher_ratio[SchoolType::elem]));
+            daycare_teachers_ptr[comm] = int(std::round(
+                (double)student_counts_arr(i, j, k, SchoolCensusIDType::daycare_5 - 1) / student_teacher_ratio[SchoolType::daycare]));
         });
         Gpu::synchronize();
     }
