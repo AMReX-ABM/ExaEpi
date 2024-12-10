@@ -639,7 +639,7 @@ void CensusData::read_workerflow (AgentContainer& pc,           /*!< Agent conta
 
             int age_group = age_group_ptr[ip];
             /* Check working-age population */
-            if ((age_group == AgeGroups::a18to29) || (age_group == AgeGroups::a30to49)) {
+            if (age_group >= AgeGroups::a18to29 && age_group <= AgeGroups::a50to64) {
                 unsigned int irnd = Random_int(nwork, engine);
                 int to = 0;
                 int comm_to = 0;
@@ -708,17 +708,17 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
         auto bx = mfi.tilebox();
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
             int comm = comm_arr(i, j, k);
-            if (comm >= Ncommunity) return;
-            high_teachers_ptr[comm] =
-                student_counts_arr(i, j, k, SchoolCensusIDType::high_1 - 1) / student_teacher_ratio[SchoolType::high];
-            middle_teachers_ptr[comm] =
-                student_counts_arr(i, j, k, SchoolCensusIDType::middle_2 - 1) / student_teacher_ratio[SchoolType::middle];
-            elem3_teachers_ptr[comm] =
-                student_counts_arr(i, j, k, SchoolCensusIDType::elem_3 - 1) / student_teacher_ratio[SchoolType::elem];
-            elem4_teachers_ptr[comm] =
-                student_counts_arr(i, j, k, SchoolCensusIDType::elem_4 - 1) / student_teacher_ratio[SchoolType::elem];
-            daycare_teachers_ptr[comm] =
-                student_counts_arr(i, j, k, SchoolCensusIDType::daycare_5 - 1) / student_teacher_ratio[SchoolType::daycare];
+            if (comm >= Ncommunity || comm < 0) return;
+            high_teachers_ptr[comm] = std::round(
+                double(student_counts_arr(i, j, k, SchoolCensusIDType::high_1 - 1)) / student_teacher_ratio[SchoolType::high]);
+            middle_teachers_ptr[comm] = std::round(
+                (double)student_counts_arr(i, j, k, SchoolCensusIDType::middle_2 - 1) / student_teacher_ratio[SchoolType::middle]);
+            elem3_teachers_ptr[comm] = std::round(
+                (double)student_counts_arr(i, j, k, SchoolCensusIDType::elem_3 - 1) / student_teacher_ratio[SchoolType::elem]);
+            elem4_teachers_ptr[comm] = std::round(
+                (double)student_counts_arr(i, j, k, SchoolCensusIDType::elem_4 - 1) / student_teacher_ratio[SchoolType::elem]);
+            daycare_teachers_ptr[comm] = std::round(
+                (double)student_counts_arr(i, j, k, SchoolCensusIDType::daycare_5 - 1) / student_teacher_ratio[SchoolType::daycare]);
         });
         Gpu::synchronize();
     }
@@ -765,7 +765,7 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
 
         for (int ip = 0; ip < np; ++ip) {
             int comm = (int) domain.index(IntVect(AMREX_D_DECL(work_i_ptr[ip], work_j_ptr[ip], 0)));
-            if (comm >= Ncommunity) continue;
+            if (comm >= Ncommunity || comm < 0) continue;
             // skip non-working age
             if (age_group_ptr[ip] < AgeGroups::a18to29 || age_group_ptr[ip] > AgeGroups::a50to64) continue;
             // skip non-workers
