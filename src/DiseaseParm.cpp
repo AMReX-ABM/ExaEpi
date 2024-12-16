@@ -74,16 +74,16 @@ void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string
     pp.query("child_compliance", child_compliance);
     pp.query("child_hh_closure", child_HH_closure);
 
-    pp.query("latent_length_mean", latent_length_mean);
-    pp.query("infectious_length_mean", infectious_length_mean);
-    pp.query("incubation_length_mean", incubation_length_mean);
+    pp.query("latent_length_alpha", latent_length_alpha);
+    pp.query("infectious_length_alpha", infectious_length_alpha);
+    pp.query("incubation_length_alpha", incubation_length_alpha);
 
-    pp.query("latent_length_std", latent_length_std);
-    pp.query("infectious_length_std", infectious_length_std);
-    pp.query("incubation_length_std", incubation_length_std);
+    pp.query("latent_length_beta", latent_length_beta);
+    pp.query("infectious_length_beta", infectious_length_beta);
+    pp.query("incubation_length_beta", incubation_length_beta);
 
-    pp.query("immune_length_mean", immune_length_mean);
-    pp.query("immune_length_std", immune_length_std);
+    pp.query("immune_length_alpha", immune_length_alpha);
+    pp.query("immune_length_beta", immune_length_beta);
 
     m_t_hosp_offset = 0;
     queryArray(pp, "hospitalization_days", m_t_hosp, AgeGroups_Hosp::total);

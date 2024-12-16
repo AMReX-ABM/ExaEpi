@@ -13,8 +13,6 @@ agent.aggregated_diag_prefix = "cases"
 #agent.shelter_start = 7
 #agent.shelter_length = 30
 #agent.shelter_compliance = 0.85
-#agent.immune_length_mean = 180
-#agent.immune_length_std = 60
 
 contact.pSC  = 0.2
 contact.pCO  = 1.45
@@ -32,4 +30,5 @@ disease.p_trans = 0.20
 disease.p_asymp = 0.40
 disease.reduced_inf = 0.75
 
-disease.incubation_length_mean = 3.0
+disease.incubation_length_alpha = 9.0
+disease.incubation_length_beta = 0.33

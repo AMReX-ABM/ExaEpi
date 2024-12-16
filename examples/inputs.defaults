@@ -95,22 +95,22 @@ disease.p_asymp = 0.4
 disease.asymp_relative_inf = 0.75
 # Vaccine efficacy. Not yet implemented; leave at 0.
 disease.vac_eff = 0
-# Mean length in days that agents are immune after recovery from an infection.
-disease.immune_length_mean = 180
-# Standard deviation in days.
-disease.immune_length_std = 60
-# Mean length in days from infection until an agent becomes infectious.
-disease.latent_length_mean = 3.0
-# Standard deviation in days.
-disease.latent_length_std = 1.0
-# Mean length in days for the time an agent is infectious.
-disease.infectious_length_mean = 6.0
-# Standard deviation in days.
-disease.infectious_length_std = 1.0
-# Mean length in days from the time of infectioun untli symptoms develop.
-disease.incubation_length_mean = 5.0
-# Standard deviation in days.
-disease.incubation_length_std = 1.0
+# Alpha parameter for the immume length Gamma distribution. The immune length is the length in days that agents are immune after recovery from an infection.
+disease.immune_length_alpha = 9.0
+# Beta parameter for the immume length Gamma distribution. The immune length is the length in days that agents are immune after recovery from an infection.
+disease.immune_length_beta = 20.0
+# Alpha parameter for the latent length Gamma distribution. The latent length is the length in days from infection until an agent becomes infectious.
+disease.latent_length_alpha = 9.0
+# Beta parameter for the latent length Gamma distribution. The latent length is the length in days from infection until an agent becomes infectious.
+disease.latent_length_beta = 0.33
+# Alpha parameter for the infectious length Gamma distribution. The infectious length is the length in days of the time an agent is infectious.
+disease.infectious_length_alpha = 36.0
+# Beta parameter for the infectious length Gamma distribution. The infectious length is the length in days of the time an agent is infectious.
+disease.infectious_length_beta = 0.17
+# Alpha parameter for the incubation length Gamma distribution. The incubation length is the length in days from the time of infection until symptoms develop.
+disease.incubation_length_alpha = 25.0
+# Beta parameter for the incubation length Gamma distribution. The incubation length is the length in days from the time of infection until symptoms develop.
+disease.incubation_length_beta = 0.2
 
 # Number of days in hospital for the age groups under 50, 50 to 64 and over 64.
 disease.hospitalization_days = 3 8 7

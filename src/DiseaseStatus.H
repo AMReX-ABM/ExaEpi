@@ -134,8 +134,8 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
 
                 auto* disease_parm_d = a_agents.getDiseaseParameters_d(d);
                 auto* disease_parm_h = a_agents.getDiseaseParameters_h(d);
-                auto immune_length_mean = disease_parm_h->immune_length_mean;
-                auto immune_length_std = disease_parm_h->immune_length_std;
+                auto immune_length_alpha = disease_parm_h->immune_length_alpha;
+                auto immune_length_beta = disease_parm_h->immune_length_beta;
 
                 ParallelForRNG( np,
                                 [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept
@@ -179,7 +179,7 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                             if (counter_ptr[i] >= (latent_period_ptr[i] + infectious_period_ptr[i])) {
                                 status_ptr[i] = Status::immune;
                                 counter_ptr[i] =
-                                    static_cast<ParticleReal>(RandomNormal(immune_length_mean, immune_length_std, engine));
+                                    static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine));
                                 symptomatic_ptr[i] = SymptomStatus::presymptomatic;
                                 withdrawn_ptr[i] = 0;
                             }

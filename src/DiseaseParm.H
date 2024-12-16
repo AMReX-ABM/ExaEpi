@@ -82,18 +82,17 @@ struct DiseaseParm
     Real child_compliance; /*!< Child compliance with masking ?? */
     Real child_HH_closure; /*!< Multiplier for household contacts during school closure */
 
-    Real immune_length_mean = 30 * 6;  /*! mean immunity time in days*/
-    Real immune_length_std = 30 * 2;  /*! spread in immunity time in days*/
+    Real immune_length_alpha = 9.0;  /*! alpha parameter for gamma distribution*/
+    Real immune_length_beta = 20.0;  /*! beta parameter for gamma distribution*/
 
-    Real latent_length_mean = 3.0;   /*!< mean time (in days) from initial infection until infectious*/
-    Real latent_length_std = 1.0;   /*!< std dev (in days) for the above*/
+    Real latent_length_alpha = 9.0;  /*! alpha parameter for gamma distribution*/
+    Real latent_length_beta = 0.33;  /*! beta parameter for gamma distribution*/
 
-    Real infectious_length_mean = 6.0;   /*!< mean time (in days) agents are infectious, from the end of the latent period */
-    Real infectious_length_std = 1.0;   /*!< std dev (in days) for the above */
+    Real infectious_length_alpha = 36.0;  /*! alpha parameter for gamma distribution*/
+    Real infectious_length_beta = 0.17;   /*! beta parameter for gamma distribution*/
 
-    Real incubation_length_mean = 5.0;   /*!< mean time (in days) from initial infection until symptoms show */
-    Real incubation_length_std = 1.0;   /*!< std dev (in days) for the above */
-
+    Real incubation_length_alpha = 25.0;  /*! alpha parameter for gamma distribution*/
+    Real incubation_length_beta = 0.2;    /*! beta parameter for gamma distribution*/
 
     /*! number of hospitalization days by age group (#AgeGroups_Hosp); note that the
      *  age groups here are under 50, 50-64, and over 65, and *not* the age groups
@@ -171,11 +170,11 @@ void setInfected ( int* status,
     *status = Status::infected;
     *counter = ParticleReal(0);
     *latent_period =
-        static_cast<ParticleReal>(amrex::RandomNormal(lparm->latent_length_mean, lparm->latent_length_std, engine));
+        static_cast<ParticleReal>(amrex::RandomGamma(lparm->latent_length_alpha, lparm->latent_length_beta, engine));
     *infectious_period =
-        static_cast<ParticleReal>(amrex::RandomNormal(lparm->infectious_length_mean, lparm->infectious_length_std, engine));
+        static_cast<ParticleReal>(amrex::RandomGamma(lparm->infectious_length_alpha, lparm->infectious_length_beta, engine));
     *incubation_period =
-        static_cast<ParticleReal>(amrex::RandomNormal(lparm->incubation_length_mean, lparm->incubation_length_std, engine));
+        static_cast<ParticleReal>(amrex::RandomGamma(lparm->incubation_length_alpha, lparm->incubation_length_beta, engine));
     if (*latent_period < 0) { *latent_period = amrex::Real(0);}
     if (*infectious_period < 0) { *infectious_period = amrex::Real(0);}
     if (*incubation_period < 0) { *incubation_period = amrex::Real(0);}

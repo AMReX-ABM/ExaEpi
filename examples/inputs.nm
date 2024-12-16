@@ -30,6 +30,3 @@ disease.case_filename = "../CaseData/nm-july4.cases"
 
 # disease_flu.num_initial_cases = 100
 # disease_flu.p_trans = 0.3
-# disease_flu.latent_length_mean = 3.0
-# disease_flu.infectious_length_mean = 3.0
-# disease_flu.incubation_length_mean = 3.0
