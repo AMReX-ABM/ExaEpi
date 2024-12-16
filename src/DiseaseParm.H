@@ -82,17 +82,17 @@ struct DiseaseParm
     Real child_compliance; /*!< Child compliance with masking ?? */
     Real child_HH_closure; /*!< Multiplier for household contacts during school closure */
 
-    Real immune_length_alpha = 9.0;  /*! alpha parameter for gamma distribution*/
-    Real immune_length_beta = 20.0;  /*! beta parameter for gamma distribution*/
+    Real immune_length_alpha = Real(9.0);  /*! alpha parameter for gamma distribution*/
+    Real immune_length_beta = Real(20.0);  /*! beta parameter for gamma distribution*/
 
-    Real latent_length_alpha = 9.0;  /*! alpha parameter for gamma distribution*/
-    Real latent_length_beta = 0.33;  /*! beta parameter for gamma distribution*/
+    Real latent_length_alpha = Real(9.0);  /*! alpha parameter for gamma distribution*/
+    Real latent_length_beta = Real(0.33);  /*! beta parameter for gamma distribution*/
 
-    Real infectious_length_alpha = 36.0;  /*! alpha parameter for gamma distribution*/
-    Real infectious_length_beta = 0.17;   /*! beta parameter for gamma distribution*/
+    Real infectious_length_alpha = Real(36.0);  /*! alpha parameter for gamma distribution*/
+    Real infectious_length_beta = Real(0.17);   /*! beta parameter for gamma distribution*/
 
-    Real incubation_length_alpha = 25.0;  /*! alpha parameter for gamma distribution*/
-    Real incubation_length_beta = 0.2;    /*! beta parameter for gamma distribution*/
+    Real incubation_length_alpha = Real(25.0);  /*! alpha parameter for gamma distribution*/
+    Real incubation_length_beta = Real(0.2);    /*! beta parameter for gamma distribution*/
 
     /*! number of hospitalization days by age group (#AgeGroups_Hosp); note that the
      *  age groups here are under 50, 50-64, and over 65, and *not* the age groups
