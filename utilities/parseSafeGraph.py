@@ -33,7 +33,9 @@ def genWorkerflow(dirPath: str, state: str):
                  gdf= gdf._append(df000)
         gdf= gdf[["countyFIPS_o", "countyFIPS_d", "flows"]]
         gdf= gdf.groupby(["countyFIPS_o", "countyFIPS_d"]).sum()
-        gdf.to_csv(state+".csv", sep=',')
+        data = gdf.to_records()
+        output_file = open(state+"-sg-wf.bin", 'wb')
+        data.tofile(output_file)
 
 if __name__ == "__main__":
         argList= sys.argv[1:]
