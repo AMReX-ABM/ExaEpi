@@ -39,7 +39,7 @@ def write_rawCases(fn: str):
 
     output_file = open(fn+".csv", 'w')
     stdout =sys.stdout
-    sys.stdout = output_file 
+    sys.stdout = output_file
     for k, v in d_inf.items():
         print("{:011d}".format(k), ",", v)
     sys.stdout= stdout
