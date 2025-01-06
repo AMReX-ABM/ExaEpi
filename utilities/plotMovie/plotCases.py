@@ -11,9 +11,39 @@ import shapefile
 import pandas as pd
 from shapely.geometry import shape
 import numpy as np
+import yt
+from yt.frontends import boxlib
+from yt.frontends.boxlib.data_structures import AMReXDataset
+from collections import defaultdict
 import os
 import sys
 import re
+
+
+def write_rawCases(fn: str):
+    yt.set_log_level(50)
+    ds = AMReXDataset(fn)
+    ad = ds.all_data()
+
+    inf = ad['infected'].d
+    tot = ad['total'].d
+    fips = ad['FIPS'].d
+    tract = ad['Tract'].d
+
+    d_inf = defaultdict(int)
+    for i, to, f, tr in zip(inf, tot, fips, tract):
+       code = 1000000*int(f) + int(tr)
+       if code < 0:
+           continue
+       d_inf[code] += i
+
+    output_file = open(fn+".csv", 'w')
+    stdout =sys.stdout
+    sys.stdout = output_file 
+    for k, v in d_inf.items():
+        print("{:011d}".format(k), ",", v)
+    sys.stdout= stdout
+    return output_file
 
 argList= sys.argv[1:]
 zoom=""
@@ -34,6 +64,10 @@ gdf = geopd.GeoDataFrame(columns=["STATEFP00", "COUNTYFP00", "TRACTCE00", "CTIDF
 #for Bay Area dataset, use the following format:
 if(BayAreaDataFormat=="YES"): gdf = geopd.GeoDataFrame(columns=["geoid", "name_", "namelsad", "mtfcc", "funcstat", "aland", "awater", "intptlat", "intptlon", "SHAPE_Leng", "SHAPE_Area"])
 
+for f in os.listdir(infCasesDir):
+    if f.startswith("plt")==True and f.endswith(".csv")==False:
+        write_rawCases(infCasesDir+f)
+
 infCasesFiles= [os.path.join(infCasesDir, f) for f in os.listdir(infCasesDir) if f.endswith(".csv")]
 
 for file in os.listdir(CensusDir):
@@ -50,6 +84,7 @@ for file in os.listdir(CensusDir):
     df = geopd.GeoDataFrame(data = attributes, geometry = geometry)
     gdf= gdf._append(df)
     r.close()
+print(gdf)
 
 if(BayAreaDataFormat=="NO"): gdf['fips'] = gdf["CTIDFP00"].astype(int)
 else: gdf['fips'] = gdf["geoid"].astype(int)
