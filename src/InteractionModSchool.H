@@ -43,11 +43,11 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
                 if (age_group_ptr[susceptible_i] <= 1) {  // Receiver j is a child
                     return a_lparm->xmit_school[school_id] * a_social_scale;
                 } else {  // Child student -> adult teacher/staff transmission
-                    return a_lparm->xmit_sch_c2a[school_id] * a_social_scale;// * 0.5; // hack for testing
+                    return a_lparm->xmit_school_c2a[school_id] * a_social_scale;// * 0.5; // hack for testing
                 }
             } else {   // transmitter is an adult
                 if (age_group_ptr[susceptible_i] <= 1) {  // Adult teacher/staff -> child student
-                    return a_lparm->xmit_sch_a2c[school_id] * a_social_scale;// * 0.25; // hack for testing
+                    return a_lparm->xmit_school_a2c[school_id] * a_social_scale;// * 0.25; // hack for testing
                 } else {  // adult to adult
                     return a_lparm->xmit_school[school_id] * a_social_scale;
                 }

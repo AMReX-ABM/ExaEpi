@@ -39,9 +39,9 @@ struct BinaryInteractionHome {
         if (family_ptr[infectious_i] == family_ptr[susceptible_i]) {
             // at home, within a family
             if (age_group_ptr[infectious_i] <= 1) {  // Transmitter i is a child
-                return infectProb(a_ptd, infectious_i, susceptible_i, a_lparm->xmit_child_SC, a_lparm->xmit_child);
+                return infectProb(a_ptd, infectious_i, susceptible_i, a_lparm->xmit_hh_child_SC, a_lparm->xmit_hh_child);
             } else {
-                return infectProb(a_ptd, infectious_i, susceptible_i, a_lparm->xmit_adult_SC, a_lparm->xmit_adult);
+                return infectProb(a_ptd, infectious_i, susceptible_i, a_lparm->xmit_hh_adult_SC, a_lparm->xmit_hh_adult);
             }
         } else if (family_ptr[infectious_i] / FAMILIES_PER_CLUSTER == family_ptr[susceptible_i] / FAMILIES_PER_CLUSTER &&
                    !withdrawn_ptr[infectious_i] && !withdrawn_ptr[susceptible_i]) {
