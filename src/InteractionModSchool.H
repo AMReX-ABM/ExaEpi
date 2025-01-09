@@ -56,7 +56,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
         } else {
             if (nborhood_ptr[infectious_i] == nborhood_ptr[susceptible_i]) {
                 if (school_id > 5) {             // Playgroup - currently not implemented in the initialization
-                    return a_lparm->xmit_school[6] * a_social_scale;
+                    return 0.; //return a_lparm->xmit_school[6] * a_social_scale; // xmit_school[6] not defined yet!
                 } else if (school_id == 5) {     // Day care
                     return a_lparm->xmit_school[5] * a_social_scale;
                 }

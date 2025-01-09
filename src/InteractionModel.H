@@ -162,6 +162,12 @@ void interactAgentsImpl(IModel &interaction_model, AgentContainer& agents, int b
                 max_group = agents.getMaxGroup(bin_idx);
 #ifdef DEBUG
                 auto bingroup_ptr = soa.GetIntData(bin_idx).data();
+                auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
+                for (int i = 0; i < np; ++i) {
+                   if (bingroup_ptr[i] > max_group) {
+                       printf("DEBUG: Particle %d has school_id = %d, has bingroup_ptr[%d] = %d, max_group = %d\n", i, school_id_ptr[i], i, bingroup_ptr[i], max_group);
+                   }
+                }
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                     AMREX_ASSERT(bingroup_ptr[i] <= max_group);
                 });
