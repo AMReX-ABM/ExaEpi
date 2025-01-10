@@ -980,3 +980,192 @@ void AgentContainer::printAgeGroupCounts() const {
                 << "  Total      " << total_agents << "\n";
     }
 }
+
+void AgentContainer::updateSchoolInfection(iMultiFab& a_school_stats, amrex::Real a_cur_time) /*!< Community-wise school infection stats and status tracker */
+{
+    BL_PROFILE("AgentContainer::updateSchoolInfo");
+
+    struct SchoolDismissal
+    {
+        enum {
+            ByCommunity = 0,   /*!< dismiss school with respect to total infection in a community */
+            BySchool,   /*!< dismiss school with respect to total infection in specific school in a community */
+            ByUnit  /*!< dismiss school with respect to total infection in a unit */
+        };
+    };
+
+
+    amrex::ParmParse pp("agent");
+    std::string school_dismissal_option = "by_community";
+    pp.query("school_dismissal_option", school_dismissal_option);
+
+    int school_dismissal_flag = SchoolDismissal::ByCommunity;
+    if (school_dismissal_option == "by_community") {
+        school_dismissal_flag = SchoolDismissal::ByCommunity;
+    }
+    else if (school_dismissal_option == "by_school") {
+        school_dismissal_flag = SchoolDismissal::BySchool;
+    }
+    else if (school_dismissal_option == "by_unit") {
+        school_dismissal_flag = SchoolDismissal::ByUnit;
+    }
+
+    struct SchoolStats
+    {
+        enum {
+            SchoolDismissal = 0,   /*!< whether school is open or closed */
+            SchoolInfectionCount,   /*!< total infected students in community if school open */
+            SchoolStatusDayCount,  /*!< day count of school being closed */
+            nattribs
+        };
+    };
+
+    int nattr = SchoolCensusIDType::total;
+    AMREX_ALWAYS_ASSERT(a_school_stats.nComp() == SchoolStats::nattribs * nattr);
+
+    for (int lev = 0; lev <= finestLevel(); ++lev)
+    {
+        auto& plev = GetParticles(lev);
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            int gid = mfi.index();
+            int tid = mfi.LocalTileIndex();
+            auto& ptile = plev[std::make_pair(gid, tid)];
+            auto& soa = ptile.GetStructOfArrays();
+            const auto np = ptile.numParticles();
+
+            auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
+            auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
+            auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+            auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
+            auto hosp_i_ptr = soa.GetIntData(IntIdx::hosp_i).data();
+            auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
+            auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
+
+            auto ss_arr = a_school_stats[mfi].array();
+            // const auto& sc_arr = m_student_counts[mfi].array();
+
+            const Box& bx = mfi.tilebox();
+
+            amrex::ParallelFor(bx,
+                [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept
+                {
+                    for (int ii = 0; ii < 5; ii ++)
+                    ss_arr(i, j, k, ii + nattr * SchoolStats::SchoolInfectionCount) = 0;
+
+                });
+
+            Gpu::synchronize();
+
+            // Infection Counts at a given day
+            amrex::ParallelFor(np,
+                [=] AMREX_GPU_DEVICE(int p) noexcept
+                {
+                    int home_i = home_i_ptr[p];
+                    int home_j = home_j_ptr[p];
+                    // int school_id = getSchoolType(school_grade_ptr[p]);
+                    int school_id = school_id_ptr[p];
+                    if (age_group_ptr[p] == 1) { // Exclude DayCare
+                        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(school_id >= 0, "school_ptr can't be negative");
+                        if (school_id > 0 && (withdrawn_ptr[p] == 1 || hosp_i_ptr[p] > -1 || hosp_j_ptr[p] < -1)) {
+                            amrex::Gpu::Atomic::Add(&ss_arr(home_i, home_j, 0, nattr * SchoolStats::SchoolInfectionCount), 1);
+                            if (school_id == SchoolCensusIDType::high_1) {
+                                amrex::Gpu::Atomic::Add(&ss_arr(home_i, home_j, 0, 1 + nattr * SchoolStats::SchoolInfectionCount), 1);
+                            }
+                            else if (school_id == SchoolCensusIDType::middle_2) {
+                                amrex::Gpu::Atomic::Add(&ss_arr(home_i, home_j, 0, 2 + nattr * SchoolStats::SchoolInfectionCount), 1);
+                            }
+                            else if (school_id == SchoolCensusIDType::elem_3) {
+                                amrex::Gpu::Atomic::Add(&ss_arr(home_i, home_j, 0, 3 + nattr * SchoolStats::SchoolInfectionCount), 1);
+                            }
+                            else if (school_id == SchoolCensusIDType::elem_4) {
+                                amrex::Gpu::Atomic::Add(&ss_arr(home_i, home_j, 0, 4 + nattr * SchoolStats::SchoolInfectionCount), 1);
+                            }
+                        }
+                    }
+                });
+
+            Gpu::synchronize();
+
+            amrex::ParallelFor(bx,
+                [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept
+                {
+                    // for debugging purposes
+                    if (i == 14 && j == 2) {
+                        printf("Community (%d, %d, %d) has Infection number:  MultiFab = %d, Day = %d\n",
+                               i, j, k,
+                               ss_arr(i, j, k, nattr * SchoolStats::SchoolInfectionCount),
+                               ss_arr(i, j, k, nattr * SchoolStats::SchoolStatusDayCount));
+                    }
+
+                    amrex::Gpu::Atomic::Add(&ss_arr(i, j, k, nattr * SchoolStats::SchoolStatusDayCount), 1);
+
+                });
+
+            Gpu::synchronize();
+
+        }
+    }
+
+}
+
+void AgentContainer::printSchoolInfection(iMultiFab& a_school_stats, amrex::Real a_cur_time) /*!< print function for debugging purposes */
+{
+    int count_infec = 0;  // Initialize the infection count
+
+    for (int lev = 0; lev <= finestLevel(); ++lev)
+    {
+        auto& plev = GetParticles(lev);
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            int gid = mfi.index();
+            int tid = mfi.LocalTileIndex();
+            auto& ptile = plev[std::make_pair(gid, tid)];
+            auto& soa = ptile.GetStructOfArrays();
+            const auto np = ptile.numParticles();
+
+            auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
+            auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
+            auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+            auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
+            auto hosp_i_ptr = soa.GetIntData(IntIdx::hosp_i).data();
+            auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
+            auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
+
+            auto ss_arr = a_school_stats[mfi].array();
+
+            // Loop over all particles
+            for (int i = 0; i < np; ++i)
+            {
+                int home_i = home_i_ptr[i];
+                int home_j = home_j_ptr[i];
+                int school_id = school_id_ptr[i];
+                int age_group = age_group_ptr[i];
+                int withdrawn = withdrawn_ptr[i];
+
+                if (home_i == 14 && home_j == 2) {  // Filter for a specific community
+                    if (age_group == 1) {  // Exclude DayCare
+                        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(school_id >= 0, "school_ptr can't be negative");
+                        if (school_id > 0 && (withdrawn == 1 || hosp_i_ptr[i] > -1 || hosp_j_ptr[i] < -1)) {
+                            count_infec++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
+        amrex::Print() << "Community via Manual (" << 14 << ", " << 2 << ", " << 0 << ") has Infection number = "
+                       << count_infec << ", Day = " << a_cur_time << std::endl;
+    }
+}
+

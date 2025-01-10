@@ -177,6 +177,9 @@ void runAgent ()
         }
     }
 
+    amrex::iMultiFab school_infection_stats(ba, dm, SchoolCensusIDType::total * 3, 0);
+    school_infection_stats.setVal(0);
+
     amrex::Vector< std::unique_ptr<MultiFab> > disease_stats;
     disease_stats.resize(params.num_diseases);
     for (int d = 0; d < params.num_diseases; d++) {
@@ -293,7 +296,8 @@ void runAgent ()
 
             // Update agents' disease status
             pc.updateStatus(disease_stats);
-
+            pc.updateSchoolInfection(school_infection_stats, cur_time);
+            pc.printSchoolInfection(school_infection_stats,cur_time);
             for (int d = 0; d < params.num_diseases; d++) {
                 auto counts = pc.getTotals(d);
                 if (counts[1] > num_infected_peak[d]) {
