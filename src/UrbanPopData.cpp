@@ -406,6 +406,7 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
         int workgroup_size = params.workgroup_size;
         int nborhood_size = params.nborhood_size;
         soa.GetIntData(IntIdx::withdrawn).assign(0);
+        soa.GetIntData(IntIdx::withdrawn_date).assign(0);
         soa.GetIntData(IntIdx::random_travel).assign(-1);
         soa.GetIntData(IntIdx::air_travel).assign(-1);
 

@@ -302,6 +302,8 @@ void CensusData::initAgents (AgentContainer& pc,       /*!< Agents */
         auto trav_j_ptr = soa.GetIntData(IntIdx::trav_j).data();
         auto hosp_i_ptr = soa.GetIntData(IntIdx::hosp_i).data();
         auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
+        auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
+        auto withdrawn_date_ptr = soa.GetIntData(IntIdx::withdrawn_date).data();
         auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
         auto school_grade_ptr = soa.GetIntData(IntIdx::school_grade).data();
         auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
@@ -448,6 +450,8 @@ void CensusData::initAgents (AgentContainer& pc,       /*!< Agents */
                 nborhood_ptr[ip] = nborhood;
                 work_nborhood_ptr[ip] = nborhood;
                 workgroup_ptr[ip] = 0;
+                withdrawn_ptr[ip] = 0;
+                withdrawn_date_ptr[ip] = 0;
                 naics_ptr[ip] = 0;
                 random_travel_ptr[ip] = -1;
                 air_travel_ptr[ip] = -1;

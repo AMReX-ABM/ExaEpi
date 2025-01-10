@@ -58,6 +58,7 @@ struct IntIdx
         workgroup,      /*!< workgroup ID */
         work_nborhood,  /*!< work neighborhood ID */
         withdrawn,      /*!< quarantine status */
+        withdrawn_date, /*!< quarantine / hospitalization date */
         random_travel,  /*!< on long distance travel? */
         air_travel,     /*!< on long distance travel by Air? */
         nattribs        /*!< number of integer-type attribute */

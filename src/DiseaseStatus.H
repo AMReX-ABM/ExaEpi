@@ -53,7 +53,7 @@ class DiseaseStatus
         /*! \brief Updates disease status of each agent at a given step and
          *   also updates a MultiFab that tracks disease statistics (hospitalization,
          *   ICU, ventilator, and death) in a community. */
-        virtual void updateAgents(AC&, MFPtrVec&) const;
+        virtual void updateAgents(AC&, MFPtrVec&, Real) const;
 
     protected:
 
@@ -80,7 +80,8 @@ class DiseaseStatus
 */
 template<typename AC, typename ACT, typename ACTD, typename A>
 void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent containter */
-                                                MFPtrVec& a_stats /*!< MultiFab to store disease stats */ ) const
+                                                MFPtrVec& a_stats, /*!< MultiFab to store disease stats */
+                                                amrex::Real a_cur_time /*!< tracking time of infection */ ) const
 {
     BL_PROFILE("DiseaseStatus::updateAgents");
     int n_disease = a_agents.numDiseases();
@@ -107,6 +108,7 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
             auto hosp_i_ptr = soa.GetIntData(IntIdx::hosp_i).data();
             auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
             auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
+            auto withdrawn_date_ptr = soa.GetIntData(IntIdx::withdrawn_date).data();
 
             auto symptomatic_withdraw_compliance = a_agents.symptomaticWithdrawCompliance();
 
@@ -167,6 +169,7 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                                 symptomatic_ptr[i] = SymptomStatus::symptomatic;
                                 if (symptomatic_withdraw_compliance > 0.0_rt && (Random(engine) < symptomatic_withdraw_compliance)) {
                                     withdrawn_ptr[i] = 1;
+                                    withdrawn_date_ptr[i] = static_cast<int>(a_cur_time);
                                 }
                                 disease_parm_d->check_hospitalization(&(timer_ptr[i]),
                                                                       &(marked_for_ICU_ptr[i]),
@@ -182,6 +185,7 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                                     static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine));
                                 symptomatic_ptr[i] = SymptomStatus::presymptomatic;
                                 withdrawn_ptr[i] = 0;
+                                withdrawn_date_ptr[i] = 0;
                             }
                         }
                     }
@@ -195,6 +199,8 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                 // check if not in hospital because this agent could have already been assigned a hospital for another disease
                 if (marked_for_hosp_ptr[i] == 1 && !inHospital(i, ptd)) {
                     assign_hospital( i, hosp_i_ptr, hosp_j_ptr, ptd);
+                    withdrawn_ptr[i] = 1;
+                    withdrawn_date_ptr[i] = static_cast<int>(a_cur_time);
                 }
             });
 

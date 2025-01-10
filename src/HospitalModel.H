@@ -77,6 +77,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
 
             auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
             auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
+            auto withdrawn_date_ptr = soa.GetIntData(IntIdx::withdrawn_date).data();
             auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
             auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
             auto hosp_i_ptr = soa.GetIntData(IntIdx::hosp_i).data();
@@ -173,6 +174,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                                 static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine));
                             symptomatic_ptrs[d][i] = SymptomStatus::presymptomatic;
                             withdrawn_ptr[i] = 0;
+                            withdrawn_date_ptr[i] = 0;
                             timer_ptrs[d][i] = 0.0_prt;
                         }
                     }
@@ -195,6 +197,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                     hosp_i_ptr[i] = -1;
                     hosp_j_ptr[i] = -1;
                     withdrawn_ptr[i] = 0;
+                    withdrawn_date_ptr[i] = 0;
                 } else {
                     // check if agent can be discharged from hospital
                     ParticleReal sum_timers = 0;
@@ -206,6 +209,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                         hosp_i_ptr[i] = -1;
                         hosp_j_ptr[i] = -1;
                         withdrawn_ptr[i] = 0;
+                        withdrawn_date_ptr[i] = 0;
                         PType& p = pstruct[i];
                         if (is_census) {
                             p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);

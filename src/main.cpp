@@ -177,7 +177,7 @@ void runAgent ()
         }
     }
 
-    amrex::iMultiFab school_infection_stats(ba, dm, SchoolCensusIDType::total * 3, 0);
+    amrex::iMultiFab school_infection_stats(ba, dm, SchoolCensusIDType::total * 4, 0);
     school_infection_stats.setVal(0);
 
     amrex::Vector< std::unique_ptr<MultiFab> > disease_stats;
@@ -257,6 +257,7 @@ void runAgent ()
                  << "workgroup "
                  << "work_nborhood "
                  << "withdrawn "
+                 << "withdrawn_date "
                  << "random_travel "
                  << "status "
                  << "symptomatic\n";
@@ -295,7 +296,7 @@ void runAgent ()
             }
 
             // Update agents' disease status
-            pc.updateStatus(disease_stats);
+            pc.updateStatus(disease_stats, cur_time);
             pc.updateSchoolInfection(school_infection_stats, cur_time);
             pc.printSchoolInfection(school_infection_stats,cur_time);
             for (int d = 0; d < params.num_diseases; d++) {
@@ -395,7 +396,7 @@ void runAgent ()
             }
 
             if (params.shelter_start > 0 && params.shelter_start == i) {
-                pc.shelterStart();
+                pc.shelterStart(cur_time);
             }
 
             if (params.shelter_start > 0 && params.shelter_start + params.shelter_length == i) {

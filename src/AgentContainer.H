@@ -124,7 +124,7 @@ public:
 
     void returnAirTravel ();
 
-    void updateStatus (MFPtrVec&);
+    void updateStatus (MFPtrVec&, amrex::Real a_cur_time);
 
     void updateSchoolInfection(iMultiFab& a_school_stats, amrex::Real a_cur_time);
 
@@ -132,7 +132,7 @@ public:
 
     void infectAgents ();
 
-    void shelterStart ();
+    void shelterStart (amrex::Real a_cur_time);
 
     void shelterStop ();
 
@@ -176,7 +176,6 @@ public:
     void printAgeGroupCounts() const;
 
     amrex::iMultiFab m_student_counts;
-    //amrex::iMultiFab m_student_infection_counts;
 
     /// Used only for Census data. A ratio for each school type: none, college, high, middle, elem, daycare
     amrex::GpuArray<int, SchoolType::total> m_student_teacher_ratio = {0, 15, 15, 15, 15, 15};
