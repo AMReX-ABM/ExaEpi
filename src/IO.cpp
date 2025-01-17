@@ -123,6 +123,7 @@ void writePlotFile (const AgentContainer& pc, /*!< Agent (particle) container */
         int_varnames.push_back ("school_closed"); write_int_comp.push_back(static_cast<int>(step==0));
         int_varnames.push_back ("naics"); write_int_comp.push_back(static_cast<int>(step==0));
         int_varnames.push_back ("workgroup"); write_int_comp.push_back(static_cast<int>(step==0));
+        int_varnames.push_back ("worksubgroup"); write_int_comp.push_back(static_cast<int>(step==0));
         int_varnames.push_back ("work_nborhood"); write_int_comp.push_back(static_cast<int>(step==0));
         int_varnames.push_back ("withdrawn"); write_int_comp.push_back(1);
         int_varnames.push_back ("random_travel"); write_int_comp.push_back(1);

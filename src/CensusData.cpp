@@ -308,6 +308,7 @@ void CensusData::initAgents (AgentContainer& pc,       /*!< Agents */
         auto school_closed_ptr = soa.GetIntData(IntIdx::school_closed).data();
         auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
+        auto worksubgroup_ptr = soa.GetIntData(IntIdx::worksubgroup).data();
         auto work_nborhood_ptr = soa.GetIntData(IntIdx::work_nborhood).data();
         auto random_travel_ptr = soa.GetIntData(IntIdx::random_travel).data();
         auto air_travel_ptr = soa.GetIntData(IntIdx::air_travel).data();
@@ -448,6 +449,7 @@ void CensusData::initAgents (AgentContainer& pc,       /*!< Agents */
                 nborhood_ptr[ip] = nborhood;
                 work_nborhood_ptr[ip] = nborhood;
                 workgroup_ptr[ip] = 0;
+                worksubgroup_ptr[ip] = 0;
                 naics_ptr[ip] = 0;
                 random_travel_ptr[ip] = -1;
                 air_travel_ptr[ip] = -1;
@@ -509,7 +511,8 @@ void CensusData::initAgents (AgentContainer& pc,       /*!< Agents */
 */
 void CensusData::read_workerflow (AgentContainer& pc,           /*!< Agent container (particle container) */
                                   const std::string &workerflow_filename,
-                                  const int workgroup_size)
+                                  const int workgroup_size,
+                                  const int worksubgroup_size)
 {
     /* Allocate worker-flow matrix, only from units with nighttime
         communities on this processor (Unit_on_proc[] flag) */
@@ -615,6 +618,7 @@ void CensusData::read_workerflow (AgentContainer& pc,           /*!< Agent conta
         auto work_i_ptr = soa.GetIntData(IntIdx::work_i).data();
         auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
+        auto worksubgroup_ptr = soa.GetIntData(IntIdx::worksubgroup).data();
         auto work_nborhood_ptr = soa.GetIntData(IntIdx::work_nborhood).data();
         auto np = soa.numParticles();
 
@@ -668,7 +672,19 @@ void CensusData::read_workerflow (AgentContainer& pc,           /*!< Agent conta
                 if (number) {
                     workgroup_ptr[ip] = 1 + Random_int(number, engine);
                     work_nborhood_ptr[ip] = workgroup_ptr[ip] % 4; // each workgroup is assigned to a neighborhood as well
+                } else {
+                    workgroup_ptr[ip] = 1;
                 }
+
+                unsigned int num_worksubgroup = (unsigned int) rint( ((Real) Ndaywork[to]) /
+                                                ((Real) number * worksubgroup_size * (Start[to+1] - Start[to])) );
+                if (num_worksubgroup){
+                    worksubgroup_ptr[ip] = 1 + amrex::Random_int(num_worksubgroup, engine);
+                } else {
+                    worksubgroup_ptr[ip] = 1;
+                }
+
+
             }
         });
     }
@@ -734,6 +750,7 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
 
         Gpu::HostVector<int> age_group_h(np);
         Gpu::HostVector<int> workgroup_h(np);
+        Gpu::HostVector<int> worksubgroup_h(np);
         Gpu::HostVector<int> work_i_h(np);
         Gpu::HostVector<int> work_j_h(np);
         Gpu::HostVector<int> school_grade_h(np);
@@ -744,6 +761,8 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
                   soa.GetIntData(IntIdx::age_group).end(), age_group_h.begin());
         Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::workgroup).begin(),
                   soa.GetIntData(IntIdx::workgroup).end(), workgroup_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::worksubgroup).begin(),
+                  soa.GetIntData(IntIdx::worksubgroup).end(), worksubgroup_h.begin());
         Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_i).begin(),
                   soa.GetIntData(IntIdx::work_i).end(), work_i_h.begin());
         Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_j).begin(),
@@ -757,6 +776,7 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
 
         auto age_group_ptr = age_group_h.data();
         auto workgroup_ptr = workgroup_h.data();
+        auto worksubgroup_ptr = worksubgroup_h.data();
         auto work_i_ptr = work_i_h.data();
         auto work_j_ptr = work_j_h.data();
         auto school_grade_ptr = school_grade_h.data();
@@ -784,30 +804,35 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
                     school_id_ptr[ip] = SchoolCensusIDType::high_1;
                     work_nborhood_ptr[ip] = 3; // assuming the high school is located in Neighbordhood 3
                     workgroup_ptr[ip] = 1;
+                    worksubgroup_ptr[ip] = 1; // assuming all teachers withi the same school interact at same rate -- for now
                     high_teachers_ptr[comm]--;
                 } else if (choice < high_teachers + middle_teachers) {
                     school_grade_ptr[ip] = 9;  // 7th grade - generic for middle
                     school_id_ptr[ip] = SchoolCensusIDType::middle_2;
                     work_nborhood_ptr[ip] = 1; // assuming the middle school is located in Neighbordhood 2
                     workgroup_ptr[ip] = 2;
+                    worksubgroup_ptr[ip] = 1; // assuming all teachers withi the same school interact at same rate -- for now
                     middle_teachers_ptr[comm]--;
                 } else if (choice < high_teachers + middle_teachers + elem3_teachers) {
                     school_grade_ptr[ip] = 5;  // 3rd grade - generic for elementary
                     school_id_ptr[ip] = SchoolCensusIDType::elem_3;
                     work_nborhood_ptr[ip] = 0; // assuming the first elementary school is located in Neighbordhood 1
                     workgroup_ptr[ip] = 3;
+                    worksubgroup_ptr[ip] = 1; // assuming all teachers withi the same school interact at same rate -- for now
                     elem3_teachers_ptr[comm]--;
                 } else if (choice < high_teachers + middle_teachers + elem3_teachers + elem4_teachers) {
                     school_grade_ptr[ip] = 5;  // 3rd grade - generic for elementary
                     school_id_ptr[ip] = SchoolCensusIDType::elem_4;
                     work_nborhood_ptr[ip] = 2; // assuming the first elementary school is located in Neighbordhood 3
                     workgroup_ptr[ip] = 4;
+                    worksubgroup_ptr[ip] = 1;
                     elem4_teachers_ptr[comm]--;
                 } else {
                     school_grade_ptr[ip] = 0; // generic for daycare
                     work_nborhood_ptr[ip] = Random_int(4); // randomly select nborhood
                     school_id_ptr[ip] = SchoolCensusIDType::daycare_5 + work_nborhood_ptr[ip];
                     workgroup_ptr[ip] = 5;
+                    worksubgroup_ptr[ip] = 1; // assuming all teachers withi the same school interact at same rate -- for now
                     daycare_teachers_ptr[comm]--;
                 }
             }

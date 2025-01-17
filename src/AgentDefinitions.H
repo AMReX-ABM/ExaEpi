@@ -56,6 +56,7 @@ struct IntIdx
         school_closed,  /*!< 0 for open, 1 for closed */
         naics,          /*!< industry NAICS code for business employed at */
         workgroup,      /*!< workgroup ID */
+        worksubgroup,   /*!< work subgroup ID */
         work_nborhood,  /*!< work neighborhood ID */
         withdrawn,      /*!< quarantine status */
         random_travel,  /*!< on long distance travel? */

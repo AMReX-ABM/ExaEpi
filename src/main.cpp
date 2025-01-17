@@ -195,7 +195,7 @@ void runAgent ()
         BL_PROFILE_REGION("Initialization");
         if (params.ic_type == ICType::Census) {
             censusData.initAgents(pc, params.nborhood_size);
-            censusData.read_workerflow(pc, params.workerflow_filename, params.workgroup_size);
+            censusData.read_workerflow(pc, params.workerflow_filename, params.workgroup_size, params.worksubgroup_size);
         } else if (params.ic_type == ICType::UrbanPop) {
             urbanPopData.initAgents(pc, params);
         } else {
@@ -252,6 +252,7 @@ void runAgent ()
                  << "school "
                  << "naics "
                  << "workgroup "
+                 << "worksubgroup "
                  << "work_nborhood "
                  << "withdrawn "
                  << "random_travel "

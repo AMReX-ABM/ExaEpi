@@ -75,6 +75,9 @@ void ExaEpi::Utils::get_test_params (   TestParams& params,         /*!< Test pa
 
     pp.query("nborhood_size", params.nborhood_size);
     pp.query("workgroup_size", params.workgroup_size);
+    pp.query("worksubgroup_size", params.worksubgroup_size);
+
+    AMREX_ALWAYS_ASSERT(params.workgroup_size >= params.worksubgroup_size);
 
     Long seed = 0;
     bool reset_seed = pp.query("seed", seed);

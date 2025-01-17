@@ -71,6 +71,8 @@ void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string
     // no support yet for vaccinations
     AMREX_ALWAYS_ASSERT(vac_eff == 0);
 
+    pp.query("xmit_worksubgroup_scale", workdiff_scale);
+
     pp.query("child_compliance", child_compliance);
     pp.query("child_hh_closure", child_HH_closure);
 
@@ -117,6 +119,19 @@ void DiseaseParm::Initialize ()
 
     // Multiply contact rates by transmission probability given contact
     xmit_work *= p_trans;
+    xmit_workdiff *= p_trans;
+
+    for (int i = 0; i < AgeGroups::total; i++) {
+        xmit_work_a18to29[i] *= p_trans;
+        xmit_work_a30to49[i] *= p_trans;
+        xmit_work_a50to64[i] *= p_trans;
+    }
+    // Initialize the xmit_workdiff arrays with scaled values
+    for (int i = 0; i < AgeGroups::total; i++) {
+        xmit_workdiff_a18to29[i] = xmit_work_a18to29[i] * workdiff_scale;
+        xmit_workdiff_a30to49[i] = xmit_work_a30to49[i] * workdiff_scale;
+        xmit_workdiff_a50to64[i] = xmit_work_a50to64[i] * workdiff_scale;
+    }
 
     for (int i = 0; i < AgeGroups::total; i++) {
         xmit_comm[i] *= p_trans;
@@ -158,4 +173,3 @@ void DiseaseParm::Initialize ()
     }
 
 }
-

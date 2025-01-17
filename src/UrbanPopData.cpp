@@ -402,8 +402,10 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
         auto school_closed_ptr = soa.GetIntData(IntIdx::school_closed).data();
         auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
+        auto worksubgroup_ptr = soa.GetIntData(IntIdx::worksubgroup).data();
         auto work_nborhood_ptr = soa.GetIntData(IntIdx::work_nborhood).data();
         int workgroup_size = params.workgroup_size;
+        int worksubgroup_size = params.worksubgroup_size;
         int nborhood_size = params.nborhood_size;
         soa.GetIntData(IntIdx::withdrawn).assign(0);
         soa.GetIntData(IntIdx::random_travel).assign(-1);
@@ -477,13 +479,18 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
                     int max_work_nborhood = group_work_populations_ptr[i] / nborhood_size + 1;
                     work_nborhood_ptr[i] = Random_int(max_work_nborhood, engine) + 1;
                     AMREX_ASSERT(work_nborhood_ptr[i] > 0 && work_nborhood_ptr[i] < 5000);
+                    int max_worksubgroup = group_work_populations_ptr[i] / (max_workgroup * worksubgroup_size) + 1;
+                    worksubgroup_ptr[i] = Random_int(max_worksubgroup, engine) + 1;
+                    AMREX_ASSERT(worksubgroup_ptr[i] > 0 && worksubgroup_ptr[i] < max_worksubgroup * (NAICS_COUNT + 1));
                 } else {
                     // educator, workgroup is school, as is nborhood
                     workgroup_ptr[i] = school_id_ptr[i];
+                    worksubgroup_ptr[i] = 1; // all teachers within a school interact at same rate -- for now
                     work_nborhood_ptr[i] = school_id_ptr[i];
                 }
             } else {
                 workgroup_ptr[i] = 0;
+                worksubgroup_ptr[i] = 0;
                 // everyone interacts in the work nborhood, even thoes that don't work (they interact during the day in their
                 // home neighborhoods, effectively
                 work_nborhood_ptr[i] = nborhood_ptr[i];
@@ -538,5 +545,3 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
 
     num_communities = all_num_communities;
 }
-
-

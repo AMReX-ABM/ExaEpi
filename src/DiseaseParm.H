@@ -72,6 +72,19 @@ struct DiseaseParm
 
     /*! probability for transmission within a workgroup, independent of age group currently */
     Real xmit_work = Real(0.0575);
+    Real xmit_workdiff = Real(xmit_work * 0.75);  // 25% less interaction between workers from different subgroup
+
+    /*! probability for transmission within a workgroup, depend of age group of receiver  */
+    /*! Recall age group of receiver (0-4, 5-17, 18-29, 30-49, 50-64, 65+) --  only 18-64 work */
+    Real xmit_work_a18to29[AgeGroups::total] = {Real(0.), Real(0.), Real(0.0575), Real(0.0575), Real(0.0575), Real(0.)};
+    Real xmit_work_a30to49[AgeGroups::total] = {Real(0.), Real(0.), Real(0.0575), Real(0.0575), Real(0.0575), Real(0.)};
+    Real xmit_work_a50to64[AgeGroups::total] = {Real(0.), Real(0.), Real(0.0575), Real(0.0575), Real(0.0575), Real(0.)};
+
+    // Define in DiseaseParm.cpp
+    Real workdiff_scale = Real(0.75);  // 25% less interaction between workers from different subgroup
+    Real xmit_workdiff_a18to29[AgeGroups::total];
+    Real xmit_workdiff_a30to49[AgeGroups::total];
+    Real xmit_workdiff_a50to64[AgeGroups::total];
 
     Real p_trans = Real(0.20);     /*!< probability of transimission given contact */
     Real p_asymp = Real(0.40);     /*!< fraction of cases that are asymptomatic */
