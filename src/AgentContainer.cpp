@@ -1198,7 +1198,7 @@ void AgentContainer::updateSchoolInfection(iMultiFab& a_school_stats, amrex::Rea
                             if (status_arr(i, j, k, ii + offset * SchoolStats::SchoolStatusDayCount) > sc_length - 1 ) {
 
                                 status_arr(i, j, k, ii + offset * SchoolStats::SchoolDismissal) = 0;
-                                status_arr(i, j, k, ii + offset * SchoolStats::SchoolReopenDay) = a_cur_time;
+                                status_arr(i, j, k, ii + offset * SchoolStats::SchoolReopenDay) = static_cast<int>(a_cur_time);
 
                                 if ( i == 14 && j == 2) {
                                     printf("Community (%d, %d, %d) has now opened at day %f (dissmissal = %d). Infection number: MultiFab = %d, Day = %d\n",

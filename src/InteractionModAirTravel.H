@@ -31,7 +31,7 @@ static void binaryInteractionAirTravel ( const int a_i, /*!< Index of infectious
     auto age_group_ptr_j = a_ptd_j.m_idata[IntIdx::age_group];
     auto nborhood_ptr_i = a_ptd_i.m_idata[IntIdx::nborhood];
     auto nborhood_ptr_j = a_ptd_j.m_idata[IntIdx::nborhood];
-    auto school_ptr_i = a_ptd_i.m_idata[IntIdx::school];
+    auto school_closed_ptr_i = a_ptd_i.m_idata[IntIdx::school_closed];
     auto withdrawn_ptr_i = a_ptd_i.m_idata[IntIdx::withdrawn];
     auto withdrawn_ptr_j = a_ptd_j.m_idata[IntIdx::withdrawn];
     if (withdrawn_ptr_i[a_i] || withdrawn_ptr_j[a_j]) { return; }
@@ -46,16 +46,16 @@ static void binaryInteractionAirTravel ( const int a_i, /*!< Index of infectious
     //infect *= j_mask;
     ParticleReal prob = 1.0_prt;
 
-    // school < 0 means a child normally attends school, but not today
+    // school_closed == 1 means a child/teachers normally attends school, but not today
     /* Should always be in the same community = same cell */
-    if (school_ptr_i[a_i] < 0) {  // not attending school, use _SC contacts
+    if (school_closed_ptr_i[a_i] == 1) {  // not attending school, use _SC contacts
         prob *= 1.0_prt - infect * a_lparm->xmit_comm_SC[age_group_ptr_j[a_j]] * a_social_scale;
     } else {
         prob *= 1.0_prt - infect * a_lparm->xmit_comm[age_group_ptr_j[a_j]] * a_social_scale;
     }
     // /* Neighborhood? */
     if (nborhood_ptr_i[a_i] == nborhood_ptr_j[a_j]) {
-        if (school_ptr_i[a_i] < 0)  {
+        if (school_closed_ptr_i[a_i] == 1)  {
             // not attending school, use _SC contacts
             prob *= 1.0_prt - infect * a_lparm->xmit_hood_SC[age_group_ptr_j[a_j]] * a_social_scale;
         } else {
