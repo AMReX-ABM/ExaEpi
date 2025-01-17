@@ -49,6 +49,9 @@ The following are inputs for the overall simulation:
     Size of neighborhood for home and work communities.
 * ``agent.workgroup_size`` (`int`, default ``20``)
     Size of workgroups for work communities.
+* ``agent.worksubgroup_size`` (`int`, default ``20``)
+    The size of work subgroups within a workgroup. If this value is equal to the workgroup size (e.g., ``agent.worksubgroup_size = agent.workgroup_size``), no additional subgroups are created within the workgroup.
+    If the value is smaller than the workgroup size, each workgroup is further divided into smaller subgroups.(e.g. ``agent.workgroup_size = 20`` and ``agent.worksubgroup_size = 5`` will create a workgroup of 20 agents which divided into 4 subgroups of 5 agents each. )
 * ``agent.urbanpop_filename`` (`string`)
     The path to the ``*.csv`` and ``*.idx`` files containing the UrbanPop data used to set initial conditions. For each input
     there should be two files, one with a ``.csv`` extension, and one with a ``.idx`` extension, both with the same name.
