@@ -298,7 +298,6 @@ void runAgent ()
             // Update agents' disease status
             pc.updateStatus(disease_stats, cur_time);
             pc.updateSchoolInfection(school_infection_stats, cur_time);
-            pc.printSchoolInfection(school_infection_stats,cur_time);
             for (int d = 0; d < params.num_diseases; d++) {
                 auto counts = pc.getTotals(d);
                 if (counts[1] > num_infected_peak[d]) {

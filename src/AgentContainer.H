@@ -128,8 +128,6 @@ public:
 
     void updateSchoolInfection(iMultiFab& a_school_stats, amrex::Real a_cur_time);
 
-    void printSchoolInfection(iMultiFab& a_school_stats, amrex::Real a_cur_time);
-
     void infectAgents ();
 
     void shelterStart (amrex::Real a_cur_time);
