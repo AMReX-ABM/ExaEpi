@@ -85,8 +85,6 @@ disease.num_initial_cases = 0
 # no default, must be set for each disease when disease_[disease name].num_initial_cases = random for multiple diseases
 # disease.num_initial_cases_[disease name] = 0
 
-# Number of disease strains. Currently only one strain is supported.
-disease.nstrain = 1
 # Probability of transmission given contact.
 disease.p_trans = 0.2
 # Probability of being asymptomatic.

@@ -130,8 +130,6 @@ The following are inputs for the overall simulation:
 
 The following inputs specify the disease parameters:
 
-* ``disease.nstrain`` (`integer`, default ``1``)
-    The number of disease strains being modeled. `In the current implementation, only the first strain is used`.
 * ``disease.p_trans`` (`list of float`, default ``0.2``)
     Probability of transmission given contact. There must be one entry for each disease strain.
 * ``disease.p_asymp`` (`list of float`, default ``0.4``)
