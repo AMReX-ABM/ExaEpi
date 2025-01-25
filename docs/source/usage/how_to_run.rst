@@ -24,7 +24,7 @@ Inputs Parameters
 
 Runtime parameters are specified in an `inputs` file, which is required to run ExaEpi.
 Example `inputs` files can be bound at `ExaEpi/examples/`. The file `inputs.default` lists all of the settings,
-set to the default values where appropriate. Below, we document the runtime parameters than can be set in the inputs file.
+set to the default values where appropriate. Below, we document the runtime parameters that can be set in the inputs file.
 
 The following are inputs for the overall simulation:
 
@@ -60,27 +60,6 @@ The following are inputs for the overall simulation:
 * ``agent.air_traffic_filename`` (`string`)
     The path to the ``*.dat`` file containing passenger flows among airports. Currently this is implemented
     only for ``ic_type = census``.
-* ``agent.initial_case_type`` (`list of strings`, default ``random``)
-    The size of the list must be the same as ``agent.number_of_diseases``. The value can be ``random`` or ``file``.
-    If ``random``, then ``agent.num_initial_cases`` must be set. If ``file``, then ``agent.case_filename`` must be set.
-* ``agent.case_filename`` (`string`)
-    The path to the ``*.cases`` file containing the initial case
-    data for a single disease. Must be provided if ``initial_case_type`` is ``"file"``. Examples of these data files
-    are provided in ``ExaEpi/data/CaseData``.
-* ``agent.case_filename_[disease name]`` (`string`)
-    The path to the ``*.cases`` file containing the initial case data for ``[disease name]``,
-    where ``[disease name]`` is from the list of names specified in ``agent.disease_names`` (or
-    the default value), for multiple diseases.
-    Must be provided for each disease ``[disease name]`` where ``initial_case_type`` is ``"file"``.
-    Examples of these data files are provided in ``ExaEpi/data/CaseData``.
-* ``agent.num_initial_cases`` (`int`, default ``0``)
-    The number of initial cases to seed for a single disease. Must be provided if
-    ``initial_case_type`` is ``"random"``. It can be set to 0 for no cases.
-* ``agent.num_initial_cases_[disease name]`` (`int``)
-    The number of initial cases to seed for ``[disease name]``,
-    where ``[disease name]`` is any of the names specified in ``agent.disease_names`` (or the
-    the default value), for multiple diseases.
-    Must be provided if ``initial_case_type`` is ``"random"`` for ``[disease name]``.
 * ``agent.nsteps`` (`integer`, default ``1``)
     The number of days to simulate.
 * ``agent.plot_int`` (`integer`, default ``-1``)
@@ -120,8 +99,8 @@ The following are inputs for the overall simulation:
     ``16``, for example, for ``ic_type = census``, the domain will be broken up into boxes of `16^2` communities, and
     these boxes will be assigned to different MPI ranks / GPUs.
     The default for ``ictype = census`` is 16, and for ``ic_type = urbanpop`` it is 500 when using GPUs, and 100 otherwise.
-* ``diag.output_filename`` (`list of strings`, default ``output.dat`` for a single disease,
-    ``output_[disease name].dat`` for multiple diseases)
+* ``diag.output_filename`` (`string`, default ``output.dat`` for a single disease,
+    ``diag.output_[disease name].dat`` for multiple diseases)
     Filename for the output data; the number of list elements must be the same as ``agent.number_of_diseases``.
     The default is ``output.dat`` for ``agent.number_of_diseases = 1`` and ``output_[disease name].dat``
     for ``agent.number_of_diseases > 1``, where ``[disease name]`` is from the list of names specified
@@ -130,11 +109,22 @@ The following are inputs for the overall simulation:
 
 The following inputs specify the disease parameters:
 
-* ``disease.p_trans`` (`list of float`, default ``0.2``)
+
+* ``disease.initial_case_type`` (`string`, default ``random``)
+    The size of the list must be the same as ``agent.number_of_diseases``. The value can be ``random`` or ``file``.
+    If ``random``, then ``disease.num_initial_cases`` must be set. If ``file``, then ``disease.case_filename`` must be set.
+* ``disease.case_filename`` (`string`)
+    The path to the ``*.cases`` file containing the initial case data for a single disease.
+    Must be provided if ``initial_case_type`` is ``"file"``.
+    Examples of these data files are provided in ``ExaEpi/data/CaseData``.
+* ``disease.num_initial_cases`` (`int`, default ``0``)
+    The number of initial cases to seed for a single disease. Must be provided if
+    ``initial_case_type`` is ``"random"``. It can be set to 0 for no cases.
+* ``disease.p_trans`` (`float`, default ``0.2``)
     Probability of transmission given contact. There must be one entry for each disease strain.
-* ``disease.p_asymp`` (`list of float`, default ``0.4``)
+* ``disease.p_asymp`` (`float`, default ``0.4``)
     The fraction of cases that are asymptomatic. There must be one entry for each disease strain.
-* ``disease.asymp_relative_inf`` (`list of float`, default ``0.75``)
+* ``disease.asymp_relative_inf`` (`float`, default ``0.75``)
     The relative infectiousness of asymptomatic individuals, from 0 to 1. There must be one entry for each disease strain.
     `This is not yet implemented`.
 * ``disease.vac_eff`` (`float`, default ``0``)

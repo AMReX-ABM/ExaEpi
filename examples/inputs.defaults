@@ -77,8 +77,6 @@ disease.initial_case_type = random
 # no default, must be set when disease.initial_case_type = file for a single disease
 # disease.case_filename
 # The number of initial cases for each disease. Not needed when reading initial cases from files.
-# no default, must be set for each disease when agent.initial_case_type = random for multiple diseases
-# agent.nmu_initial_cases_[disease name]
 # no default, must be set for each disease when disease_[disease name].initial_case_type = file for multiple diseases
 # disease.case_filename_[disease name]
 disease.num_initial_cases = 0

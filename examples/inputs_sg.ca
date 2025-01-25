@@ -1,0 +1,29 @@
+agent.ic_type = "census"
+agent.census_filename = "../../data/CensusData/CA.dat"
+agent.workerflow_filename = "../../data/CensusData/CA-sg-wf.bin"
+agent.airports_filename="../../data/CensusData/CA_airports.dat"
+agent.air_traffic_filename= "../../data/CA_CY23AirTraffic.dat"
+
+agent.nsteps = 120
+agent.plot_int = 10
+agent.random_travel_int = 24
+agent.air_travel_int = 1
+
+agent.aggregated_diag_int = -1
+agent.aggregated_diag_prefix = "cases"
+
+contact.pSC  = 0.2
+contact.pCO  = 1.45
+contact.pNH  = 1.45
+contact.pWO  = 0.5
+contact.pFA  = 1.0
+contact.pBAR = -1.
+
+disease.initial_case_type = "file"
+disease.case_filename = "../../data/CaseData/July4.cases"
+disease.nstrain = 1
+disease.p_trans = 0.20
+disease.p_asymp = 0.40
+disease.reduced_inf = 0.75
+
+disease.incubation_length_mean = 3.0
