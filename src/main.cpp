@@ -277,6 +277,8 @@ void runAgent ()
 
     Vector<Long> num_infected(params.num_diseases, 0);
 
+    amrex::ParmParse::QueryUnusedInputs();
+
     {
         BL_PROFILE_REGION("Evolution");
         for (int i = 0; i < params.nsteps; ++i)

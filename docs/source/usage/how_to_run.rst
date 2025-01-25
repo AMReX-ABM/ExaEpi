@@ -109,6 +109,7 @@ The following are inputs for the overall simulation:
 
 The following inputs specify the disease parameters:
 
+
 * ``disease.initial_case_type`` (`string`, default ``random``)
     The size of the list must be the same as ``agent.number_of_diseases``. The value can be ``random`` or ``file``.
     If ``random``, then ``disease.num_initial_cases`` must be set. If ``file``, then ``disease.case_filename`` must be set.
