@@ -132,6 +132,12 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                 {
                     if ( !inHospital(i, ptd) )  {
                         // agent is not in hospital
+                        // determine if agent dies anyway.
+                        if (Random(engine) < disease_parm_d->m_unhospToDeath[age_group_ptr[i]]) {
+                            is_alive_ptr[i] = 0;
+                            flag_status_ptr[i] *= -1;
+                            status_ptrs[d][i] = Status::dead;
+                        }
                         return;
                     }
                     if (counter_ptrs[d][i] == Math::floor(incubation_per_ptrs[d][i])) {
