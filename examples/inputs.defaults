@@ -92,9 +92,9 @@ disease.asymp_relative_inf = 0.75
 # Vaccine efficacy. Not yet implemented; leave at 0.
 disease.vac_eff = 0
 # Alpha parameter for the immume length Gamma distribution. The immune length is the length in days that agents are immune after recovery from an infection.
-disease.immune_length_alpha = 9.0
+disease.immune_length_alpha =540.0
 # Beta parameter for the immume length Gamma distribution. The immune length is the length in days that agents are immune after recovery from an infection.
-disease.immune_length_beta = 20.0
+disease.immune_length_beta = 0.33
 # Alpha parameter for the latent length Gamma distribution. The latent length is the length in days from infection until an agent becomes infectious.
 disease.latent_length_alpha = 9.0
 # Beta parameter for the latent length Gamma distribution. The latent length is the length in days from infection until an agent becomes infectious.
