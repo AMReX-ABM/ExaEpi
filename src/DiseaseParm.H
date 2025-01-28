@@ -185,7 +185,6 @@ void setInfected ( int* status,
     if (*infectious_period < 0) { *infectious_period = amrex::Real(0);}
     if (*incubation_period < 0) { *incubation_period = amrex::Real(0);}
     if (*hospital_delay < 0) { *hospital_delay = amrex::Real(0);}
-    *hospital_delay = amrex::Real(0);
     if (*incubation_period > (*infectious_period + *latent_period)) {
         *incubation_period = std::floor(*infectious_period + *latent_period);
     }
