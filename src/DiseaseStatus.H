@@ -177,7 +177,7 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                                                                           engine); }
                                 if (timer_ptr[i] > 0) { marked_for_hosp_ptr[i] = 1; }
                             }
-                        } else if ((Math::floor(hospital_delay_ptr[i] > 0) && (Math::floor(counter_ptr[i]) == Math::floor(incubation_period_ptr[i]) + Math::floor(hospital_delay_ptr[i])))) {
+                        } else if ((Math::floor(hospital_delay_ptr[i]) > 0) && (Math::floor(counter_ptr[i]) == Math::floor(incubation_period_ptr[i]) + Math::floor(hospital_delay_ptr[i]))) {
                             if (symptomatic_ptr[i] == SymptomStatus::symptomatic) {
                                 disease_parm_d->check_hospitalization(&(timer_ptr[i]),
                                                                       &(marked_for_ICU_ptr[i]),
