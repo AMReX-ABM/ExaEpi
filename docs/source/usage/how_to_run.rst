@@ -156,6 +156,12 @@ The following inputs specify the disease parameters:
 * ``disease.incubation_length_beta`` (`float`, default ``0.2``)
     Beta parameter for the incubation length Gamma distribution. The incubation length is the length of time in days after exposure until agents develop symptoms.
     For a Gamma distribution, the mean is alpha*beta and the variance is alpha*beta^2.
+* ``disease.hospital_delay_length_alpha`` (`float`, default ``1.0``)
+    Alpha parameter for the hospital_delay length Gamma distribution. The hospital_delay length is the length of time in days after agents develop symptoms that they seek treatment.
+    For a Gamma distribution, the mean is alpha*beta and the variance is alpha*beta^2.
+* ``disease.hospital_delay_length_beta`` (`float`, default ``1.0``)
+    Beta parameter for the hospital_delay length Gamma distribution. The hospital_delay length is the length of time in days after agents develop symptoms that they seek treatment.
+    For a Gamma distribution, the mean is alpha*beta and the variance is alpha*beta^2.
 * ``disease.hospitalization_days`` (`list of float`, default ``3.0 8.0 7.0``)
     Number of hospitalization days for age groups: under 50, 50-64, 65 and over.
 * ``disease.xmit_comm`` (`list of float`, default ``0.000018125 0.000054375 0.000145 0.000145 0.000145 0.0002175``)

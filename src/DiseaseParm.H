@@ -94,6 +94,9 @@ struct DiseaseParm
     Real incubation_length_alpha = Real(25.0);  /*! alpha parameter for gamma distribution*/
     Real incubation_length_beta = Real(0.2);    /*! beta parameter for gamma distribution*/
 
+    Real hospital_delay_length_alpha = Real(1.0);  /*! alpha parameter for gamma distribution*/
+    Real hospital_delay_length_beta = Real(1.0);    /*! beta parameter for gamma distribution*/
+
     /*! number of hospitalization days by age group (#AgeGroups_Hosp); note that the
      *  age groups here are under 50, 50-64, and over 65, and *not* the age groups
      *  used in other parts of the code (#AgeGroups) */
@@ -164,6 +167,7 @@ void setInfected ( int* status,
                    amrex::ParticleReal* latent_period,
                    amrex::ParticleReal* infectious_period,
                    amrex::ParticleReal* incubation_period,
+                   amrex::ParticleReal* hospital_delay,
                    amrex::RandomEngine const& engine,
                    const DiseaseParm* lparm)
 {
@@ -175,9 +179,13 @@ void setInfected ( int* status,
         static_cast<ParticleReal>(amrex::RandomGamma(lparm->infectious_length_alpha, lparm->infectious_length_beta, engine));
     *incubation_period =
         static_cast<ParticleReal>(amrex::RandomGamma(lparm->incubation_length_alpha, lparm->incubation_length_beta, engine));
+    *hospital_delay =
+        static_cast<ParticleReal>(amrex::RandomGamma(lparm->hospital_delay_length_alpha, lparm->hospital_delay_length_beta, engine));
     if (*latent_period < 0) { *latent_period = amrex::Real(0);}
     if (*infectious_period < 0) { *infectious_period = amrex::Real(0);}
     if (*incubation_period < 0) { *incubation_period = amrex::Real(0);}
+    if (*hospital_delay < 0) { *hospital_delay = amrex::Real(0);}
+    *hospital_delay = amrex::Real(0);
     if (*incubation_period > (*infectious_period + *latent_period)) {
         *incubation_period = std::floor(*infectious_period + *latent_period);
     }
