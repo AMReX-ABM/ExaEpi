@@ -82,8 +82,8 @@ struct DiseaseParm
     Real child_compliance; /*!< Child compliance with masking ?? */
     Real child_HH_closure; /*!< Multiplier for household contacts during school closure */
 
-    Real immune_length_alpha = Real(9.0);  /*! alpha parameter for gamma distribution*/
-    Real immune_length_beta = Real(20.0);  /*! beta parameter for gamma distribution*/
+    Real immune_length_alpha = Real(540.0);  /*! alpha parameter for gamma distribution*/
+    Real immune_length_beta = Real(0.33);  /*! beta parameter for gamma distribution*/
 
     Real latent_length_alpha = Real(9.0);  /*! alpha parameter for gamma distribution*/
     Real latent_length_beta = Real(0.33);  /*! beta parameter for gamma distribution*/
