@@ -63,6 +63,8 @@ void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string
     queryArray(pp, "xmit_school_a2c", xmit_school_a2c, SchoolType::total);
     queryArray(pp, "xmit_school_c2a", xmit_school_c2a, SchoolType::total);
 
+    pp.query("xmit_work", xmit_work);
+
     pp.query("p_trans", p_trans);
     pp.query("p_asymp", p_asymp);
     pp.query("asymp_relative_inf", asymp_relative_inf);
