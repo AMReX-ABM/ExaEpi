@@ -3,6 +3,9 @@
 #
 function (setup_agent _srcs  _inputs)
 
+   include(GitVersion)
+   get_version_from_git()
+
    cmake_parse_arguments( "" "HAS_FORTRAN_MODULES"
       "BASE_NAME;RUNTIME_SUBDIR;EXTRA_DEFINITIONS" "" ${ARGN} )
 
