@@ -18,6 +18,7 @@
 #include "UrbanPopData.H"
 #include "InitializeInfections.H"
 
+#include "version.h"
 
 
 using namespace amrex;
@@ -44,6 +45,8 @@ int main (int argc, /*!< Number of command line arguments */
           char* argv[] /*!< Command line arguments */)
 {
     amrex::Initialize(argc, argv, true, MPI_COMM_WORLD, override_amrex_defaults);
+
+    Print() << "ExaEpi version " << EXAEPI_VERSION << " (built on " << __DATE__ << ")\n";
 
     runAgent();
 
