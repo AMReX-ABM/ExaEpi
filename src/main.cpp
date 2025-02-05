@@ -201,16 +201,18 @@ void runAgent () {
             if (disease_params->initial_case_type == CaseTypes::file) {
                 CaseData cases;
                 cases.initFromFile(disease_params->disease_name, std::string(disease_params->case_filename));
-                setInitialCasesFromFile(
-                        pc, cases, disease_params->disease_name, d,
-                        (params.ic_type == ICType::Census ? censusData.demo.FIPS : urbanPopData.FIPS_codes),
-                        (params.ic_type == ICType::Census ? censusData.demo.Start : urbanPopData.unit_community_start),
-                        (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.comm_mf), params.fast);
+                setInitialCasesFromFile(pc, cases, disease_params->disease_name, d,
+                                        (params.ic_type == ICType::Census ? censusData.demo.FIPS : urbanPopData.FIPS_codes),
+                                        (params.ic_type == ICType::Census ? censusData.demo.Start
+                                                                          : urbanPopData.unit_community_start),
+                                        (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.comm_mf),
+                                        params.fast);
             } else {
-                setInitialCasesRandom(
-                        pc, disease_params->num_initial_cases, disease_params->disease_name, d,
-                        (params.ic_type == ICType::Census ? censusData.demo.Start : urbanPopData.unit_community_start),
-                        (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.comm_mf), params.fast);
+                setInitialCasesRandom(pc, disease_params->num_initial_cases, disease_params->disease_name, d,
+                                      (params.ic_type == ICType::Census ? censusData.demo.Start
+                                                                        : urbanPopData.unit_community_start),
+                                      (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.comm_mf),
+                                      params.fast);
             }
         }
 

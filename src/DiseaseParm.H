@@ -109,10 +109,10 @@ struct DiseaseParm {
     /*! ICU -> ventilator probabilities */
     Real m_CVE[AgeGroups::total] = {Real(.12), Real(.12), Real(.12), Real(.22), Real(.22), Real(.22)};
     /*! Probabilites of dying while in hospital, for age groups, in hosp, icu and ventilated */
-    Real m_hospToDeath[AgeGroups_Hosp::total][AgeGroups::total] = {
-            {Real(0), Real(0), Real(0), Real(0), Real(0), Real(0)},
-            {Real(0), Real(0), Real(0), Real(0), Real(0), Real(0.26)},
-            {Real(0.20), Real(0.20), Real(0.20), Real(0.45), Real(0.45), Real(1.0)}};
+    Real m_hospToDeath[AgeGroups_Hosp::total][AgeGroups::total] = {{Real(0), Real(0), Real(0), Real(0), Real(0), Real(0)},
+                                                                   {Real(0), Real(0), Real(0), Real(0), Real(0), Real(0.26)},
+                                                                   {Real(0.20), Real(0.20), Real(0.20), Real(0.45), Real(0.45),
+                                                                    Real(1.0)}};
 
     DiseaseParm (const std::string& dname) {
         memset(disease_name, 0, 50);

@@ -180,7 +180,7 @@ MaxEmptyLinesToKeep: 1
 NamespaceIndentation: None
 PackConstructorInitializers: BinPack
 PenaltyBreakAssignment: 2
-PenaltyBreakBeforeFirstCallParameter: 19
+PenaltyBreakBeforeFirstCallParameter: 1000
 PenaltyBreakComment: 300
 PenaltyBreakFirstLessLess: 120
 PenaltyBreakOpenParenthesis: 0
