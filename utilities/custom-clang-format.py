@@ -20,8 +20,6 @@ content = content.replace(" AMREX_GPU_DEVICE(", " AMREX_GPU_DEVICE (")
 
 sys.stdout.write(content)
 
-#outf = open("fmt-out", 'w')
-#print(content, file=outf)
-#print(error, file=outf)
-
-
+# outf = open("fmt-out", 'w')
+# print(content, file=outf)
+# print(error, file=outf)
