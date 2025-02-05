@@ -4,24 +4,23 @@
 
 #include "DemographicData.H"
 
-#include <AMReX_BLassert.H>
 #include <AMReX_BLProfiler.H>
+#include <AMReX_BLassert.H>
 #include <AMReX_ParallelDescriptor.H>
 #include <AMReX_Print.H>
 #include <AMReX_Vector.H>
 
 #include <cmath>
-#include <string>
 #include <sstream>
+#include <string>
 
 using namespace amrex;
 
 /*! Initializes by reading in demographic data from a given
     filename. Calls DemographicData::InitFromFile(). */
 
-DemographicData::DemographicData (const::std::string& fname, /*!< Name of file containing demographic data */
-                                  const int workgroup_size)
-{
+DemographicData::DemographicData (const ::std::string& fname, /*!< Name of file containing demographic data */
+                                  const int workgroup_size) {
     InitFromFile(fname, workgroup_size);
 }
 
@@ -50,8 +49,7 @@ DemographicData::DemographicData (const::std::string& fname, /*!< Name of file c
  */
 
 void DemographicData::InitFromFile (const std::string& fname, /*!< Name of file containing demographic data */
-                                    const int workgroup_size  /*!< The size of workgroups */)
-{
+                                    const int workgroup_size /*!< The size of workgroups */) {
     BL_PROFILE("DemographicData::InitFromFile");
 
     Vector<char> fileCharPtr;
@@ -68,7 +66,7 @@ void DemographicData::InitFromFile (const std::string& fname, /*!< Name of file 
     myID.resize(Nunit);
     FIPS.resize(Nunit);
     Tract.resize(Nunit);
-    Start.resize(Nunit+1);
+    Start.resize(Nunit + 1);
     Population.resize(Nunit);
     N5.resize(Nunit);
     N17.resize(Nunit);
@@ -99,12 +97,15 @@ void DemographicData::InitFromFile (const std::string& fname, /*!< Name of file 
         lis >> N5[i] >> N17[i] >> N29[i] >> N64[i] >> N65plus[i];
         lis >> H1[i] >> H2[i] >> H3[i] >> H4[i] >> H5[i] >> H6[i] >> H7[i];
         myIDtoUnit[myID[i]] = i;
-        if(CountyPop.find(FIPS[i]) ==CountyPop.end()) CountyPop[FIPS[i]]= Population[i];
-        else CountyPop[FIPS[i]] += Population[i];
+        if (CountyPop.find(FIPS[i]) == CountyPop.end()) {
+            CountyPop[FIPS[i]] = Population[i];
+        } else {
+            CountyPop[FIPS[i]] += Population[i];
+        }
 
         /*   How many 2000-person communities does this require?   */
-        int ncomm = (int) std::rint(((double) Population[i]) / DemographicData::COMMUNITY_SIZE);
-        //amrex::Print() << Population[i] << " " << ncomm << " " << ncomm * DemographicData::COMMUNITY_SIZE << "\n";
+        int ncomm = (int)std::rint(((double)Population[i]) / DemographicData::COMMUNITY_SIZE);
+        // amrex::Print() << Population[i] << " " << ncomm << " " << ncomm * DemographicData::COMMUNITY_SIZE << "\n";
 
         /*
           Note that some census tracts have little or no residential
@@ -127,15 +128,17 @@ void DemographicData::InitFromFile (const std::string& fname, /*!< Name of file 
           Let's limit each community to 1000 workers, which would be
           about 50 workgroups:
         */
-        if ( (Ndaywork[i] >= workgroup_size) && !ncomm ) {
+        if ((Ndaywork[i] >= workgroup_size) && !ncomm) {
             ncomm = 1;
-            //amrex::Print() << "myID " << myID[i] << ": " << ncomm << " community to accommodate " << Ndaywork[i] << " daytime workers\n";
+            // amrex::Print() << "myID " << myID[i] << ": " << ncomm << " community to accommodate " << Ndaywork[i] << " daytime
+            // workers\n";
         }
-        if ( Ndaywork[i] > (ncomm * 1000) ) {
+        if (Ndaywork[i] > (ncomm * 1000)) {
             ncomm = Ndaywork[i] / 1000;
-            //amrex::Print() << "myID " << myID[i] << ": " << ncomm << " communities to accommodate " << Ndaywork[i] << " daytime workers\n";
+            // amrex::Print() << "myID " << myID[i] << ": " << ncomm << " communities to accommodate " << Ndaywork[i] << " daytime
+            // workers\n";
         }
-        //amrex::Print() << ncomm << " " << Start[i] << "\n";
+        // amrex::Print() << ncomm << " " << Start[i] << "\n";
         Ncommunity += ncomm;
     }
     Start[Nunit] = Ncommunity;
@@ -170,7 +173,8 @@ void DemographicData::Print () const {
     for (int i = 0; i < Nunit; ++i) {
         amrex::Print() << myID[i] << " " << Population[i] << " " << Ndaywork[i] << " " << FIPS[i] << " " << Tract[i] << " ";
         amrex::Print() << N5[i] << " " << N17[i] << " " << N29[i] << " " << N64[i] << " " << N65plus[i] << " ";
-        amrex::Print() << H1[i] << " " << H2[i] << " " << H3[i] << " " << H4[i] << " " << H5[i] << " " << H6[i] << " " << H7[i] << "\n";
+        amrex::Print() << H1[i] << " " << H2[i] << " " << H3[i] << " " << H4[i] << " " << H5[i] << " " << H6[i] << " " << H7[i]
+                       << "\n";
     }
 }
 
@@ -198,7 +202,7 @@ void DemographicData::CopyDataToDevice () {
     CopyToDeviceAsync(Start, Start_d);
     CopyToDeviceAsync(Population, Population_d);
 
-    CopyToDeviceAsync(N5,  N5_d);
+    CopyToDeviceAsync(N5, N5_d);
     CopyToDeviceAsync(N17, N17_d);
     CopyToDeviceAsync(N29, N29_d);
     CopyToDeviceAsync(N64, N64_d);

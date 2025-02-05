@@ -5,26 +5,23 @@
 #ifndef _INTERACTION_MOD_WORK_H_
 #define _INTERACTION_MOD_WORK_H_
 
-#include "InteractionModel.H"
 #include "AgentDefinitions.H"
+#include "InteractionModel.H"
 
 using namespace amrex;
 
-
 #ifndef FAST_INTERACTIONS
 template <typename ParticleType>
-struct GetWorkerBin
-{
-    GpuArray<Real,AMREX_SPACEDIM> plo;
-    GpuArray<Real,AMREX_SPACEDIM> dxi;
+struct GetWorkerBin {
+    GpuArray<Real, AMREX_SPACEDIM> plo;
+    GpuArray<Real, AMREX_SPACEDIM> dxi;
     Box domain;
     IntVect bin_size;
     Box box;
     int max_wg;
 
     AMREX_GPU_HOST_DEVICE
-    unsigned int operator() (const ParticleType& p) const noexcept
-    {
+    unsigned int operator()(const ParticleType& p) const noexcept {
         Box tbx;
         auto iv = getParticleCell(p, plo, dxi, domain);
         auto tid = getTileIndex(iv, box, true, bin_size, tbx);
@@ -40,16 +37,13 @@ struct GetWorkerBin
 template <typename PTDType>
 struct BinaryInteractionWork {
     AMREX_GPU_HOST_DEVICE
-    ParticleReal operator() (const int infectious_i,
-                             const int susceptible_i,
-                             const PTDType& a_ptd,
-                             const DiseaseParm* const a_lparm,
-                             const Real a_work_scale) const noexcept {
+    ParticleReal operator()(const int infectious_i, const int susceptible_i, const PTDType& a_ptd,
+                            const DiseaseParm* const a_lparm, const Real a_work_scale) const noexcept {
         AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::workgroup][infectious_i] == a_ptd.m_idata[IntIdx::workgroup][susceptible_i]);
         AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::work_i][infectious_i] == a_ptd.m_idata[IntIdx::work_i][susceptible_i] &&
                             a_ptd.m_idata[IntIdx::work_j][infectious_i] == a_ptd.m_idata[IntIdx::work_j][susceptible_i]);
-        //infect *= i_mask;
-        //infect *= j_mask;
+        // infect *= i_mask;
+        // infect *= j_mask;
         return a_lparm->xmit_work * a_work_scale;
     }
 };
@@ -58,42 +52,34 @@ struct BinaryInteractionWork {
 template <typename PTDType>
 struct WorkCandidate {
     AMREX_GPU_HOST_DEVICE
-    bool operator() (const int idx, const PTDType& ptd) const noexcept {
-        return !inHospital(idx, ptd) &&
-                ptd.m_idata[IntIdx::work_i][idx] >= 0 &&
-                ptd.m_idata[IntIdx::workgroup][idx] > 0 &&
-                !ptd.m_idata[IntIdx::withdrawn][idx] &&
-                ptd.m_idata[IntIdx::air_travel][idx] < 0 &&
-                ptd.m_idata[IntIdx::random_travel][idx] < 0;
+    bool operator()(const int idx, const PTDType& ptd) const noexcept {
+        return !inHospital(idx, ptd) && ptd.m_idata[IntIdx::work_i][idx] >= 0 && ptd.m_idata[IntIdx::workgroup][idx] > 0 &&
+               !ptd.m_idata[IntIdx::withdrawn][idx] && ptd.m_idata[IntIdx::air_travel][idx] < 0 &&
+               ptd.m_idata[IntIdx::random_travel][idx] < 0;
     }
 };
 
-
 /*! \brief Class describing agent interactions at work */
 template <typename PCType, typename PTDType, typename PType>
-class InteractionModWork : public InteractionModel<PCType, PTDType, PType>
-{
-    public:
+class InteractionModWork : public InteractionModel<PCType, PTDType, PType> {
+  public:
+    /*! \brief null constructor */
+    InteractionModWork (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
 
-        /*! \brief null constructor */
-        InteractionModWork (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
+    /*! \brief default destructor */
+    virtual ~InteractionModWork() = default;
 
-        /*! \brief default destructor */
-        virtual ~InteractionModWork () = default;
-
-        /*! \brief Simulate agent interaction at work */
-        virtual void interactAgents (PCType& agents, MultiFab&) override {
+    /*! \brief Simulate agent interaction at work */
+    virtual void interactAgents (PCType& agents, MultiFab&) override {
 #ifdef FAST_INTERACTIONS
-            fastInteractWork(agents);
+        fastInteractWork(agents);
 #else
-            interactAgentsImpl<InteractionModWork<PCType, PTDType, PType>, PCType, PTDType,
-                               WorkCandidate<PTDType>,
-                               BinaryInteractionWork<PTDType>>(*this, agents, IntIdx::workgroup);
+        interactAgentsImpl<InteractionModWork<PCType, PTDType, PType>, PCType, PTDType, WorkCandidate<PTDType>,
+                           BinaryInteractionWork<PTDType>>(*this, agents, IntIdx::workgroup);
 #endif
-        }
+    }
 
-        void fastInteractWork (PCType &agents);
-
+    void fastInteractWork(PCType& agents);
 };
 
 template <typename PCType, typename PTDType, typename PType>
@@ -114,7 +100,7 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
 
             const auto& ptd = ptile.getParticleTileData();
             const auto np = ptile.GetArrayOfStructs().numParticles();
-            if (np == 0) continue;
+            if (np == 0) { continue; }
 
             auto& soa = ptile.GetStructOfArrays();
             auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
@@ -130,17 +116,17 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
             infected_workgroup_d[OMP_THREAD_NUM].resize(max_communities * max_workgroup * max_naics);
             auto infected_workgroup_d_ptr = infected_workgroup_d[OMP_THREAD_NUM].data();
 
-            //Print() << mfi.tilebox() << " np " << np << " max communities " << max_communities
-            //        << " max workgroup " << max_workgroup << " max naics " << max_naics
-            //        << " workgroup vector size " << max_communities * max_workgroup * max_naics
-            //        << "\n";
+            // Print() << mfi.tilebox() << " np " << np << " max communities " << max_communities
+            //         << " max workgroup " << max_workgroup << " max naics " << max_naics
+            //         << " workgroup vector size " << max_communities * max_workgroup * max_naics
+            //         << "\n";
             for (int d = 0; d < n_disease; d++) {
                 dev_memset(infected_workgroup_d_ptr, 0, infected_workgroup_d[OMP_THREAD_NUM].size() * sizeof(int));
 
                 auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                 auto lparm = agents.getDiseaseParameters_d(d);
                 auto lparm_h = agents.getDiseaseParameters_h(d);
-                Real scale = 1.0_rt;  // TODO this should vary based on cell
+                Real scale = 1.0_rt; // TODO this should vary based on cell
                 Real infect = 1.0_rt - lparm_h->vac_eff;
 
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
@@ -166,7 +152,5 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
         }
     }
 }
-
-
 
 #endif

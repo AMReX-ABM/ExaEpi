@@ -10,7 +10,6 @@
 #include <AMReX_ParmParse.H>
 #include <AMReX_RealBox.H>
 
-
 #include "DemographicData.H"
 #include "Utils.H"
 
@@ -21,9 +20,8 @@ using namespace amrex;
 using namespace ExaEpi;
 
 /*! \brief Read in test parameters in #ExaEpi::TestParams from input file */
-void ExaEpi::Utils::get_test_params (   TestParams& params,         /*!< Test parameters */
-                                        const std::string& prefix   /*!< ParmParse prefix */ )
-{
+void ExaEpi::Utils::get_test_params (TestParams& params, /*!< Test parameters */
+                                     const std::string& prefix /*!< ParmParse prefix */) {
     ParmParse pp(prefix);
 
     pp.query("nsteps", params.nsteps);
@@ -37,10 +35,10 @@ void ExaEpi::Utils::get_test_params (   TestParams& params,         /*!< Test pa
     for (int d = 0; d < params.num_diseases; d++) {
         params.disease_names[d] = amrex::Concatenate("default", d, 2);
     }
-    pp.queryarr("disease_names", params.disease_names,0,params.num_diseases);
+    pp.queryarr("disease_names", params.disease_names, 0, params.num_diseases);
 
     std::string ic_type = "census";
-    pp.query( "ic_type", ic_type );
+    pp.query("ic_type", ic_type);
     if (ic_type == "census") {
         params.ic_type = ICType::Census;
         pp.get("census_filename", params.census_filename);
@@ -70,7 +68,7 @@ void ExaEpi::Utils::get_test_params (   TestParams& params,         /*!< Test pa
         pp.get("aggregated_diag_prefix", params.aggregated_diag_prefix);
     }
 
-    pp.query("shelter_start",  params.shelter_start);
+    pp.query("shelter_start", params.shelter_start);
     pp.query("shelter_length", params.shelter_length);
 
     pp.query("nborhood_size", params.nborhood_size);
@@ -79,11 +77,10 @@ void ExaEpi::Utils::get_test_params (   TestParams& params,         /*!< Test pa
     Long seed = 0;
     bool reset_seed = pp.query("seed", seed);
     if (reset_seed) {
-        ULong gpu_seed = (ULong) seed;
-        ULong cpu_seed = (ULong) seed;
+        ULong gpu_seed = (ULong)seed;
+        ULong cpu_seed = (ULong)seed;
         amrex::ResetRandomSeed(cpu_seed, gpu_seed);
     }
 
     pp.query("fast", params.fast);
 }
-

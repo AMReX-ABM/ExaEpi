@@ -6,10 +6,10 @@
 
 #pragma once
 
-#include <stdlib.h>
-#include <string.h>
 #include <fstream>
 #include <sstream>
+#include <stdlib.h>
+#include <string.h>
 
 using std::string;
 using float32_t = amrex::ParticleReal;
@@ -20,20 +20,87 @@ const size_t NUM_COLS = 17;
 
 const int ROLE_COUNT = 3;
 static string role_descriptions[ROLE_COUNT] = {"nope", "worker", "student"};
-struct ROLE { enum {nope, worker, student}; };
+struct ROLE {
+    enum { nope, worker, student };
+};
 const int NAICS_COUNT = 21;
-static string naics_descriptions[NAICS_COUNT] = {"agr_ffh", "ext", "utl", "con", "mfg", "whl", "ret", "trn_whs", "inf", "fin_ins", "rrl", "prf", "mgt", "adm_wmr", "edu", "med_sca", "ent", "afs", "srv", "pad", "wfh"};
-struct NAICS { enum {agr_ffh, ext, utl, con, mfg, whl, ret, trn_whs, inf, fin_ins, rrl, prf, mgt, adm_wmr, edu, med_sca, ent, afs, srv, pad, wfh}; };
+static string naics_descriptions[NAICS_COUNT] = {"agr_ffh", "ext",     "utl",     "con", "mfg", "whl", "ret",
+                                                 "trn_whs", "inf",     "fin_ins", "rrl", "prf", "mgt", "adm_wmr",
+                                                 "edu",     "med_sca", "ent",     "afs", "srv", "pad", "wfh"};
+struct NAICS {
+    enum {
+        agr_ffh,
+        ext,
+        utl,
+        con,
+        mfg,
+        whl,
+        ret,
+        trn_whs,
+        inf,
+        fin_ins,
+        rrl,
+        prf,
+        mgt,
+        adm_wmr,
+        edu,
+        med_sca,
+        ent,
+        afs,
+        srv,
+        pad,
+        wfh
+    };
+};
 const int GRADE_COUNT = 31;
-static string grade_descriptions[GRADE_COUNT] = {"childcare", "k12pub_preschl", "k12pub_kind", "k12pub_1st", "k12pub_2nd", "k12pub_3rd", "k12pub_4th", "k12pub_5th", "k12pub_6th", "k12pub_7th", "k12pub_8th", "k12pub_9th", "k12pub_10th", "k12pub_11th", "k12pub_12th", "k12pv_preschl", "k12pv_kind", "k12pv_1st", "k12pv_2nd", "k12pv_3rd", "k12pv_4th", "k12pv_5th", "k12pv_6th", "k12pv_7th", "k12pv_8th", "k12pv_9th", "k12pv_10th", "k12pv_11th", "k12pv_12th", "undergrad", "grad"};
-struct GRADE { enum {childcare, k12pub_preschl, k12pub_kind, k12pub_1st, k12pub_2nd, k12pub_3rd, k12pub_4th, k12pub_5th, k12pub_6th, k12pub_7th, k12pub_8th, k12pub_9th, k12pub_10th, k12pub_11th, k12pub_12th, k12pv_preschl, k12pv_kind, k12pv_1st, k12pv_2nd, k12pv_3rd, k12pv_4th, k12pv_5th, k12pv_6th, k12pv_7th, k12pv_8th, k12pv_9th, k12pv_10th, k12pv_11th, k12pv_12th, undergrad, grad}; };
+static string grade_descriptions[GRADE_COUNT] = {
+        "childcare",  "k12pub_preschl", "k12pub_kind", "k12pub_1st", "k12pub_2nd",  "k12pub_3rd",  "k12pub_4th",  "k12pub_5th",
+        "k12pub_6th", "k12pub_7th",     "k12pub_8th",  "k12pub_9th", "k12pub_10th", "k12pub_11th", "k12pub_12th", "k12pv_preschl",
+        "k12pv_kind", "k12pv_1st",      "k12pv_2nd",   "k12pv_3rd",  "k12pv_4th",   "k12pv_5th",   "k12pv_6th",   "k12pv_7th",
+        "k12pv_8th",  "k12pv_9th",      "k12pv_10th",  "k12pv_11th", "k12pv_12th",  "undergrad",   "grad"};
+struct GRADE {
+    enum {
+        childcare,
+        k12pub_preschl,
+        k12pub_kind,
+        k12pub_1st,
+        k12pub_2nd,
+        k12pub_3rd,
+        k12pub_4th,
+        k12pub_5th,
+        k12pub_6th,
+        k12pub_7th,
+        k12pub_8th,
+        k12pub_9th,
+        k12pub_10th,
+        k12pub_11th,
+        k12pub_12th,
+        k12pv_preschl,
+        k12pv_kind,
+        k12pv_1st,
+        k12pv_2nd,
+        k12pv_3rd,
+        k12pv_4th,
+        k12pv_5th,
+        k12pv_6th,
+        k12pv_7th,
+        k12pv_8th,
+        k12pv_9th,
+        k12pv_10th,
+        k12pv_11th,
+        k12pv_12th,
+        undergrad,
+        grad
+    };
+};
 
-
-static std::vector<string> split_string(const string &s, char delim) {
+static std::vector<string> split_string (const string& s, char delim) {
     std::vector<string> elems;
     std::stringstream ss(s);
     string item;
-    while (std::getline(ss, item, delim)) elems.push_back(item);
+    while (std::getline(ss, item, delim)) {
+        elems.push_back(item);
+    }
     return elems;
 }
 
@@ -56,18 +123,19 @@ struct UrbanPopAgent {
     int8_t grade;
     int16_t school_id;
 
-    bool read_csv(std::ifstream &f) {
+    bool read_csv (std::ifstream& f) {
         string buf;
-        if (!getline(f, buf)) return false;
+        if (!getline(f, buf)) { return false; }
         if (buf[0] != '*') {
             id = -1;
             return true;
         }
         try {
             std::vector<string> tokens = split_string(buf.substr(2), ',');
-            if (tokens.size() != NUM_COLS)
-                throw std::runtime_error("Incorrect number of tokens, expected " + std::to_string(NUM_COLS) +
-                                         " got " + std::to_string(tokens.size()));
+            if (tokens.size() != NUM_COLS) {
+                throw std::runtime_error("Incorrect number of tokens, expected " + std::to_string(NUM_COLS) + " got " +
+                                         std::to_string(tokens.size()));
+            }
             id = stol(tokens[0]);
             household_id = stoi(tokens[1]);
             home_geoid = stol(tokens[2]);
@@ -86,7 +154,7 @@ struct UrbanPopAgent {
             grade = stoi(tokens[15]);
             school_id = stoi(tokens[16]);
 
-        } catch (const std::exception &ex) {
+        } catch (const std::exception& ex) {
             std::ostringstream os;
             os << "Error reading UrbanPop input file: " << ex.what() << ", line read: " << "'" << buf << "'";
             amrex::Abort(os.str());
@@ -117,4 +185,3 @@ struct UrbanPopAgent {
     }
 };
 } // namespace UrbanPop
-

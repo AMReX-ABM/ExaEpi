@@ -3,45 +3,43 @@
 */
 
 #include <cmath>
-#include <string>
-#include <sstream>
-#include <unordered_set>
-#include <unordered_map>
 #include <filesystem>
+#include <sstream>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 #include <AMReX.H>
-#include <AMReX_iMultiFab.H>
-#include <AMReX_MultiFab.H>
-#include <AMReX_Particles.H>
-#include <AMReX_BLassert.H>
 #include <AMReX_BLProfiler.H>
+#include <AMReX_BLassert.H>
+#include <AMReX_MultiFab.H>
 #include <AMReX_ParallelDescriptor.H>
+#include <AMReX_Particles.H>
 #include <AMReX_Print.H>
 #include <AMReX_Vector.H>
+#include <AMReX_iMultiFab.H>
 
 #include "AgentContainer.H"
 #include "UrbanPopData.H"
 
-
 using namespace amrex;
 using namespace UrbanPop;
 
-using std::string;
-using std::to_string;
-using std::unordered_map;
-using std::unordered_set;
 using std::ifstream;
 using std::istringstream;
 using std::ostringstream;
 using std::runtime_error;
+using std::string;
+using std::to_string;
+using std::unordered_map;
+using std::unordered_set;
 
 using ParallelDescriptor::MyProc;
 using ParallelDescriptor::NProcs;
 
-
-bool BlockGroup::read_agents(ifstream &f, Vector<UrbanPopAgent> &agents, Vector<int>& group_work_populations,
-                             Vector<int>& group_home_populations, const std::map<IntVect, BlockGroup> &xy_to_block_groups,
-                             const LngLatToGrid &lnglat_to_grid, const GridToLngLat &grid_to_lnglat) {
+bool BlockGroup::read_agents (ifstream& f, Vector<UrbanPopAgent>& agents, Vector<int>& group_work_populations,
+                              Vector<int>& group_home_populations, const std::map<IntVect, BlockGroup>& xy_to_block_groups,
+                              const LngLatToGrid& lnglat_to_grid, const GridToLngLat& grid_to_lnglat) {
     BL_PROFILE("BlockGroup::read_agents");
     string buf;
     num_households = 0;
@@ -56,15 +54,17 @@ bool BlockGroup::read_agents(ifstream &f, Vector<UrbanPopAgent> &agents, Vector<
     unordered_set<int> households;
     f.seekg(file_offset);
     // skip the first line - contains the header
-    if (file_offset == 0) getline(f, buf);
+    if (file_offset == 0) { getline(f, buf); }
     for (int i = start_i; i < agents.size(); i++) {
-        auto &agent = agents[i];
-        if (!agent.read_csv(f))
+        auto& agent = agents[i];
+        if (!agent.read_csv(f)) {
             Abort("File is corrupted: end of file before read for offset " + to_string(file_offset) + " geoid " +
                   to_string(geoid) + "\n");
-        if (agent.id == -1) Abort("File is corrupted: couldn't read agent p_id at offset " + to_string(file_offset) + "\n");
-        if (agent.home_geoid != geoid)
+        }
+        if (agent.id == -1) { Abort("File is corrupted: couldn't read agent p_id at offset " + to_string(file_offset) + "\n"); }
+        if (agent.home_geoid != geoid) {
             Abort("File is corrupted: wrong geoid, read " + to_string(agent.home_geoid) + " expected " + to_string(geoid) + "\n");
+        }
         int home_x, home_y;
         lnglat_to_grid(agent.home_lng, agent.home_lat, home_x, home_y);
         Real home_lng, home_lat;
@@ -84,14 +84,14 @@ bool BlockGroup::read_agents(ifstream &f, Vector<UrbanPopAgent> &agents, Vector<
         if (agent.role == ROLE::worker && agent.naics != NAICS::wfh) {
             num_employed++;
             auto it = xy_to_block_groups.find(IntVect(work_x, work_y));
-            if (it == xy_to_block_groups.end()) Abort("Cannot find block group for work location");
+            if (it == xy_to_block_groups.end()) { Abort("Cannot find block group for work location"); }
             group_work_populations[i] = it->second.work_populations[agent.naics + 1];
-            if (agent.naics != NAICS::wfh) AMREX_ASSERT(group_work_populations[i] > 0 && group_work_populations[i] < 100000);
-            if (agent.school_id != 0) num_educators++;
+            if (agent.naics != NAICS::wfh) { AMREX_ASSERT(group_work_populations[i] > 0 && group_work_populations[i] < 100000); }
+            if (agent.school_id != 0) { num_educators++; }
         } else {
             group_work_populations[i] = 0;
-            if (agent.role == ROLE::nope) AMREX_ASSERT(agent.work_lat == agent.home_lat && agent.work_lng == agent.home_lng);
-            if (agent.role == ROLE::student) num_students++;
+            if (agent.role == ROLE::nope) { AMREX_ASSERT(agent.work_lat == agent.home_lat && agent.work_lng == agent.home_lng); }
+            if (agent.role == ROLE::student) { num_students++; }
         }
         group_home_populations[i] = home_population;
     }
@@ -100,16 +100,17 @@ bool BlockGroup::read_agents(ifstream &f, Vector<UrbanPopAgent> &agents, Vector<
     return true;
 }
 
-bool BlockGroup::read(istringstream &iss) {
+bool BlockGroup::read (istringstream& iss) {
     BL_PROFILE("BlockGroup::read");
     const int NTOKS = 6 + NAICS_COUNT;
 
     string buf;
-    if (!getline(iss, buf)) return false;
+    if (!getline(iss, buf)) { return false; }
     try {
         std::vector<string> tokens = split_string(buf, ' ');
-        if (tokens.size() != NTOKS)
+        if (tokens.size() != NTOKS) {
             throw runtime_error("Incorrect number of tokens, expected " + to_string(NTOKS) + " got " + to_string(tokens.size()));
+        }
         geoid = stol(tokens[0]);
         lat = stof(tokens[1]);
         lng = stof(tokens[2]);
@@ -120,7 +121,7 @@ bool BlockGroup::read(istringstream &iss) {
         }
         AMREX_ASSERT(home_population > 0 || work_populations[0] > 0);
         AMREX_ASSERT(work_populations.size() == NAICS_COUNT + 1);
-    } catch (const std::exception &ex) {
+    } catch (const std::exception& ex) {
         std::ostringstream os;
         os << "Error reading UrbanPop input file: " << ex.what() << ", line read: " << "'" << buf << "'";
         Abort(os.str());
@@ -128,11 +129,11 @@ bool BlockGroup::read(istringstream &iss) {
     return true;
 }
 
-static Vector<BlockGroup> read_block_groups_file(const string &fname) {
+static Vector<BlockGroup> read_block_groups_file (const string& fname) {
     BL_PROFILE("read_block_groups_file");
     // read in index file and broadcast
     Vector<char> idx_file_ptr;
-    ParallelDescriptor::ReadAndBcastFile(fname  + ".idx", idx_file_ptr);
+    ParallelDescriptor::ReadAndBcastFile(fname + ".idx", idx_file_ptr);
     string idx_file_ptr_string(idx_file_ptr.dataPtr());
     istringstream idx_file_iss(idx_file_ptr_string, istringstream::in);
 
@@ -142,7 +143,7 @@ static Vector<BlockGroup> read_block_groups_file(const string &fname) {
     getline(idx_file_iss, buf);
     while (true) {
         BlockGroup block_group;
-        if (!block_group.read(idx_file_iss)) break;
+        if (!block_group.read(idx_file_iss)) { break; }
         block_groups.push_back(block_group);
     }
     return block_groups;
@@ -158,17 +159,16 @@ static std::pair<int, double> get_all_load_balance (const long num) {
 }
 
 /*! \brief Read in UrbanPop data from given file
-*/
-void UrbanPopData::init (ExaEpi::TestParams &params, Geometry &geom, BoxArray &ba, DistributionMapping &dm) {
+ */
+void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& ba, DistributionMapping& dm) {
     BL_PROFILE("UrbanPopData::init");
     std::string fname = params.urbanpop_filename;
     // every rank reads all the block groups from the index file
     auto all_block_groups = read_block_groups_file(fname);
     // now sort block groups by geoid to make all FIPS units consecutively grouped
-    std::sort(all_block_groups.begin(), all_block_groups.end(),
-              [](const BlockGroup &bg1, const BlockGroup &bg2) {
-                  return bg1.geoid < bg2.geoid;
-              });
+    std::sort(all_block_groups.begin(), all_block_groups.end(), [] (const BlockGroup& bg1, const BlockGroup& bg2) {
+        return bg1.geoid < bg2.geoid;
+    });
 
     min_lat = 1000;
     min_lng = 1000;
@@ -187,7 +187,7 @@ void UrbanPopData::init (ExaEpi::TestParams &params, Geometry &geom, BoxArray &b
     int current_FIPS = -1;
     num_communities = 0;
     for (int i = 0; i < all_block_groups.size(); i++) {
-        auto &block_group = all_block_groups[i];
+        auto& block_group = all_block_groups[i];
         // FIPS is the first 5 digits of the GEOID, which is 12 digits
         int64_t fips = static_cast<int64_t>(block_group.geoid / 1e7);
         if (current_FIPS != fips) {
@@ -223,14 +223,14 @@ void UrbanPopData::init (ExaEpi::TestParams &params, Geometry &geom, BoxArray &b
     // the grid that overlays the domain, with the grid size in x and y directions
     Box base_domain(IntVect(AMREX_D_DECL(0, 0, 0)), IntVect(AMREX_D_DECL(grid_x, grid_y, 0)));
     // lat/long is a spherical coordinate system
-    geom.define(base_domain, &rbox, CoordSys::cartesian);//CoordSys::SPHERICAL);
+    geom.define(base_domain, &rbox, CoordSys::cartesian); // CoordSys::SPHERICAL);
     // actual spacing (!= gspacing)
     gspacing_x = geom.CellSizeArray()[0];
     gspacing_y = geom.CellSizeArray()[1];
     Print() << "Geographic area: (" << min_lng << ", " << min_lat << ") " << max_lng << ", " << max_lat << ")\n";
     Print() << "Base domain: " << geom.Domain() << "\n";
-    //Print() << "Geometry: " << geom << "\n";
-    Print() << "Actual grid spacing: " << gspacing_x << ", "  << gspacing_y << "\n";
+    // Print() << "Geometry: " << geom << "\n";
+    Print() << "Actual grid spacing: " << gspacing_x << ", " << gspacing_y << "\n";
     Print() << "Max box size is: " << params.max_box_size << "\n";
 
     LngLatToGrid lnglat_to_grid(min_lng, min_lat, gspacing_x, gspacing_y);
@@ -240,27 +240,30 @@ void UrbanPopData::init (ExaEpi::TestParams &params, Geometry &geom, BoxArray &b
     ba.define(geom.Domain());
     // split the box array by forcing the box size to be limited to a given number of grid points
     ba.maxSize(params.max_box_size);
-    //ba.maxSize(0.25 * grid_x / NProcs());
+    // ba.maxSize(0.25 * grid_x / NProcs());
     Print() << "Number of boxes: " << ba.size() << "\n";
 
     // weights set according to population in each box so that they can be uniformly distributed
     // every process computes the same result - needed before distributing the boxes
     Vector<Long> weights(ba.size(), 0);
-    for (auto &block_group : all_block_groups) {
+    for (auto& block_group : all_block_groups) {
         lnglat_to_grid(block_group.lng, block_group.lat, block_group.x, block_group.y);
         // reset lng/lat coords to account for int conversion
         grid_to_lnglat(block_group.x, block_group.y, block_group.lng, block_group.lat);
         auto xy = IntVect(block_group.x, block_group.y);
         auto it = xy_to_block_groups.find(xy);
-        if (it != xy_to_block_groups.end()) Abort("Found duplicate x,y location; need to decrease gspacing\n");
-        else xy_to_block_groups.insert({xy, block_group});
+        if (it != xy_to_block_groups.end()) {
+            Abort("Found duplicate x,y location; need to decrease gspacing\n");
+        } else {
+            xy_to_block_groups.insert({xy, block_group});
+        }
 
         // check that conversions don't scramble grid coords
         int x, y;
         lnglat_to_grid(block_group.lng, block_group.lat, x, y);
         if (x != block_group.x || y != block_group.y) {
-            Print() << "Conversion error " << x << "," << y << " " << block_group.x << "," << block_group.y
-                    << " " << block_group.lng << "," << block_group.lat << "\n";
+            Print() << "Conversion error " << x << "," << y << " " << block_group.x << "," << block_group.y << " "
+                    << block_group.lng << "," << block_group.lat << "\n";
             Abort();
         }
 
@@ -273,8 +276,9 @@ void UrbanPopData::init (ExaEpi::TestParams &params, Geometry &geom, BoxArray &b
                 break;
             }
         }
-        if (bi_loc == -1)
+        if (bi_loc == -1) {
             AllPrint() << MyProc() << ": WARNING: could not find box for " << block_group.x << "," << block_group.y << "\n";
+        }
     }
     // distribute the boxes in the array across the processors
     dm.define(ba);
@@ -286,15 +290,14 @@ void UrbanPopData::init (ExaEpi::TestParams &params, Geometry &geom, BoxArray &b
     comm_mf.setVal(-1);
 }
 
-
-void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &params) {
+void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& params) {
     BL_PROFILE("UrbanPopData::initAgents");
 
     pc.lnglat_to_grid.init(min_lng, min_lat, gspacing_x, gspacing_y);
     pc.grid_to_lnglat.init(min_lng, min_lat, gspacing_x, gspacing_y);
 
-    const auto &lnglat_to_grid = pc.lnglat_to_grid;
-    const auto &grid_to_lnglat = pc.grid_to_lnglat;
+    const auto& lnglat_to_grid = pc.lnglat_to_grid;
+    const auto& grid_to_lnglat = pc.grid_to_lnglat;
 
     int home_population = 0;
     int work_population = 0;
@@ -304,7 +307,7 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
     int num_educators = 0;
     num_communities = 0;
     ifstream f(params.urbanpop_filename + ".csv");
-    if (!f) Abort("Could not open file " + params.urbanpop_filename + ".csv" + "\n");
+    if (!f) { Abort("Could not open file " + params.urbanpop_filename + ".csv" + "\n"); }
 
     int num_tileboxes = 0;
     for (MFIter mfi = pc.MakeMFIter(0); mfi.isValid(); ++mfi) {
@@ -337,7 +340,7 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
                 auto xy = IntVect(x, y);
                 auto it = xy_to_block_groups.find(xy);
                 if (it != xy_to_block_groups.end()) {
-                    auto &block_group = it->second;
+                    auto& block_group = it->second;
                     num_communities++;
                     home_population += block_group.home_population;
                     work_population += block_group.work_populations[0];
@@ -366,7 +369,7 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
         auto tract_codes_ptr = tract_codes.data();
         auto comms_ptr = comms.data();
         int num_blocks = xys.size();
-        ParallelFor (num_blocks, [=] AMREX_GPU_DEVICE (int i) noexcept {
+        ParallelFor(num_blocks, [=] AMREX_GPU_DEVICE (int i) noexcept {
             int x = xys_ptr[i][0];
             int y = xys_ptr[i][1];
             FIPS_arr(x, y, 0, 0) = fips_codes_ptr[i];
@@ -375,7 +378,7 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
         });
         Gpu::synchronize();
 
-        if (num_communities == 0) continue;
+        if (num_communities == 0) { continue; }
 
         int myproc = ParallelDescriptor::MyProc();
         auto& ptile = pc.DefineAndReturnParticleTile(0, mfi);
@@ -432,9 +435,9 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
         const auto dxi = geom.InvCellSizeArray();
         */
 
-        ParallelForRNG (np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
-            auto &p = aos[i];
-            auto &agent = agents_ptr[i];
+        ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
+            auto& p = aos[i];
+            auto& agent = agents_ptr[i];
             // agent ID in amrex must be > 0
             p.id() = agent.id + 1;
             p.cpu() = myproc;
@@ -449,12 +452,19 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
             AMREX_ASSERT(tilebox.contains(iv2));
             */
             // Age group (under 5, 5-17, 18-29, 30-64, 65+)
-            if (agent.age < 5) age_group_ptr[i] = AgeGroups::u5;
-            else if (agent.age < 18) age_group_ptr[i] = AgeGroups::a5to17;
-            else if (agent.age < 30) age_group_ptr[i] = AgeGroups::a18to29;
-            else if (agent.age < 50) age_group_ptr[i] = AgeGroups::a30to49;
-            else if (agent.age < 65) age_group_ptr[i] = AgeGroups::a50to64;
-            else age_group_ptr[i] = AgeGroups::o65;
+            if (agent.age < 5) {
+                age_group_ptr[i] = AgeGroups::u5;
+            } else if (agent.age < 18) {
+                age_group_ptr[i] = AgeGroups::a5to17;
+            } else if (agent.age < 30) {
+                age_group_ptr[i] = AgeGroups::a18to29;
+            } else if (agent.age < 50) {
+                age_group_ptr[i] = AgeGroups::a30to49;
+            } else if (agent.age < 65) {
+                age_group_ptr[i] = AgeGroups::a50to64;
+            } else {
+                age_group_ptr[i] = AgeGroups::o65;
+            }
             family_ptr[i] = agent.household_id;
             lnglat_to_grid(agent.work_lng, agent.work_lat, work_i_ptr[i], work_j_ptr[i]);
             Real work_lng, work_lat;
@@ -495,18 +505,17 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
         Gpu::synchronize();
 
         // now ensure that all members of the same family have the same home nborhood
-        ParallelFor (np, [=] AMREX_GPU_DEVICE (int i) noexcept {
+        ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
             // search forwards to find the last member of the family and use that agent's nborhood
             int nborhood = nborhood_ptr[i];
             for (int j = i + 1; j < np; j++) {
-                if (home_i_ptr[i] != home_i_ptr[j] || home_j_ptr[i] != home_j_ptr[j]) break;
-                if (family_ptr[i] != family_ptr[j]) break;
+                if (home_i_ptr[i] != home_i_ptr[j] || home_j_ptr[i] != home_j_ptr[j]) { break; }
+                if (family_ptr[i] != family_ptr[j]) { break; }
                 nborhood = nborhood_ptr[j];
             }
             nborhood_ptr[i] = nborhood;
         });
         Gpu::synchronize();
-
     }
 
     AMREX_ALWAYS_ASSERT(pc.OK());
@@ -528,8 +537,8 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
 
     AMREX_ALWAYS_ASSERT(num_employed == work_population);
 
-    Print() << std::fixed << std::setprecision(2)
-            << "Population:  " << all_num_agents << " (balance " << load_balance_agents << ")\n"
+    Print() << std::fixed << std::setprecision(2) << "Population:  " << all_num_agents << " (balance " << load_balance_agents
+            << ")\n"
             << "Employed:    " << num_employed << "\n"
             << "Students:    " << num_students << "\n"
             << "Educators:   " << num_educators << "\n"
@@ -538,5 +547,3 @@ void UrbanPopData::initAgents (AgentContainer &pc, const ExaEpi::TestParams &par
 
     num_communities = all_num_communities;
 }
-
-
