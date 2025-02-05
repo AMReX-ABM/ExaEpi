@@ -9,6 +9,7 @@
 #include "AgentDefinitions.H"
 #include "DiseaseParm.H"
 #include "InteractionModel.H"
+#include "Utils.H"
 
 using namespace amrex;
 
