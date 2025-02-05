@@ -38,7 +38,7 @@ void DiseaseParm::readInputs (const std::string& a_pp_str /*!< Parmparse string 
     pp.query("initial_case_type", initial_case_type_str);
     if (initial_case_type_str == "file") {
         initial_case_type = CaseTypes::file;
-        /*! Initial cases filename (CaseData::InitFromFile):
+        /*! Initial cases filename (CaseData::initFromFile):
         The case data file is an ASCII text file with three columns of numbers:
         FIPS code, current number of cases, and cumulative number of cases till date. */
         std::string case_filename_str(case_filename);
@@ -105,7 +105,7 @@ void DiseaseParm::readInputs (const std::string& a_pp_str /*!< Parmparse string 
     Compute transmission probabilities for various situations based on disease
     attributes.
 */
-void DiseaseParm::Initialize () {
+void DiseaseParm::initialize () {
     // Optimistic scenario: 50% reduction in external child contacts during school dismissal
     //   or remote learning, and no change in household contacts
     child_compliance = 0.5_rt;

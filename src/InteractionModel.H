@@ -287,9 +287,9 @@ struct GetCommunityIndex {
 };
 
 #ifdef AMREX_USE_CUDA
-#define dev_memset cudaMemset
+#define devMemset cudaMemset
 #else
-#define dev_memset memset
+#define devMemset memset
 #endif
 
 #ifdef AMREX_USE_OMP

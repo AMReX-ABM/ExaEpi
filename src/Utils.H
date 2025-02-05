@@ -20,7 +20,7 @@ namespace ExaEpi {
 */
 struct TestParams {
     amrex::IntVect size;                                  /*!< domain size; (used only for ic_type = demo)
-                                                               (see ExaEpi::Utils::get_geometry) */
+                                                               (see ExaEpi::Utils::getGeometry) */
     int max_box_size;                                     /*!< box size */
     int nsteps = 1;                                       /*!< number of simulation steps */
     int plot_int = -1;                                    /*!< plot interval (see ExaEpi::IO::writePlotFile) */
@@ -33,7 +33,7 @@ struct TestParams {
     int num_diseases = 1;                                 /*!< Number of diseases to track */
     std::vector<std::string> disease_names;               /*!< Names of the diseases */
 
-    /*! Census data filename (DemographicData::InitFromFile)
+    /*! Census data filename (DemographicData::initFromFile)
 
         The file contents are:
         + The first line of the file contains the number of units.
@@ -54,7 +54,7 @@ struct TestParams {
      */
     std::string urbanpop_filename;
 
-    /*! Worker flow filename (ExaEpi::Initialization::read_workerflow):
+    /*! Worker flow filename (ExaEpi::Initialization::readWorkerflow):
         It is a binary file that contains 3 x (number of work patthers) unsigned integer
         data. The 3 integers are: from, to, and the number of workers with this from and to.
         The from and to are the IDs from the first column of the census data file
@@ -91,7 +91,7 @@ struct ICType {
 /*! \brief Namespace with utility functions */
 namespace Utils {
 
-void get_test_params(ExaEpi::TestParams& params, const std::string& prefix);
+void getTestParams(ExaEpi::TestParams& params, const std::string& prefix);
 }
 } // namespace ExaEpi
 

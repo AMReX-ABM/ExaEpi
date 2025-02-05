@@ -26,7 +26,7 @@ using namespace ExaEpi;
 void runAgent();
 
 /*! \brief Set ExaEpi-specific defaults for memory-management and tiling */
-void override_amrex_defaults () {
+void overrideAmrexDefaults () {
     amrex::ParmParse pp("amrex");
     // ExaEpi should never require mananaged memory in the Arena
     bool the_arena_is_managed = true;
@@ -41,7 +41,7 @@ void override_amrex_defaults () {
 /*! \brief Main function: initializes AMReX, calls runAgent(), finalizes AMReX */
 int main (int argc, /*!< Number of command line arguments */
           char* argv[] /*!< Command line arguments */) {
-    amrex::Initialize(argc, argv, true, MPI_COMM_WORLD, override_amrex_defaults);
+    amrex::Initialize(argc, argv, true, MPI_COMM_WORLD, overrideAmrexDefaults);
 
     Print() << "ExaEpi version " << EXAEPI_VERSION << " (built on " << __DATE__ << ")\n";
 
@@ -56,10 +56,10 @@ int main (int argc, /*!< Number of command line arguments */
     + Read test parameters (#ExaEpi::TestParams) from command line input file
     + If initialization type (#ExaEpi::TestParams::ic_type) is ExaEpi::ICType::Census,
       + Read #DemographicData from #ExaEpi::TestParams::census_filename
-        (see DemographicData::InitFromFile)
+        (see DemographicData::initFromFile)
       + Read #CaseData from #ExaEpi::TestParams::case_filename
-        (see CaseData::InitFromFile)
-    + Get computational domain from ExaEpi::Utils::get_geometry. Each grid cell corresponds to
+        (see CaseData::initFromFile)
+    + Get computational domain from ExaEpi::Utils::getGeometry. Each grid cell corresponds to
       a community.
     + Create box arrays and distribution mapping based on #ExaEpi::TestParams::max_box_size.
     + Initialize the following MultiFabs:
@@ -72,7 +72,7 @@ int main (int argc, /*!< Number of command line arguments */
       + Masking behavior
     + Initialize agents (AgentContainer::initAgentsCensus).
       If ExaEpi::TestParams::ic_type is ExaEpi::ICType::Census, then
-      + Read worker flow (ExaEpi::Initialization::read_workerflow)
+      + Read worker flow (ExaEpi::Initialization::readWorkerflow)
       + Initialize cases (ExaEpi::Initialization::setInitialCases)
 
 
@@ -102,7 +102,7 @@ int main (int argc, /*!< Number of command line arguments */
 void runAgent () {
     BL_PROFILE("runAgent");
     TestParams params;
-    ExaEpi::Utils::get_test_params(params, "agent");
+    ExaEpi::Utils::getTestParams(params, "agent");
 
     amrex::Print() << "Tracking " << params.num_diseases << " diseases:\n";
     for (int d = 0; d < params.num_diseases; d++) {
@@ -123,9 +123,9 @@ void runAgent () {
 
     AirTravelFlow air;
     if (params.air_travel_int > 0) {
-        air.ReadAirports(params.airports_filename, censusData.demo);
-        air.ReadAirTravelFlow(params.air_traffic_filename);
-        air.ComputeTravelProbs(censusData.demo);
+        air.readAirports(params.airports_filename, censusData.demo);
+        air.readAirTravelFlow(params.air_traffic_filename);
+        air.computeTravelProbs(censusData.demo);
     }
 
     // The default output filename is:
@@ -189,7 +189,7 @@ void runAgent () {
         BL_PROFILE_REGION("Initialization");
         if (params.ic_type == ICType::Census) {
             censusData.initAgents(pc, params.nborhood_size);
-            censusData.read_workerflow(pc, params.workerflow_filename, params.workgroup_size);
+            censusData.readWorkerflow(pc, params.workerflow_filename, params.workgroup_size);
         } else if (params.ic_type == ICType::UrbanPop) {
             urbanPopData.initAgents(pc, params);
         } else {
@@ -200,7 +200,7 @@ void runAgent () {
             auto disease_params = pc.getDiseaseParameters_h(d);
             if (disease_params->initial_case_type == CaseTypes::file) {
                 CaseData cases;
-                cases.InitFromFile(disease_params->disease_name, std::string(disease_params->case_filename));
+                cases.initFromFile(disease_params->disease_name, std::string(disease_params->case_filename));
                 setInitialCasesFromFile(
                         pc, cases, disease_params->disease_name, d,
                         (params.ic_type == ICType::Census ? censusData.demo.FIPS : urbanPopData.FIPS_codes),

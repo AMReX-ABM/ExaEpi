@@ -8,7 +8,7 @@ using namespace amrex;
 using namespace ExaEpi::Utils;
 
 /*! Add runtime SoA attributes */
-void AgentContainer::add_attributes () {
+void AgentContainer::addAttributes () {
     const bool communicate_this_comp = true;
     {
         int count(0);
@@ -51,7 +51,7 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
 
     m_student_counts.setVal(0); // Initialize the MultiFab to zero
 
-    add_attributes();
+    addAttributes();
 
     {
         amrex::ParmParse pp("agent");
@@ -93,7 +93,7 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
         m_h_parm[d]->readInputs("disease");
         // now read any disease-specific input, if available
         m_h_parm[d]->readInputs(std::string("disease_" + a_disease_names[d]));
-        m_h_parm[d]->Initialize();
+        m_h_parm[d]->initialize();
 
 #ifdef AMREX_USE_GPU
         amrex::Gpu::htod_memcpy(m_d_parm[d], m_h_parm[d], sizeof(DiseaseParm));

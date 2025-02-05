@@ -18,7 +18,7 @@ using namespace ExaEpi;
  *
  *  A periodic Cartesian grid is defined.
 */
-Geometry get_geometry (const DemographicData& demo /*!< demographic data */) {
+Geometry getGeometry (const DemographicData& demo /*!< demographic data */) {
     int is_per[BL_SPACEDIM];
     for (int i = 0; i < BL_SPACEDIM; i++) {
         is_per[i] = true;
@@ -46,9 +46,9 @@ Geometry get_geometry (const DemographicData& demo /*!< demographic data */) {
 
 void CensusData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& ba, DistributionMapping& dm) {
 
-    demo.InitFromFile(params.census_filename, params.workgroup_size);
+    demo.initFromFile(params.census_filename, params.workgroup_size);
 
-    geom = get_geometry(demo);
+    geom = getGeometry(demo);
 
     ba.define(geom.Domain());
     ba.maxSize(params.max_box_size);
@@ -72,7 +72,7 @@ void CensusData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& ba,
 /*! \brief Assigns school by taking a random number between 0 and 100, and using
  *  default distribution to choose elementary/middle/high school. */
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void assign_school (int* school_grade, int* school_id, const int age_group, const int nborhood, const RandomEngine& engine) {
+void assignSchool (int* school_grade, int* school_id, const int age_group, const int nborhood, const RandomEngine& engine) {
     if (age_group == AgeGroups::u5) {
         // under 5
         // assume 50% in daycare
@@ -140,11 +140,11 @@ void assign_school (int* school_grade, int* school_id, const int age_group, cons
  *      + Set age group and family ID.
  *      + Set home location to current grid cell.
  *      + Initialize work location to current grid cell. Actual work location is set in
- *        ExaEpi::read_workerflow().
+ *        ExaEpi::readWorkerflow().
  *      + Set neighborhood and work neighborhood values. Actual work neighborhood is set
- *        in ExaEpi::read_workerflow().
- *      + Initialize workgroup to 0. It is set in ExaEpi::read_workerflow().
- *      + If age group is 5-17, assign a school based on neighborhood (#assign_school).
+ *        in ExaEpi::readWorkerflow().
+ *      + Initialize workgroup to 0. It is set in ExaEpi::readWorkerflow().
+ *      + If age group is 5-17, assign a school based on neighborhood (#assignSchool).
  *  + Copy everything to GPU device.
 */
 void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
@@ -466,7 +466,7 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                 random_travel_ptr[ip] = -1;
                 air_travel_ptr[ip] = -1;
 
-                assign_school(&school_grade_ptr[ip], &school_id_ptr[ip], age_group, nborhood, engine);
+                assignSchool(&school_grade_ptr[ip], &school_id_ptr[ip], age_group, nborhood, engine);
 
                 school_closed_ptr[ip] = 0;
 
@@ -480,7 +480,7 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
         });
     }
 
-    demo.CopyToHostAsync(demo.Unit_on_proc_d, demo.Unit_on_proc);
+    demo.copyToHostAsync(demo.Unit_on_proc_d, demo.Unit_on_proc);
     Gpu::streamSynchronize();
 
     pc.comm_mf.define(comm_mf.boxArray(), comm_mf.DistributionMap(), 1, 0);
@@ -520,8 +520,8 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
     *    + Find the number of workgroups in the work location unit, where one workgroup consists of
     *      20 workers; then assign a random workgroup to this agent.
 */
-void CensusData::read_workerflow (AgentContainer& pc, /*!< Agent container (particle container) */
-                                  const std::string& workerflow_filename, const int workgroup_size) {
+void CensusData::readWorkerflow (AgentContainer& pc, /*!< Agent container (particle container) */
+                                 const std::string& workerflow_filename, const int workgroup_size) {
     /* Allocate worker-flow matrix, only from units with nighttime
         communities on this processor (Unit_on_proc[] flag) */
     unsigned int** flow = (unsigned int**)The_Pinned_Arena()->alloc(demo.Nunit * sizeof(unsigned int*));

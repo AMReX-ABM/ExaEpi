@@ -218,7 +218,7 @@ const size_t NUM_COLS = {len(df.columns)};
     hdr += "\n"
 
     hdr += """
-static std::vector<string> split_string(const string &s, char delim) {
+static std::vector<string> splitString(const string &s, char delim) {
     std::vector<string> elems;
     std::stringstream ss(s);
     string item;
@@ -236,7 +236,7 @@ static std::vector<string> split_string(const string &s, char delim) {
             hdr += f"""    {df.dtypes.iloc[i]}_t {col};\n"""
 
     hdr += """
-    bool read_csv(std::ifstream &f) {
+    bool readCsv(std::ifstream &f) {
         string buf;
         if (!getline(f, buf)) return false;
         if (buf[0] != '*') {
@@ -244,7 +244,7 @@ static std::vector<string> split_string(const string &s, char delim) {
             return true;
         }
         try {
-            std::vector<string> tokens = split_string(buf.substr(2), ',');
+            std::vector<string> tokens = splitString(buf.substr(2), ',');
             if (tokens.size() != NUM_COLS)
                 throw std::runtime_error("Incorrect number of tokens, expected " + std::to_string(NUM_COLS) +
                                          " got " + std::to_string(tokens.size()));\n"""

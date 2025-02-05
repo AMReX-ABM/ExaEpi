@@ -37,10 +37,10 @@ using std::unordered_set;
 using ParallelDescriptor::MyProc;
 using ParallelDescriptor::NProcs;
 
-bool BlockGroup::read_agents (ifstream& f, Vector<UrbanPopAgent>& agents, Vector<int>& group_work_populations,
-                              Vector<int>& group_home_populations, const std::map<IntVect, BlockGroup>& xy_to_block_groups,
-                              const LngLatToGrid& lnglat_to_grid, const GridToLngLat& grid_to_lnglat) {
-    BL_PROFILE("BlockGroup::read_agents");
+bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, Vector<int>& group_work_populations,
+                             Vector<int>& group_home_populations, const std::map<IntVect, BlockGroup>& xy_to_block_groups,
+                             const LngLatToGrid& lnglat_to_grid, const GridToLngLat& grid_to_lnglat) {
+    BL_PROFILE("BlockGroup::readAgents");
     string buf;
     num_households = 0;
     num_employed = 0;
@@ -57,7 +57,7 @@ bool BlockGroup::read_agents (ifstream& f, Vector<UrbanPopAgent>& agents, Vector
     if (file_offset == 0) { getline(f, buf); }
     for (int i = start_i; i < agents.size(); i++) {
         auto& agent = agents[i];
-        if (!agent.read_csv(f)) {
+        if (!agent.readCsv(f)) {
             Abort("File is corrupted: end of file before read for offset " + to_string(file_offset) + " geoid " +
                   to_string(geoid) + "\n");
         }
@@ -107,7 +107,7 @@ bool BlockGroup::read (istringstream& iss) {
     string buf;
     if (!getline(iss, buf)) { return false; }
     try {
-        std::vector<string> tokens = split_string(buf, ' ');
+        std::vector<string> tokens = splitString(buf, ' ');
         if (tokens.size() != NTOKS) {
             throw runtime_error("Incorrect number of tokens, expected " + to_string(NTOKS) + " got " + to_string(tokens.size()));
         }
@@ -129,8 +129,8 @@ bool BlockGroup::read (istringstream& iss) {
     return true;
 }
 
-static Vector<BlockGroup> read_block_groups_file (const string& fname) {
-    BL_PROFILE("read_block_groups_file");
+static Vector<BlockGroup> readBlockGroupsFile (const string& fname) {
+    BL_PROFILE("readBlockGroupsFile");
     // read in index file and broadcast
     Vector<char> idx_file_ptr;
     ParallelDescriptor::ReadAndBcastFile(fname + ".idx", idx_file_ptr);
@@ -149,7 +149,7 @@ static Vector<BlockGroup> read_block_groups_file (const string& fname) {
     return block_groups;
 }
 
-static std::pair<int, double> get_all_load_balance (const long num) {
+static std::pair<int, double> getAllLoadBalance (const long num) {
     int all = num;
     ParallelDescriptor::ReduceIntSum(all);
     int max_num = num;
@@ -164,7 +164,7 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
     BL_PROFILE("UrbanPopData::init");
     std::string fname = params.urbanpop_filename;
     // every rank reads all the block groups from the index file
-    auto all_block_groups = read_block_groups_file(fname);
+    auto all_block_groups = readBlockGroupsFile(fname);
     // now sort block groups by geoid to make all FIPS units consecutively grouped
     std::sort(all_block_groups.begin(), all_block_groups.end(), [] (const BlockGroup& bg1, const BlockGroup& bg2) {
         return bg1.geoid < bg2.geoid;
@@ -345,8 +345,8 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     home_population += block_group.home_population;
                     work_population += block_group.work_populations[0];
                     // now read in the agents for this block group
-                    block_group.read_agents(f, agents, group_work_populations, group_home_populations, xy_to_block_groups,
-                                            lnglat_to_grid, grid_to_lnglat);
+                    block_group.readAgents(f, agents, group_work_populations, group_home_populations, xy_to_block_groups,
+                                           lnglat_to_grid, grid_to_lnglat);
                     num_households += block_group.num_households;
                     num_employed += block_group.num_employed;
                     num_students += block_group.num_students;
@@ -524,8 +524,8 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
     iMultiFab::Copy(pc.comm_mf, comm_mf, 0, 0, 1, 0);
 
     AllPrint() << "Process " << MyProc() << ": population " << home_population << " in " << num_communities << " communities\n";
-    auto [all_num_communities, load_balance_communities] = get_all_load_balance(num_communities);
-    auto [all_num_agents, load_balance_agents] = get_all_load_balance(home_population);
+    auto [all_num_communities, load_balance_communities] = getAllLoadBalance(num_communities);
+    auto [all_num_agents, load_balance_agents] = getAllLoadBalance(home_population);
     ParallelContext::BarrierAll();
 
     ParallelDescriptor::ReduceIntSum(home_population);

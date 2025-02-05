@@ -1,6 +1,10 @@
 # Contributing
 
-When contributing code to ExaEpi, please use clang-format.
+These are a few short instructions for coding standards when contributing to ExaEpi.
+
+## Automatic styling
+
+Please use clang-format for automatically formatting code.
 
 The primary style is given in the `.clang-format` file in the root directory. However, due to limitations of `clang-format`, there are some addititional formatting adjustments that need to be made. These are executed from the wrapper script `utilities/custom-clang-format.py`, which takes a file on `stdin`, runs `clang-format` with the additional adjustments, and produces the formatted code on `stdout`.
 
@@ -12,6 +16,11 @@ The best way to use `custom-clang-format.py` is to integrate it into your editor
     "C_Cpp.clang_format_path": "${workspaceFolder}/utilities/custom-clang-format.py",
 ```
 
+## Class and function naming
 
+We adhere to the camelCaps naming for classes, structs and functions. For function names, the first letter is lower case, whereas for classes and structs, the first letter is capitalized.
 
+## Variable naming
+
+Variables are typically all lowercase with underscores.
 

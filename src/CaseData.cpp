@@ -18,11 +18,11 @@ using namespace amrex;
 
 /*! \brief Constructor that initializes by reading in data from given file
 
-    See CaseData::InitFromFile()
+    See CaseData::initFromFile()
 */
 CaseData::CaseData (const std::string& dname, /*!< Disease name */
                     const ::std::string& fname /*!< Filename to read case data from */) {
-    InitFromFile(dname, fname);
+    initFromFile(dname, fname);
 }
 
 /*! \brief Read case data from a given file
@@ -52,9 +52,9 @@ CaseData::CaseData (const std::string& dname, /*!< Disease name */
     \b Note: The code runs even if the case data file lacks the 3rd column. In this case, the
     #CaseData::num_cases2date will contain junk values (or maybe zero).
 */
-void CaseData::InitFromFile (const std::string& a_disease_name, /*!< Name of disease */
+void CaseData::initFromFile (const std::string& a_disease_name, /*!< Name of disease */
                              const std::string& fname /*!< Filename to read case data from */) {
-    BL_PROFILE("CaseData::InitFromFile");
+    BL_PROFILE("CaseData::initFromFile");
     m_disease_name = a_disease_name;
 
     Vector<char> fileCharPtr;
@@ -110,7 +110,7 @@ void CaseData::InitFromFile (const std::string& a_disease_name, /*!< Name of dis
     }
 
     amrex::ignore_unused(ntot);
-    CopyDataToDevice();
+    copyDataToDevice();
     amrex::Gpu::streamSynchronize();
 }
 
@@ -127,7 +127,7 @@ void CaseData::Print () const {
 }
 
 /*! \brief Copy a vector from host to device */
-void CaseData::CopyToDeviceAsync (const amrex::Vector<int>& h_vec, /*!< Host vector */
+void CaseData::copyToDeviceAsync (const amrex::Vector<int>& h_vec, /*!< Host vector */
                                   amrex::Gpu::DeviceVector<int>& d_vec /*!< Device vector */) {
     d_vec.resize(0);
     d_vec.resize(h_vec.size());
@@ -135,7 +135,7 @@ void CaseData::CopyToDeviceAsync (const amrex::Vector<int>& h_vec, /*!< Host vec
 }
 
 /*! \brief Copy a vector from device to host */
-void CaseData::CopyToHostAsync (const amrex::Gpu::DeviceVector<int>& d_vec, /*!< Device vector */
+void CaseData::copyToHostAsync (const amrex::Gpu::DeviceVector<int>& d_vec, /*!< Device vector */
                                 amrex::Vector<int>& h_vec /*!< Host vector */) {
     h_vec.resize(0);
     h_vec.resize(d_vec.size());
@@ -143,9 +143,9 @@ void CaseData::CopyToHostAsync (const amrex::Gpu::DeviceVector<int>& d_vec, /*!<
 }
 
 /*! \brief Copy all member data from host to device */
-void CaseData::CopyDataToDevice () {
-    CopyToDeviceAsync(FIPS_hubs, FIPS_hubs_d);
-    CopyToDeviceAsync(Size_hubs, Size_hubs_d);
-    CopyToDeviceAsync(num_cases, num_cases_d);
-    CopyToDeviceAsync(num_cases2date, num_cases2date_d);
+void CaseData::copyDataToDevice () {
+    copyToDeviceAsync(FIPS_hubs, FIPS_hubs_d);
+    copyToDeviceAsync(Size_hubs, Size_hubs_d);
+    copyToDeviceAsync(num_cases, num_cases_d);
+    copyToDeviceAsync(num_cases2date, num_cases2date_d);
 }

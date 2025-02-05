@@ -39,7 +39,7 @@ struct CensusData {
 
     void initAgents(AgentContainer& pc, const int nborhood_size);
 
-    void read_workerflow(AgentContainer& pc, const std::string& workerflow_filename, const int workgroup_size);
+    void readWorkerflow(AgentContainer& pc, const std::string& workerflow_filename, const int workgroup_size);
 
     // private:
     void assignTeachersAndWorkgroup(AgentContainer& pc, const int workgroup_size);

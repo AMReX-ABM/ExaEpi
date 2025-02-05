@@ -18,15 +18,15 @@ struct DemographicData {
     /*! \brief Constructor with initializes from a given census file */
     DemographicData(const ::std::string& fname, const int workgroup_size);
 
-    void InitFromFile(const std::string& fname, const int workgroup_size);
+    void initFromFile(const std::string& fname, const int workgroup_size);
 
     void Print() const;
 
-    void CopyToDeviceAsync(const amrex::Vector<int>& h_vec, amrex::Gpu::DeviceVector<int>& d_vec);
+    void copyToDeviceAsync(const amrex::Vector<int>& h_vec, amrex::Gpu::DeviceVector<int>& d_vec);
 
-    void CopyToHostAsync(const amrex::Gpu::DeviceVector<int>& d_vec, amrex::Vector<int>& h_vec);
+    void copyToHostAsync(const amrex::Gpu::DeviceVector<int>& d_vec, amrex::Vector<int>& h_vec);
 
-    void CopyDataToDevice();
+    void copyDataToDevice();
 
     int Ncommunity;                  /*!< number of communities required */
     int Nunit;                       /*!< number of county/state units */

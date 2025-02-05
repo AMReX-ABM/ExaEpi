@@ -189,7 +189,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     }
 
     /*! \brief Add runtime SoA attributes */
-    void add_attributes();
+    void addAttributes();
 };
 
 using AgentIterator = typename AgentContainer::ParIterType;

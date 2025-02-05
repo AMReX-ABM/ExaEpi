@@ -121,7 +121,7 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
             //         << " workgroup vector size " << max_communities * max_workgroup * max_naics
             //         << "\n";
             for (int d = 0; d < n_disease; d++) {
-                dev_memset(infected_workgroup_d_ptr, 0, infected_workgroup_d[OMP_THREAD_NUM].size() * sizeof(int));
+                devMemset(infected_workgroup_d_ptr, 0, infected_workgroup_d[OMP_THREAD_NUM].size() * sizeof(int));
 
                 auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                 auto lparm = agents.getDiseaseParameters_d(d);

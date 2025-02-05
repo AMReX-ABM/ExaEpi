@@ -16,11 +16,11 @@ using namespace amrex;
 
 /*! \brief Constructor that initializes by reading in data from given file
 
-    See AirTravelFlow::InitFromFile()
+    See AirTravelFlow::initFromFile()
 */
 AirTravelFlow::AirTravelFlow (const ::std::string fname /*!< Filename to read case data from */) {}
 
-void AirTravelFlow::ReadAirports (const std::string fname, DemographicData& demo) {
+void AirTravelFlow::readAirports (const std::string fname, DemographicData& demo) {
     Vector<char> fileCharPtr;
     ParallelDescriptor::ReadAndBcastFile(fname, fileCharPtr);
     std::string fileCharPtrString(fileCharPtr.dataPtr());
@@ -67,8 +67,8 @@ void AirTravelFlow::ReadAirports (const std::string fname, DemographicData& demo
 /*! \brief Read case data from a given file
     Description TBW
 */
-void AirTravelFlow::ReadAirTravelFlow (const std::string fname /*!< Filename to read case data from */) {
-    BL_PROFILE("AirTravelFlow::InitFromFile");
+void AirTravelFlow::readAirTravelFlow (const std::string fname /*!< Filename to read case data from */) {
+    BL_PROFILE("AirTravelFlow::initFromFile");
 
     Vector<char> fileCharPtr;
     ParallelDescriptor::ReadAndBcastFile(fname, fileCharPtr);
@@ -115,7 +115,7 @@ void AirTravelFlow::ReadAirTravelFlow (const std::string fname /*!< Filename to 
     }
 }
 
-void AirTravelFlow::ComputeTravelProbs (DemographicData& demo) {
+void AirTravelFlow::computeTravelProbs (DemographicData& demo) {
     air_travel_prob.resize(demo.Nunit);
     assigned_airport.resize(demo.Nunit);
     for (int i = 0; i < demo.Nunit; i++) {
@@ -206,7 +206,7 @@ void AirTravelFlow::ComputeTravelProbs (DemographicData& demo) {
         }
         arrivalUnits_offset[nairports] = curOffset;
     }
-    CopyDataToDevice();
+    copyDataToDevice();
 }
 
 /*! \brief Prints case data to screen

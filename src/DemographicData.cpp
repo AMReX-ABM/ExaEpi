@@ -17,11 +17,11 @@
 using namespace amrex;
 
 /*! Initializes by reading in demographic data from a given
-    filename. Calls DemographicData::InitFromFile(). */
+    filename. Calls DemographicData::initFromFile(). */
 
 DemographicData::DemographicData (const ::std::string& fname, /*!< Name of file containing demographic data */
                                   const int workgroup_size) {
-    InitFromFile(fname, workgroup_size);
+    initFromFile(fname, workgroup_size);
 }
 
 /*! \brief Read in demographic data from given file.
@@ -48,9 +48,9 @@ DemographicData::DemographicData (const ::std::string& fname, /*!< Name of file 
  *  + Copy data to GPU device memory.
  */
 
-void DemographicData::InitFromFile (const std::string& fname, /*!< Name of file containing demographic data */
+void DemographicData::initFromFile (const std::string& fname, /*!< Name of file containing demographic data */
                                     const int workgroup_size /*!< The size of workgroups */) {
-    BL_PROFILE("DemographicData::InitFromFile");
+    BL_PROFILE("DemographicData::initFromFile");
 
     Vector<char> fileCharPtr;
     ParallelDescriptor::ReadAndBcastFile(fname, fileCharPtr);
@@ -153,7 +153,7 @@ void DemographicData::InitFromFile (const std::string& fname, /*!< Name of file 
     amrex::Print() << "Total workers " << total_workers << "\n";
     amrex::Print() << "Number of communities: " << Ncommunity << "\n";
 
-    CopyDataToDevice();
+    copyDataToDevice();
     amrex::Gpu::streamSynchronize();
 }
 
@@ -179,7 +179,7 @@ void DemographicData::Print () const {
 }
 
 /*! \brief Copy array from host to device */
-void DemographicData::CopyToDeviceAsync (const amrex::Vector<int>& h_vec, /*!< host vector */
+void DemographicData::copyToDeviceAsync (const amrex::Vector<int>& h_vec, /*!< host vector */
                                          amrex::Gpu::DeviceVector<int>& d_vec /*!< device vector */) {
     d_vec.resize(0);
     d_vec.resize(h_vec.size());
@@ -187,7 +187,7 @@ void DemographicData::CopyToDeviceAsync (const amrex::Vector<int>& h_vec, /*!< h
 }
 
 /*! \brief Copy array from device to host */
-void DemographicData::CopyToHostAsync (const amrex::Gpu::DeviceVector<int>& d_vec, /*!< device vector */
+void DemographicData::copyToHostAsync (const amrex::Gpu::DeviceVector<int>& d_vec, /*!< device vector */
                                        amrex::Vector<int>& h_vec /*!< host vector */) {
     h_vec.resize(0);
     h_vec.resize(d_vec.size());
@@ -195,28 +195,28 @@ void DemographicData::CopyToHostAsync (const amrex::Gpu::DeviceVector<int>& d_ve
 }
 
 /*! \brief Copies member arrays of #DemographicData from host to device */
-void DemographicData::CopyDataToDevice () {
-    CopyToDeviceAsync(myID, myID_d);
-    CopyToDeviceAsync(FIPS, FIPS_d);
-    CopyToDeviceAsync(Tract, Tract_d);
-    CopyToDeviceAsync(Start, Start_d);
-    CopyToDeviceAsync(Population, Population_d);
+void DemographicData::copyDataToDevice () {
+    copyToDeviceAsync(myID, myID_d);
+    copyToDeviceAsync(FIPS, FIPS_d);
+    copyToDeviceAsync(Tract, Tract_d);
+    copyToDeviceAsync(Start, Start_d);
+    copyToDeviceAsync(Population, Population_d);
 
-    CopyToDeviceAsync(N5, N5_d);
-    CopyToDeviceAsync(N17, N17_d);
-    CopyToDeviceAsync(N29, N29_d);
-    CopyToDeviceAsync(N64, N64_d);
-    CopyToDeviceAsync(N65plus, N65plus_d);
+    copyToDeviceAsync(N5, N5_d);
+    copyToDeviceAsync(N17, N17_d);
+    copyToDeviceAsync(N29, N29_d);
+    copyToDeviceAsync(N64, N64_d);
+    copyToDeviceAsync(N65plus, N65plus_d);
 
-    CopyToDeviceAsync(H1, H1_d);
-    CopyToDeviceAsync(H2, H2_d);
-    CopyToDeviceAsync(H3, H3_d);
-    CopyToDeviceAsync(H4, H4_d);
-    CopyToDeviceAsync(H5, H5_d);
-    CopyToDeviceAsync(H6, H6_d);
-    CopyToDeviceAsync(H7, H7_d);
+    copyToDeviceAsync(H1, H1_d);
+    copyToDeviceAsync(H2, H2_d);
+    copyToDeviceAsync(H3, H3_d);
+    copyToDeviceAsync(H4, H4_d);
+    copyToDeviceAsync(H5, H5_d);
+    copyToDeviceAsync(H6, H6_d);
+    copyToDeviceAsync(H7, H7_d);
 
-    CopyToDeviceAsync(Ndaywork, Ndaywork_d);
-    CopyToDeviceAsync(myIDtoUnit, myIDtoUnit_d);
-    CopyToDeviceAsync(Unit_on_proc, Unit_on_proc_d);
+    copyToDeviceAsync(Ndaywork, Ndaywork_d);
+    copyToDeviceAsync(myIDtoUnit, myIDtoUnit_d);
+    copyToDeviceAsync(Unit_on_proc, Unit_on_proc_d);
 }

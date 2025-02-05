@@ -17,15 +17,15 @@ struct CaseData {
 
     CaseData(const std::string& dname, const ::std::string& fname);
 
-    void InitFromFile(const std::string& dname, const std::string& fname);
+    void initFromFile(const std::string& dname, const std::string& fname);
 
     void Print() const;
 
-    void CopyToDeviceAsync(const amrex::Vector<int>& h_vec, amrex::Gpu::DeviceVector<int>& d_vec);
+    void copyToDeviceAsync(const amrex::Vector<int>& h_vec, amrex::Gpu::DeviceVector<int>& d_vec);
 
-    void CopyToHostAsync(const amrex::Gpu::DeviceVector<int>& d_vec, amrex::Vector<int>& h_vec);
+    void copyToHostAsync(const amrex::Gpu::DeviceVector<int>& d_vec, amrex::Vector<int>& h_vec);
 
-    void CopyDataToDevice();
+    void copyDataToDevice();
 
     std::string m_disease_name;                     /*!< name of disease */
 

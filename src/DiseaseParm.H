@@ -33,7 +33,7 @@ struct DiseaseParm {
     int num_initial_cases = 0;
     /*! Name of disease. This is a char array because this whole structure is memcpy'd to the device */
     char disease_name[50];
-    /*! Initial cases filename (CaseData::InitFromFile):
+    /*! Initial cases filename (CaseData::initFromFile):
         The case data file is an ASCII text file with three columns of numbers:
         FIPS code, current number of cases, and cumulative number of cases till date. */
     char case_filename[255];
@@ -122,17 +122,17 @@ struct DiseaseParm {
 
     void readInputs(const std::string&);
 
-    void Initialize();
+    void initialize();
 
     /*! \brief Given age group, decide if hospitalized or not;
      *  if so, compute number of hospitalization days and check if
      *  moved to ICU and ventilator */
     AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-    void check_hospitalization (ParticleReal* a_t_hosp, /*!< number of hospitalization days */
-                                int* a_ICU,             /*!< moved to ICU ? */
-                                int* a_ventilator,      /*!< moved to ventilator? */
-                                const int a_age_group,  /*!< age group */
-                                const amrex::RandomEngine& a_reng /*!< random engine */) const {
+    void checkHospitalization (ParticleReal* a_t_hosp, /*!< number of hospitalization days */
+                               int* a_ICU,             /*!< moved to ICU ? */
+                               int* a_ventilator,      /*!< moved to ventilator? */
+                               const int a_age_group,  /*!< age group */
+                               const amrex::RandomEngine& a_reng /*!< random engine */) const {
         *a_t_hosp = ParticleReal(0);
         *a_ICU = 0;
         *a_ventilator = 0;

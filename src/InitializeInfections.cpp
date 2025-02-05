@@ -27,14 +27,14 @@ typedef std::map<std::pair<int, int>, DenseBins<AgentContainer::ParticleType>> B
             (See the code for nuances in this step.)
     + Sum up number of infected agents over all processors and return that value.
 */
-static int infect_random_community (AgentContainer& pc,                      /*!< Agent container (particle container)*/
-                                    const Vector<int>& unit_community_start, /*!< Start community number for each unit */
-                                    iMultiFab& comm_mf,                      /*!< Community numbers */
-                                    BinMap& bin_map,                         /*!< Map of dense bins with agents */
-                                    int unit,                                /*!< Unit number to infect */
-                                    const int d_idx,                         /*!< Disease index */
-                                    int ninfect,                             /*!< Target number of agents to infect */
-                                    const bool fast_bin /*!< Use GPU binning - fast but non-deterministic */) {
+static int infectRandomCommunity (AgentContainer& pc,                      /*!< Agent container (particle container)*/
+                                  const Vector<int>& unit_community_start, /*!< Start community number for each unit */
+                                  iMultiFab& comm_mf,                      /*!< Community numbers */
+                                  BinMap& bin_map,                         /*!< Map of dense bins with agents */
+                                  int unit,                                /*!< Unit number to infect */
+                                  const int d_idx,                         /*!< Disease index */
+                                  int ninfect,                             /*!< Target number of agents to infect */
+                                  const bool fast_bin /*!< Use GPU binning - fast but non-deterministic */) {
     // chose random community
     int ncomms = unit_community_start[unit + 1] - unit_community_start[unit];
     int comm_offset = unit_community_start[unit];
@@ -142,7 +142,7 @@ static int infect_random_community (AgentContainer& pc,                      /*!
     + Randomly infect that many agents in the units corresponding to the FIPS code, i.e.,
         cycle through units and infect agents in random communities in that unit till the
         number of infected agents is equal or greater than the number of infections for this
-        FIPS code. See #ExaEpi::Initialization::infect_random_community().
+        FIPS code. See #ExaEpi::Initialization::infectRandomCommunity().
 */
 void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agent container (particle container) */
                               CaseData& cases,                         /*!< Case data */
@@ -173,7 +173,7 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
                 int i = 0;
                 while (i < cases.Size_hubs[ihub]) {
                     int nSuccesses =
-                            infect_random_community(pc, unit_community_start, comm_mf, bin_map, units[u], d_idx, ntry, fast_bin);
+                            infectRandomCommunity(pc, unit_community_start, comm_mf, bin_map, units[u], d_idx, ntry, fast_bin);
                     ninf += nSuccesses;
                     i += nSuccesses;
                     u = (u + 1) % units.size(); // sometimes we infect fewer than ntry, but switch to next unit anyway
@@ -204,7 +204,7 @@ void setInitialCasesRandom (AgentContainer& pc,                      /*!< Agent 
             int unit = 0;
             if (ParallelDescriptor::IOProcessor()) { unit = Random_int(unit_community_start.size() - 1); }
             ParallelDescriptor::Bcast(&unit, 1);
-            int nSuccesses = infect_random_community(pc, unit_community_start, comm_mf, bin_map, unit, d_idx, 1, fast_bin);
+            int nSuccesses = infectRandomCommunity(pc, unit_community_start, comm_mf, bin_map, unit, d_idx, 1, fast_bin);
             ninf += nSuccesses;
             i += nSuccesses;
         }

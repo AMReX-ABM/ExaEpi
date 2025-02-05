@@ -145,8 +145,8 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
             */
             for (int d = 0; d < n_disease; d++) {
                 for (auto adults : {true, false}) {
-                    dev_memset(infected_school_d_ptr, 0, infected_school_d[OMP_THREAD_NUM].size() * sizeof(int));
-                    dev_memset(infected_daycare_d_ptr, 0, infected_daycare_d[OMP_THREAD_NUM].size() * sizeof(int));
+                    devMemset(infected_school_d_ptr, 0, infected_school_d[OMP_THREAD_NUM].size() * sizeof(int));
+                    devMemset(infected_daycare_d_ptr, 0, infected_daycare_d[OMP_THREAD_NUM].size() * sizeof(int));
 
                     auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                     auto lparm = agents.getDiseaseParameters_d(d);

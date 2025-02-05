@@ -20,34 +20,34 @@ struct AirTravelFlow {
 
     AirTravelFlow(const ::std::string fname);
 
-    void ReadAirTravelFlow(const std::string fname);
-    void ReadAirports(const std::string fname, DemographicData& demo);
-    void ComputeTravelProbs(DemographicData& demo);
+    void readAirTravelFlow(const std::string fname);
+    void readAirports(const std::string fname, DemographicData& demo);
+    void computeTravelProbs(DemographicData& demo);
     void Print() const;
 
-    void CopyToDeviceAsync (const amrex::Vector<int>& h_vec, /*!< host vector */
+    void copyToDeviceAsync (const amrex::Vector<int>& h_vec, /*!< host vector */
                             amrex::Gpu::DeviceVector<int>& d_vec /*!< device vector */) {
         d_vec.resize(0);
         d_vec.resize(h_vec.size());
         Gpu::copyAsync(Gpu::hostToDevice, h_vec.begin(), h_vec.end(), d_vec.begin());
     }
 
-    void CopyToDeviceAsync (const amrex::Vector<float>& h_vec, /*!< host vector */
+    void copyToDeviceAsync (const amrex::Vector<float>& h_vec, /*!< host vector */
                             amrex::Gpu::DeviceVector<float>& d_vec /*!< device vector */) {
         d_vec.resize(0);
         d_vec.resize(h_vec.size());
         Gpu::copyAsync(Gpu::hostToDevice, h_vec.begin(), h_vec.end(), d_vec.begin());
     }
 
-    void CopyDataToDevice () {
-        CopyToDeviceAsync(assigned_airport, assigned_airport_d);
-        CopyToDeviceAsync(air_travel_prob, air_travel_prob_d);
-        CopyToDeviceAsync(dest_airports, dest_airports_d);
-        CopyToDeviceAsync(dest_airports_offset, dest_airports_offset_d);
-        CopyToDeviceAsync(dest_airports_prob, dest_airports_prob_d);
-        CopyToDeviceAsync(arrivalUnits, arrivalUnits_d);
-        CopyToDeviceAsync(arrivalUnits_offset, arrivalUnits_offset_d);
-        CopyToDeviceAsync(arrivalUnits_prob, arrivalUnits_prob_d);
+    void copyDataToDevice () {
+        copyToDeviceAsync(assigned_airport, assigned_airport_d);
+        copyToDeviceAsync(air_travel_prob, air_travel_prob_d);
+        copyToDeviceAsync(dest_airports, dest_airports_d);
+        copyToDeviceAsync(dest_airports_offset, dest_airports_offset_d);
+        copyToDeviceAsync(dest_airports_prob, dest_airports_prob_d);
+        copyToDeviceAsync(arrivalUnits, arrivalUnits_d);
+        copyToDeviceAsync(arrivalUnits_offset, arrivalUnits_offset_d);
+        copyToDeviceAsync(arrivalUnits_prob, arrivalUnits_prob_d);
         amrex::Gpu::streamSynchronize();
     }
 

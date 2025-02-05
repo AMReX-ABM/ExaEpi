@@ -94,7 +94,7 @@ struct GRADE {
     };
 };
 
-static std::vector<string> split_string (const string& s, char delim) {
+static std::vector<string> splitString (const string& s, char delim) {
     std::vector<string> elems;
     std::stringstream ss(s);
     string item;
@@ -123,7 +123,7 @@ struct UrbanPopAgent {
     int8_t grade;
     int16_t school_id;
 
-    bool read_csv (std::ifstream& f) {
+    bool readCsv (std::ifstream& f) {
         string buf;
         if (!getline(f, buf)) { return false; }
         if (buf[0] != '*') {
@@ -131,7 +131,7 @@ struct UrbanPopAgent {
             return true;
         }
         try {
-            std::vector<string> tokens = split_string(buf.substr(2), ',');
+            std::vector<string> tokens = splitString(buf.substr(2), ',');
             if (tokens.size() != NUM_COLS) {
                 throw std::runtime_error("Incorrect number of tokens, expected " + std::to_string(NUM_COLS) + " got " +
                                          std::to_string(tokens.size()));

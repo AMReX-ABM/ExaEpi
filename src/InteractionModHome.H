@@ -148,10 +148,10 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
                 for (auto adults : {true, false}) {
                     {
                         BL_PROFILE("fill_modhome_vectors");
-                        dev_memset(infected_family_d_ptr, 0, infected_family_d[OMP_THREAD_NUM].size() * sizeof(int));
-                        dev_memset(infected_family_not_withdrawn_d_ptr, 0,
-                                   infected_family_not_withdrawn_d[OMP_THREAD_NUM].size() * sizeof(int));
-                        dev_memset(infected_nc_d_ptr, 0, infected_nc_d[OMP_THREAD_NUM].size() * sizeof(int));
+                        devMemset(infected_family_d_ptr, 0, infected_family_d[OMP_THREAD_NUM].size() * sizeof(int));
+                        devMemset(infected_family_not_withdrawn_d_ptr, 0,
+                                  infected_family_not_withdrawn_d[OMP_THREAD_NUM].size() * sizeof(int));
+                        devMemset(infected_nc_d_ptr, 0, infected_nc_d[OMP_THREAD_NUM].size() * sizeof(int));
                     }
                     auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                     auto lparm = agents.getDiseaseParameters_d(d);

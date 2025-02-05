@@ -20,8 +20,8 @@ using namespace amrex;
 using namespace ExaEpi;
 
 /*! \brief Read in test parameters in #ExaEpi::TestParams from input file */
-void ExaEpi::Utils::get_test_params (TestParams& params, /*!< Test parameters */
-                                     const std::string& prefix /*!< ParmParse prefix */) {
+void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
+                                   const std::string& prefix /*!< ParmParse prefix */) {
     ParmParse pp(prefix);
 
     pp.query("nsteps", params.nsteps);
