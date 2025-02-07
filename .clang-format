@@ -8,8 +8,7 @@ AllowShortCaseLabelsOnASingleLine: true
 AllowShortFunctionsOnASingleLine: Inline
 AllowShortIfStatementsOnASingleLine: WithoutElse
 AllowShortLambdasOnASingleLine: Empty
-BreakAfterReturnType: None
-BreakTemplateDeclarations: Yes
+AlwaysBreakTemplateDeclarations: Yes
 ColumnLimit:     130
 ContinuationIndentWidth: 8
 IndentWidth:     4
