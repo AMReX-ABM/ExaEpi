@@ -11,7 +11,8 @@ import subprocess as proc
 content = sys.stdin.read()
 content = content.replace("AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE\n", "/*AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE*/\n")
 content = content.replace("AMREX_GPU_DEVICE AMREX_FORCE_INLINE\n", "/*AMREX_GPU_DEVICE AMREX_FORCE_INLINE*/\n")
-proc_obj = proc.Popen(["clang-format", "--style=file"], stdin=proc.PIPE, stdout=proc.PIPE, stderr=proc.PIPE, text=True)
+# enforce version 19
+proc_obj = proc.Popen(["clang-format-19", "--style=file"], stdin=proc.PIPE, stdout=proc.PIPE, stderr=proc.PIPE, text=True)
 proc_obj.stdin.write(content)
 content, error = proc_obj.communicate()
 content = content.replace("/*AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE*/\n", "AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE\n")
