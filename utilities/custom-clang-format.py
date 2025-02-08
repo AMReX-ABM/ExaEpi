@@ -20,6 +20,8 @@ content = content.replace("/*AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE*/\n", "AMR
 content = content.replace("/*AMREX_GPU_DEVICE AMREX_FORCE_INLINE*/\n", "AMREX_GPU_DEVICE AMREX_FORCE_INLINE\n")
 content = content.replace(" AMREX_GPU_DEVICE(", " AMREX_GPU_DEVICE (")
 
+print("Process running clang-format returned", proc_obj.returncode, file=sys.stderr)
+
 if len(error) > 0:
     print("ERROR running clang-format", file=sys.stderr)
     print(error, file=sys.stderr)
