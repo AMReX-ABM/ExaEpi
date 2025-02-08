@@ -424,6 +424,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).assign(0.0_rt);
             soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).assign(0);
             soa.GetIntData(i_RT + i0(d) + IntIdxDisease::symptomatic).assign(0);
+            soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status_change).assign(0);
         }
         auto np = soa.numParticles();
         AMREX_ALWAYS_ASSERT(np == agents.size());

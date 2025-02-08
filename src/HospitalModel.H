@@ -80,11 +80,12 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
             int i_RT = IntIdx::nattribs;
             int r_RT = RealIdx::nattribs;
 
-            GpuArray<int*, ExaEpi::max_num_diseases> status_ptrs, symptomatic_ptrs;
+            GpuArray<int*, ExaEpi::max_num_diseases> status_ptrs, symptomatic_ptrs, status_change_ptrs;
             GpuArray<ParticleReal*, ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs, incubation_per_ptrs;
             for (int d = 0; d < n_disease; d++) {
                 status_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
                 symptomatic_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::symptomatic).data();
+                status_change_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status_change).data();
                 counter_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::disease_counter).data();
                 timer_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::treatment_timer).data();
                 incubation_per_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).data();
@@ -157,6 +158,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                             is_alive_ptr[i] = 0;
                             flag_status_ptr[i] *= -1;
                             status_ptrs[d][i] = Status::dead;
+                            status_change_ptrs[d][i] = StatusChange::infectious_to_dead;
                         } else {
                             // If alive, hospitalized patient recovers
                             status_ptrs[d][i] = Status::immune;
@@ -165,6 +167,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                             symptomatic_ptrs[d][i] = SymptomStatus::presymptomatic;
                             withdrawn_ptr[i] = 0;
                             timer_ptrs[d][i] = 0.0_prt;
+                            status_change_ptrs[d][i] = StatusChange::infectious_to_recovered;
                         }
                     }
                 });

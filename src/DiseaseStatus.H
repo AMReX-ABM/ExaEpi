@@ -118,6 +118,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
 
                 auto status_ptr = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
                 auto symptomatic_ptr = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::symptomatic).data();
+                auto status_change_ptr = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status_change).data();
 
                 auto timer_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::treatment_timer).data();
                 auto counter_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::disease_counter).data();
@@ -133,6 +134,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
 
                 ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
                     prob_ptr[i] = 1.0_rt;
+                    status_change_ptr[i] = StatusChange::none;
                     if (status_ptr[i] == Status::never || status_ptr[i] == Status::susceptible) {
                         return;
                     } else if (status_ptr[i] == Status::immune) {
@@ -141,7 +143,8 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                             counter_ptr[i] = 0.0_prt;
                             timer_ptr[i] = 0.0_prt;
                             status_ptr[i] = Status::susceptible;
-                            return;
+                            status_change_ptr[i] = StatusChange::recovered_to_susceptible;
+                            // return;
                         }
                     } else if (status_ptr[i] == Status::infected) {
                         counter_ptr[i] += 1;
@@ -152,6 +155,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                             } else {
                                 symptomatic_ptr[i] = SymptomStatus::presymptomatic;
                             }
+                            status_change_ptr[i] = StatusChange::susceptible_to_exposed;
                         } else if (counter_ptr[i] == Math::floor(incubation_period_ptr[i])) {
                             AMREX_ASSERT(symptomatic_ptr[i] != SymptomStatus::symptomatic);
                             // at end of incubation period, symptoms start to show unless asymptomatic
@@ -172,6 +176,9 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                                         static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine));
                                 symptomatic_ptr[i] = SymptomStatus::presymptomatic;
                                 withdrawn_ptr[i] = 0;
+                                status_change_ptr[i] = StatusChange::infectious_to_recovered;
+                            } else if (counter_ptr[i] == Math::floor(latent_period_ptr[i])) {
+                                status_change_ptr[i] = StatusChange::exposed_to_infectious;
                             }
                         }
                     }

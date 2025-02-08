@@ -724,14 +724,14 @@ void AgentContainer::generateCellData (MultiFab& mf /*!< MultiFab with at least 
 
 /*! \brief Computes the total number of agents with each #Status
 
-    Returns a vector with 5 components corresponding to each value of #Status; each element is
+    Returns a vector with 9 components corresponding to each value of #Status; each element is
     the total number of agents at a step with the corresponding #Status (in that order).
 
     Status list: 0 - never, 1 - infected, 2 - immune, 3 - susceptible, 4 - dead, 5 - exposed, 6 - asymptomatic,
                  7 - presymptomatic, 8 - symptomatic
 */
-std::array<Long, 9> AgentContainer::getTotals (const int a_d /*!< disease index */) {
-    BL_PROFILE("getTotals");
+std::array<Long, 9> AgentContainer::getStatusTotals (const int a_d /*!< disease index */) {
+    BL_PROFILE("getStatusTotals");
     amrex::ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum,
                      ReduceOpSum>
             reduce_ops;
@@ -770,6 +770,41 @@ std::array<Long, 9> AgentContainer::getTotals (const int a_d /*!< disease index 
     std::array<Long, 9> counts = {amrex::get<0>(r), amrex::get<1>(r), amrex::get<2>(r), amrex::get<3>(r), amrex::get<4>(r),
                                   amrex::get<5>(r), amrex::get<6>(r), amrex::get<7>(r), amrex::get<8>(r)};
     ParallelDescriptor::ReduceLongSum(&counts[0], 9, ParallelDescriptor::IOProcessorNumber());
+    return counts;
+}
+
+/*! \brief Computes the total number of agents with each #StatusChange
+
+    Returns a vector with 6 components corresponding to each value of #StatusChange; each element is
+    the total number of agents at a step with the corresponding #StatusChange (in that order).
+
+    Status change list:
+        none = 0,
+        susceptible_to_exposed = 1,
+        exposed_to_infectious = 2,
+        infectious_to_recovered = 3,
+        infectious_to_dead = 4,
+        recovered_to_susceptible = 5
+*/
+#define N_SC_FIELDS 6
+std::array<Long, N_SC_FIELDS> AgentContainer::getStatusChangeTotals (const int a_d /*!< disease index */) {
+    BL_PROFILE("getStatusTotals");
+    amrex::ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum> reduce_ops;
+    auto r = amrex::ParticleReduce<ReduceData<int, int, int, int, int, int>>(
+            *this,
+            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
+                                 const int i) noexcept -> amrex::GpuTuple<int, int, int, int, int, int> {
+                int s[N_SC_FIELDS] = {0, 0, 0, 0, 0, 0};
+                auto status_change = ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status_change][i];
+                AMREX_ALWAYS_ASSERT(status_change >= 0 && status_change < N_SC_FIELDS);
+                s[status_change] = 1;
+                return {s[0], s[1], s[2], s[3], s[4], s[5]};
+            },
+            reduce_ops);
+
+    std::array<Long, N_SC_FIELDS> counts = {amrex::get<0>(r), amrex::get<1>(r), amrex::get<2>(r),
+                                            amrex::get<3>(r), amrex::get<4>(r), amrex::get<5>(r)};
+    ParallelDescriptor::ReduceLongSum(&counts[0], N_SC_FIELDS, ParallelDescriptor::IOProcessorNumber());
     return counts;
 }
 

@@ -63,9 +63,11 @@ struct IntIdx {
 /*! \brief Disease-specific Integer-type Runtime-SoA attributes of agent */
 struct IntIdxDisease {
     enum {
-        status = 0,  /*!< Disease status (#Status) */
-        symptomatic, /*!< currently symptomatic? 0: no, but will be, 1: yes, 2: no, and will remain so until recovered */
-        nattribs     /*!< number of integer-type attribute */
+        status = 0,    /*!< Disease status (#Status) */
+        symptomatic,   /*!< currently symptomatic? 0: no, but will be, 1: yes, 2: no, and will remain so until recovered */
+        status_change, /*!< Change in status: 0 = none, 1 = susc to exposed, 2 = exposed to infectious, 3 = infectious to
+                          recovered, 4 = infectious to dead, 5 = recovered to sucseptible */
+        nattribs       /*!< number of integer-type attribute */
     };
 };
 
@@ -126,6 +128,17 @@ struct Status {
         immune,      /*!< no longer infected, immune. lasts 6 months. */
         susceptible, /*!< no longer infected, no longer immnune */
         dead         /*!< passed away */
+    };
+};
+
+struct StatusChange {
+    enum {
+        none = 0,
+        susceptible_to_exposed = 1,
+        exposed_to_infectious = 2,
+        infectious_to_recovered = 3,
+        infectious_to_dead = 4,
+        recovered_to_susceptible = 5
     };
 };
 

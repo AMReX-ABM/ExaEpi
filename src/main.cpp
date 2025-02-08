@@ -161,10 +161,15 @@ void runAgent () {
             File << std::setw(12) << "Exposed";
             File << std::setw(15) << "Asymptomatic";
             File << std::setw(15) << "Presymptomatic";
-            File << std::setw(15) << "Symptomatic\n";
+            File << std::setw(15) << "Symptomatic";
+            File << std::setw(15) << "NewlyExposed";
+            File << std::setw(15) << "NewlyInfectious";
+            File << std::setw(15) << "NewlyRecvd";
+            File << std::setw(15) << "NewlyDead";
+            File << std::setw(15) << "NewlySuscpt";
+            File << "\n";
 
             File.flush();
-
             File.close();
 
             if (!File.good()) { amrex::Abort("problem writing output file"); }
@@ -238,23 +243,23 @@ void runAgent () {
     }
 #endif
 
-    std::vector<int> step_of_peak(params.num_diseases, 0);
-    std::vector<Long> num_infected_peak(params.num_diseases, 0);
-    std::vector<Long> cumulative_deaths(params.num_diseases, 0);
+    Vector<int> step_of_peak(params.num_diseases, 0);
+    Vector<Long> num_infected_peak(params.num_diseases, 0);
+    Vector<Long> cumulative_deaths(params.num_diseases, 0);
+
     for (int d = 0; d < params.num_diseases; d++) {
-        auto counts = pc.getTotals(d);
+        auto counts = pc.getStatusTotals(d);
         if (counts[1] > num_infected_peak[d]) {
             num_infected_peak[d] = counts[1];
             step_of_peak[d] = 0;
         }
         cumulative_deaths[d] = counts[4];
     }
-
     amrex::Real cur_time = 0;
 
-    Vector<Long> num_infected(params.num_diseases, 0);
-
     amrex::ParmParse::QueryUnusedInputs();
+
+    Vector<Long> num_infected(params.num_diseases, 0);
 
     {
         BL_PROFILE_REGION("Evolution");
@@ -274,13 +279,14 @@ void runAgent () {
             pc.updateStatus(disease_stats);
 
             for (int d = 0; d < params.num_diseases; d++) {
-                auto counts = pc.getTotals(d);
+                auto counts = pc.getStatusTotals(d);
                 if (counts[1] > num_infected_peak[d]) {
                     num_infected_peak[d] = counts[1];
                     step_of_peak[d] = i;
                 }
                 cumulative_deaths[d] = counts[4];
                 num_infected[d] = counts[1];
+                auto counts_changes = pc.getStatusChangeTotals(d);
 
                 Real mmc[4] = {0, 0, 0, 0};
 #ifdef AMREX_USE_GPU
@@ -346,7 +352,13 @@ void runAgent () {
                     File << std::setw(12) << counts[5];
                     File << std::setw(15) << counts[6];
                     File << std::setw(15) << counts[7];
-                    File << std::setw(15) << counts[8] << "\n";
+                    File << std::setw(15) << counts[8];
+                    File << std::setw(15) << counts_changes[1];
+                    File << std::setw(15) << counts_changes[2];
+                    File << std::setw(15) << counts_changes[3];
+                    File << std::setw(15) << counts_changes[4];
+                    File << std::setw(15) << counts_changes[5];
+                    File << "\n";
 
                     File.flush();
 
