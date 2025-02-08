@@ -164,7 +164,7 @@ void runAgent () {
             File << std::setw(15) << "Symptomatic";
             File << std::setw(15) << "NewExposed";
             File << std::setw(15) << "NewInfectious";
-            File << std::setw(15) << "NewRecvd";
+            File << std::setw(15) << "NewRecovd";
             File << std::setw(15) << "NewDead";
             File << std::setw(15) << "NewSuscpt";
             File << "\n";
