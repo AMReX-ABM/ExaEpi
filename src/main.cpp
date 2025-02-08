@@ -162,11 +162,11 @@ void runAgent () {
             File << std::setw(15) << "Asymptomatic";
             File << std::setw(15) << "Presymptomatic";
             File << std::setw(15) << "Symptomatic";
-            File << std::setw(15) << "NewlyExposed";
-            File << std::setw(15) << "NewlyInfectious";
-            File << std::setw(15) << "NewlyRecvd";
-            File << std::setw(15) << "NewlyDead";
-            File << std::setw(15) << "NewlySuscpt";
+            File << std::setw(15) << "NewExposed";
+            File << std::setw(15) << "NewInfectious";
+            File << std::setw(15) << "NewRecvd";
+            File << std::setw(15) << "NewDead";
+            File << std::setw(15) << "NewSuscpt";
             File << "\n";
 
             File.flush();
