@@ -1,12 +1,16 @@
 #!/usr/bin/env python
 
 import sys
+import os
 import subprocess as proc
 
 # This script fixes an issue where clang-format puts the AMREX_ specifiers on the same line as the function name.
 # There is no option to not do this, so this script first turns those into comments, runs clang-format, and then
 # turns them back into specifiers.
 # A similar approach could be used to fix other clang-format limitations
+
+# first run to ensure image is downloaded
+os.system("docker run xianpengshen/clang-tools:19 clang-format")
 
 content = sys.stdin.read()
 content = content.replace("AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE\n", "/*AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE*/\n")
@@ -20,7 +24,8 @@ content = content.replace("/*AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE*/\n", "AMR
 content = content.replace("/*AMREX_GPU_DEVICE AMREX_FORCE_INLINE*/\n", "AMREX_GPU_DEVICE AMREX_FORCE_INLINE\n")
 content = content.replace(" AMREX_GPU_DEVICE(", " AMREX_GPU_DEVICE (")
 
-print("Process running clang-format returned", proc_obj.returncode, file=sys.stderr)
+if proc_obj.returncode != 0:
+    print("Process running clang-format returned", proc_obj.returncode, file=sys.stderr)
 
 if len(error) > 0:
     print("ERROR running clang-format", file=sys.stderr)
