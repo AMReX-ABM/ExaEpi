@@ -7,6 +7,9 @@ format_script="$root_dir/utilities/custom-clang-format.py"
 
 n_fail=0
 
+echo -n "Format checking using "
+clang-format --version
+
 echo "Checking header files."
 for f in $src_dir/*.H; do
     echo "    $f"
