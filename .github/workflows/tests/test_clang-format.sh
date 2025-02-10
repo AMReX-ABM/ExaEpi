@@ -22,8 +22,8 @@ for f in $src_dir/*.H; do
         diff $f $f.tmp
         echo "--"
         echo ""
+        mv $f.tmp $f
     fi
-    rm $f.tmp
 done
 
 echo "Checking source files."
@@ -39,11 +39,17 @@ for f in $src_dir/*.cpp; do
         diff $f $f.tmp
         echo "--"
         echo ""
+        mv $f.tmp $f
     fi
-    rm $f.tmp
 done
 
 if [[ $n_fail -gt 0 ]]; then
-  echo "$n_fail files failed style check."
+  echo "$ERROR: n_fail files failed style check."
+  echo "The following patch will fix style inconsistencies."
+  echo "Copy and paste it into a patch file and run"
+  echo "  git apply <patch filename>"
+  echo "----- START OF PATCH --------"
+  git diff
+  echo "----- END OF PATCH --------"
   exit 1
 fi
