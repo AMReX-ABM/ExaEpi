@@ -230,30 +230,10 @@ void runAgent () {
     pc.WriteAsciiFile(agents_fname);
     if (ParallelDescriptor::IOProcessor()) {
         std::ofstream agents_f(agents_fname, std::ios_base::app);
-        agents_f << "#posx posy id cpu "
-                 << "treatment_timer "
-                 << "disease_counter "
-                 << "prob "
-                 << "incubation_period "
-                 << "infectious_period "
-                 << "symptomdev_period "
-                 << "age_group "
-                 << "family "
-                 << "home_i "
-                 << "home_j "
-                 << "work_i "
-                 << "work_j "
-                 << "hosp_i "
-                 << "hosp_j "
-                 << "nborhood "
-                 << "school "
-                 << "naics "
-                 << "workgroup "
-                 << "work_nborhood "
-                 << "withdrawn "
-                 << "random_travel "
-                 << "status "
-                 << "symptomatic\n";
+        agents_f << "#posx posy id cpu " << "treatment_timer " << "disease_counter " << "prob " << "incubation_period "
+                 << "infectious_period " << "symptomdev_period " << "age_group " << "family " << "home_i " << "home_j "
+                 << "work_i " << "work_j " << "hosp_i " << "hosp_j " << "nborhood " << "school " << "naics " << "workgroup "
+                 << "work_nborhood " << "withdrawn " << "random_travel " << "status " << "symptomatic\n";
         agents_f.close();
     }
 #endif
