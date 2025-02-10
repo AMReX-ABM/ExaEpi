@@ -5,7 +5,6 @@
 #define _INTERACTION_MOD_LIB__H_
 
 #include "InteractionModel.H"
-//#include "InteractionModGeneric.H"
 #include "InteractionModHome.H"
 #include "InteractionModHomeNborhood.H"
 #include "InteractionModWorkNborhood.H"

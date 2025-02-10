@@ -8,6 +8,7 @@
 #include "InteractionModel.H"
 #include "DiseaseParm.H"
 #include "AgentDefinitions.H"
+#include "AgentContainer.H"
 
 using namespace amrex;
 
@@ -63,8 +64,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for(MFIter mfi = a_agents.MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
-        {
+        for (MFIter mfi = a_agents.MakeMFIter(lev); mfi.isValid(); ++mfi) {
             int gid = mfi.index();
             int tid = mfi.LocalTileIndex();
             auto& ptile = plev[std::make_pair(gid, tid)];
@@ -73,6 +73,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
             auto& aos   = ptile.GetArrayOfStructs();
             PType* pstruct = &(aos[0]);
             const auto np = ptile.numParticles();
+            if (np == 0) continue;
 
             auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
             auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
@@ -94,12 +95,10 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                 incubation_per_ptrs[d] = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::incubation_period).data();
             }
 
-            Gpu::DeviceVector<int> is_alive;
-            is_alive.resize(np);
+            Gpu::DeviceVector<int> is_alive(np);
             auto is_alive_ptr = is_alive.data();
 
-            Gpu::DeviceVector<int> flag_status;
-            flag_status.resize(np);
+            Gpu::DeviceVector<int> flag_status(np);
             auto flag_status_ptr = flag_status.data();
 
             ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
@@ -116,7 +115,6 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                         AMREX_ALWAYS_ASSERT(status_ptrs[d][i] != Status::dead);
                     }
                 }
-
                 flag_status_ptr[i] = 0; // 0: nothing changed on this day
             });
             Gpu::synchronize();
@@ -124,8 +122,8 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
             for (int d = 0; d < n_disease; d++) {
 
                 auto* disease_parm_h = a_agents.getDiseaseParameters_h(d);
-                auto immune_length_mean = disease_parm_h->immune_length_mean;
-                auto immune_length_std = disease_parm_h->immune_length_std;
+                auto immune_length_alpha = disease_parm_h->immune_length_alpha;
+                auto immune_length_beta = disease_parm_h->immune_length_beta;
                 auto* disease_parm_d = a_agents.getDiseaseParameters_d(d);
 
                 ParallelForRNG( np,
@@ -150,73 +148,46 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                     }
 
                     AMREX_ALWAYS_ASSERT(status_ptrs[d][i] == Status::infected);
-                    timer_ptrs[d][i] -= 1.0_rt;
+                    // decrement days in hospital
+                    timer_ptrs[d][i] -= 1.0_prt;
                     if (timer_ptrs[d][i] == 0) {
-                        disease_parm_d->check_survival( is_alive_ptr[i],
-                                                        age_group_ptr[i],
-                                                        2.0_rt,
-                                                        engine );
+                        // finished hospitalization period
                         flag_status_ptr[i] = DiseaseStats::hospitalization + 1;
-                        if (is_alive_ptr[i] == 0) {
-                            flag_status_ptr[i] *= -1;
-                            status_ptrs[d][i] = Status::dead;
-                        } else {
-                            // If alive, hospitalized patient recovers
-                            status_ptrs[d][i] = Status::immune;
-                            counter_ptrs[d][i] = amrex::RandomNormal(immune_length_mean, immune_length_std, engine);
-                            symptomatic_ptrs[d][i] = SymptomStatus::presymptomatic;
-                            withdrawn_ptr[i] = 0;
-                            timer_ptrs[d][i] = 0.0_rt;
-                        }
-                    }
-                    if (timer_ptrs[d][i] == disease_parm_d->m_t_hosp_offset) {
-                        disease_parm_d->check_survival( is_alive_ptr[i],
-                                                        age_group_ptr[i],
-                                                        1.0_rt,
-                                                        engine );
+                    } else if (timer_ptrs[d][i] == disease_parm_d->m_t_hosp_offset) {
+                        // finished ICU hospitalization period
                         flag_status_ptr[i] = DiseaseStats::ICU + 1;
-                        if (is_alive_ptr[i] == 0) {
-                            flag_status_ptr[i] *= -1;
-                            status_ptrs[d][i] = Status::dead;
-                        } else {
-                            // If alive, hospitalized patient recovers
-                            status_ptrs[d][i] = Status::immune;
-                            counter_ptrs[d][i] = (immune_length_mean - immune_length_std)
-                                             + 2.0_rt*immune_length_std*Random(engine);
-                            symptomatic_ptrs[d][i] = SymptomStatus::presymptomatic;
-                            withdrawn_ptr[i] = 0;
-                            timer_ptrs[d][i] = 0.0_rt;
-                        }
-                    }
-                    if (timer_ptrs[d][i] == 2*disease_parm_d->m_t_hosp_offset) {
-                        disease_parm_d->check_survival( is_alive_ptr[i],
-                                                        age_group_ptr[i],
-                                                        0.0_rt,
-                                                        engine );
+                    } else if (timer_ptrs[d][i] == 2 * disease_parm_d->m_t_hosp_offset) {
+                        // finished ventilator hospitalization period
                         flag_status_ptr[i] = DiseaseStats::ventilator + 1;
-                        if (is_alive_ptr[i] == 0) {
+                    }
+                    if (flag_status_ptr[i] > 0) {
+                        // Check if hospitalized patient recovers or dies
+                        if (Random(engine) < disease_parm_d->m_hospToDeath[flag_status_ptr[i] - 1][age_group_ptr[i]]) {
+                            is_alive_ptr[i] = 0;
                             flag_status_ptr[i] *= -1;
                             status_ptrs[d][i] = Status::dead;
                         } else {
                             // If alive, hospitalized patient recovers
                             status_ptrs[d][i] = Status::immune;
-                            counter_ptrs[d][i] = (immune_length_mean - immune_length_std)
-                                             + 2.0_rt*immune_length_std*Random(engine);
+                            counter_ptrs[d][i] =
+                                static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine));
                             symptomatic_ptrs[d][i] = SymptomStatus::presymptomatic;
                             withdrawn_ptr[i] = 0;
-                            timer_ptrs[d][i] = 0.0_rt;
+                            timer_ptrs[d][i] = 0.0_prt;
                         }
                     }
                 });
                 Gpu::synchronize();
             }
 
+            bool is_census = (a_agents.ic_type == ExaEpi::ICType::Census);
+            auto grid_to_lnglat_ptr = &a_agents.grid_to_lnglat;
+
             ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
             {
                 if ( !inHospital(i, ptd) )  { return; }
 
                 if (is_alive_ptr[i] == 0) {
-
                     // agent has died
                     for (int d = 0; d < n_disease; d++) {
                         status_ptrs[d][i] = Status::dead;
@@ -224,9 +195,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                     hosp_i_ptr[i] = -1;
                     hosp_j_ptr[i] = -1;
                     withdrawn_ptr[i] = 0;
-
                 } else {
-
                     // check if agent can be discharged from hospital
                     ParticleReal sum_timers = 0;
                     for (int d = 0; d < n_disease; d++) {
@@ -238,8 +207,15 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                         hosp_j_ptr[i] = -1;
                         withdrawn_ptr[i] = 0;
                         PType& p = pstruct[i];
-                        p.pos(0) = (home_i_ptr[i] + 0.5_prt)*dx[0];
-                        p.pos(1) = (home_j_ptr[i] + 0.5_prt)*dx[1];
+                        if (is_census) {
+                            p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
+                            p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
+                        } else {
+                            Real lng, lat;
+                            (*grid_to_lnglat_ptr)(home_i_ptr[i], home_j_ptr[i], lng, lat);
+                            p.pos(0) = static_cast<ParticleReal>(lng);
+                            p.pos(1) = static_cast<ParticleReal>(lat);
+                        }
                     }
                 }
 

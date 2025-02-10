@@ -92,14 +92,14 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for(MFIter mfi = a_agents.MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
-        {
+        for (MFIter mfi = a_agents.MakeMFIter(lev); mfi.isValid(); ++mfi) {
             int gid = mfi.index();
             int tid = mfi.LocalTileIndex();
             auto& ptile = plev[std::make_pair(gid, tid)];
             const auto& ptd = ptile.getParticleTileData();
             auto& soa   = ptile.GetStructOfArrays();
             const auto np = ptile.numParticles();
+            if (np == 0) continue;
 
             auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
             auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
@@ -108,29 +108,17 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
             auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
             auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
 
-            auto symptomatic_withdraw = a_agents.symptomaticWithdraw();
             auto symptomatic_withdraw_compliance = a_agents.symptomaticWithdrawCompliance();
-
-            // fraction of age group 30-64 who are under 50 (assuming uniform distribution)
-            Real u50frac = 0.57_rt;
 
             int i_RT = IntIdx::nattribs;
             int r_RT = RealIdx::nattribs;
 
-            Gpu::DeviceVector<int> marked_for_hosp, marked_for_ICU, marked_for_vent;
-            marked_for_hosp.resize(np);
-            marked_for_ICU.resize(np);
-            marked_for_vent.resize(np);
+            Gpu::DeviceVector<int> marked_for_hosp(np, 0);
+            Gpu::DeviceVector<int> marked_for_ICU(np, 0);
+            Gpu::DeviceVector<int> marked_for_vent(np, 0);
             auto marked_for_hosp_ptr = marked_for_hosp.data();
             auto marked_for_ICU_ptr = marked_for_ICU.data();
             auto marked_for_vent_ptr = marked_for_vent.data();
-            ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
-            {
-                marked_for_hosp_ptr[i] = 0;
-                marked_for_ICU_ptr[i] = 0;
-                marked_for_vent_ptr[i] = 0;
-            });
-            Gpu::synchronize();
 
             for (int d = 0; d < n_disease; d++ ) {
 
@@ -146,64 +134,52 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
 
                 auto* disease_parm_d = a_agents.getDiseaseParameters_d(d);
                 auto* disease_parm_h = a_agents.getDiseaseParameters_h(d);
-                auto immune_length_mean = disease_parm_h->immune_length_mean;
-                auto immune_length_std = disease_parm_h->immune_length_std;
+                auto immune_length_alpha = disease_parm_h->immune_length_alpha;
+                auto immune_length_beta = disease_parm_h->immune_length_beta;
 
                 ParallelForRNG( np,
                                 [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept
                 {
                     prob_ptr[i] = 1.0_rt;
-                    if ( status_ptr[i] == Status::never ||
-                         status_ptr[i] == Status::susceptible ) {
+                    if (status_ptr[i] == Status::never || status_ptr[i] == Status::susceptible) {
                         return;
-                    }
-                    else if (status_ptr[i] == Status::immune) {
-                        counter_ptr[i] -= 1.0_rt;
-                        if (counter_ptr[i] < 0.0_rt) {
-                            counter_ptr[i] = 0.0_rt;
-                            timer_ptr[i] = 0.0_rt;
+                    } else if (status_ptr[i] == Status::immune) {
+                        counter_ptr[i] -= 1.0_prt;
+                        if (counter_ptr[i] < 0.0_prt) {
+                            counter_ptr[i] = 0.0_prt;
+                            timer_ptr[i] = 0.0_prt;
                             status_ptr[i] = Status::susceptible;
                             return;
                         }
-                    }
-                    else if (status_ptr[i] == Status::infected) {
+                    } else if (status_ptr[i] == Status::infected) {
                         counter_ptr[i] += 1;
                         if (counter_ptr[i] == 1) {
-                            if (Random(engine) < disease_parm_d->p_asymp[0]) {
+                            // just infected, check to see if this agent will be asymptomatic
+                            if (Random(engine) < disease_parm_d->p_asymp) {
                                 symptomatic_ptr[i] = SymptomStatus::asymptomatic;
                             } else {
                                 symptomatic_ptr[i] = SymptomStatus::presymptomatic;
                             }
-                        }
-                        else if (counter_ptr[i] == Math::floor(incubation_period_ptr[i])) {
-                            if (symptomatic_ptr[i] != SymptomStatus::asymptomatic) {
+                        } else if (counter_ptr[i] == Math::floor(incubation_period_ptr[i])) {
+                            AMREX_ASSERT(symptomatic_ptr[i] != SymptomStatus::symptomatic);
+                            // at end of incubation period, symptoms start to show unless asymptomatic
+                            if (symptomatic_ptr[i] == SymptomStatus::presymptomatic) {
                                 symptomatic_ptr[i] = SymptomStatus::symptomatic;
-                            }
-                            if (    (symptomatic_ptr[i] == SymptomStatus::symptomatic)
-                                &&  (symptomatic_withdraw)
-                                &&  (Random(engine) < symptomatic_withdraw_compliance)) {
-                                withdrawn_ptr[i] = 1;
-                            }
-
-                            if (symptomatic_ptr[i] == SymptomStatus::symptomatic) {
-                                int marked_for_ICU_i = 0, marked_for_vent_i = 0;
-                                Real num_days = 0;
-                                disease_parm_d->check_hospitalization( num_days,
-                                                                       marked_for_ICU_i,
-                                                                       marked_for_vent_i,
-                                                                       age_group_ptr[i],
-                                                                       u50frac,
-                                                                       engine );
-                                timer_ptr[i] = ParticleReal(num_days);
+                                if (symptomatic_withdraw_compliance > 0.0_rt && (Random(engine) < symptomatic_withdraw_compliance)) {
+                                    withdrawn_ptr[i] = 1;
+                                }
+                                disease_parm_d->check_hospitalization(&(timer_ptr[i]),
+                                                                      &(marked_for_ICU_ptr[i]),
+                                                                      &(marked_for_vent_ptr[i]),
+                                                                      age_group_ptr[i],
+                                                                      engine);
                                 if (timer_ptr[i] > 0) { marked_for_hosp_ptr[i] = 1; }
-                                if (marked_for_ICU_i) { marked_for_ICU_ptr[i] = 1; }
-                                if (marked_for_vent_i) { marked_for_vent_ptr[i] = 1; }
                             }
-                        }
-                        else if (!inHospital(i,ptd)) {
+                        } else if (!inHospital(i,ptd)) {
                             if (counter_ptr[i] >= (latent_period_ptr[i] + infectious_period_ptr[i])) {
                                 status_ptr[i] = Status::immune;
-                                counter_ptr[i] = amrex::RandomNormal(immune_length_mean, immune_length_std, engine);
+                                counter_ptr[i] =
+                                    static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine));
                                 symptomatic_ptr[i] = SymptomStatus::presymptomatic;
                                 withdrawn_ptr[i] = 0;
                             }
@@ -216,8 +192,8 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
 
             ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
             {
-                if (marked_for_hosp_ptr[i] == 1) {
-                    AMREX_ALWAYS_ASSERT(!inHospital(i, ptd));
+                // check if not in hospital because this agent could have already been assigned a hospital for another disease
+                if (marked_for_hosp_ptr[i] == 1 && !inHospital(i, ptd)) {
                     assign_hospital( i, hosp_i_ptr, hosp_j_ptr, ptd);
                 }
             });
@@ -252,7 +228,6 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
 
             Gpu::synchronize();
         }
-
     }
 }
 #endif

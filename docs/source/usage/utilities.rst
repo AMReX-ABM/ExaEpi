@@ -138,7 +138,7 @@ We provide an example of parsing files using h5py and python:
 
   with h5py.File("plt00000.h5", "r") as comm_file:
       # Get the datatype number for each field
-      community_indicies = {}
+      community_indices = {}
       for i in range(comm_file.attrs["num_components"][0]):
           community_indices[comm_file.attrs["component_" + str(i)]] = i
       # community_indices is:
@@ -146,26 +146,26 @@ We provide an example of parsing files using h5py and python:
       #  b'susceptible': 4, b'unit': 5, b'FIPS': 6, b'Tract': 7, b'comm': 8}
 
       # For example, get the totals
-      community_totals = comm_file["level_0"]["data:datatype=" + str(community_indicies[b'total'])]
+      community_totals = comm_file["level_0"]["data:datatype=" + str(community_indices[b'total'])]
 
   with h5py.File("plt00000/agents/agents.h5", "r") as agent_file:
       # Get the index for each int field
-      int_indicies = {}
+      int_indices = {}
       num_int_comps = agent_file.attrs["num_component_int"][0] + 2
       for i in range(2, num_int_comps):
-          int_indicies[agent_file.attrs["int_component_" + str(i)]] = i
+          int_indices[agent_file.attrs["int_component_" + str(i)]] = i
 
       int_data = agent_file["level_0"]["data:datatype=0"][()].reshape(-1, num_int_comps)
-      statuses = int_data[:, int_indicies[b'status']]
+      statuses = int_data[:, int_indices[b'status']]
 
       # Get the index for each real field
-      real_indicies = {}
+      real_indices = {}
       num_real_comps = agent_file.attrs["num_component_real"][0] + 2
       for i in range(2, num_real_comps):
-          real_indicies[agent_file.attrs["real_component_" + str(i)]] = i
+          real_indices[agent_file.attrs["real_component_" + str(i)]] = i
 
       real_data = agent_file["level_0"]["data:datatype=1"][()].reshape(-1, num_real_comps)
-      statuses = real_data[:, real_indicies[b'infection_prob']]
+      statuses = real_data[:, real_indices[b'infection_prob']]
 
 Processing scripts
 ==================

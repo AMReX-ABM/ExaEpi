@@ -20,7 +20,7 @@ using namespace ExaEpi;
  *
  *  A periodic Cartesian grid is defined.
 */
-Geometry get_geometry (const DemographicData&    demo   /*!< demographic data */) {
+Geometry get_geometry (const DemographicData& demo /*!< demographic data */) {
     int is_per[BL_SPACEDIM];
     for (int i = 0; i < BL_SPACEDIM; i++) {
         is_per[i] = true;
@@ -55,11 +55,11 @@ void CensusData::init (ExaEpi::TestParams &params, Geometry &geom, BoxArray &ba,
     geom = get_geometry(demo);
 
     ba.define(geom.Domain());
-    ba.maxSize(params.max_grid_size);
+    ba.maxSize(params.max_box_size);
     dm.define(ba);
 
     Print() << "Base domain is: " << geom.Domain() << "\n";
-    Print() << "Max grid size is: " << params.max_grid_size << "\n";
+    Print() << "Max box size is: " << params.max_box_size << "\n";
     Print() << "Number of boxes is: " << ba.size() << " over " << ParallelDescriptor::NProcs() << " ranks. \n";
 
     num_residents_mf.define(ba, dm, 6, 0);
@@ -77,25 +77,38 @@ void CensusData::init (ExaEpi::TestParams &params, Geometry &geom, BoxArray &ba,
 /*! \brief Assigns school by taking a random number between 0 and 100, and using
  *  default distribution to choose elementary/middle/high school. */
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-int assign_school (const int nborhood, const amrex::RandomEngine& engine) {
-    int il4 = amrex::Random_int(100, engine);
-    int school = 0;
-
-    if (il4 < 36) {
-        school = 3 + (nborhood / 2);  // elementary school, in neighborhoods 1 and 2
-        AMREX_ALWAYS_ASSERT(school < 5);
+void assign_school (int* school_grade, int* school_id, const int age_group, const int nborhood, const RandomEngine& engine) {
+    if (age_group == AgeGroups::u5) {
+        // under 5
+        // assume 50% in daycare
+        if (Random_int(100, engine) < 50) {
+            *school_grade = 0;
+            *school_id = SchoolCensusIDType::daycare_5 + nborhood; // one daycare per nborhood
+        } else {
+            *school_grade = -1;
+            *school_id = SchoolCensusIDType::none; // no school
+        }
+    } else if (age_group == AgeGroups::a5to17) {
+        // 5 to 17
+        int il4 = Random_int(100, engine);
+        if (il4 < 36) {
+            *school_id = SchoolCensusIDType::elem_3 + (nborhood / 2);  // elementary school, in neighborhood 1&2 or 3&4
+            *school_grade = 5;
+            AMREX_ALWAYS_ASSERT(*school_id < 5);
+        } else if (il4 < 68) {
+            *school_id = SchoolCensusIDType::middle_2;  // middle school, one for all neighborhoods
+            *school_grade = 9;
+        } else if (il4 < 93) {
+            *school_id = SchoolCensusIDType::high_1;  // high school, one for all neighborhoods
+            *school_grade = 12;
+        } else {
+            *school_id = SchoolCensusIDType::none;  // not in school, presumably 18-year-olds or some home-schooled, etc
+            *school_grade = -1;
+        }
+    } else {
+        *school_grade = -1;
+        *school_id = SchoolCensusIDType::none; // no school
     }
-    else if (il4 < 68) {
-        school = 2;  // middle school, one for all neighborhoods
-    }
-
-    else if (il4 < 93) {
-        school = 1;  // high school, one for all neighborhoods
-    }
-    else {
-        school = 0;  // not in school, presumably 18-year-olds or some home-schooled, etc
-    }
-    return school;
 }
 
 
@@ -155,26 +168,12 @@ void CensusData::initAgents (AgentContainer& pc,       /*!< Agents */
     iMultiFab fam_id(ba, dm, 7, 0);
     num_families.setVal(0);
 
-    auto Nunit = demo.Nunit;
     auto Ncommunity = demo.Ncommunity;
-    pc.m_unit_teacher_counts_d.resize(Nunit, 0);
-    /* One can decide to define a iMultifab teachercounts -- but, data locality might be challenging*/
-    pc.m_comm_teacher_counts_total_d.resize(Ncommunity, 0);
-    pc.m_comm_teacher_counts_high_d.resize(Ncommunity, 0);
-    pc.m_comm_teacher_counts_middle_d.resize(Ncommunity, 0);
-    pc.m_comm_teacher_counts_elem3_d.resize(Ncommunity, 0);
-    pc.m_comm_teacher_counts_elem4_d.resize(Ncommunity, 0);
-    pc.m_comm_teacher_counts_daycr_d.resize(Ncommunity, 0);
-
-    amrex::Gpu::DeviceVector<long> student_teacher_ratios_d(pc.m_student_teacher_ratios.size());
-    amrex::Gpu::copy(amrex::Gpu::hostToDevice, pc.m_student_teacher_ratios.begin(), pc.m_student_teacher_ratios.end(),
-                     student_teacher_ratios_d.begin());
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-    for (MFIter mfi(unit_mf, TilingIfNotGPU()); mfi.isValid(); ++mfi)
-    {
+    for (MFIter mfi(unit_mf); mfi.isValid(); ++mfi) {
         auto unit_arr = unit_mf[mfi].array();
         auto FIPS_arr = FIPS_mf[mfi].array();
         auto comm_arr = comm_mf[mfi].array();
@@ -197,21 +196,9 @@ void CensusData::initAgents (AgentContainer& pc,       /*!< Agents */
 
         auto N5  = demo.N5_d.data();
         auto N17 = demo.N17_d.data();
-        //auto N29 = demo.N29_d.data();
-        //auto N64 = demo.N64_d.data();
-        //auto N65plus = demo.N65plus_d.data();
-
-        auto ratios = student_teacher_ratios_d.dataPtr();
-        auto unit_teacher_counts_d_ptr = pc.m_unit_teacher_counts_d.data();
-        auto comm_teacher_counts_total_d_ptr = pc.m_comm_teacher_counts_total_d.data();
-        auto comm_teacher_counts_high_d_ptr = pc.m_comm_teacher_counts_high_d.data();
-        auto comm_teacher_counts_middle_d_ptr = pc.m_comm_teacher_counts_middle_d.data();
-        auto comm_teacher_counts_elem3_d_ptr = pc.m_comm_teacher_counts_elem3_d.data();
-        auto comm_teacher_counts_elem4_d_ptr = pc.m_comm_teacher_counts_elem4_d.data();
-        auto comm_teacher_counts_daycr_d_ptr = pc.m_comm_teacher_counts_daycr_d.data();
 
         auto bx = mfi.tilebox();
-        amrex::ParallelForRNG(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k, amrex::RandomEngine const& engine) noexcept
+        ParallelForRNG(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k, RandomEngine const& engine) noexcept
         {
             int community = (int) domain.index(IntVect(AMREX_D_DECL(i, j, k)));
             if (community >= Ncommunity) { return; }
@@ -249,7 +236,7 @@ void CensusData::initAgents (AgentContainer& pc,       /*!< Agents */
 
             int npeople = 0;
             while (npeople < community_size + 1) {
-                int il  = amrex::Random_int(1000, engine);
+                int il  = Random_int(1000, engine);
 
                 int family_size = 1;
                 while (il > p_hh[family_size]) { ++family_size; }
@@ -316,7 +303,10 @@ void CensusData::initAgents (AgentContainer& pc,       /*!< Agents */
         auto hosp_i_ptr = soa.GetIntData(IntIdx::hosp_i).data();
         auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
         auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
-        auto school_ptr = soa.GetIntData(IntIdx::school).data();
+        auto school_grade_ptr = soa.GetIntData(IntIdx::school_grade).data();
+        auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
+        auto school_closed_ptr = soa.GetIntData(IntIdx::school_closed).data();
+        auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
         auto work_nborhood_ptr = soa.GetIntData(IntIdx::work_nborhood).data();
         auto random_travel_ptr = soa.GetIntData(IntIdx::random_travel).data();
@@ -351,7 +341,7 @@ void CensusData::initAgents (AgentContainer& pc,       /*!< Agents */
             static_cast<Long>(pid + nagents) < LastParticleID,
             "Error: overflow on agent id numbers!");
 
-        amrex::ParallelForRNG(bx, ncomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n, amrex::RandomEngine const& engine) noexcept
+        ParallelForRNG(bx, ncomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n, RandomEngine const& engine) noexcept
         {
             int nf = nf_arr(i, j, k, n);
             if (nf == 0) return;
@@ -385,67 +375,65 @@ void CensusData::initAgents (AgentContainer& pc,       /*!< Agents */
             for (int ii = 0; ii < num_to_add; ++ii) {
                 int ip = start + ii;
                 auto& agent = aos[ip];
-                int il2 = amrex::Random_int(100, engine);
+                int il2 = Random_int(100, engine);
                 if (ii % family_size == 0) {
-                    nborhood = amrex::Random_int(DemographicData::COMMUNITY_SIZE / nborhood_size, engine);
+                    nborhood = Random_int(DemographicData::COMMUNITY_SIZE / nborhood_size, engine);
                 }
                 int age_group = -1;
 
                 if (family_size == 1) {
-                    if (il2 < 28) { age_group = 4; }      /* single adult age 65+   */
-                    else if (il2 < 68) { age_group = 3; } /* age 30-64 (ASSUME 40%) */
-                    else { age_group = 2; }               /* single adult age 19-29 */
+                    if (il2 < 28) age_group = AgeGroups::o65;      /* single adult age 65+   */
+                    else if (il2 < 51) age_group = AgeGroups::a30to49; /* age 30-49 (ASSUME 40%) */
+                    else if (il2 < 68) age_group = AgeGroups::a50to64;
+                    else age_group = AgeGroups::a18to29;               /* single adult age 19-29 */
                     nr_arr(i, j, k, age_group) += 1;
                 } else if (family_size == 2) {
                     if (il2 == 0) {
                         /* 1% probability of one parent + one child */
-                        int il3 = amrex::Random_int(100, engine);
-                        if (il3 < 2) { age_group = 4; }        /* one parent, age 65+ */
-                        else if (il3 < 62) { age_group = 3; }  /* one parent 30-64 (ASSUME 60%) */
-                        else { age_group = 2; }                /* one parent 19-29 */
+                        int il3 = Random_int(100, engine);
+                        if (il3 < 2) age_group = AgeGroups::o65;        /* one parent, age 65+ */
+                        else if (il3 < 36) age_group = AgeGroups::a30to49;  /* one parent 30-64 (ASSUME 60%) */
+                        else if (il3 < 62) age_group = AgeGroups::a50to64;
+                        else age_group = AgeGroups::a18to29;                /* one parent 19-29 */
                         nr_arr(i, j, k, age_group) += 1;
-                        if (((int) amrex::Random_int(100, engine)) < p_schoolage) {
-                            age_group = 1; /* 22.0% of total population ages 5-18 */
-                        } else {
-                            age_group = 0;   /* 6.8% of total population ages 0-4 */
-                        }
+                        if (((int) Random_int(100, engine)) < p_schoolage) age_group = AgeGroups::a5to17;
+                        else age_group = AgeGroups::u5;
                         nr_arr(i, j, k, age_group) += 1;
                     } else {
                         /* 2 adults, 28% over 65 (ASSUME both same age group) */
-                        if (il2 < 28) { age_group = 4; }      /* single adult age 65+ */
-                        else if (il2 < 68) { age_group = 3; } /* age 30-64 (ASSUME 40%) */
-                        else { age_group = 2; }               /* single adult age 19-29 */
+                        if (il2 < 28) age_group = AgeGroups::o65;      /* single adult age 65+ */
+                        else if (il2 < 51) age_group = AgeGroups::a30to49; /* age 30-64 (ASSUME 40%) */
+                        else if (il2 < 68) age_group = AgeGroups::a50to64;
+                        else age_group = AgeGroups::a18to29;               /* single adult age 19-29 */
                         nr_arr(i, j, k, age_group) += 2;
                     }
                 }
 
                 if (family_size > 2) {
                     /* ASSUME 2 adults, of the same age group */
-                    if (il2 < 2) { age_group = 4; }  /* parents are age 65+ */
-                    else if (il2 < 62) { age_group = 3; }  /* parents 30-64 (ASSUME 60%) */
-                    else { age_group = 2; }  /* parents 19-29 */
+                    if (il2 < 2) age_group = AgeGroups::o65;  /* parents are age 65+ */
+                    else if (il2 < 36) age_group = AgeGroups::a30to49;  /* parents 30-64 (ASSUME 60%) */
+                    else if (il2 < 62) age_group = AgeGroups::a50to64;
+                    else age_group = AgeGroups::a18to29;  /* parents 19-29 */
                     nr_arr(i, j, k, age_group) += 2;
 
                     /* Now pick the children's age groups */
                     for (int nc = 2; nc < family_size; ++nc) {
-                        if (((int) amrex::Random_int(100, engine)) < p_schoolage) {
-                            age_group = 1; /* 22.0% of total population ages 5-18 */
-                        } else {
-                            age_group = 0;   /* 6.8% of total population ages 0-4 */
-                        }
+                        if (((int) Random_int(100, engine)) < p_schoolage) age_group = AgeGroups::a5to17;
+                        else age_group = AgeGroups::u5;
                         nr_arr(i, j, k, age_group) += 1;
                     }
                 }
 
-                agent.pos(0) = (i + 0.5_rt)*dx[0];
-                agent.pos(1) = (j + 0.5_rt)*dx[1];
+                agent.pos(0) = static_cast<ParticleReal>((i + 0.5_rt) * dx[0]);
+                agent.pos(1) = static_cast<ParticleReal>((j + 0.5_rt) * dx[1]);
                 agent.id()  = pid+ip;
                 agent.cpu() = my_proc;
 
                 for (int d = 0; d < n_disease; d++) {
                     status_ptrs[d][ip] = 0;
-                    counter_ptrs[d][ip] = 0.0_rt;
-                    timer_ptrs[d][ip] = 0.0_rt;
+                    counter_ptrs[d][ip] = 0.0_prt;
+                    timer_ptrs[d][ip] = 0.0_prt;
                 }
                 age_group_ptr[ip] = age_group;
                 family_ptr[ip] = family_id_start + (ii / family_size);
@@ -460,58 +448,30 @@ void CensusData::initAgents (AgentContainer& pc,       /*!< Agents */
                 nborhood_ptr[ip] = nborhood;
                 work_nborhood_ptr[ip] = nborhood;
                 workgroup_ptr[ip] = 0;
+                naics_ptr[ip] = 0;
                 random_travel_ptr[ip] = -1;
                 air_travel_ptr[ip] = -1;
 
-                if (age_group == 0) {
-                    school_ptr[ip] = 5; // note - need to handle playgroups
-                } else if (age_group == 1) {
-                    school_ptr[ip] = assign_school(nborhood, engine);
-                } else {
-                    school_ptr[ip] = 0; // only use negative values to indicate school closed
-                }
+                assign_school(&school_grade_ptr[ip], &school_id_ptr[ip], age_group, nborhood, engine);
+
+                school_closed_ptr[ip] = 0;
 
                 // Increment the appropriate student counter based on the school assignment
-                if (school_ptr[ip] == SchoolType::elem_3) {
-                    amrex::Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, SchoolType::elem_3), 1);
-                } else if (school_ptr[ip] == SchoolType::elem_4) {
-                    amrex::Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, SchoolType::elem_4), 1);
-                } else if (school_ptr[ip] == SchoolType::middle) {
-                    amrex::Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, SchoolType::middle), 1);
-                } else if (school_ptr[ip] == SchoolType::high) {
-                    amrex::Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, SchoolType::high), 1);
-                } else if (school_ptr[ip] == SchoolType::day_care) {
-                    amrex::Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, SchoolType::day_care), 1);
+                if (school_id_ptr[ip] >= SchoolCensusIDType::daycare_5) {
+                    Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, SchoolCensusIDType::daycare_5 - 1), 1);
+                } else if (school_id_ptr[ip] > SchoolCensusIDType::none) {
+                    Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, school_id_ptr[ip] - 1), 1);
                 }
-
-                if (school_ptr[ip]>0) {amrex::Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, SchoolType::total), 1); }
-
             }
         });
 
-        amrex::ParallelFor(bx,
-            [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-        {
-            int comm = comm_arr(i,j,k);
-
-            comm_teacher_counts_high_d_ptr[comm]   = (int)((student_counts_arr(i, j, k, SchoolType::high))     / (ratios[SchoolType::high]));
-            comm_teacher_counts_middle_d_ptr[comm] = (int)((student_counts_arr(i, j, k, SchoolType::middle))   / (ratios[SchoolType::middle]));
-            comm_teacher_counts_elem3_d_ptr[comm]  = (int)((student_counts_arr(i, j, k, SchoolType::elem_3))   / (ratios[SchoolType::elem_3]));
-            comm_teacher_counts_elem4_d_ptr[comm]  = (int)((student_counts_arr(i, j, k, SchoolType::elem_4))   / (ratios[SchoolType::elem_4]));
-            comm_teacher_counts_daycr_d_ptr[comm]  = (int)((student_counts_arr(i, j, k, SchoolType::day_care)) / (ratios[SchoolType::day_care]));
-
-            int total = comm_teacher_counts_high_d_ptr[comm]
-                      + comm_teacher_counts_middle_d_ptr[comm]
-                      + comm_teacher_counts_elem3_d_ptr[comm]
-                      + comm_teacher_counts_elem4_d_ptr[comm]
-                      + comm_teacher_counts_daycr_d_ptr[comm];
-            comm_teacher_counts_total_d_ptr[comm] = total;
-            amrex::Gpu::Atomic::AddNoRet(&unit_teacher_counts_d_ptr[unit_arr(i,j,k,0)], total);
-        });
     }
 
     demo.CopyToHostAsync(demo.Unit_on_proc_d, demo.Unit_on_proc);
-    amrex::Gpu::streamSynchronize();
+    Gpu::streamSynchronize();
+
+    pc.comm_mf.define(comm_mf.boxArray(), comm_mf.DistributionMap(), 1, 0);
+    iMultiFab::Copy(pc.comm_mf, comm_mf, 0, 0, 1, 0);
 }
 
 /*! \brief Read worker flow data from file and set work location for agents
@@ -553,10 +513,10 @@ void CensusData::read_workerflow (AgentContainer& pc,           /*!< Agent conta
 {
     /* Allocate worker-flow matrix, only from units with nighttime
         communities on this processor (Unit_on_proc[] flag) */
-    unsigned int** flow = (unsigned int **) amrex::The_Pinned_Arena()->alloc(demo.Nunit*sizeof(unsigned int *));
+    unsigned int** flow = (unsigned int **) The_Pinned_Arena()->alloc(demo.Nunit*sizeof(unsigned int *));
     for (int i = 0; i < demo.Nunit; i++) {
         if (demo.Unit_on_proc[i]) {
-            flow[i] = (unsigned int *) amrex::The_Pinned_Arena()->alloc(demo.Nunit*sizeof(unsigned int));
+            flow[i] = (unsigned int *) The_Pinned_Arena()->alloc(demo.Nunit*sizeof(unsigned int));
             for (int j = 0; j < demo.Nunit; j++) flow[i][j] = 0;
         }
     }
@@ -568,7 +528,7 @@ void CensusData::read_workerflow (AgentContainer& pc,           /*!< Agent conta
 
     ifs.open(workerflow_filename.c_str(), std::ios::in|std::ios::binary);
     if (!ifs.good()) {
-        amrex::FileOpenFailed(workerflow_filename);
+        FileOpenFailed(workerflow_filename);
     }
 
     const std::streamoff CURPOS = ifs.tellg();
@@ -618,27 +578,27 @@ void CensusData::read_workerflow (AgentContainer& pc,           /*!< Agent conta
         }
     }
 
-    unsigned int** d_flow = (unsigned int **) amrex::The_Device_Arena()->alloc(demo.Nunit*sizeof(unsigned int *));
-    amrex::Gpu::HostVector<unsigned int*> host_vector_flow(demo.Nunit, nullptr);
+    unsigned int** d_flow = (unsigned int **) The_Device_Arena()->alloc(demo.Nunit*sizeof(unsigned int *));
+    Gpu::HostVector<unsigned int*> host_vector_flow(demo.Nunit, nullptr);
     for (int i = 0; i < demo.Nunit; i++) {
         if (demo.Unit_on_proc[i]) {
-            host_vector_flow[i] = (unsigned int *) amrex::The_Device_Arena()->alloc(demo.Nunit*sizeof(unsigned int));
+            host_vector_flow[i] = (unsigned int *) The_Device_Arena()->alloc(demo.Nunit*sizeof(unsigned int));
         }
     }
 
-    amrex::Gpu::copy(Gpu::hostToDevice, host_vector_flow.begin(), host_vector_flow.end(), d_flow);
+    Gpu::copy(Gpu::hostToDevice, host_vector_flow.begin(), host_vector_flow.end(), d_flow);
     for (int i = 0; i < demo.Nunit; i++) {
         if (demo.Unit_on_proc[i]) {
-            amrex::Gpu::copy(Gpu::hostToDevice, flow[i], flow[i] + demo.Nunit, host_vector_flow[i]);
+            Gpu::copy(Gpu::hostToDevice, flow[i], flow[i] + demo.Nunit, host_vector_flow[i]);
         }
     }
 
     for (int i = 0; i < demo.Nunit; i++) {
         if (demo.Unit_on_proc[i]) {
-            amrex::The_Pinned_Arena()->free(flow[i]);
+            The_Pinned_Arena()->free(flow[i]);
         }
     }
-    amrex::The_Pinned_Arena()->free(flow);
+    The_Pinned_Arena()->free(flow);
 
     const Box& domain = pc.Geom(0).Domain();
 
@@ -646,8 +606,7 @@ void CensusData::read_workerflow (AgentContainer& pc,           /*!< Agent conta
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-    for (MFIter mfi(unit_mf, TilingIfNotGPU()); mfi.isValid(); ++mfi)
-    {
+    for (MFIter mfi(unit_mf); mfi.isValid(); ++mfi) {
         auto& agents_tile = pc.GetParticles(0)[std::make_pair(mfi.index(),mfi.LocalTileIndex())];
         auto& soa = agents_tile.GetStructOfArrays();
         auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
@@ -668,7 +627,7 @@ void CensusData::read_workerflow (AgentContainer& pc,           /*!< Agent conta
         auto Ncommunity = demo.Ncommunity;
         auto Nunit = demo.Nunit;
 
-        amrex::ParallelForRNG( np,
+        ParallelForRNG( np,
             [=] AMREX_GPU_DEVICE (int ip, RandomEngine const& engine) noexcept
         {
             auto from = unit_arr(home_i_ptr[ip], home_j_ptr[ip], 0);
@@ -680,8 +639,8 @@ void CensusData::read_workerflow (AgentContainer& pc,           /*!< Agent conta
 
             int age_group = age_group_ptr[ip];
             /* Check working-age population */
-            if ((age_group == 2) || (age_group == 3)) {
-                unsigned int irnd = amrex::Random_int(nwork, engine);
+            if (age_group >= AgeGroups::a18to29 && age_group <= AgeGroups::a50to64) {
+                unsigned int irnd = Random_int(nwork, engine);
                 int to = 0;
                 int comm_to = 0;
                 if (irnd < d_flow[from][Nunit-1]) {
@@ -691,11 +650,11 @@ void CensusData::read_workerflow (AgentContainer& pc,           /*!< Agent conta
                 }
 
                 /*If from=to unit, 25% EXTRA chance of working in home community*/
-                if ((from == to) && (amrex::Random(engine) < 0.25)) {
+                if ((from == to) && (Random(engine) < 0.25)) {
                     comm_to = comm_arr(home_i_ptr[ip], home_j_ptr[ip], 0);
                 } else {
                     /* Choose a random community within that destination unit */
-                    comm_to = Start[to] + amrex::Random_int(Start[to+1] - Start[to], engine);
+                    comm_to = Start[to] + Random_int(Start[to+1] - Start[to], engine);
                     AMREX_ALWAYS_ASSERT(comm_to < Ncommunity);
                 }
 
@@ -707,7 +666,7 @@ void CensusData::read_workerflow (AgentContainer& pc,           /*!< Agent conta
                             ((Real) workgroup_size * (Start[to+1] - Start[to])) );
 
                 if (number) {
-                    workgroup_ptr[ip] = 1 + amrex::Random_int(number, engine);
+                    workgroup_ptr[ip] = 1 + Random_int(number, engine);
                     work_nborhood_ptr[ip] = workgroup_ptr[ip] % 4; // each workgroup is assigned to a neighborhood as well
                 }
             }
@@ -716,400 +675,146 @@ void CensusData::read_workerflow (AgentContainer& pc,           /*!< Agent conta
 
     for (int i = 0; i < demo.Nunit; i++) {
         if (demo.Unit_on_proc[i]) {
-            amrex::The_Device_Arena()->free(host_vector_flow[i]);
+            The_Device_Arena()->free(host_vector_flow[i]);
         }
     }
-    amrex::The_Device_Arena()->free(d_flow);
+    The_Device_Arena()->free(d_flow);
 
     assignTeachersAndWorkgroup(pc, workgroup_size);
 }
 
-void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc       /*!< Agent container (particle container) */,
-                                             const int workgroup_size)
 
-{
+void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workgroup_size) {
     const Box& domain = pc.Geom(0).Domain();
-
-    auto total_teacher_unit_d = pc.getUnitTeacherCounts();
-    amrex::Gpu::HostVector<int> total_teacher_unit(total_teacher_unit_d.size());
-    amrex::Gpu::copy(Gpu::deviceToHost, total_teacher_unit_d.begin(),
-                     total_teacher_unit_d.end(), total_teacher_unit.begin());
-
-    auto total_teacher_counts_d = pc.getCommTeacherCounts();
-    amrex::Gpu::HostVector<int> total_teacher_counts(total_teacher_counts_d.size());
-    amrex::Gpu::copy(Gpu::deviceToHost, total_teacher_counts_d.begin(),
-                     total_teacher_counts_d.end(), total_teacher_counts.begin());
-    amrex::Gpu::HostVector<int> total_teacher_counts_mod(total_teacher_counts.size(),0);
-    auto total_teacher_counts_ptr = total_teacher_counts.data();
-
-    auto daycr_teacher_counts_d = pc.getCommDayCrTeacherCounts();
-    amrex::Gpu::HostVector<int> daycr_teacher_counts(daycr_teacher_counts_d.size());
-    amrex::Gpu::copy(Gpu::deviceToHost, daycr_teacher_counts_d.begin(),
-                     daycr_teacher_counts_d.end(), daycr_teacher_counts.begin());
-    amrex::Gpu::HostVector<int> daycr_teacher_counts_mod(daycr_teacher_counts.size(),0);
-    auto daycr_teacher_counts_ptr = daycr_teacher_counts_mod.data();
-
-    auto high_teacher_counts_d = pc.getCommHighTeacherCounts();
-    amrex::Gpu::HostVector<int> high_teacher_counts(high_teacher_counts_d.size());
-    amrex::Gpu::copy(Gpu::deviceToHost, high_teacher_counts_d.begin(),
-                     high_teacher_counts_d.end(), high_teacher_counts.begin());
-    amrex::Gpu::HostVector<int> high_teacher_counts_mod(high_teacher_counts.size(),0);
-    auto high_teacher_counts_ptr = high_teacher_counts_mod.data();
-
-    auto middle_teacher_counts_d = pc.getCommMiddleTeacherCounts();
-    amrex::Gpu::HostVector<int> middle_teacher_counts(middle_teacher_counts_d.size());
-    amrex::Gpu::copy(Gpu::deviceToHost, middle_teacher_counts_d.begin(),
-                     middle_teacher_counts_d.end(), middle_teacher_counts.begin());
-    amrex::Gpu::HostVector<int> middle_teacher_counts_mod(middle_teacher_counts.size(),0);
-    auto middle_teacher_counts_ptr = middle_teacher_counts_mod.data();
-
-    auto elem3_teacher_counts_d = pc.getCommElem3TeacherCounts();
-    amrex::Gpu::HostVector<int> elem3_teacher_counts(elem3_teacher_counts_d.size());
-    amrex::Gpu::copy(Gpu::deviceToHost, elem3_teacher_counts_d.begin(),
-                     elem3_teacher_counts_d.end(), elem3_teacher_counts.begin());
-    amrex::Gpu::HostVector<int> elem3_teacher_counts_mod(elem3_teacher_counts.size(),0);
-    auto elem3_teacher_counts_ptr = elem3_teacher_counts_mod.data();
-
-    auto elem4_teacher_counts_d = pc.getCommElem4TeacherCounts();
-    amrex::Gpu::HostVector<int> elem4_teacher_counts(elem4_teacher_counts_d.size());
-    amrex::Gpu::copy(Gpu::deviceToHost, elem4_teacher_counts_d.begin(),
-                     elem4_teacher_counts_d.end(), elem4_teacher_counts.begin());
-    amrex::Gpu::HostVector<int> elem4_teacher_counts_mod(elem4_teacher_counts.size(),0);
-    auto elem4_teacher_counts_ptr = elem4_teacher_counts_mod.data();
+    auto Ncommunity = demo.Ncommunity;
+    Gpu::HostVector<int> high_teachers_array(Ncommunity, 0);
+    Gpu::HostVector<int> middle_teachers_array(Ncommunity, 0);
+    Gpu::HostVector<int> elem3_teachers_array(Ncommunity, 0);
+    Gpu::HostVector<int> elem4_teachers_array(Ncommunity, 0);
+    Gpu::HostVector<int> daycare_teachers_array(Ncommunity, 0);
+    auto high_teachers_ptr = high_teachers_array.data();
+    auto middle_teachers_ptr = middle_teachers_array.data();
+    auto elem3_teachers_ptr = elem3_teachers_array.data();
+    auto elem4_teachers_ptr = elem4_teachers_array.data();
+    auto daycare_teachers_ptr = daycare_teachers_array.data();
+    auto student_teacher_ratio = pc.m_student_teacher_ratio;
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-    for (MFIter mfi(unit_mf, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+    for (MFIter mfi(unit_mf); mfi.isValid(); ++mfi) {
+        auto student_counts_arr = pc.m_student_counts[mfi].array();
+        auto comm_arr = comm_mf[mfi].array();
+        auto bx = mfi.tilebox();
+        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
+            int comm = comm_arr(i, j, k);
+            if (comm >= Ncommunity || comm < 0) return;
+            high_teachers_ptr[comm] = int(std::round(
+                double(student_counts_arr(i, j, k, SchoolCensusIDType::high_1 - 1)) / student_teacher_ratio[SchoolType::high]));
+            middle_teachers_ptr[comm] = int(std::round(
+                (double)student_counts_arr(i, j, k, SchoolCensusIDType::middle_2 - 1) / student_teacher_ratio[SchoolType::middle]));
+            elem3_teachers_ptr[comm] = int(std::round(
+                (double)student_counts_arr(i, j, k, SchoolCensusIDType::elem_3 - 1) / student_teacher_ratio[SchoolType::elem]));
+            elem4_teachers_ptr[comm] = int(std::round(
+                (double)student_counts_arr(i, j, k, SchoolCensusIDType::elem_4 - 1) / student_teacher_ratio[SchoolType::elem]));
+            daycare_teachers_ptr[comm] = int(std::round(
+                (double)student_counts_arr(i, j, k, SchoolCensusIDType::daycare_5 - 1) / student_teacher_ratio[SchoolType::daycare]));
+        });
+        Gpu::synchronize();
+    }
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(unit_mf); mfi.isValid(); ++mfi) {
         auto& agents_tile = pc.GetParticles(0)[std::make_pair(mfi.index(),mfi.LocalTileIndex())];
         auto& soa = agents_tile.GetStructOfArrays();
 
-        auto Ndaywork = demo.Ndaywork.data();
-        auto Start = demo.Start.data();
-        auto Ncommunity = demo.Ncommunity;
-
         auto np = soa.numParticles();
 
-        amrex::Gpu::PinnedVector<int> age_group_h(np);
-        amrex::Gpu::PinnedVector<int> workgroup_h(np);
-        amrex::Gpu::PinnedVector<int> work_i_h(np);
-        amrex::Gpu::PinnedVector<int> work_j_h(np);
-        amrex::Gpu::PinnedVector<int> school_h(np);
-        amrex::Gpu::PinnedVector<int> work_nborhood_h(np);
+        Gpu::HostVector<int> age_group_h(np);
+        Gpu::HostVector<int> workgroup_h(np);
+        Gpu::HostVector<int> work_i_h(np);
+        Gpu::HostVector<int> work_j_h(np);
+        Gpu::HostVector<int> school_grade_h(np);
+        Gpu::HostVector<int> school_id_h(np);
+        Gpu::HostVector<int> work_nborhood_h(np);
 
-        amrex::Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::age_group).begin(),
-                         soa.GetIntData(IntIdx::age_group).end(), age_group_h.begin());
-        amrex::Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::workgroup).begin(),
-                         soa.GetIntData(IntIdx::workgroup).end(), workgroup_h.begin());
-        amrex::Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_i).begin(),
-                         soa.GetIntData(IntIdx::work_i).end(), work_i_h.begin());
-        amrex::Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_j).begin(),
-                         soa.GetIntData(IntIdx::work_j).end(), work_j_h.begin());
-        amrex::Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::school).begin(),
-                         soa.GetIntData(IntIdx::school).end(), school_h.begin());
-        amrex::Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_nborhood).begin(),
-                         soa.GetIntData(IntIdx::work_nborhood).end(), work_nborhood_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::age_group).begin(),
+                  soa.GetIntData(IntIdx::age_group).end(), age_group_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::workgroup).begin(),
+                  soa.GetIntData(IntIdx::workgroup).end(), workgroup_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_i).begin(),
+                  soa.GetIntData(IntIdx::work_i).end(), work_i_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_j).begin(),
+                  soa.GetIntData(IntIdx::work_j).end(), work_j_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::school_grade).begin(),
+                  soa.GetIntData(IntIdx::school_grade).end(), school_grade_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::school_id).begin(),
+                  soa.GetIntData(IntIdx::school_id).end(), school_id_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_nborhood).begin(),
+                  soa.GetIntData(IntIdx::work_nborhood).end(), work_nborhood_h.begin());
 
         auto age_group_ptr = age_group_h.data();
         auto workgroup_ptr = workgroup_h.data();
         auto work_i_ptr = work_i_h.data();
         auto work_j_ptr = work_j_h.data();
-        auto school_ptr = school_h.data();
+        auto school_grade_ptr = school_grade_h.data();
+        auto school_id_ptr = school_id_h.data();
         auto work_nborhood_ptr = work_nborhood_h.data();
 
         for (int ip = 0; ip < np; ++ip) {
+            int comm = (int) domain.index(IntVect(AMREX_D_DECL(work_i_ptr[ip], work_j_ptr[ip], 0)));
+            if (comm >= Ncommunity || comm < 0) continue;
+            // skip non-working age
+            if (age_group_ptr[ip] < AgeGroups::a18to29 || age_group_ptr[ip] > AgeGroups::a50to64) continue;
+            // skip non-workers
+            if (workgroup_ptr[ip] == 0) continue;
 
-            int comm_to = (int) domain.index(IntVect(AMREX_D_DECL(work_i_ptr[ip],work_j_ptr[ip],0)));
-            if (comm_to >= Ncommunity) {
-                continue;
-            }
-            int to = 0;
-            while (comm_to >= Start[to+1]) { to++; }
-
-            if (total_teacher_unit.data()[to] && (age_group_ptr[ip] == 2 || age_group_ptr[ip] == 3) && workgroup_ptr[ip] > 0) {
-                int elem3_teacher  = elem3_teacher_counts_ptr[comm_to];
-                int elem4_teacher  = elem4_teacher_counts_ptr[comm_to];
-                int middle_teacher = middle_teacher_counts_ptr[comm_to];
-                int high_teacher   = high_teacher_counts_ptr[comm_to];
-                int daycr_teacher  = daycr_teacher_counts_ptr[comm_to];
-                int total          = total_teacher_counts_ptr[comm_to];
-
-                // 50% chance of being a teacher if in working-age population (until max_teacher_numb is met)
-                if ((elem3_teacher + elem4_teacher + middle_teacher + high_teacher + daycr_teacher) < total) {
-                    int available_slots[5] = {
-                        elem3_teacher  < elem3_teacher_counts.data()[comm_to],
-                        elem4_teacher  < elem4_teacher_counts.data()[comm_to],
-                        middle_teacher < middle_teacher_counts.data()[comm_to],
-                        high_teacher   < high_teacher_counts.data()[comm_to],
-                        daycr_teacher  < daycr_teacher_counts.data()[comm_to]
-                    };
-
-                    int total_available = available_slots[0] + available_slots[1] + available_slots[2] + available_slots[3] +
-                                          available_slots[4];
-                    if (total_available > 0) {
-                        int choice = amrex::Random_int(total_available);
-                        if (choice < available_slots[0]) {
-                            school_ptr[ip] = 3;  // elementary school for kids in Neighbordhood 1 & 2
-                            workgroup_ptr[ip] = 3 ;
-                            work_nborhood_ptr[ip] = 1; // assuming the first elementary school is located in Neighbordhood 1
-                            elem3_teacher_counts_ptr[comm_to]++;
-                        } else if (choice < available_slots[0] + available_slots[1]) {
-                            school_ptr[ip] = 4;  // elementary school for kids in Neighbordhood 3 & 4
-                            workgroup_ptr[ip] = 4 ;
-                            work_nborhood_ptr[ip] = 3; // assuming the first elementary school is located in Neighbordhood 3
-                            elem4_teacher_counts_ptr[comm_to]++;
-                        } else if (choice < available_slots[0] + available_slots[1] + available_slots[2]) {
-                            school_ptr[ip] = 2;  // middle school for kids in all Neighbordhoods (1 through 4)
-                            workgroup_ptr[ip] = 2 ;
-                            work_nborhood_ptr[ip] = 3; // assuming the middle school is located in Neighbordhood 2
-                            middle_teacher_counts_ptr[comm_to]++;
-                        } else if (choice < available_slots[0] + available_slots[1] + available_slots[2] + available_slots[3]) {
-                            school_ptr[ip] = 1;  // high school for kids in all Neighbordhoods (1 through 4)
-                            workgroup_ptr[ip] = 1 ;
-                            work_nborhood_ptr[ip] = 4; // assuming the high school is located in Neighbordhood 4
-                            high_teacher_counts_ptr[comm_to]++;
-                        } else if (choice < total_available) {
-                            school_ptr[ip] = 5;  // day care
-                            workgroup_ptr[ip] = 5 ;
-                            work_nborhood_ptr[ip] = 1; // deal with daycare/playgroups later
-                            daycr_teacher_counts_ptr[comm_to]++;
-                        }
-                    }
+            int high_teachers = high_teachers_ptr[comm];
+            int middle_teachers = middle_teachers_ptr[comm];
+            int elem3_teachers = elem3_teachers_ptr[comm];
+            int elem4_teachers = elem4_teachers_ptr[comm];
+            int daycare_teachers = daycare_teachers_ptr[comm];
+            int total_teachers = high_teachers + middle_teachers + elem3_teachers + elem4_teachers + daycare_teachers;
+            if (total_teachers > 0) {
+                int choice = Random_int(total_teachers);
+                if (choice < high_teachers) {
+                    school_grade_ptr[ip] = 12;  // 10th grade - generic for high school
+                    school_id_ptr[ip] = SchoolCensusIDType::high_1;
+                    work_nborhood_ptr[ip] = 3; // assuming the high school is located in Neighbordhood 3
+                    workgroup_ptr[ip] = 1;
+                    high_teachers_ptr[comm]--;
+                } else if (choice < high_teachers + middle_teachers) {
+                    school_grade_ptr[ip] = 9;  // 7th grade - generic for middle
+                    school_id_ptr[ip] = SchoolCensusIDType::middle_2;
+                    work_nborhood_ptr[ip] = 1; // assuming the middle school is located in Neighbordhood 2
+                    workgroup_ptr[ip] = 2;
+                    middle_teachers_ptr[comm]--;
+                } else if (choice < high_teachers + middle_teachers + elem3_teachers) {
+                    school_grade_ptr[ip] = 5;  // 3rd grade - generic for elementary
+                    school_id_ptr[ip] = SchoolCensusIDType::elem_3;
+                    work_nborhood_ptr[ip] = 0; // assuming the first elementary school is located in Neighbordhood 1
+                    workgroup_ptr[ip] = 3;
+                    elem3_teachers_ptr[comm]--;
+                } else if (choice < high_teachers + middle_teachers + elem3_teachers + elem4_teachers) {
+                    school_grade_ptr[ip] = 5;  // 3rd grade - generic for elementary
+                    school_id_ptr[ip] = SchoolCensusIDType::elem_4;
+                    work_nborhood_ptr[ip] = 2; // assuming the first elementary school is located in Neighbordhood 3
+                    workgroup_ptr[ip] = 4;
+                    elem4_teachers_ptr[comm]--;
                 } else {
-                    AMREX_ALWAYS_ASSERT(Ndaywork[to] > total_teacher_unit.data()[to]);
-                    unsigned int number = (unsigned int) rint( ((Real) Ndaywork[to] - total_teacher_unit.data()[to] ) /
-                                ((Real) workgroup_size * (Start[to+1] - Start[to])) );
-
-                    if (number) {
-                        workgroup_ptr[ip] = 6 + amrex::Random_int(number);
-                        work_nborhood_ptr[ip] = workgroup_ptr[ip] % 4; // each workgroup is assigned to a neighborhood as well
-                    }
+                    school_grade_ptr[ip] = 0; // generic for daycare
+                    work_nborhood_ptr[ip] = Random_int(4); // randomly select nborhood
+                    school_id_ptr[ip] = SchoolCensusIDType::daycare_5 + work_nborhood_ptr[ip];
+                    workgroup_ptr[ip] = 5;
+                    daycare_teachers_ptr[comm]--;
                 }
             }
         }
-
-        amrex::Gpu::copy(Gpu::hostToDevice, school_h.begin(), school_h.end(),
-                         soa.GetIntData(IntIdx::school).begin());
-        amrex::Gpu::copy(Gpu::hostToDevice, workgroup_h.begin(), workgroup_h.end(),
-                         soa.GetIntData(IntIdx::workgroup).begin());
-        amrex::Gpu::copy(Gpu::hostToDevice, work_nborhood_h.begin(), work_nborhood_h.end(),
-                         soa.GetIntData(IntIdx::work_nborhood).begin());
+        Gpu::copy(Gpu::hostToDevice, school_grade_h.begin(), school_grade_h.end(), soa.GetIntData(IntIdx::school_grade).begin());
+        Gpu::copy(Gpu::hostToDevice, school_id_h.begin(), school_id_h.end(), soa.GetIntData(IntIdx::school_id).begin());
+        Gpu::copy(Gpu::hostToDevice, workgroup_h.begin(), workgroup_h.end(), soa.GetIntData(IntIdx::workgroup).begin());
+        Gpu::copy(Gpu::hostToDevice, work_nborhood_h.begin(), work_nborhood_h.end(), soa.GetIntData(IntIdx::work_nborhood).begin());
     }
 }
-
-/*! \brief Infect agents in a random community in a given unit and return the total
-    number of agents infected
-
-    + Choose a random community in the given unit.
-    + For each box on each processor:
-        + Create bins of agents if not already created (see #amrex::GetParticleBin, #amrex::DenseBins):
-        + The bin size is 1 cell.
-        + #amrex::GetParticleBin maps a particle to its bin index.
-        + amrex::DenseBins::build() creates the bin-sorted array of particle indices and
-            the offset array for each bin (where the offset of a bin is its starting location.
-        + For each grid cell: if the community at this cell is the randomly chosen community,
-        + Get bin index and the agent (particle) indices in this bin.
-        + Choose a random agent in the bin; if the agent is already infected, move on, else
-            infect the agent. Increment the counter variables for number of infections.
-            (See the code for nuances in this step.)
-    + Sum up number of infected agents over all processors and return that value.
-*/
-int infect_random_community (AgentContainer& pc, /*!< Agent container (particle container)*/
-                             CensusData &censusData,
-                             std::map<std::pair<int, int>,
-                             DenseBins<AgentContainer::ParticleType> >& bin_map, /*!< Map of dense bins with agents */
-                             int unit, /*!< Unit number to infect */
-                             const int d_idx, /*!< Disease index */
-                             int ninfect, /*!< Target number of agents to infect */
-                             const bool fast_bin /*!< Use GPU binning - fast but non-deterministic */  ) {
-
-    auto &demo = censusData.demo;
-    // chose random community
-    int ncomms = demo.Ncommunity;
-    int comm_offset = 0;
-    if (unit > 0) {
-        ncomms = demo.Start[unit+1] - demo.Start[unit];
-        comm_offset = demo.Start[unit];
-    }
-
-    int random_comm = -1;
-    if (ParallelDescriptor::IOProcessor()) {
-        random_comm = amrex::Random_int(ncomms) + comm_offset;
-    }
-    ParallelDescriptor::Bcast(&random_comm, 1);
-
-    const Geometry& geom = pc.Geom(0);
-    IntVect bin_size = {AMREX_D_DECL(1, 1, 1)};
-    const auto dxi = geom.InvCellSizeArray();
-    const auto plo = geom.ProbLoArray();
-    const auto domain = geom.Domain();
-
-    int num_infected = 0;
-    for (MFIter mfi(censusData.unit_mf, TilingIfNotGPU()); mfi.isValid(); ++mfi)
-    {
-        amrex::DenseBins<AgentContainer::ParticleType>& bins = bin_map[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
-        auto& agents_tile = pc.GetParticles(0)[std::make_pair(mfi.index(),mfi.LocalTileIndex())];
-        auto& aos = agents_tile.GetArrayOfStructs();
-        auto& soa = agents_tile.GetStructOfArrays();
-        const size_t np = aos.numParticles();
-        if (np == 0) { continue; }
-        auto pstruct_ptr = aos().dataPtr();
-        const Box& box = mfi.validbox();
-
-        int ntiles = numTilesInBox(box, true, bin_size);
-
-        auto binner = GetParticleBin{plo, dxi, domain, bin_size, box};
-        if (bins.numBins() < 0) {
-            if (fast_bin) bins.build(BinPolicy::GPU, np, pstruct_ptr, ntiles, binner);
-            else bins.build(BinPolicy::Serial, np, pstruct_ptr, ntiles, binner);
-        }
-        auto inds = bins.permutationPtr();
-        auto offsets = bins.offsetsPtr();
-
-        int i_RT = IntIdx::nattribs;
-        int r_RT = RealIdx::nattribs;
-
-        auto status_ptr = soa.GetIntData(i_RT+i0(d_idx)+IntIdxDisease::status).data();
-
-        auto counter_ptr           = soa.GetRealData(r_RT+r0(d_idx)+RealIdxDisease::disease_counter).data();
-        auto latent_period_ptr = soa.GetRealData(r_RT+r0(d_idx)+RealIdxDisease::latent_period).data();
-        auto infectious_period_ptr = soa.GetRealData(r_RT+r0(d_idx)+RealIdxDisease::infectious_period).data();
-        auto incubation_period_ptr = soa.GetRealData(r_RT+r0(d_idx)+RealIdxDisease::incubation_period).data();
-
-        //auto unit_arr = pc.m_unit_mf[mfi].array();
-        auto comm_arr = censusData.comm_mf[mfi].array();
-        auto bx = mfi.tilebox();
-
-        const auto* lparm = pc.getDiseaseParameters_d(d_idx);
-
-        Gpu::DeviceScalar<int> num_infected_d(num_infected);
-        int* num_infected_p = num_infected_d.dataPtr();
-        amrex::ParallelForRNG(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k, amrex::RandomEngine const& engine) noexcept
-        {
-            int community = comm_arr(i, j, k);
-            if (community != random_comm) { return; }
-
-            Box tbx;
-            int i_cell = getTileIndex({AMREX_D_DECL(i, j, k)}, box, true, bin_size, tbx);
-            auto cell_start = offsets[i_cell];
-            auto cell_stop  = offsets[i_cell+1];
-            int num_this_community = cell_stop - cell_start;
-            AMREX_ASSERT(num_this_community > 0);
-            //AMREX_ASSERT(cell_stop < np);
-
-            if (num_this_community == 0) { return;}
-
-            int ntry = 0;
-            int ni = 0;
-            /*unsigned*/ int stop = std::min(cell_start + ninfect, cell_stop);
-            for (/*unsigned*/ int ip = cell_start; ip < stop; ++ip) {
-                int ind = cell_start + amrex::Random_int(num_this_community, engine);
-                auto pindex = inds[ind];
-                if (status_ptr[pindex] == Status::infected
-                    || status_ptr[pindex] == Status::immune) {
-                    if (++ntry < 100) {
-                        --ip;
-                    } else {
-                        ip += ninfect;
-                    }
-                } else {
-                    status_ptr[pindex] = Status::infected;
-                    counter_ptr[pindex] = 0;
-                    latent_period_ptr[pindex] = amrex::RandomNormal(lparm->latent_length_mean, lparm->latent_length_std, engine);
-                    infectious_period_ptr[pindex] = amrex::RandomNormal(lparm->infectious_length_mean, lparm->infectious_length_std, engine);
-                    incubation_period_ptr[pindex] = amrex::RandomNormal(lparm->incubation_length_mean, lparm->incubation_length_std, engine);
-                    ++ni;
-                }
-            }
-            *num_infected_p = ni;
-        });
-
-        Gpu::Device::streamSynchronize();
-        num_infected += num_infected_d.dataValue();
-        if (num_infected >= ninfect) {
-            break;
-        }
-    }
-
-    ParallelDescriptor::ReduceIntSum(num_infected);
-    return num_infected;
-}
-
-/*! \brief Set initial cases for the simulation
-
-    Set the initial cases of infection for the simulation based on the #CaseData:
-    For each infection hub (where #CaseData::N_hubs is the number of hubs):
-    + Get the FIPS code of that hub (#CaseData::FIPS_hubs)
-    + Create a vector of unit numbers corresponding to that FIPS code
-    + Get the number of cases for that FIPS code (#CaseData::Size_hubs)
-    + Randomly infect that many agents in the units corresponding to the FIPS code, i.e.,
-        cycle through units and infect agents in random communities in that unit till the
-        number of infected agents is equal or greater than the number of infections for this
-        FIPS code. See #ExaEpi::Initialization::infect_random_community().
-*/
-void CensusData::setInitialCasesFromFile (AgentContainer& pc, /*!< Agent container (particle container) */
-                                          const std::vector<CaseData>& cases, /*!< Case data */
-                                          const std::vector<std::string>& d_names, /*!< Disease names */
-                                          const bool fast_bin)
-{
-    BL_PROFILE("setInitialCasesFromFile");
-
-    std::map<std::pair<int, int>, amrex::DenseBins<AgentContainer::ParticleType> > bin_map;
-
-    for (size_t d = 0; d < cases.size(); d++) {
-        amrex::Print() << "Initializing infections for " << d_names[d] << "\n";
-        int ntry = 5;
-        int ninf = 0;
-        for (int ihub = 0; ihub < cases[d].N_hubs; ++ihub) {
-            if (cases[d].Size_hubs[ihub] > 0) {
-                int FIPS = cases[d].FIPS_hubs[ihub];
-                std::vector<int> units;
-                units.resize(0);
-                for (int i = 0; i < demo.Nunit; ++i) if(demo.FIPS[i]==FIPS)units.push_back(i);
-                //int unit = FIPS_code_to_i[FIPS];
-                if (units.size() > 0) {
-                    amrex::Print() << "    Attempting to infect: " << cases[d].Size_hubs[ihub] << " people in FIPS " << FIPS << "... ";
-                    int u=0;
-                    int i=0;
-                    while (i < cases[d].Size_hubs[ihub]) {
-                        int nSuccesses = infect_random_community(pc, *this, bin_map, units[u], d, ntry, fast_bin);
-                        ninf += nSuccesses;
-                        i+= nSuccesses;
-                        u=(u+1)%units.size(); //sometimes we infect fewer than ntry, but switch to next unit anyway
-                    }
-                    amrex::Print() << "infected " << i<< " (total " << ninf << ") after processing. \n";
-                }
-            }
-        }
-        amrex::ignore_unused(ninf);
-    }
-}
-
-void CensusData::setInitialCasesRandom (AgentContainer& pc, /*!< Agent container (particle container) */
-                                        std::vector<int> num_cases, /*!< Number of initial cases */
-                                        const std::vector<std::string>& d_names, /*!< Disease names */
-                                        const bool fast_bin)
-{
-    BL_PROFILE("setInitialCasesRandom");
-
-    std::map<std::pair<int, int>, amrex::DenseBins<AgentContainer::ParticleType> > bin_map;
-
-    for (size_t d = 0; d < num_cases.size(); d++) {
-        amrex::Print() << "Initializing infections for " << d_names[d] << "\n";
-
-        int ninf = 0;
-        for (int ihub = 0; ihub < num_cases[d]; ++ihub) {
-            int i = 0;
-            while (i < 1) {
-                int nSuccesses = infect_random_community(pc, *this, bin_map, -1, d, 1, fast_bin);
-                ninf += nSuccesses;
-                i+= nSuccesses;
-            }
-        }
-        amrex::ignore_unused(ninf);
-    }
-}
-
-
-
-

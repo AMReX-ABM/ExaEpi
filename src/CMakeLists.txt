@@ -18,13 +18,17 @@ set(_sources
          IO.H
          IO.cpp
          InteractionModel.H
-         #InteractionModGeneric.H
          InteractionModHome.H
          InteractionModHomeNborhood.H
          InteractionModWorkNborhood.H
          InteractionModSchool.H
          InteractionModWork.H
          InteractionModelLibrary.H
+         InitializeInfections.H
+         InitializeInfections.cpp
+         UrbanPopAgentStruct.H
+         UrbanPopData.H
+         UrbanPopData.cpp
          Utils.H
          Utils.cpp)
 

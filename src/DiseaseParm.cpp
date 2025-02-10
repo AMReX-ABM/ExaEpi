@@ -6,95 +6,99 @@
 
 #include "AMReX_Print.H"
 
-using namespace amrex::literals;
+using namespace amrex;
 
-/*! \brief Read contact coefficients  from input file */
-void DiseaseParm::readContact ()
-{
-    std::string key = "contact";
-    amrex::ParmParse pp(key);
-    pp.query("pSC", pSC);
-    pp.query("pCO", pCO);
-    pp.query("pNH", pNH);
-    pp.query("pWO", pWO);
-    pp.query("pFA", pFA);
-    pp.query("pBAR", pBAR);
+void queryArray(ParmParse &pp, const std::string& s, Real* a, int n) {
+    Vector<Real> tmp(n, 0);
+    for (int i = 0; i < n; i++) {
+        tmp[i] = a[i];
+    }
+    pp.queryarr(s.c_str(), tmp, 0, n);
+    for (int i = 0; i < n; i++) {
+        a[i] = tmp[i];
+    }
+}
+
+void queryArray(ParmParse &pp, const std::string& s, int* a, int n) {
+    Vector<int> tmp(n, 0);
+    for (int i = 0; i < n; i++) {
+        tmp[i] = a[i];
+    }
+    pp.queryarr(s.c_str(), tmp, 0, n);
+    for (int i = 0; i < n; i++) {
+        a[i] = tmp[i];
+    }
 }
 
 /*! \brief Read disease inputs from input file */
 void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string */)
 {
-    amrex::ParmParse pp(a_pp_str);
-    pp.query("nstrain", nstrain);
-    AMREX_ASSERT(nstrain <= 2);
-    pp.query("reinfect_prob", reinfect_prob);
+    ParmParse pp(a_pp_str);
 
-    amrex::Vector<amrex::Real> t_p_trans(nstrain);
-    amrex::Vector<amrex::Real> t_p_asymp(nstrain);
-    amrex::Vector<amrex::Real> t_reduced_inf(nstrain);
-
-    // set correct default
-    for (int i = 0; i < nstrain; i++) {
-        t_p_trans[i] = p_trans[i];
-        t_p_asymp[i] = p_asymp[i];
-        t_reduced_inf[i] = reduced_inf[i];
+    std::string initial_case_type_str = (initial_case_type == CaseTypes::rnd ? "random" : "file");
+    pp.query("initial_case_type", initial_case_type_str);
+    if (initial_case_type_str == "file") {
+        initial_case_type = CaseTypes::file;
+        /*! Initial cases filename (CaseData::InitFromFile):
+        The case data file is an ASCII text file with three columns of numbers:
+        FIPS code, current number of cases, and cumulative number of cases till date. */
+        std::string case_filename_str(case_filename);
+        if (pp.contains("case_filename")) pp.get("case_filename", case_filename_str);
+        strncpy(case_filename, case_filename_str.c_str(), 254);
+    } else if (initial_case_type_str == "random") {
+        initial_case_type = CaseTypes::rnd;
+        pp.query("num_initial_cases", num_initial_cases);
+    } else {
+        amrex::Abort("initial case type not recognized");
     }
 
-    pp.queryarr("p_trans", t_p_trans, 0, nstrain);
-    pp.queryarr("p_asymp", t_p_asymp, 0, nstrain);
-    pp.queryarr("reduced_inf", t_reduced_inf, 0, nstrain);
+    queryArray(pp, "xmit_comm", xmit_comm, AgeGroups::total);
+    queryArray(pp, "xmit_hood", xmit_hood, AgeGroups::total);
+    queryArray(pp, "xmit_hh_adult", xmit_hh_adult, AgeGroups::total);
+    queryArray(pp, "xmit_hh_child", xmit_hh_child, AgeGroups::total);
+    queryArray(pp, "xmit_nc_adult", xmit_nc_adult, AgeGroups::total);
+    queryArray(pp, "xmit_nc_child", xmit_nc_child, AgeGroups::total);
 
-    for (int i = 0; i < nstrain; ++i) {
-        p_trans[i] = t_p_trans[i];
-        p_asymp[i] = t_p_asymp[i];
-        reduced_inf[i] = t_reduced_inf[i];
-    }
+    queryArray(pp, "xmit_school", xmit_school, SchoolType::total);
+    queryArray(pp, "xmit_school_a2c", xmit_school_a2c, SchoolType::total);
+    queryArray(pp, "xmit_school_c2a", xmit_school_c2a, SchoolType::total);
+
+    pp.query("xmit_work", xmit_work);
+
+    pp.query("p_trans", p_trans);
+    pp.query("p_asymp", p_asymp);
+    pp.query("asymp_relative_inf", asymp_relative_inf);
 
     pp.query("vac_eff", vac_eff);
+    // no support yet for vaccinations
+    AMREX_ALWAYS_ASSERT(vac_eff == 0);
 
-    pp.query("latent_length_mean", latent_length_mean);
-    pp.query("infectious_length_mean", infectious_length_mean);
-    pp.query("incubation_length_mean", incubation_length_mean);
+    pp.query("child_compliance", child_compliance);
+    pp.query("child_hh_closure", child_HH_closure);
 
-    pp.query("latent_length_std", latent_length_std);
-    pp.query("infectious_length_std", infectious_length_std);
-    pp.query("incubation_length_std", incubation_length_std);
+    pp.query("latent_length_alpha", latent_length_alpha);
+    pp.query("infectious_length_alpha", infectious_length_alpha);
+    pp.query("incubation_length_alpha", incubation_length_alpha);
 
-    pp.query("immune_length_mean", immune_length_mean);
-    pp.query("immune_length_std", immune_length_std);
+    pp.query("latent_length_beta", latent_length_beta);
+    pp.query("infectious_length_beta", infectious_length_beta);
+    pp.query("incubation_length_beta", incubation_length_beta);
 
-    amrex::Vector<amrex::Real> t_hosp(AgeGroups_Hosp::total);
+    pp.query("immune_length_alpha", immune_length_alpha);
+    pp.query("immune_length_beta", immune_length_beta);
+
+    m_t_hosp_offset = 0;
+    queryArray(pp, "hospitalization_days", m_t_hosp, AgeGroups_Hosp::total);
     for (int i = 0; i < AgeGroups_Hosp::total; i++) {
-        t_hosp[i] = m_t_hosp[i];
-    }
-    pp.queryarr("hospitalization_days", t_hosp, 0, AgeGroups_Hosp::total);
-    for (int i = 0; i < AgeGroups_Hosp::total; i++) {
-        m_t_hosp[i] = t_hosp[i];
-        if (t_hosp[i] > m_t_hosp_offset) {
-            m_t_hosp_offset = t_hosp[i] + 1;
-        }
+        if (m_t_hosp[i] > m_t_hosp_offset) m_t_hosp_offset = m_t_hosp[i] + 3;
     }
 
-    amrex::Vector<amrex::Real> CHR(AgeGroups::total);
-    amrex::Vector<amrex::Real> CIC(AgeGroups::total);
-    amrex::Vector<amrex::Real> CVE(AgeGroups::total);
-    amrex::Vector<amrex::Real> CVF(AgeGroups::total);
-    for (int i = 0; i < AgeGroups::total; i++) {
-        CHR[i] = m_CHR[i];
-        CIC[i] = m_CIC[i];
-        CVE[i] = m_CVE[i];
-        CVF[i] = m_CVF[i];
-    }
-    pp.queryarr("CHR", CHR, 0, AgeGroups::total);
-    pp.queryarr("CIC", CHR, 0, AgeGroups::total);
-    pp.queryarr("CVE", CHR, 0, AgeGroups::total);
-    pp.queryarr("CVF", CHR, 0, AgeGroups::total);
-    for (int i = 0; i < AgeGroups::total; i++) {
-        m_CHR[i] = CHR[i];
-        m_CIC[i] = CIC[i];
-        m_CVE[i] = CVE[i];
-        m_CVF[i] = CVF[i];
-    }
+    queryArray(pp, "CHR", m_CHR, AgeGroups::total);
+    queryArray(pp, "CIC", m_CIC, AgeGroups::total);
+    queryArray(pp, "CVE", m_CVE, AgeGroups::total);
+    queryArray(pp, "hospCVF", m_hospToDeath[DiseaseStats::hospitalization], AgeGroups::total);
+    queryArray(pp, "icuCVF", m_hospToDeath[DiseaseStats::ICU], AgeGroups::total);
+    queryArray(pp, "ventCVF", m_hospToDeath[DiseaseStats::ventilator], AgeGroups::total);
 }
 
 
@@ -105,143 +109,55 @@ void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string
 */
 void DiseaseParm::Initialize ()
 {
-    xmit_comm[0] = .0000125_rt*pCO;
-    xmit_comm[1] = .0000375_rt*pCO;
-    xmit_comm[2] = .00010_rt*pCO;
-    xmit_comm[3] = .00010_rt*pCO;
-    xmit_comm[4] = .00015_rt*pCO;
-
-    xmit_hood[0] = .00005_rt*pNH;
-    xmit_hood[1] = .00015_rt*pNH;
-    xmit_hood[2] = xmit_hood[3] = .00040_rt*pNH;
-    xmit_hood[4] = .00060_rt*pNH;
-
-    xmit_nc_adult[0] = xmit_nc_adult[1] = .08_rt*pHC;
-    xmit_nc_adult[2] = xmit_nc_adult[3] = xmit_nc_adult[4] = .1_rt*pHC;
-
-    xmit_nc_child[0] = xmit_nc_child[1] = .15_rt*pHC;
-    xmit_nc_child[2] = xmit_nc_child[3] = xmit_nc_child[4] = .08_rt*pHC;
-
-    xmit_work = 0.115_rt*pWO;
-
     // Optimistic scenario: 50% reduction in external child contacts during school dismissal
     //   or remote learning, and no change in household contacts
-    Child_compliance=0.5_rt; Child_HH_closure=1.0_rt;
+    child_compliance = 0.5_rt;
+    child_HH_closure = 2.0_rt;
     // Pessimistic scenario: 30% reduction in external child contacts during school dismissal
     //   or remote learning, and 2x increase in household contacts
     //  sch_compliance=0.3; sch_effect=2.0;
 
+    // Multiply contact rates by transmission probability given contact
+    xmit_work *= p_trans;
+
+    for (int i = 0; i < AgeGroups::total; i++) {
+        xmit_comm[i] *= p_trans;
+        xmit_hood[i] *= p_trans;
+        xmit_nc_adult[i] *= p_trans;
+        xmit_nc_child[i] *= p_trans;
+        xmit_hh_adult[i] *= p_trans;
+        xmit_hh_child[i] *= p_trans;
+    }
+
+    for (int i = 0; i < 5; i++) {
+        xmit_school[i] *= p_trans;
+        xmit_school_a2c[i] *= p_trans;
+        xmit_school_c2a[i] *= p_trans;
+    }
+
     /*
       Double household contact rate involving children, and reduce
       other child-related contacts (neighborhood cluster, neigborhood,
-      and community) by the compliance rate, Child_compliance
+      and community) by the compliance rate, child_compliance
     */
-    for (int i = 0; i < 5; i++) {
-        xmit_child_SC[i] = xmit_child[i] * Child_HH_closure;
-        xmit_nc_child_SC[i] = xmit_nc_child[i] * (1.0_rt - Child_compliance);
+    for (int i = 0; i < AgeGroups::total; i++) {
+        xmit_hh_child_SC[i] = xmit_hh_child[i] * child_HH_closure;
+        xmit_nc_child_SC[i] = xmit_nc_child[i] * (1.0_rt - child_compliance);
     }
-    for (int i = 0; i < 2; i++) {
-        xmit_adult_SC[i] = xmit_adult[i] * Child_HH_closure;
-        xmit_nc_adult_SC[i] = xmit_nc_adult[i] * (1.0_rt - Child_compliance);
-        xmit_comm_SC[i] = xmit_comm[i] * (1.0_rt - Child_compliance);
-        xmit_hood_SC[i] = xmit_hood[i] * (1.0_rt - Child_compliance);
+    // if receiver is a child
+    for (int i = 0; i < AgeGroups::a18to29; i++) {
+        xmit_hh_adult_SC[i] = xmit_hh_adult[i] * child_HH_closure;
+        xmit_nc_adult_SC[i] = xmit_nc_adult[i] * (1.0_rt - child_compliance);
+        xmit_comm_SC[i] = xmit_comm[i] * (1.0_rt - child_compliance);
+        xmit_hood_SC[i] = xmit_hood[i] * (1.0_rt - child_compliance);
     }
-    for (int i = 2; i < 5; i++) {
-        xmit_adult_SC[i] = xmit_adult[i];
-        xmit_nc_adult_SC[i] = xmit_nc_adult[i];    // Adult-only contacts remain unchanged
+    // if receiver is an adult, contacts remain unchanged
+    for (int i = AgeGroups::a18to29; i < AgeGroups::total; i++) {
+        xmit_hh_adult_SC[i] = xmit_hh_adult[i];
+        xmit_nc_adult_SC[i] = xmit_nc_adult[i];
         xmit_comm_SC[i] = xmit_comm[i];
         xmit_hood_SC[i] = xmit_hood[i];
     }
 
-    // Multiply contact rates by transmission probability given contact
-    xmit_work *= p_trans[0];
-
-    for (int i = 0; i < 5; i++) {
-        xmit_comm[i] *= p_trans[0];
-        xmit_hood[i] *= p_trans[0];
-        xmit_nc_adult[i] *= p_trans[0];
-        xmit_nc_child[i] *= p_trans[0];
-        xmit_adult[i] *= p_trans[0];
-        xmit_child[i] *= p_trans[0];
-    }
-
-    for (int i = 1; i < 7; i++) xmit_school[i] *= p_trans[0];
-    for (int i = 1; i < 5; i++) {
-        xmit_child_SC[i] *= p_trans[0];
-        xmit_adult_SC[i] *= p_trans[0];
-        xmit_nc_child_SC[i] *= p_trans[0];
-        xmit_nc_adult_SC[i] *= p_trans[0];
-        xmit_comm_SC[i] *= p_trans[0];
-        xmit_hood_SC[i] *= p_trans[0];
-        xmit_sch_c2a[i] *= p_trans[0];
-        xmit_sch_a2c[i] *= p_trans[0];
-    }
-
-    infect = 1.0_rt;
 }
 
-/*! \brief Print disease parameters */
-void DiseaseParm::printMatrix () {
-    amrex::Print() << "xmit_comm: " << " ";
-    for (int i = 0; i < 5; ++i) {
-        amrex::Print() << xmit_comm[i] << " ";
-    }
-    amrex::Print() << "\n";
-
-    amrex::Print() << "xmit_hood: " <<  " ";
-    for (int i = 0; i < 5; ++i) {
-        amrex::Print() << xmit_hood[i] << " ";
-    }
-    amrex::Print() << "\n";
-
-    amrex::Print() << "xmit_nc_adult: " << " ";
-    for (int i = 0; i < 5; ++i) {
-        amrex::Print() << xmit_nc_adult[i] << " ";
-    }
-    amrex::Print() << "\n";
-
-    amrex::Print() << "xmit_nc_child: " << " ";
-    for (int i = 0; i < 5; ++i) {
-        amrex::Print() << xmit_nc_child[i] << " ";
-    }
-    amrex::Print() << "\n";
-
-    amrex::Print() << "xmit_work: " << " ";
-    amrex::Print() << xmit_work << "\n";
-
-    amrex::Print() << "xmit_child_SC: " << " ";
-    for (int i = 0; i < 5; ++i) {
-        amrex::Print() << xmit_child_SC[i] << " ";
-    }
-    amrex::Print() << "\n";
-
-    amrex::Print() << "xmit_nc_child_SC: " << " ";
-    for (int i = 0; i < 5; ++i) {
-        amrex::Print() << xmit_nc_child_SC[i] << " ";
-    }
-    amrex::Print() << "\n";
-
-    amrex::Print() << "xmit_adult_SC: " << " ";
-    for (int i = 0; i < 2; ++i) {
-        amrex::Print() << xmit_adult_SC[i] << " ";
-    }
-    amrex::Print() << "\n";
-
-    amrex::Print() << "xmit_nc_adult_SC: " << " ";
-    for (int i = 0; i < 2; ++i) {
-        amrex::Print() << xmit_nc_adult_SC[i] << " ";
-    }
-    amrex::Print() << "\n";
-
-    amrex::Print() << "xmit_hood_SC: " << " ";
-    for (int i = 0; i < 2; ++i) {
-        amrex::Print() << xmit_hood_SC[i] << " ";
-    }
-    amrex::Print() << "\n";
-
-    amrex::Print() << "xmit_comm_SC: " << " ";
-    for (int i = 0; i < 2; ++i) {
-        amrex::Print() << xmit_comm_SC[i] << " ";
-    }
-    amrex::Print() << "\n";
-}

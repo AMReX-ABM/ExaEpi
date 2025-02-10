@@ -2,7 +2,7 @@
 export proj=m3623_g
 
 # required dependencies
-module load cmake/3.22.0
+module load cmake
 module load PrgEnv-gnu
 module load cudatoolkit
 

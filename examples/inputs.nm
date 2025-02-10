@@ -1,0 +1,32 @@
+# settings for the census input type
+# agent.ic_type = "census"
+agent.census_filename = "../CensusData/NM_TX_2010.dat"
+agent.workerflow_filename = "../CensusData/US-wf.bin"
+
+# settings for the urbanpop input type
+# agent.ic_type = "urbanpop"
+agent.urbanpop_filename = "../UrbanPop/NM_35/urbanpop_nm"
+
+agent.nsteps = 70
+#agent.seed = 11
+
+disease.initial_case_type = "file"
+disease.case_filename = "../CaseData/nm-july4.cases"
+
+# agent.number_of_diseases = 2
+# agent.disease_names = "covid" "flu"
+
+# disease.initial_case_type = "random" "random"
+# disease.num_initial_cases = 1000
+
+# setting these results in simulations with similar outcomes between UrbanPop and Census
+# disease.hospitalization_days = 6 6 6
+# disease.CHR = 0.1 0.1 0.1 0.1 0.1 0.1
+# disease.CIC = 0.3 0.3 0.3 0.3 0.3 0.3
+# disease.CVE = 0.15 0.15 0.15 0.15 0.15 0.15
+# disease.hospCVF = 0 0 0 0 0 0
+# disease.icuCVF = 0 0 0 0 0 0.0
+# disease.ventCVF = 0.3 0.3 0.3 0.3 0.3 0.3
+
+# disease_flu.num_initial_cases = 100
+# disease_flu.p_trans = 0.3

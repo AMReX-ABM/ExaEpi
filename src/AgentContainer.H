@@ -18,12 +18,65 @@
 #include <AMReX_Vector.H>
 
 #include "AgentDefinitions.H"
+#include "Utils.H"
 #include "DiseaseParm.H"
 #include "DiseaseCoupling.H"
 #include "DiseaseStatus.H"
 #include "HospitalModel.H"
 #include "InteractionModelLibrary.H"
 #include "AirTravelFlow.H"
+
+
+struct LngLatToGrid {
+    Real min_lng, min_lat;
+    Real gspacing_x, gspacing_y;
+
+    LngLatToGrid (Real _min_lng, Real _min_lat, Real _gspacing_x, Real _gspacing_y) {
+        init(_min_lng, _min_lat, _gspacing_x, _gspacing_y);
+    }
+
+    LngLatToGrid () {}
+
+    void init (Real _min_lng, Real _min_lat, Real _gspacing_x, Real _gspacing_y) {
+        min_lng = _min_lng;
+        min_lat = _min_lat;
+        gspacing_x = _gspacing_x;
+        gspacing_y = _gspacing_y;
+    }
+
+    AMREX_GPU_HOST_DEVICE
+    void operator() (Real lng, Real lat, int &x, int &y) const {
+        Real rx = (lng - min_lng) / gspacing_x;
+        Real ry = (lat - min_lat) / gspacing_y;
+        x = static_cast<int>(rx + 0.001_rt);
+        y = static_cast<int>(ry + 0.001_rt);
+    }
+};
+
+/*! Convert grid coordinates to latitude and longitude for UrbanPop data */
+struct GridToLngLat {
+    Real min_lng, min_lat;
+    Real gspacing_x, gspacing_y;
+
+    GridToLngLat (Real _min_lng, Real _min_lat, Real _gspacing_x, Real _gspacing_y) {
+        init(_min_lng, _min_lat, _gspacing_x, _gspacing_y);
+    }
+
+    GridToLngLat() {}
+
+    void init (Real _min_lng, Real _min_lat, Real _gspacing_x, Real _gspacing_y) {
+        min_lng = _min_lng;
+        min_lat = _min_lat;
+        gspacing_x = _gspacing_x;
+        gspacing_y = _gspacing_y;
+    }
+
+    AMREX_GPU_HOST_DEVICE
+    void operator() (int x, int y, Real &lng, Real &lat) const {
+        lng = (Real)x * gspacing_x + min_lng + 0.001_rt;
+        lat = (Real)y * gspacing_y + min_lat + 0.001_rt;
+    }
+};
 
 
 /*! \brief Derived class from ParticleContainer that defines agents and their functions */
@@ -47,7 +100,8 @@ public:
                     const amrex::BoxArray            & a_ba,
                     const int                        & a_num_diseases,
                     const std::vector<std::string>   & a_disease_names,
-                    const bool                       fast);
+                    const bool                       fast,
+                    const short                      a_ic_type);
 
     void morningCommute(amrex::MultiFab&);
 
@@ -109,55 +163,29 @@ public:
         return m_num_diseases;
     }
 
-    /* Since read_workerflow update worker status Unit-wise and not community-wise - Get total teacher needed for each unit */
-    inline const amrex::Gpu::DeviceVector<int>& getUnitTeacherCounts() const {
-        return m_unit_teacher_counts_d;
-    }
-    inline const amrex::Gpu::DeviceVector<int>& getCommDayCrTeacherCounts() const {
-        return m_comm_teacher_counts_daycr_d;
-    }
-    inline const amrex::Gpu::DeviceVector<int>& getCommHighTeacherCounts() const {
-        return m_comm_teacher_counts_high_d;
-    }
-    inline const amrex::Gpu::DeviceVector<int>& getCommMiddleTeacherCounts() const {
-        return m_comm_teacher_counts_middle_d;
-    }
-    inline const amrex::Gpu::DeviceVector<int>& getCommElem3TeacherCounts() const {
-        return m_comm_teacher_counts_elem3_d;
-    }
-    inline const amrex::Gpu::DeviceVector<int>& getCommElem4TeacherCounts() const {
-        return m_comm_teacher_counts_elem4_d;
-    }
-    inline const amrex::Gpu::DeviceVector<int>& getCommTeacherCounts() const {
-        return m_comm_teacher_counts_total_d;
-    }
-
-    /*! \brief return the symptomatic withdrawal status */
-    inline int symptomaticWithdraw() const {
-        return m_symptomatic_withdraw;
-    }
-
     /*! \brief return the symptomatic withdrawal compliance */
     inline amrex::Real symptomaticWithdrawCompliance() const {
         return m_symptomatic_withdraw_compliance;
     }
 
+    void printStudentTeacherCounts() const;
+
+    void printAgeGroupCounts() const;
+
     amrex::iMultiFab m_student_counts;
-    amrex::Gpu::DeviceVector<int> m_unit_teacher_counts_d;
-    amrex::Gpu::DeviceVector<int> m_comm_teacher_counts_total_d;
-    amrex::Gpu::DeviceVector<int> m_comm_teacher_counts_high_d;
-    amrex::Gpu::DeviceVector<int> m_comm_teacher_counts_middle_d;
-    amrex::Gpu::DeviceVector<int> m_comm_teacher_counts_elem3_d;
-    amrex::Gpu::DeviceVector<int> m_comm_teacher_counts_elem4_d;
-    amrex::Gpu::DeviceVector<int> m_comm_teacher_counts_daycr_d;
-    std::vector<long> m_student_teacher_ratios = {20, 20, 20, 20, 20, 1000000000}; // ignore daycare teachers since daycare interaction isnt handled yet!
+    /// Used only for Census data. A ratio for each school type: none, college, high, middle, elem, daycare
+    amrex::GpuArray<int, SchoolType::total> m_student_teacher_ratio = {0, 15, 15, 15, 15, 15};
 
     int m_num_diseases; /*!< Number of diseases */
-    std::vector<std::string> m_disease_names; /*!< names of the diseases */
+
+    amrex::iMultiFab comm_mf;
+
+    LngLatToGrid lnglat_to_grid;
+    GridToLngLat grid_to_lnglat;
+
+    short ic_type;
 
 protected:
-    int m_symptomatic_withdraw = 1; /*!< whether symptomatic agents withdraw or not */
-
     amrex::Real m_shelter_compliance = 0.95_rt; /*!< Shelter-in-place compliance rate */
     amrex::Real m_symptomatic_withdraw_compliance = 0.95_rt; /*!< Symptomatic withdrawal compliance rate */
 
@@ -166,7 +194,7 @@ protected:
 
     std::unique_ptr<DiseaseCouplingParm<PTDType>> m_disease_coupling;
 
-    std::map<std::string, IntModel*> m_interactions; /*!< Map of interaction models */
+    std::map<ExaEpi::InteractionNames, IntModel*> m_interactions; /*!< Map of interaction models */
     std::unique_ptr<HospitalModel<PCType, PTDType, PType>> m_hospital; /*!< hospital model */
 
     /*! Flag to indicate if agents are at work */
@@ -178,7 +206,7 @@ protected:
     Array<int, IntIdx::nattribs> max_attribute_values;
 
     /*! \brief queries if a given interaction type (model) is available */
-    inline bool haveInteractionModel( const std::string& a_mod_name ) const {
+    inline bool haveInteractionModel (ExaEpi::InteractionNames a_mod_name) const {
         return (m_interactions.find(a_mod_name) != m_interactions.end());
     }
 
@@ -187,5 +215,7 @@ protected:
 };
 
 using AgentIterator = typename AgentContainer::ParIterType;
+
+
 
 #endif

@@ -24,20 +24,9 @@ using namespace amrex;
 
 namespace ExaEpi
 {
+
     /*! \brief Name of models */
-    namespace InteractionNames
-    {
-        // The generic model is never used.
-        //const std::string generic = "generic";
-        const std::string home = "home";
-        const std::string work = "work";
-        const std::string school = "school";
-        const std::string home_nborhood = "home_neighborhood";
-        const std::string work_nborhood = "work_neighborhood";
-        const std::string transit = "transit";
-        const std::string random = "random";
-        const std::string airTravel = "airTravel";
-    }
+    AMREX_ENUM(InteractionNames, home, work, school, home_nborhood, work_nborhood, transit, random, airTravel);
 }
 
 /*! \brief Base class for defining interaction models
@@ -77,6 +66,7 @@ class InteractionModel
         std::map<std::pair<int, int>, amrex::DenseBins<PTDType> > m_bins;
 };
 
+#ifndef FAST_INTERACTIONS
 template <typename PTDType>
 struct Binner
 {
@@ -158,12 +148,14 @@ void interactAgentsImpl(IModel &interaction_model, AgentContainer& agents, int b
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for (MFIter mfi = agents.MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+        for (MFIter mfi = agents.MakeMFIter(lev); mfi.isValid(); ++mfi) {
             auto& ptile = agents.ParticlesAt(lev, mfi);
             const auto& ptd = ptile.getParticleTileData();
             const auto np = ptile.GetArrayOfStructs().numParticles();
+            if (np == 0) continue;
+
             auto& soa = ptile.GetStructOfArrays();
-            auto num_tiles = numTilesInBox(mfi.validbox(), true, bin_size);
+            auto num_tiles = numTilesInBox(mfi.tilebox(), true, bin_size);
 
             int max_group = 0;
             if (bin_idx != -1) {
@@ -181,17 +173,14 @@ void interactAgentsImpl(IModel &interaction_model, AgentContainer& agents, int b
 
             // agents are binned by community + another group. These values can change from one time step to the next so they
             // have to be recomputed (rebuild the bins) every time step
-            Binner<PTDType> binner(agents.Geom(lev), bin_size, mfi.validbox(), max_group, bin_idx);
+            Binner<PTDType> binner(agents.Geom(lev), bin_size, mfi.tilebox(), max_group, bin_idx);
             auto [bins_ptr, found] = interaction_model.getBins({mfi.index(), mfi.LocalTileIndex()});
             // If Redistribute() changes the order of particles (the default), then we need to rebuild each time step
-            //if (!found) {
-                // FIXME: there should be a command-line option to switch between the GPU and serial versions
-                // The GPU bin policy is faster, but non-deterministic.
-                if (interaction_model.fast_bin)
-                    bins_ptr->build(BinPolicy::GPU, np, ptd, num_tiles * max_group, binner);
-                else
-                    bins_ptr->build(BinPolicy::Serial, np, ptd, num_tiles * max_group, binner);
-            //}
+            // The GPU bin policy is faster, but non-deterministic.
+            if (interaction_model.fast_bin)
+                bins_ptr->build(BinPolicy::GPU, np, ptd, num_tiles * max_group, binner);
+            else
+                bins_ptr->build(BinPolicy::Serial, np, ptd, num_tiles * max_group, binner);
 
             AMREX_ALWAYS_ASSERT(bins_ptr->numBins() >= 0);
             auto inds = bins_ptr->permutationPtr();
@@ -241,34 +230,62 @@ template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 Real infectProb(const PTDType &ptd, int infectious_i, int susceptible_i, const Real* xmit_SC, const Real* xmit) {
     // school < 0 means a child normally attends school, but not today
-    if (ptd.m_idata[IntIdx::school][infectious_i] < 0) { // not attending school, use _SC contacts
+    if (ptd.m_idata[IntIdx::school_closed][infectious_i] == 1) { // school closed, use _SC contacts
         return xmit_SC[ptd.m_idata[IntIdx::age_group][susceptible_i]];
     } else {
         return xmit[ptd.m_idata[IntIdx::age_group][susceptible_i]];
     }
 }
-
+#endif
 
 template <typename PTDType>
 struct GetCommunityIndex
 {
-        GetCommunityIndex (const Geometry &geom, const Box &_valid_box) :  valid_box(_valid_box) {
+        //AMREX_GPU_HOST_DEVICE
+        void init (const Geometry &geom, const Box &_valid_box, Array4<int> const& comm_arr) {
+            valid_box = _valid_box;
             dxi = geom.InvCellSizeArray();
             plo = geom.ProbLoArray();
             domain = geom.Domain();
             bin_size = {AMREX_D_DECL(1, 1, 1)};
+
+            int max_communities = numTilesInBox(valid_box, true, bin_size);
+            comm_to_local_index_d.resize(max_communities, -1);
+            comm_to_local_index_d_ptr = comm_to_local_index_d.data();
+            auto d_ptr = comm_to_local_index_d_ptr;
+
+            num_comms = 0;
+            Gpu::DeviceScalar<int> num_comms_d(num_comms);
+            int* num_comms_ptr = num_comms_d.dataPtr();
+            auto bx = valid_box;
+
+            auto bsize = bin_size;
+            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
+                if (comm_arr(i, j, k) != -1) {
+                    Box tbx;
+                    auto ti = getTileIndex(IntVect(i, j), bx, true, bsize, tbx);
+                    d_ptr[ti] = Gpu::Atomic::Add(num_comms_ptr, 1);
+                }
+            });
+            Gpu::synchronize();
+            num_comms = num_comms_d.dataValue();
         }
 
         AMREX_GPU_HOST_DEVICE
         int operator() (const PTDType& ptd, int i) const noexcept {
             Box tbx;
             auto iv = getParticleCell(ptd, i, plo, dxi, domain);
-            return getTileIndex(iv, valid_box, true, bin_size, tbx);
+
+            auto index = comm_to_local_index_d_ptr[getTileIndex(iv, valid_box, true, bin_size, tbx)];
+
+            AMREX_ASSERT(index >= 0);
+            AMREX_ASSERT(index < num_comms);
+            return index;
         }
 
         AMREX_GPU_HOST_DEVICE
         int max() {
-            return numTilesInBox(valid_box, true, bin_size);
+            return num_comms;
         }
 
 
@@ -279,8 +296,23 @@ struct GetCommunityIndex
         Box domain;
         IntVect bin_size;
         Box valid_box;
+        Gpu::DeviceVector<int> comm_to_local_index_d;
+        int* comm_to_local_index_d_ptr;
+        int num_comms;
 };
 
+#ifdef AMREX_USE_CUDA
+#define dev_memset cudaMemset
+#else
+#define dev_memset memset
+#endif
 
+#ifdef AMREX_USE_OMP
+#define OMP_MAX_THREADS omp_get_max_threads()
+#define OMP_THREAD_NUM omp_get_thread_num()
+#else
+#define OMP_MAX_THREADS 1
+#define OMP_THREAD_NUM 0
+#endif
 
 #endif

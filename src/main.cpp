@@ -15,6 +15,10 @@
 #include "DemographicData.H"
 #include "IO.H"
 #include "Utils.H"
+#include "UrbanPopData.H"
+#include "InitializeInfections.H"
+
+#include "version.h"
 
 
 using namespace amrex;
@@ -22,14 +26,18 @@ using namespace ExaEpi;
 
 void runAgent();
 
-/*! \brief Set ExaEpi-specific defaults for memory-management */
+/*! \brief Set ExaEpi-specific defaults for memory-management and tiling */
 void override_amrex_defaults ()
 {
     amrex::ParmParse pp("amrex");
-
-    // ExaEpi currently assumes we have mananaged memory in the Arena
+    // ExaEpi should never require mananaged memory in the Arena
     bool the_arena_is_managed = true;
     pp.queryAdd("the_arena_is_managed", the_arena_is_managed);
+
+    amrex::ParmParse pp2("particles");
+    // enable for CPUs, disable for GPUs
+    bool do_tiling = TilingIfNotGPU();
+    pp2.queryAdd("do_tiling", do_tiling);
 }
 
 /*! \brief Main function: initializes AMReX, calls runAgent(), finalizes AMReX */
@@ -37,6 +45,8 @@ int main (int argc, /*!< Number of command line arguments */
           char* argv[] /*!< Command line arguments */)
 {
     amrex::Initialize(argc, argv, true, MPI_COMM_WORLD, override_amrex_defaults);
+
+    Print() << "ExaEpi version " << EXAEPI_VERSION << " (built on " << __DATE__ << ")\n";
 
     runAgent();
 
@@ -54,7 +64,7 @@ int main (int argc, /*!< Number of command line arguments */
         (see CaseData::InitFromFile)
     + Get computational domain from ExaEpi::Utils::get_geometry. Each grid cell corresponds to
       a community.
-    + Create box arrays and distribution mapping based on #ExaEpi::TestParams::max_grid_size.
+    + Create box arrays and distribution mapping based on #ExaEpi::TestParams::max_box_size.
     + Initialize the following MultiFabs:
       + Number of residents: 6 components - number of residents in age groups under-5, 5-17,
         18-29, 30-64, 65+, total.
@@ -103,24 +113,16 @@ void runAgent ()
         amrex::Print() << "    " << params.disease_names[d] << "\n";
     }
 
-    std::vector<CaseData> cases;
-    cases.resize(params.num_diseases);
-    for (int d = 0; d < params.num_diseases; d++) {
-        if (params.initial_case_type[d] == "file") {
-            cases[d].InitFromFile(params.disease_names[d],params.case_filename[d]);
-        }
-    }
-
     Geometry geom;
     BoxArray ba;
     DistributionMapping dm;
     CensusData censusData;
+    UrbanPopData urbanPopData;
 
     if (params.ic_type == ICType::Census) {
         censusData.init(params, geom, ba, dm);
     } else if (params.ic_type == ICType::UrbanPop) {
-        Abort("UrbanPop not yet implemented");
-        return;
+        urbanPopData.init(params, geom, ba, dm);
     }
 
     AirTravelFlow air;
@@ -161,8 +163,8 @@ void runAgent ()
                  << std::setw(12) << "Recovered"
                  << std::setw(12) << "Deaths"
                  << std::setw(15) << "Hospitalized"
-                 << std::setw(15) << "Ventilated"
-                 << std::setw(12) << "ICU"
+                 << std::setw(15) << "ICU"
+                 << std::setw(12) << "Ventilated"
                  << std::setw(12) << "Exposed"
                  << std::setw(15) << "Asymptomatic"
                  << std::setw(15) << "Presymptomatic"
@@ -188,25 +190,79 @@ void runAgent ()
     MultiFab mask_behavior(ba, dm, 1, 0);
     mask_behavior.setVal(1);
 
-    AgentContainer pc(geom, dm, ba, params.num_diseases, params.disease_names, params.fast);
-    if (params.air_travel_int > 0) pc.setAirTravel(censusData.unit_mf, air, censusData.demo);
+    AgentContainer pc(geom, dm, ba, params.num_diseases, params.disease_names, params.fast, params.ic_type);
+    bool stable_redistribute = !params.fast;
+    pc.setStableRedistribute(stable_redistribute);
 
     {
         BL_PROFILE_REGION("Initialization");
         if (params.ic_type == ICType::Census) {
             censusData.initAgents(pc, params.nborhood_size);
             censusData.read_workerflow(pc, params.workerflow_filename, params.workgroup_size);
-            if (params.initial_case_type[0] == "file") {
-                censusData.setInitialCasesFromFile(pc, cases, params.disease_names, params.fast);
-            } else {
-                censusData.setInitialCasesRandom(pc, params.num_initial_cases, params.disease_names, params.fast);
-            }
         } else if (params.ic_type == ICType::UrbanPop) {
-            Abort("UrbanPop not yet implemented");
+            urbanPopData.initAgents(pc, params);
         } else {
             Abort("Unimplemented ic_type");
         }
+
+        for (int d = 0; d < params.num_diseases; d++) {
+            auto disease_params = pc.getDiseaseParameters_h(d);
+            if (disease_params->initial_case_type == CaseTypes::file) {
+                CaseData cases;
+                cases.InitFromFile(disease_params->disease_name, std::string(disease_params->case_filename));
+                setInitialCasesFromFile(pc, cases, disease_params->disease_name, d,
+                                        (params.ic_type == ICType::Census ? censusData.demo.FIPS : urbanPopData.FIPS_codes),
+                                        (params.ic_type == ICType::Census ? censusData.demo.Start : urbanPopData.unit_community_start),
+                                        (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.comm_mf),
+                                        params.fast);
+            } else {
+                setInitialCasesRandom(pc, disease_params->num_initial_cases, disease_params->disease_name, d,
+                                      (params.ic_type == ICType::Census ? censusData.demo.Start : urbanPopData.unit_community_start),
+                                      (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.comm_mf),
+                                      params.fast);
+            }
+        }
+
+        pc.printStudentTeacherCounts();
+        pc.printAgeGroupCounts();
+
+        if (params.ic_type == ICType::Census && params.air_travel_int > 0)
+            pc.setAirTravel(censusData.unit_mf, air, censusData.demo);
     }
+
+//#define DUMP_INITIAL_AGENTS_ASCII
+#ifdef DUMP_INITIAL_AGENTS_ASCII
+    string agents_fname = std::string("agents.") + (params.ic_type == ICType::UrbanPop ? "urbanpop" : "census") + ".csv";
+    pc.WriteAsciiFile(agents_fname);
+    if (ParallelDescriptor::IOProcessor()) {
+        std::ofstream agents_f(agents_fname, std::ios_base::app);
+        agents_f << "#posx posy id cpu "
+                 << "treatment_timer "
+                 << "disease_counter "
+                 << "prob "
+                 << "incubation_period "
+                 << "infectious_period "
+                 << "symptomdev_period "
+                 << "age_group "
+                 << "family "
+                 << "home_i "
+                 << "home_j "
+                 << "work_i "
+                 << "work_j "
+                 << "hosp_i "
+                 << "hosp_j "
+                 << "nborhood "
+                 << "school "
+                 << "naics "
+                 << "workgroup "
+                 << "work_nborhood "
+                 << "withdrawn "
+                 << "random_travel "
+                 << "status "
+                 << "symptomatic\n";
+        agents_f.close();
+    }
+#endif
 
     std::vector<int>  step_of_peak(params.num_diseases, 0);
     std::vector<Long> num_infected_peak(params.num_diseases, 0);
@@ -223,6 +279,8 @@ void runAgent ()
     amrex::Real cur_time = 0;
 
     Vector<Long> num_infected(params.num_diseases, 0);
+
+    amrex::ParmParse::QueryUnusedInputs();
 
     {
         BL_PROFILE_REGION("Evolution");
@@ -276,8 +334,7 @@ void runAgent ()
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (!system::regtest_reduction) reduction(+:mmc[:4])
 #endif
-                        for (MFIter mfi(*(disease_stats[d]),true); mfi.isValid(); ++mfi)
-                        {
+                        for (MFIter mfi(*(disease_stats[d])); mfi.isValid(); ++mfi) {
                             Box const& bx = mfi.tilebox();
                             auto const& dfab = disease_stats[d]->const_array(mfi);
                             AMREX_LOOP_3D(bx, ii, jj, kk,
@@ -374,12 +431,13 @@ void runAgent ()
 
             std::chrono::duration<double> elapsed_time = std::chrono::high_resolution_clock::now() - start_time;
 
-            Print() << "[Day " << cur_time <<  " " << std::fixed << std::setprecision(1) << elapsed_time.count() << "s] ";
+            Print() << "[Day " << cur_time <<  " " << std::fixed << std::setprecision(1) << elapsed_time.count() << "s] infected: ";
             for (int d = 0; d < params.num_diseases; d++) {
-                if (d > 0) Print() << "; ";
-                Print() << params.disease_names[d] << ": " << num_infected[d] << " infected, " << cumulative_deaths[d] << " deaths";
+                if (d > 0) Print() << ", ";
+                Print() << params.disease_names[d] << " " << num_infected[d];
             }
-            Print() << "\n";
+            // the cumulative deaths are not tracked separately for each disease
+            Print() << "; deaths: " << cumulative_deaths[0] << "\n";
 
             cur_time += 1.0_rt; // time step is one day
         }

@@ -118,7 +118,10 @@ void writePlotFile (const AgentContainer& pc, /*!< Agent (particle) container */
         int_varnames.push_back ("trav_i"); write_int_comp.push_back(static_cast<int>(step==0));
         int_varnames.push_back ("trav_j"); write_int_comp.push_back(static_cast<int>(step==0));
         int_varnames.push_back ("nborhood"); write_int_comp.push_back(static_cast<int>(step==0));
-        int_varnames.push_back ("school"); write_int_comp.push_back(static_cast<int>(step==0));
+        int_varnames.push_back ("school_grade"); write_int_comp.push_back(static_cast<int>(step==0));
+        int_varnames.push_back ("school_id"); write_int_comp.push_back(static_cast<int>(step==0));
+        int_varnames.push_back ("school_closed"); write_int_comp.push_back(static_cast<int>(step==0));
+        int_varnames.push_back ("naics"); write_int_comp.push_back(static_cast<int>(step==0));
         int_varnames.push_back ("workgroup"); write_int_comp.push_back(static_cast<int>(step==0));
         int_varnames.push_back ("work_nborhood"); write_int_comp.push_back(static_cast<int>(step==0));
         int_varnames.push_back ("withdrawn"); write_int_comp.push_back(1);
@@ -133,7 +136,6 @@ void writePlotFile (const AgentContainer& pc, /*!< Agent (particle) container */
             real_varnames.push_back("infectious_period"); write_real_comp.push_back(static_cast<int>(step==0));
             real_varnames.push_back("incubation_period"); write_real_comp.push_back(static_cast<int>(step==0));
             int_varnames.push_back ("status"); write_int_comp.push_back(1);
-            int_varnames.push_back ("strain"); write_int_comp.push_back(static_cast<int>(step==0));
             int_varnames.push_back ("symptomatic"); write_int_comp.push_back(1);
         } else {
             for (int d = 0; d < num_diseases; d++) {
@@ -144,7 +146,6 @@ void writePlotFile (const AgentContainer& pc, /*!< Agent (particle) container */
                 real_varnames.push_back(disease_names[d]+"_infectious_period"); write_real_comp.push_back(static_cast<int>(step==0));
                 real_varnames.push_back(disease_names[d]+"_incubation_period"); write_real_comp.push_back(static_cast<int>(step==0));
                 int_varnames.push_back (disease_names[d]+"_status"); write_int_comp.push_back(1);
-                int_varnames.push_back (disease_names[d]+"_strain"); write_int_comp.push_back(static_cast<int>(step==0));
                 int_varnames.push_back (disease_names[d]+"_symptomatic"); write_int_comp.push_back(1);
             }
         }
@@ -215,8 +216,7 @@ void writeFIPSData (const AgentContainer& agents, /*!< Agents (particle) contain
 #pragma omp parallel if (amrex::Gpu::notInLaunchRegion())
 #endif
             {
-                for (MFIter mfi(*mf_vec[lev], TilingIfNotGPU()); mfi.isValid(); ++mfi)
-                {
+                for (MFIter mfi(*mf_vec[lev]); mfi.isValid(); ++mfi) {
                     auto unit_arr = censusData.unit_mf[mfi].array();
                     auto cell_data_arr = (*mf_vec[lev])[mfi].array();
 

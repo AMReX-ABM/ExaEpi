@@ -29,9 +29,9 @@ struct RealIdxDisease
         treatment_timer = 0,    /*!< Timer since hospital admission */
         disease_counter,        /*!< Counter since start of infection */
         prob,                   /*!< Probability of infection */
-        latent_period,          /*!< Time until infectious */
+        latent_period,          /*!< Time until infectious, which could be before symptoms appear */
         infectious_period,      /*!< Length of time infectious */
-        incubation_period,      /*!< Time until symptoms would develop */
+        incubation_period,      /*!< Time until symptoms appear */
         nattribs                /*!< number of real-type attribute*/
     };
 };
@@ -51,7 +51,10 @@ struct IntIdx
         trav_i          /*!< air travel location index */,
         trav_j          /*!< air travel location index */,
         nborhood,       /*!< home neighborhood ID */
-        school,         /*!< school type (elementary, middle, high, none) */
+        school_grade,   /*!< school grade, including universities */
+        school_id,      /*!< ID for a given school */
+        school_closed,  /*!< 0 for open, 1 for closed */
+        naics,          /*!< industry NAICS code for business employed at */
         workgroup,      /*!< workgroup ID */
         work_nborhood,  /*!< work neighborhood ID */
         withdrawn,      /*!< quarantine status */
@@ -66,7 +69,6 @@ struct IntIdxDisease
 {
     enum {
         status = 0,     /*!< Disease status (#Status) */
-        strain,         /*!< virus strain */
         symptomatic,    /*!< currently symptomatic? 0: no, but will be, 1: yes, 2: no, and will remain so until recovered */
         nattribs        /*!< number of integer-type attribute */
     };
@@ -76,15 +78,31 @@ struct IntIdxDisease
 struct SchoolType
 {
     enum {
-        total = 0,   /*!< All School type */
-        high,    /*!< High School */
-        middle,      /*!< Middle School */
-        elem_3,      /*!< Elementary School Neighbordhood 1 & 2 */
-        elem_4,      /*!< Elementary School Neighbordhood 3 & 4 */
-        day_care,     /*!< Day care + Playground */
-        total_school_type
+        none,          /*!< Not in school */
+        college,
+        high,
+        middle,
+        elem,
+        daycare,
+        total
     };
 };
+
+/*! \brief School types used only in initializing census data approach */
+struct SchoolCensusIDType
+{
+    enum {
+        none,           /*!< Not in school */
+        high_1,         /*!< High School */
+        middle_2,       /*!< Middle School */
+        elem_3,         /*!< Elementary School, nborhoods 1 and 2 */
+        elem_4,         /*!< Elementary School, nborhoods 3 and 4 */
+        daycare_5,      /*!< Day care + Playground */
+        total
+    };
+};
+
+
 
 /*! \brief Age Group */
 struct AgeGroups
@@ -93,7 +111,8 @@ struct AgeGroups
         u5 = 0, /*!< Under 5 */
         a5to17,  /*!< 5-17 */
         a18to29, /*!< 18-29 */
-        a30to64, /*!< 30-64 */
+        a30to49, /*!< 30-49 */
+        a50to64,
         o65,    /*!< over 65 */
         total   /*!< number of age groups */
     };
@@ -198,7 +217,7 @@ template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 bool notSusceptible ( const int      a_idx, /*!< Agent index */
                       const PTDType& a_ptd, /*!< Particle tile data */
-                     const int       a_d    /*!< Disease index */ )
+                      const int       a_d    /*!< Disease index */ )
 {
     return (   (a_ptd.m_runtime_idata[i0(a_d)+IntIdxDisease::status][a_idx] == Status::immune)
             || (a_ptd.m_runtime_idata[i0(a_d)+IntIdxDisease::status][a_idx] == Status::dead)
@@ -221,8 +240,27 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 bool isAnAdult (const int      a_idx, /*!< Agent index */
                 const PTDType& a_ptd  /*!< Particle tile data */ )
 {
-    return a_ptd.m_idata[IntIdx::age_group][a_idx] > 1;
+    return a_ptd.m_idata[IntIdx::age_group][a_idx] > AgeGroups::a5to17;
 }
 
+// grade definitions
+// 0: "childcare",
+// 1: "k12pub_preschl", 2: "k12pub_kind", 3: "k12pub_1st", 4: "k12pub_2nd", 5: "k12pub_3rd", 6: "k12pub_4th", 7: "k12pub_5th",
+// 8: "k12pub_6th", 9: "k12pub_7th", 10: "k12pub_8th",
+// 11: "k12pub_9th", 12: "k12pub_10th", 13: "k12pub_11th", 14: "k12pub_12th",
+// 15: "k12pv_preschl", 16: "k12pv_kind", 17: "k12pv_1st", 18: "k12pv_2nd", 19: "k12pv_3rd", 20: "k12pv_4th", 21: "k12pv_5th",
+// 22: "k12pv_6th", 23: "k12pv_7th", 24: "k12pv_8th",
+// 25: "k12pv_9th", 26: "k12pv_10th", 27: "k12pv_11th", 28: "k12pv_12th",
+// 29: "undergrad", 30: "grad"
+
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+static int getSchoolType(const int grade) {
+    if (grade == 0) return SchoolType::daycare;
+    if ((grade >= 1 && grade <= 7) || (grade >= 15 && grade <= 21)) return SchoolType::elem;
+    if ((grade >= 8 && grade <= 10) || (grade >= 22 && grade <= 24)) return SchoolType::middle;
+    if ((grade >= 11 && grade <= 14) || (grade >= 25 && grade <= 28)) return SchoolType::high;
+    if (grade >= 29) return SchoolType::college;
+    return SchoolType::none;
+}
 
 #endif

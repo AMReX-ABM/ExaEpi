@@ -42,17 +42,7 @@ struct CensusData
 
     void read_workerflow (AgentContainer& pc, const std::string &workerflow_filename, const int workgroup_size);
 
-    void setInitialCasesFromFile (AgentContainer& pc,
-                                  const std::vector<CaseData>& cases,
-                                  const std::vector<std::string>& names,
-                                  const bool fast_bin);
-
-    void setInitialCasesRandom (AgentContainer& pc,
-                                std::vector<int> num_cases,
-                                const std::vector<std::string>& names,
-                                const bool fast_bin);
-
-  private:
+  //private:
     void assignTeachersAndWorkgroup (AgentContainer& pc, const int workgroup_size);
 
 };

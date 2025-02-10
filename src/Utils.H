@@ -23,16 +23,16 @@ struct TestParams
 {
     amrex::IntVect size;                /*!< domain size; (used only for ic_type = demo)
                                              (see ExaEpi::Utils::get_geometry) */
-    int max_grid_size;                  /*!< box size */
-    int nsteps;                         /*!< number of simulation steps */
-    int plot_int;                       /*!< plot interval (see ExaEpi::IO::writePlotFile) */
-    int random_travel_int;              /*!< steps between random travel events
+    int max_box_size;                   /*!< box size */
+    int nsteps = 1;                     /*!< number of simulation steps */
+    int plot_int = -1;                  /*!< plot interval (see ExaEpi::IO::writePlotFile) */
+    int random_travel_int = -1;         /*!< steps between random travel events
                                              (see AgentContainer::moveRandomTravel) */
-    amrex::Real random_travel_prob;     /*!< probability of an agent going on random travel */
-    int air_travel_int;
+    amrex::Real random_travel_prob = amrex::Real(0.0001);     /*!< probability of an agent going on random travel */
+    int air_travel_int = -1;
     short ic_type;                      /*!< initialization type (see ExaEpi::ICType) */
 
-    int num_diseases;   /*!< Number of diseases to track */
+    int num_diseases = 1;               /*!< Number of diseases to track */
     std::vector<std::string> disease_names; /*!< Names of the diseases */
 
     /*! Census data filename (DemographicData::InitFromFile)
@@ -64,16 +64,7 @@ struct TestParams
     */
     std::string workerflow_filename;
 
-    /*! Initial case type (random or read from file) */
-    std::vector<std::string> initial_case_type;
-    /*! Number of initial cases (in case of random initialization) */
-    std::vector<int> num_initial_cases;
-    /*! Initial cases filename (CaseData::InitFromFile):
-        The case data file is an ASCII text file with three columns of numbers:
-        FIPS code, current number of cases, and cumulative number of cases till date. */
-    std::vector<std::string> case_filename;
-
-    int aggregated_diag_int;            /*!< interval for writing aggregated diagnostic data
+    int aggregated_diag_int = -1;       /*!< interval for writing aggregated diagnostic data
                                              (see: ExaEpi::IO::writeFIPSData) */
     std::string aggregated_diag_prefix; /*!< filename prefix for diagnostic data
                                              (see: ExaEpi::IO::writeFIPSData) */
@@ -84,7 +75,7 @@ struct TestParams
     int nborhood_size = 500;
     int workgroup_size = 20;
 
-    bool fast = true;       /*!< Use the fast implementations for various operations, e.g. binning, at the cost of
+    bool fast = false;       /*!< Use the fast implementations for various operations, e.g. binning, at the cost of
                                  exact reproducibility for a given random seed. */
 };
 

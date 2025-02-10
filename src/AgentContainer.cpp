@@ -5,6 +5,7 @@
 #include "AgentContainer.H"
 
 using namespace amrex;
+using namespace ExaEpi::Utils;
 
 
 /*! Add runtime SoA attributes */
@@ -27,7 +28,6 @@ void AgentContainer::add_attributes()
         }
         Print() << "Added " << count << " integer-type run-time SoA attibute(s).\n";
     }
-    return;
 }
 
 /*! Constructor:
@@ -40,18 +40,20 @@ AgentContainer::AgentContainer (const amrex::Geometry            & a_geom,  /*!<
                                 const amrex::BoxArray            & a_ba,    /*!< Box array */
                                 const int                        & a_num_diseases, /*!< Number of diseases */
                                 const std::vector<std::string>   & a_disease_names, /*!< names of the diseases */
-                                const bool                       fast  /*!< faster but non-deterministic computation*/)
+                                const bool                       fast,  /*!< faster but non-deterministic computation*/
+                                const short                      a_ic_type  /*!< type of initialization */)
     : amrex::ParticleContainer< 0,
                                 0,
                                 RealIdx::nattribs,
                                 IntIdx::nattribs> (a_geom, a_dmap, a_ba),
-        m_student_counts(a_ba, a_dmap, SchoolType::total_school_type, 0)
+        m_student_counts(a_ba, a_dmap, SchoolCensusIDType::total - 1, 0)
 {
     BL_PROFILE("AgentContainer::AgentContainer");
 
+    ic_type = a_ic_type;
+
     m_num_diseases = a_num_diseases;
     AMREX_ASSERT(m_num_diseases < ExaEpi::max_num_diseases);
-    m_disease_names = a_disease_names;
 
     m_student_counts.setVal(0);  // Initialize the MultiFab to zero
 
@@ -59,11 +61,17 @@ AgentContainer::AgentContainer (const amrex::Geometry            & a_geom,  /*!<
 
     {
         amrex::ParmParse pp("agent");
-        pp.query("symptomatic_withdraw", m_symptomatic_withdraw);
         pp.query("shelter_compliance", m_shelter_compliance);
         pp.query("symptomatic_withdraw_compliance", m_symptomatic_withdraw_compliance);
-        pp.queryarr("student_teacher_ratios", m_student_teacher_ratios);
+        int stratio[SchoolType::total];
+        for (unsigned int i = 0; i < SchoolType::total; i++) {
+            stratio[i] = m_student_teacher_ratio[i];
+        }
 
+        queryArray(pp, "student_teacher_ratio", stratio, SchoolType::total);
+        for (unsigned int i = 0; i < SchoolType::total; ++i) {
+            m_student_teacher_ratio[i] = stratio[i];
+        }
     }
 
     {
@@ -71,7 +79,6 @@ AgentContainer::AgentContainer (const amrex::Geometry            & a_geom,  /*!<
 
         /* Create the interaction model objects and push to container */
         m_interactions.clear();
-        //m_interactions[InteractionNames::generic] = new InteractionModGeneric<PCType,PTileType,PTDType,PType>;
         m_interactions[InteractionNames::home] = new InteractionModHome<PCType, PTDType, PType>(fast);
         m_interactions[InteractionNames::work] = new InteractionModWork<PCType, PTDType, PType>(fast);
         m_interactions[InteractionNames::school] = new InteractionModSchool<PCType, PTDType, PType>(fast);
@@ -85,14 +92,13 @@ AgentContainer::AgentContainer (const amrex::Geometry            & a_geom,  /*!<
     m_d_parm.resize(m_num_diseases);
 
     for (int d = 0; d < m_num_diseases; d++) {
-        m_h_parm[d] = new DiseaseParm{};
+        m_h_parm[d] = new DiseaseParm{a_disease_names[d]};
         m_d_parm[d] = (DiseaseParm*)amrex::The_Arena()->alloc(sizeof(DiseaseParm));
 
-        m_h_parm[d]->readContact();
         // first read inputs common to all diseases
         m_h_parm[d]->readInputs("disease");
         // now read any disease-specific input, if available
-        m_h_parm[d]->readInputs(std::string("disease_"+m_disease_names[d]));
+        m_h_parm[d]->readInputs(std::string("disease_" + a_disease_names[d]));
         m_h_parm[d]->Initialize();
 
 #ifdef AMREX_USE_GPU
@@ -105,7 +111,7 @@ AgentContainer::AgentContainer (const amrex::Geometry            & a_geom,  /*!<
     m_disease_coupling = std::make_unique<DiseaseCouplingParm<PTDType>>(m_num_diseases);
     m_disease_coupling->ReadInputs("disease_coupling");
 
-    max_attribute_values.fill(0);
+    max_attribute_values.fill(-1);
 }
 
 /*! \brief Send agents on a random walk around the neighborhood
@@ -124,8 +130,7 @@ void AgentContainer::moveAgentsRandomWalk ()
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for(MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
-        {
+        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
             int gid = mfi.index();
             int tid = mfi.LocalTileIndex();
             auto& ptile = plev[std::make_pair(gid, tid)];
@@ -157,11 +162,13 @@ void AgentContainer::moveAgentsToWork ()
         const auto dx = Geom(lev).CellSizeArray();
         auto& plev  = GetParticles(lev);
 
+        bool is_census = (ic_type == ExaEpi::ICType::Census);
+        auto grid_to_lnglat_ptr = &grid_to_lnglat;
+
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for(MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
-        {
+        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
             int gid = mfi.index();
             int tid = mfi.LocalTileIndex();
             auto& ptile = plev[std::make_pair(gid, tid)];
@@ -179,8 +186,15 @@ void AgentContainer::moveAgentsToWork ()
             {
                 if (!inHospital(ip, ptd)) {
                     ParticleType& p = pstruct[ip];
-                    p.pos(0) = (work_i_ptr[ip] + 0.5_prt)*dx[0];
-                    p.pos(1) = (work_j_ptr[ip] + 0.5_prt)*dx[1];
+                    if (is_census) { // using census data
+                        p.pos(0) = static_cast<ParticleReal>((work_i_ptr[ip] + 0.5_rt) * dx[0]);
+                        p.pos(1) = static_cast<ParticleReal>((work_j_ptr[ip] + 0.5_rt) * dx[1]);
+                    } else {
+                        Real lng, lat;
+                        (*grid_to_lnglat_ptr)(work_i_ptr[ip], work_j_ptr[ip], lng, lat);
+                        p.pos(0) = static_cast<ParticleReal>(lng);
+                        p.pos(1) = static_cast<ParticleReal>(lat);
+                    }
                 }
             });
         }
@@ -205,11 +219,13 @@ void AgentContainer::moveAgentsToHome ()
         const auto dx = Geom(lev).CellSizeArray();
         auto& plev  = GetParticles(lev);
 
+        bool is_census = (ic_type == ExaEpi::ICType::Census);
+        auto grid_to_lnglat_ptr = &grid_to_lnglat;
+
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for(MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
-        {
+        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
             int gid = mfi.index();
             int tid = mfi.LocalTileIndex();
             auto& ptile = plev[std::make_pair(gid, tid)];
@@ -227,8 +243,15 @@ void AgentContainer::moveAgentsToHome ()
             {
                 if (!inHospital(ip, ptd)) {
                     ParticleType& p = pstruct[ip];
-                    p.pos(0) = (home_i_ptr[ip] + 0.5_prt) * dx[0];
-                    p.pos(1) = (home_j_ptr[ip] + 0.5_prt) * dx[1];
+                    if (is_census) { // using census data
+                        p.pos(0) = static_cast<ParticleReal>((home_i_ptr[ip] + 0.5_rt) * dx[0]);
+                        p.pos(1) = static_cast<ParticleReal>((home_j_ptr[ip] + 0.5_rt) * dx[1]);
+                    } else {
+                        Real lng, lat;
+                        (*grid_to_lnglat_ptr)(home_i_ptr[ip], home_j_ptr[ip], lng, lat);
+                        p.pos(0) = static_cast<ParticleReal>(lng);
+                        p.pos(1) = static_cast<ParticleReal>(lat);
+                    }
                 }
             });
         }
@@ -258,8 +281,7 @@ void AgentContainer::moveRandomTravel (const amrex::Real random_travel_prob)
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
-        {
+        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
             auto& ptile = plev[{mfi.index(), mfi.LocalTileIndex()}];
             const auto& ptd = ptile.getParticleTileData();
             auto& aos   = ptile.GetArrayOfStructs();
@@ -302,7 +324,7 @@ void AgentContainer::moveAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for(MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        for(MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi)
         {
             const auto unit_arr = unit_mf[mfi].array();
             auto& ptile = plev[{mfi.index(), mfi.LocalTileIndex()}];
@@ -353,7 +375,7 @@ void AgentContainer::setAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air,
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for(MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        for(MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi)
         {
             const auto unit_arr = unit_mf[mfi].array();
             int gid = mfi.index();
@@ -383,8 +405,8 @@ void AgentContainer::setAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air,
                 int unit = unit_arr(home_i_ptr[i], home_j_ptr[i], 0);
                 int orgAirport= assigned_airport_ptr[unit];
                 int destAirport=-1;
-                float lowProb=0.0;
-                float random= amrex::Random(engine);
+                Real lowProb = 0.0_rt;
+                Real random = amrex::Random(engine);
                 //choose a destination airport for the agent (number of airports is often small, so let's visit in sequential order)
                 for(int idx= dest_airports_offset_ptr[orgAirport]; idx<dest_airports_offset_ptr[orgAirport+1]; idx++){
                         float hiProb= dest_airports_prob_ptr[idx];
@@ -396,7 +418,7 @@ void AgentContainer::setAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air,
                 }
                 if(destAirport >=0){
                   int destUnit=-1;
-                  float random1= amrex::Random(engine);
+                  Real random1= amrex::Random(engine);
                   int low=arrivalUnits_offset_ptr[destAirport], high=arrivalUnits_offset_ptr[destAirport+1];
                   if(high-low<=16){
                           //this sequential algo. is very slow when we have to go through hundreds or thoudsands of units to select a destination
@@ -446,11 +468,13 @@ void AgentContainer::returnRandomTravel ()
         auto& plev  = GetParticles(lev);
         const auto dx = Geom(lev).CellSizeArray();
 
+        bool is_census = (ic_type == ExaEpi::ICType::Census);
+        auto grid_to_lnglat_ptr = &grid_to_lnglat;
+
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
-        {
+        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
             auto& ptile = plev[{mfi.index(), mfi.LocalTileIndex()}];
             auto& aos   = ptile.GetArrayOfStructs();
             ParticleType* pstruct = &(aos[0]);
@@ -465,8 +489,15 @@ void AgentContainer::returnRandomTravel ()
                 if (random_travel_ptr[i] >= 0) {
                     ParticleType& p = pstruct[i];
                     random_travel_ptr[i] = -1;
-                    p.pos(0) = (home_i_ptr[i] + 0.5_prt) * dx[0];
-                    p.pos(1) = (home_j_ptr[i] + 0.5_prt) * dx[1];
+                    if (is_census) {
+                        p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
+                        p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
+                    } else {
+                        Real lng, lat;
+                        (*grid_to_lnglat_ptr)(home_i_ptr[i], home_j_ptr[i], lng, lat);
+                        p.pos(0) = static_cast<ParticleReal>(lng);
+                        p.pos(1) = static_cast<ParticleReal>(lat);
+                    }
                 }
             });
         }
@@ -487,10 +518,13 @@ void AgentContainer::returnAirTravel ()
         auto& plev  = GetParticles(lev);
         const auto dx = Geom(lev).CellSizeArray();
 
+        bool is_census = (ic_type == ExaEpi::ICType::Census);
+        auto grid_to_lnglat_ptr = &grid_to_lnglat;
+
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for(MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        for(MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi)
         {
             auto& ptile = plev[{mfi.index(), mfi.LocalTileIndex()}];
             auto& aos   = ptile.GetArrayOfStructs();
@@ -506,8 +540,15 @@ void AgentContainer::returnAirTravel ()
                 if (air_travel_ptr[i] >= 0) {
                     ParticleType& p = pstruct[i];
                     air_travel_ptr[i] = -1;
-                    p.pos(0) = (home_i_ptr[i] + 0.5_prt) * dx[0];
-                    p.pos(1) = (home_j_ptr[i] + 0.5_prt) * dx[1];
+                    if (is_census) { // using census data
+                        p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
+                        p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
+                    } else {
+                        Real lng, lat;
+                        (*grid_to_lnglat_ptr)(home_i_ptr[i], home_j_ptr[i], lng, lat);
+                        p.pos(0) = static_cast<ParticleReal>(lng);
+                        p.pos(1) = static_cast<ParticleReal>(lat);
+                    }
                 }
             });
         }
@@ -531,11 +572,13 @@ void AgentContainer::updateStatus ( MFPtrVec& a_disease_stats /*!< Community-wis
         const auto dx = Geom(lev).CellSizeArray();
         auto& plev  = GetParticles(lev);
 
+        bool is_census = (ic_type == ExaEpi::ICType::Census);
+        auto grid_to_lnglat_ptr = &grid_to_lnglat;
+
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for(MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
-        {
+        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
             int gid = mfi.index();
             int tid = mfi.LocalTileIndex();
             auto& ptile = plev[std::make_pair(gid, tid)];
@@ -553,8 +596,15 @@ void AgentContainer::updateStatus ( MFPtrVec& a_disease_stats /*!< Community-wis
             {
                 if (inHospital(ip, ptd)) {
                     ParticleType& p = pstruct[ip];
-                    p.pos(0) = (hosp_i_ptr[ip] + 0.5_prt)*dx[0];
-                    p.pos(1) = (hosp_j_ptr[ip] + 0.5_prt)*dx[1];
+                    if (is_census) {
+                        p.pos(0) = static_cast<ParticleReal>((hosp_i_ptr[ip] + 0.5_prt) * dx[0]);
+                        p.pos(1) = static_cast<ParticleReal>((hosp_j_ptr[ip] + 0.5_prt) * dx[1]);
+                    } else {
+                        Real lng, lat;
+                        (*grid_to_lnglat_ptr)(hosp_i_ptr[ip], hosp_j_ptr[ip], lng, lat);
+                        p.pos(0) = static_cast<ParticleReal>(lng);
+                        p.pos(1) = static_cast<ParticleReal>(lat);
+                    }
                 }
             });
         }
@@ -575,13 +625,14 @@ void AgentContainer::shelterStart ()
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for(MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
-        {
+        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
             int gid = mfi.index();
             int tid = mfi.LocalTileIndex();
             auto& ptile = plev[std::make_pair(gid, tid)];
             auto& soa   = ptile.GetStructOfArrays();
             const auto np = ptile.numParticles();
+            if (np == 0) continue;
+
             auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
 
             auto shelter_compliance = m_shelter_compliance;
@@ -610,13 +661,14 @@ void AgentContainer::shelterStop ()
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for(MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
-        {
+        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
             int gid = mfi.index();
             int tid = mfi.LocalTileIndex();
             auto& ptile = plev[std::make_pair(gid, tid)];
             auto& soa   = ptile.GetStructOfArrays();
             const auto np = ptile.numParticles();
+            if (np == 0) continue;
+
             auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
 
             amrex::ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
@@ -641,14 +693,14 @@ void AgentContainer::infectAgents ()
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for(MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
-        {
+        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
             int gid = mfi.index();
             int tid = mfi.LocalTileIndex();
             auto& ptile = plev[std::make_pair(gid, tid)];
             const auto& ptd = ptile.getParticleTileData();
             auto& soa   = ptile.GetStructOfArrays();
             const auto np = ptile.numParticles();
+            if (np == 0) continue;
 
             int i_RT = IntIdx::nattribs;
             int r_RT = RealIdx::nattribs;
@@ -658,13 +710,13 @@ void AgentContainer::infectAgents ()
 
                 auto status_ptr = soa.GetIntData(i_RT+i0(d)+IntIdxDisease::status).data();
 
-                auto counter_ptr           = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::disease_counter).data();
                 auto prob_ptr              = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::prob).data();
+                auto counter_ptr           = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::disease_counter).data();
                 auto latent_period_ptr     = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::latent_period).data();
                 auto infectious_period_ptr = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::infectious_period).data();
                 auto incubation_period_ptr = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::incubation_period).data();
 
-                auto* lparm = m_d_parm[d];
+                const auto lparm = m_d_parm[d];
 
                 Gpu::DeviceVector<ParticleReal> coimmunity, cosusceptibility;
                 coimmunity.resize(np);
@@ -679,22 +731,13 @@ void AgentContainer::infectAgents ()
                 amrex::ParallelForRNG( np,
                 [=] AMREX_GPU_DEVICE (int i, amrex::RandomEngine const& engine) noexcept
                 {
-                    prob_ptr[i] = 1.0_rt - prob_ptr[i]/cs_arr[i]; // this is probability of being infected
-                    prob_ptr[i] *= (1.0_rt - ci_arr[i]); // scale by (1 - net immunity)
+                    prob_ptr[i] = 1.0_prt - prob_ptr[i]/cs_arr[i]; // this is probability of being infected
+                    prob_ptr[i] *= (1.0_prt - ci_arr[i]); // scale by (1 - net immunity)
                     if ( status_ptr[i] == Status::never ||
                          status_ptr[i] == Status::susceptible ) {
                         if (amrex::Random(engine) < prob_ptr[i]) {
-                            status_ptr[i] = Status::infected;
-                            counter_ptr[i] = 0.0_rt;
-                            latent_period_ptr[i] = amrex::RandomNormal(lparm->latent_length_mean, lparm->latent_length_std, engine);
-                            infectious_period_ptr[i] = amrex::RandomNormal(lparm->infectious_length_mean, lparm->infectious_length_std, engine);
-                            incubation_period_ptr[i] = amrex::RandomNormal(lparm->incubation_length_mean, lparm->incubation_length_std, engine);
-                            if (latent_period_ptr[i] < 0) { latent_period_ptr[i] = 0.0_rt; }
-                            if (infectious_period_ptr[i] < 0) { infectious_period_ptr[i] = 0.0_rt; }
-                            if (incubation_period_ptr[i] < 0) { incubation_period_ptr[i] = 0.0_rt; }
-                            if (incubation_period_ptr[i] > (infectious_period_ptr[i]+latent_period_ptr[i])) {
-                                incubation_period_ptr[i] = std::floor(infectious_period_ptr[i]+latent_period_ptr[i]);
-                            }
+                            setInfected(&(status_ptr[i]), &(counter_ptr[i]), &(latent_period_ptr[i]), &(infectious_period_ptr[i]),
+                                        &(incubation_period_ptr[i]), engine, lparm);
                             return;
                         }
                     }
@@ -754,6 +797,9 @@ void AgentContainer::generateCellData (MultiFab& mf /*!< MultiFab with at least 
 
     Returns a vector with 5 components corresponding to each value of #Status; each element is
     the total number of agents at a step with the corresponding #Status (in that order).
+
+    Status list: 0 - never, 1 - infected, 2 - immune, 3 - susceptible, 4 - dead, 5 - exposed, 6 - asymptomatic,
+                 7 - presymptomatic, 8 - symptomatic
 */
 std::array<Long, 9> AgentContainer::getTotals (const int a_d /*!< disease index */) {
     BL_PROFILE("getTotals");
@@ -764,6 +810,7 @@ std::array<Long, 9> AgentContainer::getTotals (const int a_d /*!< disease index 
               {
                   int s[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
                   auto status = ptd.m_runtime_idata[i0(a_d)+IntIdxDisease::status][i];
+
 
                   AMREX_ALWAYS_ASSERT(status >= 0);
                   AMREX_ALWAYS_ASSERT(status <= 4);
@@ -799,9 +846,9 @@ std::array<Long, 9> AgentContainer::getTotals (const int a_d /*!< disease index 
 
 int AgentContainer::getMaxGroup (const int group_idx) {
     BL_PROFILE("getMaxGroup");
-    if (max_attribute_values[group_idx] == 0) {
-        amrex::ReduceOps<ReduceOpMax> reduce_ops;
-        auto r = amrex::ParticleReduce<ReduceData<int>> (*this,
+    if (max_attribute_values[group_idx] == -1) {
+        ReduceOps<ReduceOpMax> reduce_ops;
+        auto r = ParticleReduce<ReduceData<int>> (*this,
             [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd, const int i) noexcept
             -> GpuTuple<int>
             {
@@ -875,5 +922,76 @@ void AgentContainer::interactNight (MultiFab& a_mask_behavior /*!< Masking behav
     }
     if (haveInteractionModel(ExaEpi::InteractionNames::home_nborhood)) {
         m_interactions[ExaEpi::InteractionNames::home_nborhood]->interactAgents(*this, a_mask_behavior);
+    }
+}
+
+void AgentContainer::printStudentTeacherCounts() const {
+    ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum,
+              ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum> reduce_ops;
+    auto r = ParticleReduce<ReduceData<int, int, int, int, int, int, int, int, int, int>> (
+                *this, [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
+                                            const int i) noexcept
+                -> GpuTuple<int, int, int, int, int, int, int, int, int, int>
+            {
+                int counts[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+                if (ptd.m_idata[IntIdx::school_id][i] > 0) {
+                    int pos = (ptd.m_idata[IntIdx::workgroup][i] > 0 ? 0 : 5);
+                    int grade = ptd.m_idata[IntIdx::school_grade][i];
+                    counts[pos + getSchoolType(grade) - SchoolType::college] = 1;
+                }
+                return {counts[0], counts[1], counts[2], counts[3], counts[4],
+                        counts[5], counts[6], counts[7], counts[8], counts[9]};
+            }, reduce_ops);
+
+    std::array<Long, 10> counts = {amrex::get<0>(r), amrex::get<1>(r), amrex::get<2>(r), amrex::get<3>(r), amrex::get<4>(r),
+                                  amrex::get<5>(r), amrex::get<6>(r), amrex::get<7>(r), amrex::get<8>(r), amrex::get<9>(r)};
+    ParallelDescriptor::ReduceLongSum(&counts[0], 10, ParallelDescriptor::IOProcessorNumber());
+    if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
+        int total_educators = 0;
+        int total_students = 0;
+        for (int i = 0; i < 5; i++) {
+            total_educators += counts[i];
+            total_students += counts[i + 5];
+        }
+        Print() << "School counts: (educators, students, ratio)\n" << std::fixed << std::setprecision(1)
+                << "  College    " << counts[0] << " " << counts[5] << " " << ((Real)counts[5] / counts[0]) << "\n"
+                << "  High       " << counts[1] << " " << counts[6] << " " << ((Real)counts[6] / counts[1]) << "\n"
+                << "  Middle     " << counts[2] << " " << counts[7] << " " << ((Real)counts[7] / counts[2]) << "\n"
+                << "  Elementary " << counts[3] << " " << counts[8] << " " << ((Real)counts[8] / counts[3]) << "\n"
+                << "  Childcare  " << counts[4] << " " << counts[9] << " " << ((Real)counts[9] / counts[4]) << "\n"
+                << "  Total      " << total_educators << " " << total_students << " "
+                << ((Real)total_students / total_educators) << "\n";
+    }
+}
+
+void AgentContainer::printAgeGroupCounts() const {
+    ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum> reduce_ops;
+    auto r = ParticleReduce<ReduceData<int, int, int, int, int, int>> (
+                *this, [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
+                                            const int i) noexcept
+                -> GpuTuple<int, int, int, int, int, int>
+            {
+                int counts[6] = {0, 0, 0, 0, 0, 0};
+                int age_group = ptd.m_idata[IntIdx::age_group][i];
+                counts[age_group] = 1;
+                return {counts[0], counts[1], counts[2], counts[3], counts[4], counts[5]};
+            }, reduce_ops);
+
+    std::array<Long, 6> counts = {amrex::get<0>(r), amrex::get<1>(r), amrex::get<2>(r), amrex::get<3>(r), amrex::get<4>(r),
+                                  amrex::get<5>(r)};
+    ParallelDescriptor::ReduceLongSum(&counts[0], 6, ParallelDescriptor::IOProcessorNumber());
+    if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
+        int total_agents = 0;
+        for (int i = 0; i < 6; i++) {
+            total_agents += counts[i];
+        }
+        Print() << "Age group counts (percentage):\n" << std::fixed << std::setprecision(1)
+                << "  under 5   " << counts[0] << " " << 100.0 * (Real)counts[0] / total_agents << "\n"
+                << "  5 to 17    " << counts[1] << " " << 100.0 * (Real)counts[1] / total_agents << "\n"
+                << "  18 to 29   " << counts[2] << " " << 100.0 * (Real)counts[2] / total_agents << "\n"
+                << "  30 to 49   " << counts[3] << " " << 100.0 * (Real)counts[3] / total_agents << "\n"
+                << "  50 to 64   " << counts[4] << " " << 100.0 * (Real)counts[4] / total_agents << "\n"
+                << "  over 64    " << counts[5] << " " << 100.0 * (Real)counts[5] / total_agents << "\n"
+                << "  Total      " << total_agents << "\n";
     }
 }
