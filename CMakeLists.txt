@@ -22,7 +22,7 @@ set(AMReX_PARTICLES_PRECISION SINGLE CACHE INTERNAL "")
 #
 # Fetch amrex repo
 #
-set(AMReX_GIT_BRANCH "development" CACHE STRING "The AMReX branch to checkout")
+set(AMReX_GIT_BRANCH "f8204296ac5a79f7e5e3e8950e0f1ea82c57c3fd" CACHE STRING "The AMReX branch to checkout")
 set(AMReX_INSTALL  "NO" CACHE INTERNAL "Disable install target for amrex")
 
 include(FetchContent)
