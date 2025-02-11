@@ -731,8 +731,9 @@ void AgentContainer::infectAgents ()
                 amrex::ParallelForRNG( np,
                 [=] AMREX_GPU_DEVICE (int i, amrex::RandomEngine const& engine) noexcept
                 {
-                    prob_ptr[i] = 1.0_prt - prob_ptr[i]/cs_arr[i]; // this is probability of being infected
-                    prob_ptr[i] *= (1.0_prt - ci_arr[i]); // scale by (1 - net immunity)
+                    if (prob_ptr[i] == 1.0_prt) { prob_ptr[i] = 0.0_prt; }
+                    else { prob_ptr[i] = 1.0_prt - prob_ptr[i]/cs_arr[i]; }
+                    prob_ptr[i] *= (1.0_prt - ci_arr[i]);
                     if ( status_ptr[i] == Status::never ||
                          status_ptr[i] == Status::susceptible ) {
                         if (amrex::Random(engine) < prob_ptr[i]) {
