@@ -26,6 +26,7 @@ void assign_hospital( const int a_i, /*!< agent index */
                       int* const a_hosp_j, /*!< hospital index j */
                       const PTDType& a_ptd /*!< Particle tile data */ )
 {
+    AMREX_ALWAYS_ASSERT(!inHospital(a_i, a_ptd));
     auto home_i_ptr = a_ptd.m_idata[IntIdx::home_i];
     auto home_j_ptr = a_ptd.m_idata[IntIdx::home_j];
     a_hosp_i[a_i] = home_i_ptr[a_i];
@@ -173,7 +174,7 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
                                                                       &(marked_for_vent_ptr[i]),
                                                                       age_group_ptr[i],
                                                                       engine);
-                                if (timer_ptr[i] > 0) { marked_for_hosp_ptr[i] = 1; }
+                                if ( (timer_ptr[i] > 0) && (!inHospital(i,ptd)) ) { marked_for_hosp_ptr[i] = 1; }
                             }
                         } else if (!inHospital(i,ptd)) {
                             if (counter_ptr[i] >= (latent_period_ptr[i] + infectious_period_ptr[i])) {
@@ -191,12 +192,7 @@ void DiseaseStatus<AC,ACT,ACTD,A>::updateAgents(AC& a_agents, /*!< Agent contain
             }
 
             ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
-            {
-                // check if not in hospital because this agent could have already been assigned a hospital for another disease
-                if (marked_for_hosp_ptr[i] == 1 && !inHospital(i, ptd)) {
-                    assign_hospital( i, hosp_i_ptr, hosp_j_ptr, ptd);
-                }
-            });
+            { if (marked_for_hosp_ptr[i]) { assign_hospital( i, hosp_i_ptr, hosp_j_ptr, ptd); } });
 
             for (int d = 0; d < n_disease; d++) {
                 auto ds_arr = (*a_stats[d])[mfi].array();
