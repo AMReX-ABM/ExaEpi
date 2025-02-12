@@ -786,24 +786,25 @@ std::array<Long, 9> AgentContainer::getStatusTotals (const int a_d /*!< disease 
         infectious_to_dead = 4,
         recovered_to_susceptible = 5
 */
-#define N_SC_FIELDS 6
+#define N_SC_FIELDS 8
 std::array<Long, N_SC_FIELDS> AgentContainer::getStatusChangeTotals (const int a_d /*!< disease index */) {
     BL_PROFILE("getStatusTotals");
-    amrex::ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum> reduce_ops;
-    auto r = amrex::ParticleReduce<ReduceData<int, int, int, int, int, int>>(
+    amrex::ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum>
+            reduce_ops;
+    auto r = amrex::ParticleReduce<ReduceData<int, int, int, int, int, int, int, int>>(
             *this,
             [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
-                                 const int i) noexcept -> amrex::GpuTuple<int, int, int, int, int, int> {
-                int s[N_SC_FIELDS] = {0, 0, 0, 0, 0, 0};
+                                 const int i) noexcept -> amrex::GpuTuple<int, int, int, int, int, int, int, int> {
+                int s[N_SC_FIELDS] = {0, 0, 0, 0, 0, 0, 0, 0};
                 auto status_change = ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status_change][i];
                 AMREX_ALWAYS_ASSERT(status_change >= 0 && status_change < N_SC_FIELDS);
                 s[status_change] = 1;
-                return {s[0], s[1], s[2], s[3], s[4], s[5]};
+                return {s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]};
             },
             reduce_ops);
 
-    std::array<Long, N_SC_FIELDS> counts = {amrex::get<0>(r), amrex::get<1>(r), amrex::get<2>(r),
-                                            amrex::get<3>(r), amrex::get<4>(r), amrex::get<5>(r)};
+    std::array<Long, N_SC_FIELDS> counts = {amrex::get<0>(r), amrex::get<1>(r), amrex::get<2>(r), amrex::get<3>(r),
+                                            amrex::get<4>(r), amrex::get<5>(r), amrex::get<6>(r), amrex::get<7>(r)};
     ParallelDescriptor::ReduceLongSum(&counts[0], N_SC_FIELDS, ParallelDescriptor::IOProcessorNumber());
     return counts;
 }

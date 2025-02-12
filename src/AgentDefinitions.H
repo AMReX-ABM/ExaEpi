@@ -65,8 +65,7 @@ struct IntIdxDisease {
     enum {
         status = 0,    /*!< Disease status (#Status) */
         symptomatic,   /*!< currently symptomatic? 0: no, but will be, 1: yes, 2: no, and will remain so until recovered */
-        status_change, /*!< Change in status: 0 = none, 1 = susc to exposed, 2 = exposed to infectious, 3 = infectious to
-                          recovered, 4 = infectious to dead, 5 = recovered to sucseptible */
+        status_change, /*!< Change in status (#StatusChange) */
         nattribs       /*!< number of integer-type attribute */
     };
 };
@@ -137,8 +136,10 @@ struct StatusChange {
         susceptible_to_exposed = 1,
         exposed_to_infectious = 2,
         infectious_to_recovered = 3,
-        infectious_to_dead = 4,
-        recovered_to_susceptible = 5
+        infectious_to_hosp = 4,
+        hosp_to_recovered = 5,
+        hosp_to_dead = 6,
+        recovered_to_susceptible = 7
     };
 };
 

@@ -126,7 +126,7 @@ void DiseaseParm::initialize () {
         xmit_hh_child[i] *= p_trans;
     }
 
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < SchoolType::total; i++) {
         xmit_school[i] *= p_trans;
         xmit_school_a2c[i] *= p_trans;
         xmit_school_c2a[i] *= p_trans;

@@ -158,7 +158,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                             is_alive_ptr[i] = 0;
                             flag_status_ptr[i] *= -1;
                             status_ptrs[d][i] = Status::dead;
-                            status_change_ptrs[d][i] = StatusChange::infectious_to_dead;
+                            status_change_ptrs[d][i] = StatusChange::hosp_to_dead;
                         } else {
                             // If alive, hospitalized patient recovers
                             status_ptrs[d][i] = Status::immune;
@@ -167,7 +167,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                             symptomatic_ptrs[d][i] = SymptomStatus::presymptomatic;
                             withdrawn_ptr[i] = 0;
                             timer_ptrs[d][i] = 0.0_prt;
-                            status_change_ptrs[d][i] = StatusChange::infectious_to_recovered;
+                            status_change_ptrs[d][i] = StatusChange::hosp_to_recovered;
                         }
                     }
                 });
