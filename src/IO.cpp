@@ -264,5 +264,86 @@ void writeFIPSData (const AgentContainer& agents,                  /*!< Agents (
     }
 }
 
+/*! \brief Writes diagnostic data aggregated by block group
+
+    Writes a file with the total number of infected agents for each census block group;
+    it writes out the number of infected agents in the same order as the block groups in the UrbanPop .idx input file.
+    + Creates a output vector of size #UrbanPopData::num_communities
+    + Gets the disease status in agents from AgentContainer::generateCellData().
+    + On each processor, sets the block-group-th element of the output vector to the number of
+      infected agents in the block group on this processor belonging to that unit.
+    + Sum across all processors and write to file.
+*/
+void writeAggregatedData (const AgentContainer& agents,                  /*!< Agents (particle) container */
+                          const UrbanPopData& urbanpopData,              /*!< UrbanPop data */
+                          const std::string& prefix,                     /*!< Filename prefix */
+                          const int num_diseases,                        /*!< Number of diseases */
+                          const std::vector<std::string>& disease_names, /*!< Names of diseases */
+                          const int step /*!< Current step */) {
+    static const int ncomp_d = 5;
+    static const int ncomp = ncomp_d * num_diseases + 4;
+
+    static const int nlevs = std::max(0, agents.finestLevel() + 1);
+    std::vector<std::unique_ptr<MultiFab>> mf_vec;
+    mf_vec.resize(nlevs);
+    for (int lev = 0; lev < nlevs; ++lev) {
+        mf_vec[lev] = std::make_unique<MultiFab>(agents.ParticleBoxArray(lev), agents.ParticleDistributionMap(lev), ncomp, 0);
+        mf_vec[lev]->setVal(0.0);
+        agents.generateCellData(*mf_vec[lev]);
+    }
+
+    for (int d = 0; d < num_diseases; d++) {
+        amrex::Print() << "Generating diagnostic data by census block group " << "for " << disease_names[d] << "\n";
+        std::vector<amrex::Real> data(urbanpopData.num_communities, 0.0);
+        amrex::Gpu::DeviceVector<amrex::Real> d_data(data.size(), 0.0);
+        amrex::Real* const AMREX_RESTRICT data_ptr = d_data.dataPtr();
+
+        for (int lev = 0; lev < nlevs; ++lev) {
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (amrex::Gpu::notInLaunchRegion())
+#endif
+            {
+                for (MFIter mfi(*mf_vec[lev]); mfi.isValid(); ++mfi) {
+                    auto block_group_indices_arr = urbanpopData.community_mf[mfi].array();
+                    auto cell_data_arr = (*mf_vec[lev])[mfi].array();
+
+                    auto bx = mfi.tilebox();
+                    amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
+                        int block_group_i = block_group_indices_arr(i, j, k);
+                        if (block_group_i == -1) { return; }
+                        int num_infected = int(cell_data_arr(i, j, k, 2));
+                        // This should not require an atomic operation because each block group is at a separate i,j location
+                        // amrex::Gpu::Atomic::AddNoRet(&data_ptr[block_group_i], (amrex::Real)num_infected);
+                        data_ptr[block_group_i] = (amrex::Real)num_infected;
+                    });
+                }
+            }
+        }
+
+        // blocking copy from device to host
+        amrex::Gpu::copy(amrex::Gpu::deviceToHost, d_data.begin(), d_data.end(), data.begin());
+
+        // reduced sum over mpi ranks
+        ParallelDescriptor::ReduceRealSum(data.data(), data.size(), ParallelDescriptor::IOProcessorNumber());
+
+        if (ParallelDescriptor::IOProcessor()) {
+            std::string fn = amrex::Concatenate(prefix, step, 5);
+            if (num_diseases > 1) { fn += ("_" + disease_names[d]); }
+            std::ofstream ofs{fn, std::ofstream::out | std::ofstream::app};
+
+            // set precision
+            ofs << std::fixed << std::setprecision(14) << std::scientific;
+
+            // loop over data size and write
+            for (const auto& item : data) {
+                ofs << " " << item;
+            }
+
+            ofs << std::endl;
+            ofs.close();
+        }
+    }
+}
+
 } // namespace IO
 } // namespace ExaEpi

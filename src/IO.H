@@ -12,6 +12,7 @@
 
 #include "AgentContainer.H"
 #include "CensusData.H"
+#include "UrbanPopData.H"
 
 #include <string>
 
@@ -26,6 +27,9 @@ void writePlotFile(const AgentContainer& pc, const CensusData& censusData, const
 
 void writeFIPSData(const AgentContainer& pc, const CensusData& censusData, const std::string& prefix, const int num_diseases,
                    const std::vector<std::string>& disease_names, const int step);
+
+void writeAggregatedData(const AgentContainer& pc, const UrbanPopData& urbanpopData, const std::string& prefix,
+                         const int num_diseases, const std::vector<std::string>& disease_names, const int step);
 } // namespace IO
 } // namespace ExaEpi
 

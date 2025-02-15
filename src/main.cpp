@@ -204,14 +204,14 @@ void runAgent () {
                 setInitialCasesFromFile(pc, cases, disease_params->disease_name, d,
                                         (params.ic_type == ICType::Census ? censusData.demo.FIPS : urbanPopData.FIPS_codes),
                                         (params.ic_type == ICType::Census ? censusData.demo.Start
-                                                                          : urbanPopData.unit_community_start),
-                                        (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.comm_mf),
+                                                                          : urbanPopData.fips_community_start),
+                                        (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.community_mf),
                                         params.fast);
             } else {
                 setInitialCasesRandom(pc, disease_params->num_initial_cases, disease_params->disease_name, d,
                                       (params.ic_type == ICType::Census ? censusData.demo.Start
-                                                                        : urbanPopData.unit_community_start),
-                                      (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.comm_mf),
+                                                                        : urbanPopData.fips_community_start),
+                                      (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.community_mf),
                                       params.fast);
             }
         }
@@ -266,8 +266,13 @@ void runAgent () {
             }
 
             if ((params.aggregated_diag_int > 0) && (i % params.aggregated_diag_int == 0)) {
-                ExaEpi::IO::writeFIPSData(pc, censusData, params.aggregated_diag_prefix, params.num_diseases,
-                                          params.disease_names, i);
+                if (params.ic_type == ICType::Census) {
+                    ExaEpi::IO::writeFIPSData(pc, censusData, params.aggregated_diag_prefix, params.num_diseases,
+                                              params.disease_names, i);
+                } else {
+                    ExaEpi::IO::writeAggregatedData(pc, urbanPopData, params.aggregated_diag_prefix, params.num_diseases,
+                                                    params.disease_names, i);
+                }
             }
 
             // Update agents' disease status
@@ -419,7 +424,12 @@ void runAgent () {
     }
 
     if ((params.aggregated_diag_int > 0) && (params.nsteps % params.aggregated_diag_int == 0)) {
-        ExaEpi::IO::writeFIPSData(pc, censusData, params.aggregated_diag_prefix, params.num_diseases, params.disease_names,
-                                  params.nsteps);
+        if (params.ic_type == ICType::Census) {
+            ExaEpi::IO::writeFIPSData(pc, censusData, params.aggregated_diag_prefix, params.num_diseases, params.disease_names,
+                                      params.nsteps);
+        } else {
+            ExaEpi::IO::writeAggregatedData(pc, urbanPopData, params.aggregated_diag_prefix, params.num_diseases,
+                                            params.disease_names, params.nsteps);
+        }
     }
 }

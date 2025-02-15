@@ -39,11 +39,12 @@ struct UrbanPopData {
     amrex::Real min_lng, min_lat, max_lng, max_lat;
     amrex::Real gspacing_x, gspacing_y;
 
-    amrex::Vector<int> FIPS_codes;           /*!< FIPS codes for each unit */
-    amrex::Vector<int> unit_community_start; /*!< Starting community number (block group) for each unit */
+    // these three data structures are used for setting the initial cases
+    amrex::Vector<int> FIPS_codes;
+    amrex::Vector<int> fips_community_start;
 
-    amrex::iMultiFab FIPS_mf; /*!< FIPS code (component 0) and census tract number (component 1) of each community */
-    amrex::iMultiFab comm_mf; /*!< Community number */
+    amrex::iMultiFab geoid_mf;     /*!< FIPS code (component 0) and census block group number (component 1) of each block group */
+    amrex::iMultiFab community_mf; /*!< Index for community == block group */
 
     int num_communities;
 

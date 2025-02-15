@@ -183,7 +183,8 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
         block_group.block_i = i;
     }
 
-    // get FIPS codes and community numbers from block group array
+    // get FIPS codes and block group start indices from block group array. These vectors are used when initializing infections
+    // Each community is a block group
     int current_FIPS = -1;
     num_communities = 0;
     for (int i = 0; i < all_block_groups.size(); i++) {
@@ -192,19 +193,21 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
         int64_t fips = static_cast<int64_t>(block_group.geoid / 1e7);
         if (current_FIPS != fips) {
             FIPS_codes.push_back(fips);
-            unit_community_start.push_back(num_communities);
+            fips_community_start.push_back(num_communities);
             current_FIPS = fips;
         }
         num_communities++;
     }
-    unit_community_start.push_back(num_communities);
+    fips_community_start.push_back(num_communities);
 
     if (ParallelDescriptor::IOProcessor()) {
         Print() << "Found " << FIPS_codes.size() << " demographic units:\n";
-        for (int i = 0; i < FIPS_codes.size(); i++) {
-            Print() << "    FIPS " << FIPS_codes[i] << " " << unit_community_start[i] << "\n";
-        }
+        // for (int i = 0; i < FIPS_codes.size(); i++) {
+        //     Print() << "    FIPS " << FIPS_codes[i] << " " << fips_community_start[i] << "\n";
+        // }
     }
+
+    AMREX_ALWAYS_ASSERT(all_block_groups.size() == num_communities);
 
     // grid spacing is 1/10th minute of arc at the equator, which is about 0.12 regular miles
     Real gspacing = 0.1_prt / 60.0_prt;
@@ -284,10 +287,10 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
     dm.define(ba);
     dm.KnapSackProcessorMap(weights, NProcs());
 
-    FIPS_mf.define(ba, dm, 2, 0);
-    comm_mf.define(ba, dm, 1, 0);
-    FIPS_mf.setVal(-1);
-    comm_mf.setVal(-1);
+    geoid_mf.define(ba, dm, 2, 0);
+    community_mf.define(ba, dm, 1, 0);
+    geoid_mf.setVal(-1);
+    community_mf.setVal(-1);
 }
 
 void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& params) {
@@ -319,8 +322,8 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
     for (MFIter mfi = pc.MakeMFIter(0); mfi.isValid(); ++mfi) {
         const Box& tilebox = mfi.tilebox();
 
-        auto FIPS_arr = FIPS_mf[mfi].array();
-        auto comm_arr = comm_mf[mfi].array();
+        auto geoid_arr = geoid_mf[mfi].array();
+        auto block_group_indices_arr = community_mf[mfi].array();
 
         int min_x = lbound(tilebox).x;
         int max_x = ubound(tilebox).x + 1;
@@ -332,8 +335,8 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         Vector<int> group_home_populations;
         Vector<IntVect> xys;
         Vector<int> fips_codes;
-        Vector<int> tract_codes;
-        Vector<int> comms;
+        Vector<int> block_group_codes;
+        Vector<int> block_group_indices;
         // can't read the agent data from disk on the GPU
         for (int x = min_x; x < max_x; x++) {
             for (int y = min_y; y < max_y; y++) {
@@ -354,27 +357,27 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
 
                     // FIPS is the first 5 digits of the GEOID, which is 12 digits
                     int64_t fips = static_cast<int64_t>(block_group.geoid / 1e7);
-                    // Census tract is the 6 digits after the FIPS code
-                    int64_t tract = static_cast<int64_t>((block_group.geoid - (fips * 1e7)) / 10);
+                    // Census tract is the 7 remaining digits after the FIPS code
+                    int64_t block_group_code = static_cast<int64_t>(block_group.geoid - fips * 1e7);
                     xys.push_back(xy);
                     fips_codes.push_back((int)fips);
-                    tract_codes.push_back((int)tract);
-                    comms.push_back(block_group.block_i);
+                    block_group_codes.push_back((int)block_group_code);
+                    block_group_indices.push_back(block_group.block_i);
                 }
             }
         }
 
         auto xys_ptr = xys.data();
         auto fips_codes_ptr = fips_codes.data();
-        auto tract_codes_ptr = tract_codes.data();
-        auto comms_ptr = comms.data();
+        auto block_group_codes_ptr = block_group_codes.data();
+        auto block_group_indices_ptr = block_group_indices.data();
         int num_blocks = xys.size();
         ParallelFor(num_blocks, [=] AMREX_GPU_DEVICE (int i) noexcept {
             int x = xys_ptr[i][0];
             int y = xys_ptr[i][1];
-            FIPS_arr(x, y, 0, 0) = fips_codes_ptr[i];
-            FIPS_arr(x, y, 0, 1) = tract_codes_ptr[i];
-            comm_arr(x, y, 0) = comms_ptr[i];
+            geoid_arr(x, y, 0, 0) = fips_codes_ptr[i];
+            geoid_arr(x, y, 0, 1) = block_group_codes_ptr[i];
+            block_group_indices_arr(x, y, 0) = block_group_indices_ptr[i];
         });
         Gpu::synchronize();
 
@@ -428,12 +431,12 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         auto np = soa.numParticles();
         AMREX_ALWAYS_ASSERT(np == agents.size());
 
-        /*
+#ifdef CHECK_PARTICLE_LOCATIONS
         const auto& geom = pc.Geom(0);
         const auto domain = geom.Domain();
         const auto plo = geom.ProbLoArray();
         const auto dxi = geom.InvCellSizeArray();
-        */
+#endif
 
         ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
             auto& p = aos[i];
@@ -445,12 +448,12 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             p.pos(1) = agent.home_lat;
             lnglat_to_grid(agent.home_lng, agent.home_lat, home_i_ptr[i], home_j_ptr[i]);
             AMREX_ASSERT(tilebox.contains(IntVect(home_i_ptr[i], home_j_ptr[i])));
-            /*
+#ifdef CHECK_PARTICLE_LOCATIONS
             // this is the code for checking particle locations within boxes that is called by Ok()
             AgentContainer::CellAssignor assignor;
             IntVect iv2 = assignor(p, plo, dxi, domain);
             AMREX_ASSERT(tilebox.contains(iv2));
-            */
+#endif
             // Age group (under 5, 5-17, 18-29, 30-64, 65+)
             if (agent.age < 5) {
                 age_group_ptr[i] = AgeGroups::u5;
@@ -520,8 +523,8 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
 
     AMREX_ALWAYS_ASSERT(pc.OK());
 
-    pc.comm_mf.define(comm_mf.boxArray(), comm_mf.DistributionMap(), 1, 0);
-    iMultiFab::Copy(pc.comm_mf, comm_mf, 0, 0, 1, 0);
+    pc.comm_mf.define(community_mf.boxArray(), community_mf.DistributionMap(), 1, 0);
+    iMultiFab::Copy(pc.comm_mf, community_mf, 0, 0, 1, 0);
 
     AllPrint() << "Process " << MyProc() << ": population " << home_population << " in " << num_communities << " communities\n";
     auto [all_num_communities, load_balance_communities] = getAllLoadBalance(num_communities);
