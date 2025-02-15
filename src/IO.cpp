@@ -42,7 +42,9 @@ namespace IO {
     + Write agents to file - see AgentContainer::WritePlotFile().
 */
 void writePlotFile (const AgentContainer& pc,                      /*!< Agent (particle) container */
-                    const CensusData& censusData,                  /*!< Contains census data */
+                    const iMultiFab* unit_mf_ptr,                  /*!< MultiFabs to write out */
+                    const iMultiFab* FIPS_mf_ptr,                  /*!< MultiFabs to write out */
+                    const iMultiFab* comm_mf_ptr,                  /*!< MultiFabs to write out */
                     const int num_diseases,                        /*!< Number of diseases */
                     const std::vector<std::string>& disease_names, /*!< Names of diseases */
                     const Real cur_time,                           /*!< current time */
@@ -50,15 +52,15 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
     amrex::Print() << "Writing plotfile \n";
 
     static const int ncomp_d = 5;
-    static const int ncomp = ncomp_d * num_diseases + 4;
+    static const int ncomp = ncomp_d * num_diseases + (unit_mf_ptr != nullptr ? 4 : 3);
 
     MultiFab output_mf(pc.ParticleBoxArray(0), pc.ParticleDistributionMap(0), ncomp, 0);
     output_mf.setVal(0.0);
     pc.generateCellData(output_mf);
 
-    amrex::Copy(output_mf, censusData.unit_mf, 0, ncomp_d * num_diseases, 1, 0);
-    amrex::Copy(output_mf, censusData.FIPS_mf, 0, ncomp_d * num_diseases + 1, 2, 0);
-    amrex::Copy(output_mf, censusData.comm_mf, 0, ncomp_d * num_diseases + 3, 1, 0);
+    amrex::Copy(output_mf, *FIPS_mf_ptr, 0, ncomp_d * num_diseases, 2, 0);
+    amrex::Copy(output_mf, *comm_mf_ptr, 0, ncomp_d * num_diseases + 1, 1, 0);
+    if (unit_mf_ptr != nullptr) { amrex::Copy(output_mf, *unit_mf_ptr, 0, ncomp_d * num_diseases + 2, 1, 0); }
 
     {
         Vector<std::string> plt_varnames = {};
@@ -77,7 +79,7 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
                 plt_varnames.push_back(disease_names[d] + "_susceptible");
             }
         }
-        plt_varnames.push_back("unit");
+        if (unit_mf_ptr != nullptr) { plt_varnames.push_back("unit"); }
         plt_varnames.push_back("FIPS");
         plt_varnames.push_back("Tract");
         plt_varnames.push_back("comm");

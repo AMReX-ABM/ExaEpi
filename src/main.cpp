@@ -262,7 +262,13 @@ void runAgent () {
             auto start_time = std::chrono::high_resolution_clock::now();
 
             if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
-                ExaEpi::IO::writePlotFile(pc, censusData, params.num_diseases, params.disease_names, cur_time, i);
+                if (params.ic_type == ICType::Census) {
+                    ExaEpi::IO::writePlotFile(pc, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf,
+                                              params.num_diseases, params.disease_names, cur_time, i);
+                } else {
+                    ExaEpi::IO::writePlotFile(pc, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
+                                              params.num_diseases, params.disease_names, cur_time, i);
+                }
             }
 
             if ((params.aggregated_diag_int > 0) && (i % params.aggregated_diag_int == 0)) {
@@ -420,7 +426,13 @@ void runAgent () {
     }
 
     if (params.plot_int > 0) {
-        ExaEpi::IO::writePlotFile(pc, censusData, params.num_diseases, params.disease_names, cur_time, params.nsteps);
+        if (params.ic_type == ICType::Census) {
+            ExaEpi::IO::writePlotFile(pc, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf, params.num_diseases,
+                                      params.disease_names, cur_time, params.nsteps);
+        } else {
+            ExaEpi::IO::writePlotFile(pc, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf, params.num_diseases,
+                                      params.disease_names, cur_time, params.nsteps);
+        }
     }
 
     if ((params.aggregated_diag_int > 0) && (params.nsteps % params.aggregated_diag_int == 0)) {
