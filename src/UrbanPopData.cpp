@@ -253,6 +253,9 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
         lnglat_to_grid(block_group.lng, block_group.lat, block_group.x, block_group.y);
         // reset lng/lat coords to account for int conversion
         grid_to_lnglat(block_group.x, block_group.y, block_group.lng, block_group.lat);
+        // Print() << "lng/lat " << block_group.lng << " " << block_group.lat << " ";
+        // Print() << "x/y " << block_group.x << " " << block_group.y << " ";
+        // Print() << "pop " << block_group.home_population << "\n";
         auto xy = IntVect(block_group.x, block_group.y);
         auto it = xy_to_block_groups.find(xy);
         if (it != xy_to_block_groups.end()) {

@@ -51,7 +51,8 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
                     const int step /*!< Current step */) {
     amrex::Print() << "Writing plotfile \n";
 
-    static const int ncomp_d = 5;
+    static const Vector<std::string> status_names = {"total", "never_infected", "infected", "immune", "susceptible", "dead"};
+    static const int ncomp_d = status_names.size();
     static const int ncomp = ncomp_d * num_diseases + (unit_mf_ptr != nullptr ? 4 : 3);
 
     MultiFab output_mf(pc.ParticleBoxArray(0), pc.ParticleDistributionMap(0), ncomp, 0);
@@ -65,24 +66,20 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
     {
         Vector<std::string> plt_varnames = {};
         if (num_diseases == 1) {
-            plt_varnames.push_back("total");
-            plt_varnames.push_back("never_infected");
-            plt_varnames.push_back("infected");
-            plt_varnames.push_back("immune");
-            plt_varnames.push_back("susceptible");
+            for (auto status_name : status_names) {
+                plt_varnames.push_back(status_name);
+            }
         } else {
             for (int d = 0; d < num_diseases; d++) {
-                plt_varnames.push_back(disease_names[d] + "_total");
-                plt_varnames.push_back(disease_names[d] + "_never_infected");
-                plt_varnames.push_back(disease_names[d] + "_infected");
-                plt_varnames.push_back(disease_names[d] + "_immune");
-                plt_varnames.push_back(disease_names[d] + "_susceptible");
+                for (auto status_name : status_names) {
+                    plt_varnames.push_back(disease_names[d] + "_" + status_name);
+                }
             }
         }
-        if (unit_mf_ptr != nullptr) { plt_varnames.push_back("unit"); }
         plt_varnames.push_back("FIPS");
         plt_varnames.push_back("Tract");
         plt_varnames.push_back("comm");
+        if (unit_mf_ptr != nullptr) { plt_varnames.push_back("unit"); }
 
 #ifdef AMREX_USE_HDF5
         WriteSingleLevelPlotfileHDF5MultiDset(amrex::Concatenate("plt", step, 5), output_mf, plt_varnames, pc.ParticleGeom(0),
