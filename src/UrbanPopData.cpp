@@ -246,6 +246,14 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
     // ba.maxSize(0.25 * grid_x / NProcs());
     Print() << "Number of boxes: " << ba.size() << "\n";
 
+    std::ofstream geoid_coords_ofs;
+    if (ParallelDescriptor::IOProcessor()) {
+        // Write out the corrected coordinates. The process of rounding off to integer grid positions changes the lng/lat
+        // slightly. We need to record this for later use in plotting routines.
+        geoid_coords_ofs.open(params.urbanpop_filename + ".geoids.csv");
+        geoid_coords_ofs << "GEOID,lng,lat\n";
+        geoid_coords_ofs << std::fixed << std::setprecision(std::numeric_limits<amrex::Real>::digits10);
+    }
     // weights set according to population in each box so that they can be uniformly distributed
     // every process computes the same result - needed before distributing the boxes
     Vector<Long> weights(ba.size(), 0);
@@ -253,9 +261,9 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
         lnglat_to_grid(block_group.lng, block_group.lat, block_group.x, block_group.y);
         // reset lng/lat coords to account for int conversion
         grid_to_lnglat(block_group.x, block_group.y, block_group.lng, block_group.lat);
-        // Print() << "lng/lat " << block_group.lng << " " << block_group.lat << " ";
-        // Print() << "x/y " << block_group.x << " " << block_group.y << " ";
-        // Print() << "pop " << block_group.home_population << "\n";
+        if (ParallelDescriptor::IOProcessor()) {
+            geoid_coords_ofs << block_group.geoid << "," << block_group.lng << "," << block_group.lat << "\n";
+        }
         auto xy = IntVect(block_group.x, block_group.y);
         auto it = xy_to_block_groups.find(xy);
         if (it != xy_to_block_groups.end()) {
@@ -286,6 +294,7 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
             AllPrint() << MyProc() << ": WARNING: could not find box for " << block_group.x << "," << block_group.y << "\n";
         }
     }
+    if (ParallelDescriptor::IOProcessor()) { geoid_coords_ofs.close(); }
     // distribute the boxes in the array across the processors
     dm.define(ba);
     dm.KnapSackProcessorMap(weights, NProcs());
