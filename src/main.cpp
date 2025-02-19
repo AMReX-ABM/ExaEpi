@@ -5,21 +5,20 @@
 #include <chrono>
 
 #include <AMReX.H>
-#include <AMReX_iMultiFab.H>
-#include <AMReX_ParmParse.H>
 #include <AMReX_MultiFab.H>
+#include <AMReX_ParmParse.H>
+#include <AMReX_iMultiFab.H>
 
 #include "AgentContainer.H"
-#include "CaseData.H"
 #include "AirTravelFlow.H"
+#include "CaseData.H"
 #include "DemographicData.H"
 #include "IO.H"
-#include "Utils.H"
-#include "UrbanPopData.H"
 #include "InitializeInfections.H"
+#include "UrbanPopData.H"
+#include "Utils.H"
 
 #include "version.h"
-
 
 using namespace amrex;
 using namespace ExaEpi;
@@ -27,8 +26,7 @@ using namespace ExaEpi;
 void runAgent();
 
 /*! \brief Set ExaEpi-specific defaults for memory-management and tiling */
-void override_amrex_defaults ()
-{
+void overrideAmrexDefaults () {
     amrex::ParmParse pp("amrex");
     // ExaEpi should never require mananaged memory in the Arena
     bool the_arena_is_managed = true;
@@ -42,9 +40,8 @@ void override_amrex_defaults ()
 
 /*! \brief Main function: initializes AMReX, calls runAgent(), finalizes AMReX */
 int main (int argc, /*!< Number of command line arguments */
-          char* argv[] /*!< Command line arguments */)
-{
-    amrex::Initialize(argc, argv, true, MPI_COMM_WORLD, override_amrex_defaults);
+          char* argv[] /*!< Command line arguments */) {
+    amrex::Initialize(argc, argv, true, MPI_COMM_WORLD, overrideAmrexDefaults);
 
     Print() << "ExaEpi version " << EXAEPI_VERSION << " (built on " << __DATE__ << ")\n";
 
@@ -59,10 +56,10 @@ int main (int argc, /*!< Number of command line arguments */
     + Read test parameters (#ExaEpi::TestParams) from command line input file
     + If initialization type (#ExaEpi::TestParams::ic_type) is ExaEpi::ICType::Census,
       + Read #DemographicData from #ExaEpi::TestParams::census_filename
-        (see DemographicData::InitFromFile)
+        (see DemographicData::initFromFile)
       + Read #CaseData from #ExaEpi::TestParams::case_filename
-        (see CaseData::InitFromFile)
-    + Get computational domain from ExaEpi::Utils::get_geometry. Each grid cell corresponds to
+        (see CaseData::initFromFile)
+    + Get computational domain from ExaEpi::Utils::getGeometry. Each grid cell corresponds to
       a community.
     + Create box arrays and distribution mapping based on #ExaEpi::TestParams::max_box_size.
     + Initialize the following MultiFabs:
@@ -75,7 +72,7 @@ int main (int argc, /*!< Number of command line arguments */
       + Masking behavior
     + Initialize agents (AgentContainer::initAgentsCensus).
       If ExaEpi::TestParams::ic_type is ExaEpi::ICType::Census, then
-      + Read worker flow (ExaEpi::Initialization::read_workerflow)
+      + Read worker flow (ExaEpi::Initialization::readWorkerflow)
       + Initialize cases (ExaEpi::Initialization::setInitialCases)
 
 
@@ -102,11 +99,10 @@ int main (int argc, /*!< Number of command line arguments */
     + Write out final plot file - see ExaEpi::IO::writePlotFile()
     + Write out final aggregated diagnostic data - see ExaEpi::IO::writeFIPSData().
 */
-void runAgent ()
-{
+void runAgent () {
     BL_PROFILE("runAgent");
     TestParams params;
-    ExaEpi::Utils::get_test_params(params, "agent");
+    ExaEpi::Utils::getTestParams(params, "agent");
 
     amrex::Print() << "Tracking " << params.num_diseases << " diseases:\n";
     for (int d = 0; d < params.num_diseases; d++) {
@@ -126,10 +122,10 @@ void runAgent ()
     }
 
     AirTravelFlow air;
-    if (params.air_travel_int > 0){
-        air.ReadAirports(params.airports_filename, censusData.demo);
-        air.ReadAirTravelFlow(params.air_traffic_filename);
-        air.ComputeTravelProbs(censusData.demo);
+    if (params.air_travel_int > 0) {
+        air.readAirports(params.airports_filename, censusData.demo);
+        air.readAirTravelFlow(params.air_traffic_filename);
+        air.computeTravelProbs(censusData.demo);
     }
 
     // The default output filename is:
@@ -145,42 +141,37 @@ void runAgent ()
         }
     }
     ParmParse pp("diag");
-    pp.queryarr("output_filename",output_filename,0,params.num_diseases);
+    pp.queryarr("output_filename", output_filename, 0, params.num_diseases);
 
     for (int d = 0; d < params.num_diseases; d++) {
-        if (ParallelDescriptor::IOProcessor())
-        {
+        if (ParallelDescriptor::IOProcessor()) {
             std::ofstream File;
-            File.open(output_filename[d].c_str(), std::ios::out|std::ios::trunc);
+            File.open(output_filename[d].c_str(), std::ios::out | std::ios::trunc);
 
-            if (!File.good()) {
-                amrex::FileOpenFailed(output_filename[d]);
-            }
+            if (!File.good()) { amrex::FileOpenFailed(output_filename[d]); }
 
-            File << std::setw(5) << "Day"
-                 << std::setw(12) << "Susceptible"
-                 << std::setw(12) << "Infected"
-                 << std::setw(12) << "Recovered"
-                 << std::setw(12) << "Deaths"
-                 << std::setw(15) << "Hospitalized"
-                 << std::setw(15) << "ICU"
-                 << std::setw(12) << "Ventilated"
-                 << std::setw(12) << "Exposed"
-                 << std::setw(15) << "Asymptomatic"
-                 << std::setw(15) << "Presymptomatic"
-                 << std::setw(15) << "Symptomatic\n";
+            File << std::setw(5) << "Day";
+            File << std::setw(12) << "Susceptible";
+            File << std::setw(12) << "Infected";
+            File << std::setw(12) << "Recovered";
+            File << std::setw(12) << "Deaths";
+            File << std::setw(15) << "Hospitalized";
+            File << std::setw(15) << "ICU";
+            File << std::setw(12) << "Ventilated";
+            File << std::setw(12) << "Exposed";
+            File << std::setw(15) << "Asymptomatic";
+            File << std::setw(15) << "Presymptomatic";
+            File << std::setw(15) << "Symptomatic\n";
 
             File.flush();
 
             File.close();
 
-            if (!File.good()) {
-                amrex::Abort("problem writing output file");
-            }
+            if (!File.good()) { amrex::Abort("problem writing output file"); }
         }
     }
 
-    amrex::Vector< std::unique_ptr<MultiFab> > disease_stats;
+    amrex::Vector<std::unique_ptr<MultiFab>> disease_stats;
     disease_stats.resize(params.num_diseases);
     for (int d = 0; d < params.num_diseases; d++) {
         disease_stats[d] = std::make_unique<MultiFab>(ba, dm, 4, 0);
@@ -198,7 +189,7 @@ void runAgent ()
         BL_PROFILE_REGION("Initialization");
         if (params.ic_type == ICType::Census) {
             censusData.initAgents(pc, params.nborhood_size);
-            censusData.read_workerflow(pc, params.workerflow_filename, params.workgroup_size);
+            censusData.readWorkerflow(pc, params.workerflow_filename, params.workgroup_size);
         } else if (params.ic_type == ICType::UrbanPop) {
             urbanPopData.initAgents(pc, params);
         } else {
@@ -209,15 +200,17 @@ void runAgent ()
             auto disease_params = pc.getDiseaseParameters_h(d);
             if (disease_params->initial_case_type == CaseTypes::file) {
                 CaseData cases;
-                cases.InitFromFile(disease_params->disease_name, std::string(disease_params->case_filename));
+                cases.initFromFile(disease_params->disease_name, std::string(disease_params->case_filename));
                 setInitialCasesFromFile(pc, cases, disease_params->disease_name, d,
                                         (params.ic_type == ICType::Census ? censusData.demo.FIPS : urbanPopData.FIPS_codes),
-                                        (params.ic_type == ICType::Census ? censusData.demo.Start : urbanPopData.unit_community_start),
+                                        (params.ic_type == ICType::Census ? censusData.demo.Start
+                                                                          : urbanPopData.unit_community_start),
                                         (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.comm_mf),
                                         params.fast);
             } else {
                 setInitialCasesRandom(pc, disease_params->num_initial_cases, disease_params->disease_name, d,
-                                      (params.ic_type == ICType::Census ? censusData.demo.Start : urbanPopData.unit_community_start),
+                                      (params.ic_type == ICType::Census ? censusData.demo.Start
+                                                                        : urbanPopData.unit_community_start),
                                       (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.comm_mf),
                                       params.fast);
             }
@@ -226,45 +219,26 @@ void runAgent ()
         pc.printStudentTeacherCounts();
         pc.printAgeGroupCounts();
 
-        if (params.ic_type == ICType::Census && params.air_travel_int > 0)
+        if (params.ic_type == ICType::Census && params.air_travel_int > 0) {
             pc.setAirTravel(censusData.unit_mf, air, censusData.demo);
+        }
     }
 
-//#define DUMP_INITIAL_AGENTS_ASCII
+// #define DUMP_INITIAL_AGENTS_ASCII
 #ifdef DUMP_INITIAL_AGENTS_ASCII
     string agents_fname = std::string("agents.") + (params.ic_type == ICType::UrbanPop ? "urbanpop" : "census") + ".csv";
     pc.WriteAsciiFile(agents_fname);
     if (ParallelDescriptor::IOProcessor()) {
         std::ofstream agents_f(agents_fname, std::ios_base::app);
-        agents_f << "#posx posy id cpu "
-                 << "treatment_timer "
-                 << "disease_counter "
-                 << "prob "
-                 << "incubation_period "
-                 << "infectious_period "
-                 << "symptomdev_period "
-                 << "age_group "
-                 << "family "
-                 << "home_i "
-                 << "home_j "
-                 << "work_i "
-                 << "work_j "
-                 << "hosp_i "
-                 << "hosp_j "
-                 << "nborhood "
-                 << "school "
-                 << "naics "
-                 << "workgroup "
-                 << "work_nborhood "
-                 << "withdrawn "
-                 << "random_travel "
-                 << "status "
-                 << "symptomatic\n";
+        agents_f << "#posx posy id cpu " << "treatment_timer " << "disease_counter " << "prob " << "incubation_period "
+                 << "infectious_period " << "symptomdev_period " << "age_group " << "family " << "home_i " << "home_j "
+                 << "work_i " << "work_j " << "hosp_i " << "hosp_j " << "nborhood " << "school " << "naics " << "workgroup "
+                 << "work_nborhood " << "withdrawn " << "random_travel " << "status " << "symptomatic\n";
         agents_f.close();
     }
 #endif
 
-    std::vector<int>  step_of_peak(params.num_diseases, 0);
+    std::vector<int> step_of_peak(params.num_diseases, 0);
     std::vector<Long> num_infected_peak(params.num_diseases, 0);
     std::vector<Long> cumulative_deaths(params.num_diseases, 0);
     for (int d = 0; d < params.num_diseases; d++) {
@@ -284,8 +258,7 @@ void runAgent ()
 
     {
         BL_PROFILE_REGION("Evolution");
-        for (int i = 0; i < params.nsteps; ++i)
-        {
+        for (int i = 0; i < params.nsteps; ++i) {
             auto start_time = std::chrono::high_resolution_clock::now();
 
             if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
@@ -293,7 +266,8 @@ void runAgent ()
             }
 
             if ((params.aggregated_diag_int > 0) && (i % params.aggregated_diag_int == 0)) {
-                ExaEpi::IO::writeFIPSData(pc, censusData, params.aggregated_diag_prefix, params.num_diseases, params.disease_names, i);
+                ExaEpi::IO::writeFIPSData(pc, censusData, params.aggregated_diag_prefix, params.num_diseases,
+                                          params.disease_names, i);
             }
 
             // Update agents' disease status
@@ -312,50 +286,41 @@ void runAgent ()
 #ifdef AMREX_USE_GPU
                 if (Gpu::inLaunchRegion()) {
                     auto const& ma = disease_stats[d]->const_arrays();
-                    GpuTuple<Real,Real,Real,Real> mm = ParReduce(
-                             TypeList<ReduceOpSum,ReduceOpSum,ReduceOpSum,ReduceOpSum>{},
-                             TypeList<Real,Real,Real,Real>{},
-                             *(disease_stats[d]), IntVect(0, 0),
-                             [=] AMREX_GPU_DEVICE (int box_no, int ii, int jj, int kk) noexcept
-                             -> GpuTuple<Real,Real,Real,Real>
-                             {
-                                 return { ma[box_no](ii,jj,kk,0),
-                                          ma[box_no](ii,jj,kk,1),
-                                          ma[box_no](ii,jj,kk,2),
-                                          ma[box_no](ii,jj,kk,3) };
-                             });
+                    GpuTuple<Real, Real, Real, Real> mm =
+                            ParReduce(TypeList<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum>{},
+                                      TypeList<Real, Real, Real, Real>{}, *(disease_stats[d]), IntVect(0, 0),
+                                      [=] AMREX_GPU_DEVICE (int box_no, int ii, int jj,
+                                                           int kk) noexcept -> GpuTuple<Real, Real, Real, Real> {
+                                          return {ma[box_no](ii, jj, kk, 0), ma[box_no](ii, jj, kk, 1), ma[box_no](ii, jj, kk, 2),
+                                                  ma[box_no](ii, jj, kk, 3)};
+                                      });
                     mmc[0] = amrex::get<0>(mm);
                     mmc[1] = amrex::get<1>(mm);
                     mmc[2] = amrex::get<2>(mm);
                     mmc[3] = amrex::get<3>(mm);
                 } else
 #endif
-                    {
-#ifdef AMREX_USE_OMP
-#pragma omp parallel if (!system::regtest_reduction) reduction(+:mmc[:4])
-#endif
-                        for (MFIter mfi(*(disease_stats[d])); mfi.isValid(); ++mfi) {
-                            Box const& bx = mfi.tilebox();
-                            auto const& dfab = disease_stats[d]->const_array(mfi);
-                            AMREX_LOOP_3D(bx, ii, jj, kk,
-                            {
-                                mmc[0] += dfab(ii,jj,kk,0);
-                                mmc[1] += dfab(ii,jj,kk,1);
-                                mmc[2] += dfab(ii,jj,kk,2);
-                                mmc[3] += dfab(ii,jj,kk,3);
-                            });
-                        }
-                    }
-
-                ParallelDescriptor::ReduceRealSum(&mmc[0], 4,
-                                                  ParallelDescriptor::IOProcessorNumber());
-
-                if (ParallelDescriptor::IOProcessor())
                 {
-                    // total number of deaths computed on agents and on mesh should be the same...
-                    if (mmc[3] != counts[4]) {
-                        amrex::Print() << mmc[3] << " " << counts[4] << "\n";
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (!system::regtest_reduction) reduction(+ : mmc[ : 4])
+#endif
+                    for (MFIter mfi(*(disease_stats[d])); mfi.isValid(); ++mfi) {
+                        Box const& bx = mfi.tilebox();
+                        auto const& dfab = disease_stats[d]->const_array(mfi);
+                        AMREX_LOOP_3D(bx, ii, jj, kk, {
+                            mmc[0] += dfab(ii, jj, kk, 0);
+                            mmc[1] += dfab(ii, jj, kk, 1);
+                            mmc[2] += dfab(ii, jj, kk, 2);
+                            mmc[3] += dfab(ii, jj, kk, 3);
+                        });
                     }
+                }
+
+                ParallelDescriptor::ReduceRealSum(&mmc[0], 4, ParallelDescriptor::IOProcessorNumber());
+
+                if (ParallelDescriptor::IOProcessor()) {
+                    // total number of deaths computed on agents and on mesh should be the same...
+                    if (mmc[3] != counts[4]) { amrex::Print() << mmc[3] << " " << counts[4] << "\n"; }
                     AMREX_ALWAYS_ASSERT(mmc[3] == counts[4]);
 
                     // the total number of infected should equal the sum of
@@ -366,42 +331,34 @@ void runAgent ()
                     AMREX_ALWAYS_ASSERT(counts[1] == counts[5] + counts[6] + counts[7] + counts[8]);
 
                     std::ofstream File;
-                    File.open(output_filename[d].c_str(), std::ios::out|std::ios::app);
+                    File.open(output_filename[d].c_str(), std::ios::out | std::ios::app);
 
-                    if (!File.good()) {
-                        amrex::FileOpenFailed(output_filename[d]);
-                    }
+                    if (!File.good()) { amrex::FileOpenFailed(output_filename[d]); }
 
-                    File << std::setw(5) << i
-                         << std::setw(12) << counts[0]
-                         << std::setw(12) << counts[1]
-                         << std::setw(12) << counts[2]
-                         << std::setw(12) << counts[4]
-                         << std::setw(15) << mmc[0]
-                         << std::setw(15) << mmc[1]
-                         << std::setw(12) << mmc[2]
-                         << std::setw(12) << counts[5]
-                         << std::setw(15) << counts[6]
-                         << std::setw(15) << counts[7]
-                         << std::setw(15) << counts[8] << "\n";
+                    File << std::setw(5) << i;
+                    File << std::setw(12) << counts[0];
+                    File << std::setw(12) << counts[1];
+                    File << std::setw(12) << counts[2];
+                    File << std::setw(12) << counts[4];
+                    File << std::setw(15) << mmc[0];
+                    File << std::setw(15) << mmc[1];
+                    File << std::setw(12) << mmc[2];
+                    File << std::setw(12) << counts[5];
+                    File << std::setw(15) << counts[6];
+                    File << std::setw(15) << counts[7];
+                    File << std::setw(15) << counts[8] << "\n";
 
                     File.flush();
 
                     File.close();
 
-                    if (!File.good()) {
-                        amrex::Abort("problem writing output file");
-                    }
+                    if (!File.good()) { amrex::Abort("problem writing output file"); }
                 }
             }
 
-            if (params.shelter_start > 0 && params.shelter_start == i) {
-                pc.shelterStart();
-            }
+            if (params.shelter_start > 0 && params.shelter_start == i) { pc.shelterStart(); }
 
-            if (params.shelter_start > 0 && params.shelter_start + params.shelter_length == i) {
-                pc.shelterStop();
-            }
+            if (params.shelter_start > 0 && params.shelter_start + params.shelter_length == i) { pc.shelterStop(); }
 
             if ((params.random_travel_int > 0) && (i % params.random_travel_int == 0)) {
                 pc.moveRandomTravel(params.random_travel_prob);
@@ -418,22 +375,19 @@ void runAgent ()
             pc.interactEvening(mask_behavior);
             pc.interactNight(mask_behavior);
 
-            if ((params.random_travel_int > 0) && (i % params.random_travel_int == 0)) {
-                pc.returnRandomTravel();
-            }
+            if ((params.random_travel_int > 0) && (i % params.random_travel_int == 0)) { pc.returnRandomTravel(); }
 
-            if ((params.air_travel_int > 0) && (i % params.air_travel_int == 0)){
-                pc.returnAirTravel();
-            }
+            if ((params.air_travel_int > 0) && (i % params.air_travel_int == 0)) { pc.returnAirTravel(); }
 
             // Infect agents based on their interactions
             pc.infectAgents();
 
             std::chrono::duration<double> elapsed_time = std::chrono::high_resolution_clock::now() - start_time;
 
-            Print() << "[Day " << cur_time <<  " " << std::fixed << std::setprecision(1) << elapsed_time.count() << "s] infected: ";
+            Print() << "[Day " << cur_time << " " << std::fixed << std::setprecision(1) << elapsed_time.count()
+                    << "s] infected: ";
             for (int d = 0; d < params.num_diseases; d++) {
-                if (d > 0) Print() << ", ";
+                if (d > 0) { Print() << ", "; }
                 Print() << params.disease_names[d] << " " << num_infected[d];
             }
             // the cumulative deaths are not tracked separately for each disease
@@ -465,7 +419,7 @@ void runAgent ()
     }
 
     if ((params.aggregated_diag_int > 0) && (params.nsteps % params.aggregated_diag_int == 0)) {
-        ExaEpi::IO::writeFIPSData(pc, censusData, params.aggregated_diag_prefix, params.num_diseases,
-                                  params.disease_names, params.nsteps);
+        ExaEpi::IO::writeFIPSData(pc, censusData, params.aggregated_diag_prefix, params.num_diseases, params.disease_names,
+                                  params.nsteps);
     }
 }

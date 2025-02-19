@@ -1,0 +1,22 @@
+---
+Language:        Cpp
+AlignTrailingComments:
+  OverEmptyLines:  2
+AllowAllParametersOfDeclarationOnNextLine: false
+AllowShortBlocksOnASingleLine: Always
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLambdasOnASingleLine: Empty
+AlwaysBreakTemplateDeclarations: Yes
+ColumnLimit:     130
+ContinuationIndentWidth: 8
+IndentWidth:     4
+InsertBraces:    true
+PenaltyBreakBeforeFirstCallParameter: 1000
+PointerAlignment: Left
+SpaceBeforeParens: Custom
+SpaceBeforeParensOptions:
+  AfterFunctionDefinitionName: true
+...
+

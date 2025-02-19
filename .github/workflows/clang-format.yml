@@ -1,0 +1,17 @@
+name: clang-format
+
+on: [push, pull_request]
+
+jobs:
+  clang-format:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: dependencies
+        run: source .github/workflows/dependencies/dependencies_clang_format.sh
+      - name: Run clang-format
+        run: |
+            set +e
+            source .github/workflows/tests/test_clang-format.sh

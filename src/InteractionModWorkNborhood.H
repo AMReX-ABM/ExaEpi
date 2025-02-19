@@ -5,8 +5,8 @@
 #ifndef _INTERACTION_MOD_WORK_NBORHOOD_H_
 #define _INTERACTION_MOD_WORK_NBORHOOD_H_
 
-#include "InteractionModel.H"
 #include "AgentDefinitions.H"
+#include "InteractionModel.H"
 
 using namespace amrex;
 
@@ -17,12 +17,12 @@ using namespace amrex;
  * susceptible agent in the neighborhood/community. */
 template <typename PTDType>
 struct BinaryInteractionWorkNborhood {
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-    ParticleReal operator() (const int infectious_i, /*!< Index of infectious agent */
-                             const int susceptible_i, /*!< Index of susceptible agent */
-                             const PTDType& a_ptd, /*!< Particle tile data */
-                             const DiseaseParm* const a_lparm, /*!< disease paramters */
-                             const Real a_social_scale /*!< Social scale */) const noexcept {
+    AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+    ParticleReal operator()(const int infectious_i,           /*!< Index of infectious agent */
+                            const int susceptible_i,          /*!< Index of susceptible agent */
+                            const PTDType& a_ptd,             /*!< Particle tile data */
+                            const DiseaseParm* const a_lparm, /*!< disease paramters */
+                            const Real a_social_scale /*!< Social scale */) const noexcept {
         auto age_group_ptr = a_ptd.m_idata[IntIdx::age_group];
         auto nborhood_ptr = a_ptd.m_idata[IntIdx::nborhood];
         auto work_nborhood_ptr = a_ptd.m_idata[IntIdx::work_nborhood];
@@ -32,11 +32,12 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
                             a_ptd.m_idata[IntIdx::work_j][infectious_i] == a_ptd.m_idata[IntIdx::work_j][susceptible_i]);
         AMREX_ALWAYS_ASSERT(random_travel_ptr[infectious_i] < 0 && random_travel_ptr[susceptible_i] < 0);
 
-        //infect *= i_mask;
-        //infect *= j_mask;
-        // define neighbordhood based on age of agent
+        // infect *= i_mask;
+        // infect *= j_mask;
+        //  define neighbordhood based on age of agent
         int nborhood_infectious = age_group_ptr[infectious_i] > 1 ? work_nborhood_ptr[infectious_i] : nborhood_ptr[infectious_i];
-        int nborhood_susceptible = age_group_ptr[susceptible_i] > 1 ? work_nborhood_ptr[susceptible_i] : nborhood_ptr[susceptible_i];
+        int nborhood_susceptible =
+                age_group_ptr[susceptible_i] > 1 ? work_nborhood_ptr[susceptible_i] : nborhood_ptr[susceptible_i];
 
         // school < 0 means a child normally attends school, but not today
         // Should always be in the same community = same cell
@@ -53,40 +54,33 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 template <typename PTDType>
 struct WorkNborhoodCandidate {
     AMREX_GPU_HOST_DEVICE
-    bool operator() (const int idx, const PTDType& ptd) const noexcept {
-        return !inHospital(idx, ptd) &&
-               !ptd.m_idata[IntIdx::withdrawn][idx] &&
-               ptd.m_idata[IntIdx::random_travel][idx] < 0;
+    bool operator()(const int idx, const PTDType& ptd) const noexcept {
+        return !inHospital(idx, ptd) && !ptd.m_idata[IntIdx::withdrawn][idx] && ptd.m_idata[IntIdx::random_travel][idx] < 0;
     }
 };
 
-
 /*! \brief Class describing agent interactions in the neighborhood/community */
 template <typename PCType, typename PTDType, typename PType>
-class InteractionModWorkNborhood : public InteractionModel<PCType, PTDType, PType>
-{
-    public:
+class InteractionModWorkNborhood : public InteractionModel<PCType, PTDType, PType> {
+  public:
+    /*! \brief null constructor */
+    InteractionModWorkNborhood (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
 
-        /*! \brief null constructor */
-        InteractionModWorkNborhood (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
+    /*! \brief default destructor */
+    virtual ~InteractionModWorkNborhood() = default;
 
-        /*! \brief default destructor */
-        virtual ~InteractionModWorkNborhood() = default;
-
-        /*! \brief Simulate agent interaction in the neighborhood/community */
-        virtual void interactAgents (PCType& agents, MultiFab&) override {
+    /*! \brief Simulate agent interaction in the neighborhood/community */
+    virtual void interactAgents (PCType& agents, MultiFab&) override {
 #ifdef FAST_INTERACTIONS
-            fastInteractWorkNborhood(agents);
+        fastInteractWorkNborhood(agents);
 #else
-            // passing -1 for the binning group indicates bin only by community (cell)
-            interactAgentsImpl<InteractionModWorkNborhood<PCType, PTDType, PType>, PCType, PTDType,
-                                WorkNborhoodCandidate<PTDType>,
-                                BinaryInteractionWorkNborhood<PTDType>>(*this, agents, -1);
+        // passing -1 for the binning group indicates bin only by community (cell)
+        interactAgentsImpl<InteractionModWorkNborhood<PCType, PTDType, PType>, PCType, PTDType, WorkNborhoodCandidate<PTDType>,
+                           BinaryInteractionWorkNborhood<PTDType>>(*this, agents, -1);
 #endif
-        }
+    }
 
-        void fastInteractWorkNborhood (PCType &agents);
-
+    void fastInteractWorkNborhood(PCType& agents);
 };
 
 template <typename PCType, typename PTDType, typename PType>
@@ -108,7 +102,7 @@ void InteractionModWorkNborhood<PCType, PTDType, PType>::fastInteractWorkNborhoo
             auto& ptile = agents.ParticlesAt(lev, mfi);
             const auto& ptd = ptile.getParticleTileData();
             const auto np = ptile.GetArrayOfStructs().numParticles();
-            if (np == 0) continue;
+            if (np == 0) { continue; }
 
             auto& soa = ptile.GetStructOfArrays();
             auto work_nborhood_ptr = soa.GetIntData(IntIdx::work_nborhood).data();
@@ -130,12 +124,12 @@ void InteractionModWorkNborhood<PCType, PTDType, PType>::fastInteractWorkNborhoo
                     << "\n";
             */
             for (int d = 0; d < n_disease; d++) {
-                dev_memset(infected_community_d_ptr, 0, infected_community_d[OMP_THREAD_NUM].size() * sizeof(int));
-                dev_memset(infected_nborhood_d_ptr, 0, infected_nborhood_d[OMP_THREAD_NUM].size() * sizeof(int));
+                devMemset(infected_community_d_ptr, 0, infected_community_d[OMP_THREAD_NUM].size() * sizeof(int));
+                devMemset(infected_nborhood_d_ptr, 0, infected_nborhood_d[OMP_THREAD_NUM].size() * sizeof(int));
                 auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                 auto lparm = agents.getDiseaseParameters_d(d);
                 auto lparm_h = agents.getDiseaseParameters_h(d);
-                Real scale = 1.0_rt;  // TODO this should vary based on cell
+                Real scale = 1.0_rt; // TODO this should vary based on cell
                 Real infect = (1.0_rt - lparm_h->vac_eff);
 
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
@@ -158,7 +152,8 @@ void InteractionModWorkNborhood<PCType, PTDType, PType>::fastInteractWorkNborhoo
                         int num_infected_community = infected_community_d_ptr[community];
                         AMREX_ALWAYS_ASSERT(num_infected_community >= num_infected_nborhood);
                         Real comm_prob = 1.0_rt - infect * lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * scale;
-                        prob_ptr[i] *= static_cast<ParticleReal>(std::pow(comm_prob, num_infected_community - num_infected_nborhood));
+                        prob_ptr[i] *=
+                                static_cast<ParticleReal>(std::pow(comm_prob, num_infected_community - num_infected_nborhood));
                         Real nborhood_prob = 1.0_rt - infect * lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * scale;
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nborhood_prob, num_infected_nborhood));
                     }
@@ -168,6 +163,5 @@ void InteractionModWorkNborhood<PCType, PTDType, PType>::fastInteractWorkNborhoo
         }
     }
 }
-
 
 #endif

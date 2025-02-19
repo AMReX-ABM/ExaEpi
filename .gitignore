@@ -6,4 +6,5 @@ docs/exaepi-doxygen-web.tag.xml
 docs/amrex-doxygen-web.tag.xml
 .vscode
 .build
-version.h
+src/version.h
+reports

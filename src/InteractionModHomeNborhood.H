@@ -7,8 +7,8 @@
 
 #include <math.h>
 
-#include "InteractionModel.H"
 #include "AgentDefinitions.H"
+#include "InteractionModel.H"
 
 using namespace amrex;
 
@@ -19,19 +19,19 @@ using namespace amrex;
  * susceptible agent in the neighborhood/community. */
 template <typename PTDType>
 struct BinaryInteractionHomeNborhood {
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-    ParticleReal operator() (const int infectious_i, /*!< Index of infectious agent */
-                             const int susceptible_i, /*!< Index of susceptible agent */
-                             const PTDType& a_ptd, /*!< Particle tile data */
-                             const DiseaseParm* const a_lparm, /*!< disease paramters */
-                             const Real a_social_scale /*!< Social scale */) const noexcept {
+    AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+    ParticleReal operator()(const int infectious_i,           /*!< Index of infectious agent */
+                            const int susceptible_i,          /*!< Index of susceptible agent */
+                            const PTDType& a_ptd,             /*!< Particle tile data */
+                            const DiseaseParm* const a_lparm, /*!< disease paramters */
+                            const Real a_social_scale /*!< Social scale */) const noexcept {
         auto nborhood_ptr = a_ptd.m_idata[IntIdx::nborhood];
 
         AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::home_i][infectious_i] == a_ptd.m_idata[IntIdx::home_i][susceptible_i] &&
                             a_ptd.m_idata[IntIdx::home_j][infectious_i] == a_ptd.m_idata[IntIdx::home_j][susceptible_i]);
 
-        //infect *= i_mask;
-        //infect *= j_mask;
+        // infect *= i_mask;
+        // infect *= j_mask;
 
         // Should always be in the same community = same cell
         // Neighborhood?
@@ -47,40 +47,34 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 template <typename PTDType>
 struct HomeNborhoodCandidate {
     AMREX_GPU_HOST_DEVICE
-    bool operator() (const int idx, const PTDType& ptd) const noexcept {
+    bool operator()(const int idx, const PTDType& ptd) const noexcept {
         // this is the only case where we allow random travelers to interact
         return !inHospital(idx, ptd) && !ptd.m_idata[IntIdx::withdrawn][idx];
     }
 };
 
-
-
 /*! \brief Class describing agent interactions in the neighborhood/community */
 template <typename PCType, typename PTDType, typename PType>
-class InteractionModHomeNborhood : public InteractionModel<PCType, PTDType, PType>
-{
-    public:
+class InteractionModHomeNborhood : public InteractionModel<PCType, PTDType, PType> {
+  public:
+    /*! \brief null constructor */
+    InteractionModHomeNborhood (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
 
-        /*! \brief null constructor */
-        InteractionModHomeNborhood (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
+    /*! \brief default destructor */
+    virtual ~InteractionModHomeNborhood() = default;
 
-        /*! \brief default destructor */
-        virtual ~InteractionModHomeNborhood () = default;
-
-        /*! \brief Simulate agent interaction in the neighborhood/community */
-        virtual void interactAgents (PCType& agents, MultiFab&) override {
+    /*! \brief Simulate agent interaction in the neighborhood/community */
+    virtual void interactAgents (PCType& agents, MultiFab&) override {
 #ifdef FAST_INTERACTIONS
-            fastInteractHomeNborhood(agents);
+        fastInteractHomeNborhood(agents);
 #else
-            // passing -1 for the binning group indicates bin only by community (cell)
-            interactAgentsImpl<InteractionModHomeNborhood<PCType, PTDType, PType>, PCType, PTDType,
-                               HomeNborhoodCandidate<PTDType>,
-                               BinaryInteractionHomeNborhood<PTDType>>(*this, agents, -1);
+        // passing -1 for the binning group indicates bin only by community (cell)
+        interactAgentsImpl<InteractionModHomeNborhood<PCType, PTDType, PType>, PCType, PTDType, HomeNborhoodCandidate<PTDType>,
+                           BinaryInteractionHomeNborhood<PTDType>>(*this, agents, -1);
 #endif
-        }
+    }
 
-        void fastInteractHomeNborhood (PCType &agents);
-
+    void fastInteractHomeNborhood(PCType& agents);
 };
 
 template <typename PCType, typename PTDType, typename PType>
@@ -93,7 +87,6 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
     Vector<Gpu::DeviceVector<int>> infected_community_d(OMP_MAX_THREADS);
     Vector<Gpu::DeviceVector<int>> infected_nborhood_d(OMP_MAX_THREADS);
 
-
     for (int lev = 0; lev < agents.numLevels(); ++lev) {
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -102,7 +95,7 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
             auto& ptile = agents.ParticlesAt(lev, mfi);
             const auto& ptd = ptile.getParticleTileData();
             const auto np = ptile.GetArrayOfStructs().numParticles();
-            if (np == 0) continue;
+            if (np == 0) { continue; }
 
             auto& soa = ptile.GetStructOfArrays();
             auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
@@ -126,13 +119,13 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
                     << "\n";
             */
             for (int d = 0; d < n_disease; d++) {
-                dev_memset(infected_community_d_ptr, 0, infected_community_d[OMP_THREAD_NUM].size() * sizeof(int));
-                dev_memset(infected_nborhood_d_ptr, 0, infected_nborhood_d[OMP_THREAD_NUM].size() * sizeof(int));
+                devMemset(infected_community_d_ptr, 0, infected_community_d[OMP_THREAD_NUM].size() * sizeof(int));
+                devMemset(infected_nborhood_d_ptr, 0, infected_nborhood_d[OMP_THREAD_NUM].size() * sizeof(int));
 
                 auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                 auto lparm = agents.getDiseaseParameters_d(d);
                 auto lparm_h = agents.getDiseaseParameters_h(d);
-                Real scale = 1.0_rt;  // TODO this should vary based on cell
+                Real scale = 1.0_rt; // TODO this should vary based on cell
                 Real infect = 1.0_rt - lparm_h->vac_eff;
 
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
@@ -153,7 +146,8 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
                         int num_infected_community = infected_community_d_ptr[community];
                         AMREX_ALWAYS_ASSERT(num_infected_community >= num_infected_nborhood);
                         Real comm_prob = 1.0_prt - infect * lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * scale;
-                        prob_ptr[i] *= static_cast<ParticleReal>(std::pow(comm_prob, num_infected_community - num_infected_nborhood));
+                        prob_ptr[i] *=
+                                static_cast<ParticleReal>(std::pow(comm_prob, num_infected_community - num_infected_nborhood));
                         Real nborhood_prob = 1.0_prt - infect * lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * scale;
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nborhood_prob, num_infected_nborhood));
                     }
