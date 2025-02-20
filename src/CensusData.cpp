@@ -229,7 +229,7 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                 int il = Random_int(1000, engine);
 
                 int family_size = 1;
-                while (il > p_hh[family_size]) {
+                while (il > p_hh[family_size - 1]) {
                     ++family_size;
                 }
                 AMREX_ASSERT(family_size > 0);
