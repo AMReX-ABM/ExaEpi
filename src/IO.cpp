@@ -263,7 +263,6 @@ void writeFIPSData (const AgentContainer& agents,                  /*!< Agents (
     }
 }
 
-<<<<<<< HEAD
 /*! \brief Writes diagnostic data aggregated by block group
 
     Writes a file with the total number of infected agents for each census block group;
@@ -345,7 +344,5 @@ void writeAggregatedData (const AgentContainer& agents,                  /*!< Ag
     }
 }
 
-=======
->>>>>>> development
 } // namespace IO
 } // namespace ExaEpi
