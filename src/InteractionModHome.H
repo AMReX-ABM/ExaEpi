@@ -5,9 +5,9 @@
 #ifndef _INTERACTION_MOD_HOME_H_
 #define _INTERACTION_MOD_HOME_H_
 
-#include "InteractionModel.H"
-#include "DiseaseParm.H"
 #include "AgentDefinitions.H"
+#include "DiseaseParm.H"
+#include "InteractionModel.H"
 
 using namespace amrex;
 
@@ -21,24 +21,24 @@ using namespace amrex;
 template <typename PTDType>
 struct BinaryInteractionHome {
     AMREX_GPU_DEVICE
-    ParticleReal operator() (const int infectious_i, /*!< Index of infectious agent */
-                             const int susceptible_i, /*!< Index of susceptible agent */
-                             const PTDType& a_ptd, /*!< Particle tile data */
-                             const DiseaseParm* const a_lparm,  /*!< disease paramters */
-                             const Real a_social_scale /*!< Social scale */) const noexcept {
+    ParticleReal operator()(const int infectious_i,           /*!< Index of infectious agent */
+                            const int susceptible_i,          /*!< Index of susceptible agent */
+                            const PTDType& a_ptd,             /*!< Particle tile data */
+                            const DiseaseParm* const a_lparm, /*!< disease paramters */
+                            const Real a_social_scale /*!< Social scale */) const noexcept {
         auto age_group_ptr = a_ptd.m_idata[IntIdx::age_group];
         auto family_ptr = a_ptd.m_idata[IntIdx::family];
         auto withdrawn_ptr = a_ptd.m_idata[IntIdx::withdrawn];
 
         AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::home_i][infectious_i] == a_ptd.m_idata[IntIdx::home_i][susceptible_i] &&
                             a_ptd.m_idata[IntIdx::home_j][infectious_i] == a_ptd.m_idata[IntIdx::home_j][susceptible_i]);
-        //AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::nborhood][infectious_i] == a_ptd.m_idata[IntIdx::nborhood][susceptible_i]);
+        // AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::nborhood][infectious_i] == a_ptd.m_idata[IntIdx::nborhood][susceptible_i]);
 
-        //infect *= i_mask;
-        //infect *= j_mask;
+        // infect *= i_mask;
+        // infect *= j_mask;
         if (family_ptr[infectious_i] == family_ptr[susceptible_i]) {
             // at home, within a family
-            if (age_group_ptr[infectious_i] <= 1) {  // Transmitter i is a child
+            if (age_group_ptr[infectious_i] <= 1) { // Transmitter i is a child
                 return infectProb(a_ptd, infectious_i, susceptible_i, a_lparm->xmit_child_SC, a_lparm->xmit_child);
             } else {
                 return infectProb(a_ptd, infectious_i, susceptible_i, a_lparm->xmit_adult_SC, a_lparm->xmit_adult);
@@ -46,10 +46,12 @@ struct BinaryInteractionHome {
         } else if (family_ptr[infectious_i] / FAMILIES_PER_CLUSTER == family_ptr[susceptible_i] / FAMILIES_PER_CLUSTER &&
                    !withdrawn_ptr[infectious_i] && !withdrawn_ptr[susceptible_i]) {
             // family cluster
-            if (age_group_ptr[infectious_i] <= 1) {  // Transmitter i is a child
-                return infectProb(a_ptd, infectious_i, susceptible_i, a_lparm->xmit_nc_child_SC, a_lparm->xmit_nc_child) * a_social_scale;
+            if (age_group_ptr[infectious_i] <= 1) { // Transmitter i is a child
+                return infectProb(a_ptd, infectious_i, susceptible_i, a_lparm->xmit_nc_child_SC, a_lparm->xmit_nc_child) *
+                       a_social_scale;
             } else {
-                return infectProb(a_ptd, infectious_i, susceptible_i, a_lparm->xmit_nc_adult_SC, a_lparm->xmit_nc_adult) * a_social_scale;
+                return infectProb(a_ptd, infectious_i, susceptible_i, a_lparm->xmit_nc_adult_SC, a_lparm->xmit_nc_adult) *
+                       a_social_scale;
             }
         }
         return 0.0_prt;
@@ -60,35 +62,32 @@ struct BinaryInteractionHome {
 template <typename PTDType>
 struct HomeCandidate {
     AMREX_GPU_HOST_DEVICE
-    bool operator() (const int idx, const PTDType& ptd) const noexcept {
+    bool operator()(const int idx, const PTDType& ptd) const noexcept {
         return !inHospital(idx, ptd) && ptd.m_idata[IntIdx::random_travel][idx] < 0 && ptd.m_idata[IntIdx::air_travel][idx] < 0;
     }
 };
 
 /*! \brief Class describing agent interactions at home */
 template <typename PCType, typename PTDType, typename PType>
-class InteractionModHome : public InteractionModel<PCType, PTDType, PType>
-{
-    public:
+class InteractionModHome : public InteractionModel<PCType, PTDType, PType> {
+  public:
+    /*! \brief null constructor */
+    InteractionModHome (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
 
-        /*! \brief null constructor */
-        InteractionModHome(bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
+    /*! \brief default destructor */
+    virtual ~InteractionModHome() = default;
 
-        /*! \brief default destructor */
-        virtual ~InteractionModHome() = default;
-
-        /*! \brief Simulate agent interaction at home */
-        virtual void interactAgents (PCType& agents, MultiFab&) override {
+    /*! \brief Simulate agent interaction at home */
+    virtual void interactAgents (PCType& agents, MultiFab&) override {
 #ifdef FAST_INTERACTIONS
-            fastInteractHome (agents);
+        fastInteractHome(agents);
 #else
-            interactAgentsImpl<InteractionModHome<PCType, PTDType, PType>, PCType, PTDType,
-                               HomeCandidate<PTDType>, BinaryInteractionHome<PTDType>>(*this, agents, IntIdx::nborhood);
+        interactAgentsImpl<InteractionModHome<PCType, PTDType, PType>, PCType, PTDType, HomeCandidate<PTDType>,
+                           BinaryInteractionHome<PTDType>>(*this, agents, IntIdx::nborhood);
 #endif
+    }
 
-        }
-
-        void fastInteractHome (PCType &agents);
+    void fastInteractHome(PCType& agents);
 };
 
 template <typename PCType, typename PTDType, typename PType>
@@ -111,7 +110,7 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
             auto& ptile = agents.ParticlesAt(lev, mfi);
             const auto& ptd = ptile.getParticleTileData();
             const auto np = ptile.GetArrayOfStructs().numParticles();
-            if (np == 0) continue;
+            if (np == 0) { continue; }
 
             auto& soa = ptile.GetStructOfArrays();
             auto family_ptr = soa.GetIntData(IntIdx::family).data();
@@ -147,15 +146,17 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
             for (int d = 0; d < n_disease; d++) {
                 // calculate separately for infected children and infected adults, since they have different transmission rates
                 for (auto adults : {true, false}) {
-                    {BL_PROFILE("fill_modhome_vectors");
-                    dev_memset(infected_family_d_ptr, 0, infected_family_d[OMP_THREAD_NUM].size() * sizeof(int));
-                    dev_memset(infected_family_not_withdrawn_d_ptr, 0, infected_family_not_withdrawn_d[OMP_THREAD_NUM].size() * sizeof(int));
-                    dev_memset(infected_nc_d_ptr, 0, infected_nc_d[OMP_THREAD_NUM].size() * sizeof(int));
+                    {
+                        BL_PROFILE("fill_modhome_vectors");
+                        devMemset(infected_family_d_ptr, 0, infected_family_d[OMP_THREAD_NUM].size() * sizeof(int));
+                        devMemset(infected_family_not_withdrawn_d_ptr, 0,
+                                  infected_family_not_withdrawn_d[OMP_THREAD_NUM].size() * sizeof(int));
+                        devMemset(infected_nc_d_ptr, 0, infected_nc_d[OMP_THREAD_NUM].size() * sizeof(int));
                     }
                     auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                     auto lparm = agents.getDiseaseParameters_d(d);
                     auto lparm_h = agents.getDiseaseParameters_h(d);
-                    Real scale = 1.0_rt;  // TODO this should vary based on cell
+                    Real scale = 1.0_rt; // TODO this should vary based on cell
                     Real infect = (1.0_rt - lparm_h->vac_eff);
                     // loop to count infectious agents in each group
                     ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
@@ -212,6 +213,5 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
         }
     }
 }
-
 
 #endif
