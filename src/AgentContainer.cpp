@@ -672,15 +672,18 @@ void AgentContainer::infectAgents () {
                 coimmunity.resize(np);
                 cosusceptibility.resize(np);
 
-                m_disease_coupling->getCoimmunity( coimmunity, d, ptd );
-                m_disease_coupling->getCosusceptibility( cosusceptibility, d, ptd );
+                m_disease_coupling->getCoimmunity(coimmunity, d, ptd);
+                m_disease_coupling->getCosusceptibility(cosusceptibility, d, ptd);
 
                 auto ci_arr = coimmunity.data();
                 auto cs_arr = cosusceptibility.data();
 
                 amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, amrex::RandomEngine const& engine) noexcept {
-                    if (prob_ptr[i] == 1.0_prt) { prob_ptr[i] = 0.0_prt; }
-                    else { prob_ptr[i] = 1.0_prt - prob_ptr[i]/cs_arr[i]; }
+                    if (prob_ptr[i] == 1.0_prt) {
+                        prob_ptr[i] = 0.0_prt;
+                    } else {
+                        prob_ptr[i] = 1.0_prt - prob_ptr[i] / cs_arr[i];
+                    }
                     prob_ptr[i] *= (1.0_prt - ci_arr[i]);
                     if (status_ptr[i] == Status::never || status_ptr[i] == Status::susceptible) {
                         if (amrex::Random(engine) < prob_ptr[i]) {

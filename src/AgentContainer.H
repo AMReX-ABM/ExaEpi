@@ -19,8 +19,8 @@
 
 #include "AgentDefinitions.H"
 #include "AirTravelFlow.H"
-#include "DiseaseParm.H"
 #include "DiseaseCoupling.H"
+#include "DiseaseParm.H"
 #include "DiseaseStatus.H"
 #include "HospitalModel.H"
 #include "InteractionModelLibrary.H"
@@ -167,11 +167,11 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     short ic_type;
 
   protected:
-    amrex::Real m_shelter_compliance = 0.95_rt;                        /*!< Shelter-in-place compliance rate */
-    amrex::Real m_symptomatic_withdraw_compliance = 0.95_rt;           /*!< Symptomatic withdrawal compliance rate */
+    amrex::Real m_shelter_compliance = 0.95_rt;              /*!< Shelter-in-place compliance rate */
+    amrex::Real m_symptomatic_withdraw_compliance = 0.95_rt; /*!< Symptomatic withdrawal compliance rate */
 
-    std::vector<DiseaseParm*> m_h_parm;                                /*!< Disease parameters */
-    std::vector<DiseaseParm*> m_d_parm;                                /*!< Disease parameters (GPU device) */
+    std::vector<DiseaseParm*> m_h_parm;                      /*!< Disease parameters */
+    std::vector<DiseaseParm*> m_d_parm;                      /*!< Disease parameters (GPU device) */
 
     std::unique_ptr<DiseaseCouplingParm<PTDType>> m_disease_coupling;
 

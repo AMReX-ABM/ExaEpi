@@ -164,7 +164,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                                 }
                                 disease_parm_d->checkHospitalization(&(timer_ptr[i]), &(marked_for_ICU_ptr[i]),
                                                                      &(marked_for_vent_ptr[i]), age_group_ptr[i], engine);
-                                if ( (timer_ptr[i] > 0) && (!inHospital(i,ptd)) ) { marked_for_hosp_ptr[i] = 1; }
+                                if ((timer_ptr[i] > 0) && (!inHospital(i, ptd))) { marked_for_hosp_ptr[i] = 1; }
                             }
                         } else if (!inHospital(i, ptd)) {
                             if (counter_ptr[i] >= (latent_period_ptr[i] + infectious_period_ptr[i])) {
