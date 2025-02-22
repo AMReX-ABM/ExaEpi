@@ -15,7 +15,6 @@ import time
 import argparse
 import geopandas
 
-
 # only include these fields in the output csv and c++ structure
 
 include_fields = [
@@ -321,11 +320,11 @@ def process_census_bg_shape_file(dir_names):
             dname = dname[:-1]
         shape_fname = dname + "/" + os.path.split(dname)[1] + ".shp"
         # don't actually need to compute the centroid because the block group file has it under the INTPTLAT10 and INTPTLON10 cols
-        # df = geopandas.read_file(shape_fname, include_fields=["GEOID10", "geometry"])
+        # df = geopandas.read_file(shape_fname, columns=["GEOID10", "INTPTLAT10", "INTPTLON10"])
         # df = df.to_crs(crs=4326)
         # df["centroid"] = df.centroid
         print("Reading shape files at", shape_fname)
-        df = geopandas.read_file(shape_fname, include_fields=["GEOID10", "INTPTLAT10", "INTPTLON10"], ignore_geometry=True)
+        df = geopandas.read_file(shape_fname, columns=["GEOID10", "INTPTLAT10", "INTPTLON10"])
         df.GEOID10 = df.GEOID10.astype("int64")
         df.INTPTLAT10 = df.INTPTLAT10.astype("float32")
         df.INTPTLON10 = df.INTPTLON10.astype("float32")
@@ -429,7 +428,7 @@ def allocate_educators(df, out_fname):
     # allocate educators at a ratio of 15:1 - this is the average for the US
     student_schools_map = {}
     schools = df.school_id.unique()
-    for _, school in enumerate(schools):
+    for school in schools:
         if school == 0:
             continue
         students_df = df.loc[(df["school_id"] == school) & (df["role"] == 2)]
@@ -465,12 +464,7 @@ def allocate_educators(df, out_fname):
     shortfall_educators = 0
     shortfall_educator_schools = 0
     # first allocate educators from local geoids
-    for _, school in enumerate(schools):
-        if school == -1:
-            continue
-        if not school in student_schools_map:
-            continue
-        student_pop, school_geoid, min_grade, max_grade = student_schools_map[school]
+    for school, [student_pop, school_geoid, min_grade, max_grade] in student_schools_map.items():
         required_educators = int(student_pop / 15)
         if required_educators == 0:
             continue
@@ -483,12 +477,7 @@ def allocate_educators(df, out_fname):
     shortfall_educators = 0
     shortfall_educator_schools = 0
     # now allocate educators from the county
-    for _, school in enumerate(schools):
-        if school == -1:
-            continue
-        if not school in student_schools_map:
-            continue
-        student_pop, school_geoid, min_grade, max_grade = student_schools_map[school]
+    for school, [student_pop, school_geoid, min_grade, max_grade] in student_schools_map.items():
         required_educators = int(student_pop / 15)
         if required_educators == 0:
             continue
