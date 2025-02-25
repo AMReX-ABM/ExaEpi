@@ -148,7 +148,7 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
             write_real_comp.push_back(static_cast<int>(step == 0));
             real_varnames.push_back("incubation_period");
             write_real_comp.push_back(static_cast<int>(step == 0));
-            real_varnames.push_back("hospital_delay"); 
+            real_varnames.push_back("hospital_delay");
             write_real_comp.push_back(static_cast<int>(step==0));
             int_varnames.push_back("status");
             write_int_comp.push_back(1);
