@@ -4,26 +4,25 @@
 
 #include "CaseData.H"
 
-#include <AMReX_BLassert.H>
 #include <AMReX_BLProfiler.H>
+#include <AMReX_BLassert.H>
 #include <AMReX_ParallelDescriptor.H>
 #include <AMReX_Print.H>
 #include <AMReX_Vector.H>
 
 #include <cmath>
-#include <string>
 #include <sstream>
+#include <string>
 
 using namespace amrex;
 
 /*! \brief Constructor that initializes by reading in data from given file
 
-    See CaseData::InitFromFile()
+    See CaseData::initFromFile()
 */
 CaseData::CaseData (const std::string& dname, /*!< Disease name */
-                    const::std::string& fname /*!< Filename to read case data from */)
-{
-    InitFromFile(dname, fname);
+                    const ::std::string& fname /*!< Filename to read case data from */) {
+    initFromFile(dname, fname);
 }
 
 /*! \brief Read case data from a given file
@@ -53,10 +52,9 @@ CaseData::CaseData (const std::string& dname, /*!< Disease name */
     \b Note: The code runs even if the case data file lacks the 3rd column. In this case, the
     #CaseData::num_cases2date will contain junk values (or maybe zero).
 */
-void CaseData::InitFromFile (const std::string& a_disease_name, /*!< Name of disease */
-                             const std::string& fname /*!< Filename to read case data from */)
-{
-    BL_PROFILE("CaseData::InitFromFile");
+void CaseData::initFromFile (const std::string& a_disease_name, /*!< Name of disease */
+                             const std::string& fname /*!< Filename to read case data from */) {
+    BL_PROFILE("CaseData::initFromFile");
     m_disease_name = a_disease_name;
 
     Vector<char> fileCharPtr;
@@ -83,27 +81,23 @@ void CaseData::InitFromFile (const std::string& a_disease_name, /*!< Name of dis
     N_hubs = 0;
     int ntot = 0;
     std::string line;
-    while ( (is.good()) && (fips > 0)) {
+    while ((is.good()) && (fips > 0)) {
         std::getline(is, line);
         std::istringstream lis(line);
         lis >> fips >> i >> j;
         if (fips != last_fips) {
-            if (fips >= 57000) {
-                amrex::Abort("FIPS too large when reading case data.");
-            }
+            if (fips >= 57000) { amrex::Abort("FIPS too large when reading case data."); }
             num_cases[fips] = i;
             ntot += i;
             num_cases2date[fips] = j;
             N_hubs++;
             last_fips = fips;
         } else {
-            fips = -1;  // don't read another line
+            fips = -1; // don't read another line
         }
     }
 
-    amrex::Print() << "Setting initial case counts for "
-                   << m_disease_name
-                   << " in " << N_hubs << " disease hubs. \n";
+    amrex::Print() << "Setting initial case counts for " << m_disease_name << " in " << N_hubs << " disease hubs. \n";
 
     FIPS_hubs.resize(N_hubs, 0);
     Size_hubs.resize(N_hubs, 0);
@@ -116,7 +110,7 @@ void CaseData::InitFromFile (const std::string& a_disease_name, /*!< Name of dis
     }
 
     amrex::ignore_unused(ntot);
-    CopyDataToDevice();
+    copyDataToDevice();
     amrex::Gpu::streamSynchronize();
 }
 
@@ -133,15 +127,15 @@ void CaseData::Print () const {
 }
 
 /*! \brief Copy a vector from host to device */
-void CaseData::CopyToDeviceAsync( const amrex::Vector<int>& h_vec,  /*!< Host vector */
-                                  amrex::Gpu::DeviceVector<int>& d_vec  /*!< Device vector */) {
+void CaseData::copyToDeviceAsync (const amrex::Vector<int>& h_vec, /*!< Host vector */
+                                  amrex::Gpu::DeviceVector<int>& d_vec /*!< Device vector */) {
     d_vec.resize(0);
     d_vec.resize(h_vec.size());
     Gpu::copyAsync(Gpu::hostToDevice, h_vec.begin(), h_vec.end(), d_vec.begin());
 }
 
 /*! \brief Copy a vector from device to host */
-void CaseData::CopyToHostAsync( const amrex::Gpu::DeviceVector<int>& d_vec, /*!< Device vector */
+void CaseData::copyToHostAsync (const amrex::Gpu::DeviceVector<int>& d_vec, /*!< Device vector */
                                 amrex::Vector<int>& h_vec /*!< Host vector */) {
     h_vec.resize(0);
     h_vec.resize(d_vec.size());
@@ -149,9 +143,9 @@ void CaseData::CopyToHostAsync( const amrex::Gpu::DeviceVector<int>& d_vec, /*!<
 }
 
 /*! \brief Copy all member data from host to device */
-void CaseData::CopyDataToDevice () {
-    CopyToDeviceAsync(FIPS_hubs, FIPS_hubs_d);
-    CopyToDeviceAsync(Size_hubs, Size_hubs_d);
-    CopyToDeviceAsync(num_cases, num_cases_d);
-    CopyToDeviceAsync(num_cases2date, num_cases2date_d);
+void CaseData::copyDataToDevice () {
+    copyToDeviceAsync(FIPS_hubs, FIPS_hubs_d);
+    copyToDeviceAsync(Size_hubs, Size_hubs_d);
+    copyToDeviceAsync(num_cases, num_cases_d);
+    copyToDeviceAsync(num_cases2date, num_cases2date_d);
 }

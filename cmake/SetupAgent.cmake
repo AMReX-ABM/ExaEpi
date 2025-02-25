@@ -1,51 +1,48 @@
 #
 # Function to setup the demo
 #
-function (setup_agent _srcs  _inputs)
+function(setup_agent _srcs _inputs)
 
-   cmake_parse_arguments( "" "HAS_FORTRAN_MODULES"
-      "BASE_NAME;RUNTIME_SUBDIR;EXTRA_DEFINITIONS" "" ${ARGN} )
+  include(GitVersion)
+  get_version_from_git()
 
-   set( _exe_name  "agent" )
-   set( _exe_dir ${CMAKE_BINARY_DIR}/bin)
-#   set( _exe_dir   "bin" )
+  cmake_parse_arguments("" "HAS_FORTRAN_MODULES" "BASE_NAME;RUNTIME_SUBDIR;EXTRA_DEFINITIONS" "" ${ARGN})
 
-   add_executable( ${_exe_name} )
+  set(_exe_name "agent")
+  set(_exe_dir ${CMAKE_BINARY_DIR}/bin)
+  # set( _exe_dir   "bin" )
 
-   target_sources( ${_exe_name} PRIVATE ${${_srcs}} )
+  add_executable(${_exe_name})
 
-   set_target_properties( ${_exe_name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${_exe_dir} )
+  target_sources(${_exe_name} PRIVATE ${${_srcs}})
 
-   if (_EXTRA_DEFINITIONS)
-      target_compile_definitions(${_exe_name} PRIVATE ${_EXTRA_DEFINITIONS})
-   endif ()
+  set_target_properties(${_exe_name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${_exe_dir})
 
-   # Find out which include directory is needed
-   set(_includes ${${_srcs}})
-   list(FILTER _includes INCLUDE REGEX "\\.H$")
-   foreach(_item IN LISTS _includes)
-      get_filename_component( _include_dir ${_item} DIRECTORY)
-      target_include_directories( ${_exe_name} PRIVATE  ${_include_dir} )
-   endforeach()
+  if(_EXTRA_DEFINITIONS)
+    target_compile_definitions(${_exe_name} PRIVATE ${_EXTRA_DEFINITIONS})
+  endif()
 
-   if (_HAS_FORTRAN_MODULES)
-      target_include_directories(${_exe_name}
-         PRIVATE
-         ${CMAKE_CURRENT_BINARY_DIR}/${EXENAME}_mod_files)
-      set_target_properties( ${_exe_name}
-         PROPERTIES
-         Fortran_MODULE_DIRECTORY
-         ${CMAKE_CURRENT_BINARY_DIR}/${EXENAME}_mod_files )
-   endif ()
+  # Find out which include directory is needed
+  set(_includes ${${_srcs}})
+  list(FILTER _includes INCLUDE REGEX "\\.H$")
+  foreach(_item IN LISTS _includes)
+    get_filename_component(_include_dir ${_item} DIRECTORY)
+    target_include_directories(${_exe_name} PRIVATE ${_include_dir})
+  endforeach()
 
-   target_link_libraries( ${_exe_name} amrex )
+  if(_HAS_FORTRAN_MODULES)
+    target_include_directories(${_exe_name} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/${EXENAME}_mod_files)
+    set_target_properties(${_exe_name} PROPERTIES Fortran_MODULE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${EXENAME}_mod_files)
+  endif()
 
-   if (AMReX_CUDA)
-      setup_target_for_cuda_compilation( ${_exe_name} )
-   endif ()
+  target_link_libraries(${_exe_name} amrex)
 
-   if (${_inputs})
-      file( COPY ${${_inputs}} DESTINATION ${_exe_dir} )
-   endif ()
+  if(AMReX_CUDA)
+    setup_target_for_cuda_compilation(${_exe_name})
+  endif()
 
-endfunction ()
+  if(${_inputs})
+    file(COPY ${${_inputs}} DESTINATION ${_exe_dir})
+  endif()
+
+endfunction()

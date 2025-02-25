@@ -8,7 +8,7 @@
 
 using namespace amrex;
 
-void queryArray(ParmParse &pp, const std::string& s, Real* a, int n) {
+void queryArray (ParmParse& pp, const std::string& s, Real* a, int n) {
     Vector<Real> tmp(n, 0);
     for (int i = 0; i < n; i++) {
         tmp[i] = a[i];
@@ -19,7 +19,7 @@ void queryArray(ParmParse &pp, const std::string& s, Real* a, int n) {
     }
 }
 
-void queryArray(ParmParse &pp, const std::string& s, int* a, int n) {
+void queryArray (ParmParse& pp, const std::string& s, int* a, int n) {
     Vector<int> tmp(n, 0);
     for (int i = 0; i < n; i++) {
         tmp[i] = a[i];
@@ -31,19 +31,18 @@ void queryArray(ParmParse &pp, const std::string& s, int* a, int n) {
 }
 
 /*! \brief Read disease inputs from input file */
-void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string */)
-{
+void DiseaseParm::readInputs (const std::string& a_pp_str /*!< Parmparse string */) {
     ParmParse pp(a_pp_str);
 
     std::string initial_case_type_str = (initial_case_type == CaseTypes::rnd ? "random" : "file");
     pp.query("initial_case_type", initial_case_type_str);
     if (initial_case_type_str == "file") {
         initial_case_type = CaseTypes::file;
-        /*! Initial cases filename (CaseData::InitFromFile):
+        /*! Initial cases filename (CaseData::initFromFile):
         The case data file is an ASCII text file with three columns of numbers:
         FIPS code, current number of cases, and cumulative number of cases till date. */
         std::string case_filename_str(case_filename);
-        if (pp.contains("case_filename")) pp.get("case_filename", case_filename_str);
+        if (pp.contains("case_filename")) { pp.get("case_filename", case_filename_str); }
         strncpy(case_filename, case_filename_str.c_str(), 254);
     } else if (initial_case_type_str == "random") {
         initial_case_type = CaseTypes::rnd;
@@ -62,6 +61,8 @@ void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string
     queryArray(pp, "xmit_school", xmit_school, SchoolType::total);
     queryArray(pp, "xmit_school_a2c", xmit_school_a2c, SchoolType::total);
     queryArray(pp, "xmit_school_c2a", xmit_school_c2a, SchoolType::total);
+
+    pp.query("xmit_work", xmit_work);
 
     pp.query("p_trans", p_trans);
     pp.query("p_asymp", p_asymp);
@@ -90,7 +91,7 @@ void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string
     m_t_hosp_offset = 0;
     queryArray(pp, "hospitalization_days", m_t_hosp, AgeGroups_Hosp::total);
     for (int i = 0; i < AgeGroups_Hosp::total; i++) {
-        if (m_t_hosp[i] > m_t_hosp_offset) m_t_hosp_offset = m_t_hosp[i] + 3;
+        if (m_t_hosp[i] > m_t_hosp_offset) { m_t_hosp_offset = m_t_hosp[i] + 3; }
     }
 
     queryArray(pp, "CHR", m_CHR, AgeGroups::total);
@@ -101,14 +102,12 @@ void DiseaseParm::readInputs ( const std::string& a_pp_str /*!< Parmparse string
     queryArray(pp, "ventCVF", m_hospToDeath[DiseaseStats::ventilator], AgeGroups::total);
 }
 
-
 /*! \brief Initialize disease parameters
 
     Compute transmission probabilities for various situations based on disease
     attributes.
 */
-void DiseaseParm::Initialize ()
-{
+void DiseaseParm::initialize () {
     // Optimistic scenario: 50% reduction in external child contacts during school dismissal
     //   or remote learning, and no change in household contacts
     child_compliance = 0.5_rt;
@@ -129,7 +128,7 @@ void DiseaseParm::Initialize ()
         xmit_hh_child[i] *= p_trans;
     }
 
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < SchoolType::total; i++) {
         xmit_school[i] *= p_trans;
         xmit_school_a2c[i] *= p_trans;
         xmit_school_c2a[i] *= p_trans;
@@ -158,6 +157,4 @@ void DiseaseParm::Initialize ()
         xmit_comm_SC[i] = xmit_comm[i];
         xmit_hood_SC[i] = xmit_hood[i];
     }
-
 }
-
