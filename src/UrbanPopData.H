@@ -4,16 +4,15 @@
 
 #pragma once
 
-#include <string>
 #include <iostream>
+#include <string>
 
-#include <AMReX_Vector.H>
 #include <AMReX_GpuContainers.H>
+#include <AMReX_Vector.H>
 
-#include "Utils.H"
 #include "CaseData.H"
 #include "UrbanPopAgentStruct.H"
-
+#include "Utils.H"
 
 struct BlockGroup {
     int64_t geoid;
@@ -30,31 +29,30 @@ struct BlockGroup {
     int num_students;
     int num_educators;
 
-    bool read(std::istringstream &iss);
-    bool read_agents(std::ifstream &f, amrex::Vector<UrbanPop::UrbanPopAgent> &agents, amrex::Vector<int>& group_work_population,
-                     amrex::Vector<int>& group_home_population, const std::map<IntVect, BlockGroup> &xy_to_block_groups,
-                     const LngLatToGrid &lnglat_to_grid, const GridToLngLat &grid_to_lnglat);
+    bool read(std::istringstream& iss);
+    bool readAgents(std::ifstream& f, amrex::Vector<UrbanPop::UrbanPopAgent>& agents, amrex::Vector<int>& group_work_population,
+                    amrex::Vector<int>& group_home_population, const std::map<IntVect, BlockGroup>& xy_to_block_groups,
+                    const LngLatToGrid& lnglat_to_grid, const GridToLngLat& grid_to_lnglat);
 };
 
 struct UrbanPopData {
     amrex::Real min_lng, min_lat, max_lng, max_lat;
     amrex::Real gspacing_x, gspacing_y;
 
-    amrex::Vector<int> FIPS_codes;   /*!< FIPS codes for each unit */
-    amrex::Vector<int> unit_community_start;  /*!< Starting community number (block group) for each unit */
+    amrex::Vector<int> FIPS_codes;           /*!< FIPS codes for each unit */
+    amrex::Vector<int> unit_community_start; /*!< Starting community number (block group) for each unit */
 
-    amrex::iMultiFab FIPS_mf;        /*!< FIPS code (component 0) and census tract number (component 1) of each community */
-    amrex::iMultiFab comm_mf;        /*!< Community number */
+    amrex::iMultiFab FIPS_mf; /*!< FIPS code (component 0) and census tract number (component 1) of each community */
+    amrex::iMultiFab comm_mf; /*!< Community number */
 
     int num_communities;
 
     UrbanPopData () {}
 
-    void init(ExaEpi::TestParams &params, amrex::Geometry &geom, amrex::BoxArray &ba, amrex::DistributionMapping &dm);
+    void init(ExaEpi::TestParams& params, amrex::Geometry& geom, amrex::BoxArray& ba, amrex::DistributionMapping& dm);
 
-    void initAgents(AgentContainer &pc, const ExaEpi::TestParams &params);
+    void initAgents(AgentContainer& pc, const ExaEpi::TestParams& params);
 
   private:
-
     std::map<IntVect, BlockGroup> xy_to_block_groups;
 };

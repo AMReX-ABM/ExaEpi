@@ -92,9 +92,9 @@ disease.asymp_relative_inf = 0.75
 # Vaccine efficacy. Not yet implemented; leave at 0.
 disease.vac_eff = 0
 # Alpha parameter for the immume length Gamma distribution. The immune length is the length in days that agents are immune after recovery from an infection.
-disease.immune_length_alpha = 9.0
+disease.immune_length_alpha =540.0
 # Beta parameter for the immume length Gamma distribution. The immune length is the length in days that agents are immune after recovery from an infection.
-disease.immune_length_beta = 20.0
+disease.immune_length_beta = 0.33
 # Alpha parameter for the latent length Gamma distribution. The latent length is the length in days from infection until an agent becomes infectious.
 disease.latent_length_alpha = 9.0
 # Beta parameter for the latent length Gamma distribution. The latent length is the length in days from infection until an agent becomes infectious.
@@ -138,6 +138,8 @@ disease.xmit_school_a2c = 0 0.0315 0.0315 0.0375 0.0435 0.15
 # Transmission probabilites within schools, where transmitter is a child and receiver is an adult,
 # for school levels none, college, high, middle, elementary, daycare. Ignored for none.
 disease.xmit_school_c2a = 0 0.0315 0.0315 0.0375 0.0435 0.15
+# Transmission probability within workgroups
+disease.xmit_wwork = 0.0575
 
 # Probability of hospitalization when disease symptoms first appear, for age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
 disease.CHR = 0.0104 0.0104 0.070 0.28 0.28 1.0

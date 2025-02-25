@@ -4,20 +4,19 @@
 
 #pragma once
 
-#include <AMReX_Vector.H>
 #include <AMReX_GpuContainers.H>
+#include <AMReX_Vector.H>
 #include <AMReX_iMultiFab.H>
 
 #include <string>
 
-#include "Utils.H"
-#include "DemographicData.H"
 #include "AgentContainer.H"
 #include "CaseData.H"
+#include "DemographicData.H"
+#include "Utils.H"
 
 /*! \brief A class encapsulating all data relevant to the ICType Census */
-struct CensusData
-{
+struct CensusData {
 
     DemographicData demo;
 
@@ -36,15 +35,12 @@ struct CensusData
 
     CensusData () {}
 
-    void init (ExaEpi::TestParams &params, amrex::Geometry &geom, amrex::BoxArray &ba, amrex::DistributionMapping &dm);
+    void init(ExaEpi::TestParams& params, amrex::Geometry& geom, amrex::BoxArray& ba, amrex::DistributionMapping& dm);
 
-    void initAgents (AgentContainer &pc, const int nborhood_size);
+    void initAgents(AgentContainer& pc, const int nborhood_size);
 
-    void read_workerflow (AgentContainer& pc, const std::string &workerflow_filename, const int workgroup_size);
+    void readWorkerflow(AgentContainer& pc, const std::string& workerflow_filename, const int workgroup_size);
 
-  //private:
-    void assignTeachersAndWorkgroup (AgentContainer& pc, const int workgroup_size);
-
+    // private:
+    void assignTeachersAndWorkgroup(AgentContainer& pc, const int workgroup_size);
 };
-
-

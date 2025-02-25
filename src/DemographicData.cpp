@@ -4,25 +4,24 @@
 
 #include "DemographicData.H"
 
-#include <AMReX_BLassert.H>
 #include <AMReX_BLProfiler.H>
+#include <AMReX_BLassert.H>
 #include <AMReX_ParallelDescriptor.H>
 #include <AMReX_Print.H>
 #include <AMReX_Vector.H>
 
 #include <cmath>
-#include <string>
 #include <sstream>
+#include <string>
 
 using namespace amrex;
 
 /*! Initializes by reading in demographic data from a given
-    filename. Calls DemographicData::InitFromFile(). */
+    filename. Calls DemographicData::initFromFile(). */
 
-DemographicData::DemographicData (const::std::string& fname, /*!< Name of file containing demographic data */
-                                  const int workgroup_size)
-{
-    InitFromFile(fname, workgroup_size);
+DemographicData::DemographicData (const ::std::string& fname, /*!< Name of file containing demographic data */
+                                  const int workgroup_size) {
+    initFromFile(fname, workgroup_size);
 }
 
 /*! \brief Read in demographic data from given file.
@@ -49,10 +48,9 @@ DemographicData::DemographicData (const::std::string& fname, /*!< Name of file c
  *  + Copy data to GPU device memory.
  */
 
-void DemographicData::InitFromFile (const std::string& fname, /*!< Name of file containing demographic data */
-                                    const int workgroup_size  /*!< The size of workgroups */)
-{
-    BL_PROFILE("DemographicData::InitFromFile");
+void DemographicData::initFromFile (const std::string& fname, /*!< Name of file containing demographic data */
+                                    const int workgroup_size /*!< The size of workgroups */) {
+    BL_PROFILE("DemographicData::initFromFile");
 
     Vector<char> fileCharPtr;
     ParallelDescriptor::ReadAndBcastFile(fname, fileCharPtr);
@@ -68,7 +66,7 @@ void DemographicData::InitFromFile (const std::string& fname, /*!< Name of file 
     myID.resize(Nunit);
     FIPS.resize(Nunit);
     Tract.resize(Nunit);
-    Start.resize(Nunit+1);
+    Start.resize(Nunit + 1);
     Population.resize(Nunit);
     N5.resize(Nunit);
     N17.resize(Nunit);
@@ -99,12 +97,15 @@ void DemographicData::InitFromFile (const std::string& fname, /*!< Name of file 
         lis >> N5[i] >> N17[i] >> N29[i] >> N64[i] >> N65plus[i];
         lis >> H1[i] >> H2[i] >> H3[i] >> H4[i] >> H5[i] >> H6[i] >> H7[i];
         myIDtoUnit[myID[i]] = i;
-        if(CountyPop.find(FIPS[i]) ==CountyPop.end()) CountyPop[FIPS[i]]= Population[i];
-        else CountyPop[FIPS[i]] += Population[i];
+        if (CountyPop.find(FIPS[i]) == CountyPop.end()) {
+            CountyPop[FIPS[i]] = Population[i];
+        } else {
+            CountyPop[FIPS[i]] += Population[i];
+        }
 
         /*   How many 2000-person communities does this require?   */
-        int ncomm = (int) std::rint(((double) Population[i]) / DemographicData::COMMUNITY_SIZE);
-        //amrex::Print() << Population[i] << " " << ncomm << " " << ncomm * DemographicData::COMMUNITY_SIZE << "\n";
+        int ncomm = (int)std::rint(((double)Population[i]) / DemographicData::COMMUNITY_SIZE);
+        // amrex::Print() << Population[i] << " " << ncomm << " " << ncomm * DemographicData::COMMUNITY_SIZE << "\n";
 
         /*
           Note that some census tracts have little or no residential
@@ -127,15 +128,17 @@ void DemographicData::InitFromFile (const std::string& fname, /*!< Name of file 
           Let's limit each community to 1000 workers, which would be
           about 50 workgroups:
         */
-        if ( (Ndaywork[i] >= workgroup_size) && !ncomm ) {
+        if ((Ndaywork[i] >= workgroup_size) && !ncomm) {
             ncomm = 1;
-            //amrex::Print() << "myID " << myID[i] << ": " << ncomm << " community to accommodate " << Ndaywork[i] << " daytime workers\n";
+            // amrex::Print() << "myID " << myID[i] << ": " << ncomm << " community to accommodate " << Ndaywork[i] << " daytime
+            // workers\n";
         }
-        if ( Ndaywork[i] > (ncomm * 1000) ) {
+        if (Ndaywork[i] > (ncomm * 1000)) {
             ncomm = Ndaywork[i] / 1000;
-            //amrex::Print() << "myID " << myID[i] << ": " << ncomm << " communities to accommodate " << Ndaywork[i] << " daytime workers\n";
+            // amrex::Print() << "myID " << myID[i] << ": " << ncomm << " communities to accommodate " << Ndaywork[i] << " daytime
+            // workers\n";
         }
-        //amrex::Print() << ncomm << " " << Start[i] << "\n";
+        // amrex::Print() << ncomm << " " << Start[i] << "\n";
         Ncommunity += ncomm;
     }
     Start[Nunit] = Ncommunity;
@@ -150,7 +153,7 @@ void DemographicData::InitFromFile (const std::string& fname, /*!< Name of file 
     amrex::Print() << "Total workers " << total_workers << "\n";
     amrex::Print() << "Number of communities: " << Ncommunity << "\n";
 
-    CopyDataToDevice();
+    copyDataToDevice();
     amrex::Gpu::streamSynchronize();
 }
 
@@ -170,12 +173,13 @@ void DemographicData::Print () const {
     for (int i = 0; i < Nunit; ++i) {
         amrex::Print() << myID[i] << " " << Population[i] << " " << Ndaywork[i] << " " << FIPS[i] << " " << Tract[i] << " ";
         amrex::Print() << N5[i] << " " << N17[i] << " " << N29[i] << " " << N64[i] << " " << N65plus[i] << " ";
-        amrex::Print() << H1[i] << " " << H2[i] << " " << H3[i] << " " << H4[i] << " " << H5[i] << " " << H6[i] << " " << H7[i] << "\n";
+        amrex::Print() << H1[i] << " " << H2[i] << " " << H3[i] << " " << H4[i] << " " << H5[i] << " " << H6[i] << " " << H7[i]
+                       << "\n";
     }
 }
 
 /*! \brief Copy array from host to device */
-void DemographicData::CopyToDeviceAsync (const amrex::Vector<int>& h_vec, /*!< host vector */
+void DemographicData::copyToDeviceAsync (const amrex::Vector<int>& h_vec, /*!< host vector */
                                          amrex::Gpu::DeviceVector<int>& d_vec /*!< device vector */) {
     d_vec.resize(0);
     d_vec.resize(h_vec.size());
@@ -183,7 +187,7 @@ void DemographicData::CopyToDeviceAsync (const amrex::Vector<int>& h_vec, /*!< h
 }
 
 /*! \brief Copy array from device to host */
-void DemographicData::CopyToHostAsync (const amrex::Gpu::DeviceVector<int>& d_vec, /*!< device vector */
+void DemographicData::copyToHostAsync (const amrex::Gpu::DeviceVector<int>& d_vec, /*!< device vector */
                                        amrex::Vector<int>& h_vec /*!< host vector */) {
     h_vec.resize(0);
     h_vec.resize(d_vec.size());
@@ -191,28 +195,28 @@ void DemographicData::CopyToHostAsync (const amrex::Gpu::DeviceVector<int>& d_ve
 }
 
 /*! \brief Copies member arrays of #DemographicData from host to device */
-void DemographicData::CopyDataToDevice () {
-    CopyToDeviceAsync(myID, myID_d);
-    CopyToDeviceAsync(FIPS, FIPS_d);
-    CopyToDeviceAsync(Tract, Tract_d);
-    CopyToDeviceAsync(Start, Start_d);
-    CopyToDeviceAsync(Population, Population_d);
+void DemographicData::copyDataToDevice () {
+    copyToDeviceAsync(myID, myID_d);
+    copyToDeviceAsync(FIPS, FIPS_d);
+    copyToDeviceAsync(Tract, Tract_d);
+    copyToDeviceAsync(Start, Start_d);
+    copyToDeviceAsync(Population, Population_d);
 
-    CopyToDeviceAsync(N5,  N5_d);
-    CopyToDeviceAsync(N17, N17_d);
-    CopyToDeviceAsync(N29, N29_d);
-    CopyToDeviceAsync(N64, N64_d);
-    CopyToDeviceAsync(N65plus, N65plus_d);
+    copyToDeviceAsync(N5, N5_d);
+    copyToDeviceAsync(N17, N17_d);
+    copyToDeviceAsync(N29, N29_d);
+    copyToDeviceAsync(N64, N64_d);
+    copyToDeviceAsync(N65plus, N65plus_d);
 
-    CopyToDeviceAsync(H1, H1_d);
-    CopyToDeviceAsync(H2, H2_d);
-    CopyToDeviceAsync(H3, H3_d);
-    CopyToDeviceAsync(H4, H4_d);
-    CopyToDeviceAsync(H5, H5_d);
-    CopyToDeviceAsync(H6, H6_d);
-    CopyToDeviceAsync(H7, H7_d);
+    copyToDeviceAsync(H1, H1_d);
+    copyToDeviceAsync(H2, H2_d);
+    copyToDeviceAsync(H3, H3_d);
+    copyToDeviceAsync(H4, H4_d);
+    copyToDeviceAsync(H5, H5_d);
+    copyToDeviceAsync(H6, H6_d);
+    copyToDeviceAsync(H7, H7_d);
 
-    CopyToDeviceAsync(Ndaywork, Ndaywork_d);
-    CopyToDeviceAsync(myIDtoUnit, myIDtoUnit_d);
-    CopyToDeviceAsync(Unit_on_proc, Unit_on_proc_d);
+    copyToDeviceAsync(Ndaywork, Ndaywork_d);
+    copyToDeviceAsync(myIDtoUnit, myIDtoUnit_d);
+    copyToDeviceAsync(Unit_on_proc, Unit_on_proc_d);
 }

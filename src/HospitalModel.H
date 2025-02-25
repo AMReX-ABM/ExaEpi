@@ -5,40 +5,37 @@
 #ifndef _HOSPITAL_MODEL_H_
 #define _HOSPITAL_MODEL_H_
 
-#include "InteractionModel.H"
-#include "DiseaseParm.H"
-#include "AgentDefinitions.H"
 #include "AgentContainer.H"
+#include "AgentDefinitions.H"
+#include "DiseaseParm.H"
+#include "InteractionModel.H"
+#include "Utils.H"
 
 using namespace amrex;
 
 /*! \brief Class describing agent interactions and treatment at hospital */
 template <typename PCType, typename PTDType, typename PType>
-class HospitalModel : public InteractionModel<PCType, PTDType, PType>
-{
-    public:
+class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
+  public:
+    /*! \brief null constructor */
+    HospitalModel (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
 
-        /*! \brief null constructor */
-        HospitalModel (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
+    /*! \brief default destructor */
+    virtual ~HospitalModel() = default;
 
-        /*! \brief default destructor */
-        virtual ~HospitalModel () = default;
+    /*! \brief Simulate agent interaction at hospital */
+    virtual void interactAgents (PCType&, MultiFab&) override {
+        // not yet implemented
+    }
 
-        /*! \brief Simulate agent interaction at hospital */
-        virtual void interactAgents (PCType&, MultiFab&) override
-        {
-            // not yet implemented
-        }
+    using MFPtr = std::unique_ptr<MultiFab>;
+    using MFPtrVec = std::vector<MFPtr>;
 
-        using MFPtr = std::unique_ptr<MultiFab>;
-        using MFPtrVec = std::vector<MFPtr>;
+    /*! \brief Simulate treatment of agents in a hospital */
+    virtual void treatAgents(PCType&, MFPtrVec&);
 
-        /*! \brief Simulate treatment of agents in a hospital */
-        virtual void treatAgents (PCType&, MFPtrVec&);
-
-    protected:
-
-    private:
+  protected:
+  private:
 };
 
 /*! Simulate the treatment of agents and interactions between agents at a hospital
@@ -50,16 +47,14 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType>
               discharge once treatment is complete
 */
 template <typename PCType, typename PTDType, typename PType>
-void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< Agent container */
-                                                        MFPtrVec& a_dstats /*!< disease stats */ )
-{
+void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< Agent container */
+                                                         MFPtrVec& a_dstats /*!< disease stats */) {
     BL_PROFILE("HospitalModel::interactAgents");
     int n_disease = a_agents.numDiseases();
 
-    for (int lev = 0; lev < a_agents.numLevels(); ++lev)
-    {
+    for (int lev = 0; lev < a_agents.numLevels(); ++lev) {
         const auto dx = a_agents.Geom(lev).CellSizeArray();
-        auto& plev  = a_agents.GetParticles(lev);
+        auto& plev = a_agents.GetParticles(lev);
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -69,11 +64,11 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
             int tid = mfi.LocalTileIndex();
             auto& ptile = plev[std::make_pair(gid, tid)];
             const auto& ptd = ptile.getParticleTileData();
-            auto& soa   = ptile.GetStructOfArrays();
-            auto& aos   = ptile.GetArrayOfStructs();
+            auto& soa = ptile.GetStructOfArrays();
+            auto& aos = ptile.GetArrayOfStructs();
             PType* pstruct = &(aos[0]);
             const auto np = ptile.numParticles();
-            if (np == 0) continue;
+            if (np == 0) { continue; }
 
             auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
             auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
@@ -85,14 +80,14 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
             int i_RT = IntIdx::nattribs;
             int r_RT = RealIdx::nattribs;
 
-            GpuArray<int*,ExaEpi::max_num_diseases> status_ptrs, symptomatic_ptrs;
-            GpuArray<ParticleReal*,ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs, incubation_per_ptrs;
+            GpuArray<int*, ExaEpi::max_num_diseases> status_ptrs, symptomatic_ptrs;
+            GpuArray<ParticleReal*, ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs, incubation_per_ptrs;
             for (int d = 0; d < n_disease; d++) {
-                status_ptrs[d] = soa.GetIntData(i_RT+i0(d)+IntIdxDisease::status).data();
-                symptomatic_ptrs[d] = soa.GetIntData(i_RT+i0(d)+IntIdxDisease::symptomatic).data();
-                counter_ptrs[d] = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::disease_counter).data();
-                timer_ptrs[d] = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::treatment_timer).data();
-                incubation_per_ptrs[d] = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::incubation_period).data();
+                status_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
+                symptomatic_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::symptomatic).data();
+                counter_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::disease_counter).data();
+                timer_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::treatment_timer).data();
+                incubation_per_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).data();
             }
 
             Gpu::DeviceVector<int> is_alive(np);
@@ -101,8 +96,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
             Gpu::DeviceVector<int> flag_status(np);
             auto flag_status_ptr = flag_status.data();
 
-            ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
-            {
+            ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                 // if status_ptr for any one disease is dead, they should all be dead
                 if (status_ptrs[0][i] == Status::dead) {
                     is_alive_ptr[i] = 0;
@@ -126,11 +120,8 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                 auto immune_length_beta = disease_parm_h->immune_length_beta;
                 auto* disease_parm_d = a_agents.getDiseaseParameters_d(d);
 
-                ParallelForRNG( np,
-                                [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine)
-                                noexcept
-                {
-                    if ( !inHospital(i, ptd) )  {
+                ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
+                    if (!inHospital(i, ptd)) {
                         // agent is not in hospital
                         // determine if agent dies anyway.
                         if (Random(engine) < disease_parm_d->m_unhospToDeath[age_group_ptr[i]]) {
@@ -144,11 +135,11 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                         // agent just started treatment
                         return;
                     }
-                    if ( timer_ptrs[d][i] == 0) {
+                    if (timer_ptrs[d][i] == 0) {
                         // agent has recovered/died from disease d
                         return;
                     }
-                    if ( is_alive_ptr[i] == 0) {
+                    if (is_alive_ptr[i] == 0) {
                         // agent is dead
                         return;
                     }
@@ -176,7 +167,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                             // If alive, hospitalized patient recovers
                             status_ptrs[d][i] = Status::immune;
                             counter_ptrs[d][i] =
-                                static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine));
+                                    static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine));
                             symptomatic_ptrs[d][i] = SymptomStatus::presymptomatic;
                             withdrawn_ptr[i] = 0;
                             timer_ptrs[d][i] = 0.0_prt;
@@ -189,9 +180,8 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
             bool is_census = (a_agents.ic_type == ExaEpi::ICType::Census);
             auto grid_to_lnglat_ptr = &a_agents.grid_to_lnglat;
 
-            ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
-            {
-                if ( !inHospital(i, ptd) )  { return; }
+            ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
+                if (!inHospital(i, ptd)) { return; }
 
                 if (is_alive_ptr[i] == 0) {
                     // agent has died
@@ -224,46 +214,27 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents(PCType& a_agents, /*!< A
                         }
                     }
                 }
-
             });
             Gpu::synchronize();
 
             for (int d = 0; d < n_disease; d++) {
                 auto ds_arr = (*a_dstats[d])[mfi].array();
-                ParallelFor( np, [=] AMREX_GPU_DEVICE (int i) noexcept
-                {
+                ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                     if (flag_status_ptr[i] < 0) {
-                        Gpu::Atomic::AddNoRet( &ds_arr(  home_i_ptr[i],
-                                                         home_j_ptr[i],
-                                                         0,
-                                                         DiseaseStats::death),
-                                               1.0_rt );
+                        Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::death), 1.0_rt);
                     }
                     if (std::abs(flag_status_ptr[i]) > DiseaseStats::hospitalization) {
-                        Gpu::Atomic::AddNoRet( &ds_arr(  home_i_ptr[i],
-                                                         home_j_ptr[i],
-                                                         0,
-                                                         DiseaseStats::hospitalization ),
-                                               -1.0_rt );
+                        Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::hospitalization), -1.0_rt);
                     }
                     if (std::abs(flag_status_ptr[i]) > DiseaseStats::ICU) {
-                        Gpu::Atomic::AddNoRet( &ds_arr(  home_i_ptr[i],
-                                                         home_j_ptr[i],
-                                                         0,
-                                                         DiseaseStats::ICU),
-                                               -1.0_rt );
+                        Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::ICU), -1.0_rt);
                     }
                     if (std::abs(flag_status_ptr[i]) > DiseaseStats::ventilator) {
-                        Gpu::Atomic::AddNoRet( &ds_arr(  home_i_ptr[i],
-                                                         home_j_ptr[i],
-                                                         0,
-                                                         DiseaseStats::ventilator ),
-                                               -1.0_rt );
+                        Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::ventilator), -1.0_rt);
                     }
                 });
                 Gpu::synchronize();
             }
-
         }
     }
 }

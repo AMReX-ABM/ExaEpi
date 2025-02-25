@@ -130,10 +130,10 @@ The following inputs specify the disease parameters:
 * ``disease.vac_eff`` (`float`, default ``0``)
     The vaccine efficacy - the probability of transmission will be multiplied by one minus this factor.
     `Vaccination is not yet implemented, so this factor must be left at 0`.
-* ``disease.immune_length_alpha`` (`float`, default ``9.0``)
+* ``disease.immune_length_alpha`` (`float`, default ``540.0``)
     Alpha parameter for the immunity length Gamma distribution. The immunity length is the length of time in days that agents
     are immune to the disease after recovering from it. For a Gamma distribution, the mean is alpha*beta and the variance is alpha*beta^2.
-* ``disease.immune_length_beta`` (`float`, default ``20.0``)
+* ``disease.immune_length_beta`` (`float`, default ``0.33``)
     Beta parameter for the immunity length Gamma distribution. The immunity length is the length of time in days that agents
     are immune to the disease after recovering from it. For a Gamma distribution, the mean is alpha*beta and the variance is alpha*beta^2.
 * ``disease.latent_length_alpha`` (`float`, default ``9.0``)
@@ -158,6 +158,8 @@ The following inputs specify the disease parameters:
     For a Gamma distribution, the mean is alpha*beta and the variance is alpha*beta^2.
 * ``disease.hospitalization_days`` (`list of float`, default ``3.0 8.0 7.0``)
     Number of hospitalization days for age groups: under 50, 50-64, 65 and over.
+* ``disease.xmit_work`` (`float`, default ``0.0575``)
+    Transmission probability within a workgroup.
 * ``disease.xmit_comm`` (`list of float`, default ``0.000018125 0.000054375 0.000145 0.000145 0.000145 0.0002175``)
     Transmission probabilities at the community level, for both work and home locations,
     given the age group of the susceptible agent (0-4, 5-17, 18-29, 30-49, 50-64).
