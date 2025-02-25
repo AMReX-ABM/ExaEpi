@@ -663,7 +663,6 @@ def compute_worker_populations(df):
 def rename_fields(df):
     df.rename(columns={"geoid": "home_geoid"}, inplace=True)
     df.rename(columns={"h_id": "household_id"}, inplace=True)
-
     df.rename(columns={"p_id": "id"}, inplace=True)
     for col in df.columns:
         if col.startswith("pr_") and col != "pr_naics":
