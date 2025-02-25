@@ -116,7 +116,6 @@ struct DiseaseParm {
     /*! Probabilites of dying while *not* in hospital for age groups */
     Real m_unhospToDeath[AgeGroups::total] = {Real(0), Real(0), Real(0), Real(0), Real(0), Real(0)};
 
-
     DiseaseParm (const std::string& dname) {
         memset(disease_name, 0, 50);
         strncpy(disease_name, dname.c_str(), 49);
