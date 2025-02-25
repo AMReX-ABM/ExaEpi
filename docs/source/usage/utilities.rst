@@ -42,6 +42,8 @@ Data is either written as an ``int`` or a ``real``.
 
     - ``incubation_period``: Symptom development period length (known as incubation period in some contexts), i.e. time between exposure and symptoms appearing.
 
+    - ``hospital_delay``: Delay after symptom appearance for agents to seek treatment.
+
 - Every day (time-varying)
 
   - Int data

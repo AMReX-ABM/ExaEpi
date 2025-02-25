@@ -125,6 +125,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                 auto latent_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::latent_period).data();
                 auto infectious_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::infectious_period).data();
                 auto incubation_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).data();
+                auto hospital_delay_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_delay).data();
 
                 auto* disease_parm_d = a_agents.getDiseaseParameters_d(d);
                 auto* disease_parm_h = a_agents.getDiseaseParameters_h(d);
@@ -161,6 +162,16 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                                     (Random(engine) < symptomatic_withdraw_compliance)) {
                                     withdrawn_ptr[i] = 1;
                                 }
+                                if (Math::floor(hospital_delay_ptr[i]) == 0) {
+                                    disease_parm_d->checkHospitalization(&(timer_ptr[i]), &(marked_for_ICU_ptr[i]),
+                                                                         &(marked_for_vent_ptr[i]), age_group_ptr[i], engine);
+                                }
+                                if (timer_ptr[i] > 0) { marked_for_hosp_ptr[i] = 1; }
+                            }
+                        } else if ((Math::floor(hospital_delay_ptr[i]) > 0) &&
+                                   (Math::floor(counter_ptr[i]) ==
+                                    Math::floor(incubation_period_ptr[i]) + Math::floor(hospital_delay_ptr[i]))) {
+                            if (symptomatic_ptr[i] == SymptomStatus::symptomatic) {
                                 disease_parm_d->checkHospitalization(&(timer_ptr[i]), &(marked_for_ICU_ptr[i]),
                                                                      &(marked_for_vent_ptr[i]), age_group_ptr[i], engine);
                                 if (timer_ptr[i] > 0) { marked_for_hosp_ptr[i] = 1; }
