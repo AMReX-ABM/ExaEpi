@@ -204,6 +204,8 @@ The following inputs specify the disease parameters:
     Probability of death when in hospital, in the ICU, for age groups: 0-4, 5-17, 18-29, 30-49, 50-64, 65 and over.
 * ``disease.ventCVF`` (`list of float`, default ``0.20 0.20 0.20 0.45 0.45 1.0``)
     Probability of death when in hospital, on ventilator, for age groups: 0-4, 5-17, 18-29, 30-49, 50-64, 65 and over.
+* ``disease.unhospCVF`` (`list of float`, default ``0.0 0.0 0.0 0.0 0.0 0.0``)
+    Probability of death when not in hospital, for age groups: 0-4, 5-17, 18-29, 30-49, 50-64, 65 and over.
 
 `Note`: for ``agent.number_of_diseases > 1``, the disease parameters that are common
 to all the diseases can be specified as above. Any parameter that is `different for a specific disease`
