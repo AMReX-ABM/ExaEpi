@@ -163,20 +163,20 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                                     withdrawn_ptr[i] = 1;
                                 }
                                 if (Math::floor(hospital_delay_ptr[i]) == 0) {
-                                    disease_parm_d->check_hospitalization(&(timer_ptr[i]),
-                                                                          &(marked_for_ICU_ptr[i]),
-                                                                          &(marked_for_vent_ptr[i]),
-                                                                          age_group_ptr[i],
-                                                                          engine); }
+                                    disease_parm_d->checkHospitalization(&(timer_ptr[i]),
+                                                                         &(marked_for_ICU_ptr[i]),
+                                                                         &(marked_for_vent_ptr[i]),
+                                                                         age_group_ptr[i],
+                                                                         engine); }
                                 if (timer_ptr[i] > 0) { marked_for_hosp_ptr[i] = 1; }
                             }
                         } else if ((Math::floor(hospital_delay_ptr[i]) > 0) && (Math::floor(counter_ptr[i]) == Math::floor(incubation_period_ptr[i]) + Math::floor(hospital_delay_ptr[i]))) {
                             if (symptomatic_ptr[i] == SymptomStatus::symptomatic) {
-                                disease_parm_d->check_hospitalization(&(timer_ptr[i]),
-                                                                      &(marked_for_ICU_ptr[i]),
-                                                                      &(marked_for_vent_ptr[i]),
-                                                                      age_group_ptr[i],
-                                                                      engine);
+                                disease_parm_d->checkHospitalization(&(timer_ptr[i]),
+                                                                     &(marked_for_ICU_ptr[i]),
+                                                                     &(marked_for_vent_ptr[i]),
+                                                                     age_group_ptr[i],
+                                                                     engine);
                                 if (timer_ptr[i] > 0) { marked_for_hosp_ptr[i] = 1; }
                             }
                         } else if (!inHospital(i, ptd)) {
