@@ -29,6 +29,7 @@ struct RealIdxDisease {
         latent_period,       /*!< Time until infectious, which could be before symptoms appear */
         infectious_period,   /*!< Length of time infectious */
         incubation_period,   /*!< Time until symptoms appear */
+        hospital_delay,      /*!< Delay after symptom onset until hospital treatment is sought */
         nattribs             /*!< number of real-type attribute*/
     };
 };

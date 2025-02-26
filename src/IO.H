@@ -12,6 +12,7 @@
 
 #include "AgentContainer.H"
 #include "CensusData.H"
+#include "UrbanPopData.H"
 
 #include <string>
 
@@ -21,11 +22,15 @@ namespace ExaEpi {
            plotfiles and diagnostics data */
 namespace IO {
 
-void writePlotFile(const AgentContainer& pc, const CensusData& censusData, const int num_diseases,
-                   const std::vector<std::string>& disease_names, const amrex::Real cur_time, const int step);
+void writePlotFile(const AgentContainer& pc, const iMultiFab* unit_mf_ptr, const iMultiFab* FIPS_mf_ptr,
+                   const iMultiFab* comm_mf_ptr, const int num_diseases, const std::vector<std::string>& disease_names,
+                   const Real cur_time, const int step);
 
 void writeFIPSData(const AgentContainer& pc, const CensusData& censusData, const std::string& prefix, const int num_diseases,
                    const std::vector<std::string>& disease_names, const int step);
+
+void writeAggregatedData(const AgentContainer& pc, const UrbanPopData& urbanpopData, const std::string& prefix,
+                         const int num_diseases, const std::vector<std::string>& disease_names, const int step);
 } // namespace IO
 } // namespace ExaEpi
 

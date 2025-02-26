@@ -72,26 +72,29 @@ struct DiseaseParm {
     /*! probability for transmission within a workgroup, independent of age group currently */
     Real xmit_work = Real(0.0575);
 
-    Real p_trans = Real(0.20);                 /*!< probability of transimission given contact */
-    Real p_asymp = Real(0.40);                 /*!< fraction of cases that are asymptomatic */
-    Real asymp_relative_inf = Real(0.75);      /*!< relative infectiousness of asymptomatic individuals */
+    Real p_trans = Real(0.20);                    /*!< probability of transimission given contact */
+    Real p_asymp = Real(0.40);                    /*!< fraction of cases that are asymptomatic */
+    Real asymp_relative_inf = Real(0.75);         /*!< relative infectiousness of asymptomatic individuals */
 
-    Real vac_eff = Real(0.0);                  /*!< Vaccine efficacy */
+    Real vac_eff = Real(0.0);                     /*!< Vaccine efficacy */
 
-    Real child_compliance;                     /*!< Child compliance with masking ?? */
-    Real child_HH_closure;                     /*!< Multiplier for household contacts during school closure */
+    Real child_compliance;                        /*!< Child compliance with masking ?? */
+    Real child_HH_closure;                        /*!< Multiplier for household contacts during school closure */
 
-    Real immune_length_alpha = Real(540.0);    /*! alpha parameter for gamma distribution*/
-    Real immune_length_beta = Real(0.33);      /*! beta parameter for gamma distribution*/
+    Real immune_length_alpha = Real(540.0);       /*! alpha parameter for gamma distribution*/
+    Real immune_length_beta = Real(0.33);         /*! beta parameter for gamma distribution*/
 
-    Real latent_length_alpha = Real(9.0);      /*! alpha parameter for gamma distribution*/
-    Real latent_length_beta = Real(0.33);      /*! beta parameter for gamma distribution*/
+    Real latent_length_alpha = Real(9.0);         /*! alpha parameter for gamma distribution*/
+    Real latent_length_beta = Real(0.33);         /*! beta parameter for gamma distribution*/
 
-    Real infectious_length_alpha = Real(36.0); /*! alpha parameter for gamma distribution*/
-    Real infectious_length_beta = Real(0.17);  /*! beta parameter for gamma distribution*/
+    Real infectious_length_alpha = Real(36.0);    /*! alpha parameter for gamma distribution*/
+    Real infectious_length_beta = Real(0.17);     /*! beta parameter for gamma distribution*/
 
-    Real incubation_length_alpha = Real(25.0); /*! alpha parameter for gamma distribution*/
-    Real incubation_length_beta = Real(0.2);   /*! beta parameter for gamma distribution*/
+    Real incubation_length_alpha = Real(25.0);    /*! alpha parameter for gamma distribution*/
+    Real incubation_length_beta = Real(0.2);      /*! beta parameter for gamma distribution*/
+
+    Real hospital_delay_length_alpha = Real(1.0); /*! alpha parameter for gamma distribution*/
+    Real hospital_delay_length_beta = Real(1.0);  /*! beta parameter for gamma distribution*/
 
     /*! number of hospitalization days by age group (#AgeGroups_Hosp); note that the
      *  age groups here are under 50, 50-64, and over 65, and *not* the age groups
@@ -160,7 +163,7 @@ struct DiseaseParm {
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 void setInfected (int* status, amrex::ParticleReal* counter, amrex::ParticleReal* latent_period,
                   amrex::ParticleReal* infectious_period, amrex::ParticleReal* incubation_period,
-                  amrex::RandomEngine const& engine, const DiseaseParm* lparm) {
+                  amrex::ParticleReal* hospital_delay, amrex::RandomEngine const& engine, const DiseaseParm* lparm) {
     *status = Status::infected;
     *counter = ParticleReal(0);
     *latent_period = static_cast<ParticleReal>(amrex::RandomGamma(lparm->latent_length_alpha, lparm->latent_length_beta, engine));
@@ -168,9 +171,12 @@ void setInfected (int* status, amrex::ParticleReal* counter, amrex::ParticleReal
             static_cast<ParticleReal>(amrex::RandomGamma(lparm->infectious_length_alpha, lparm->infectious_length_beta, engine));
     *incubation_period =
             static_cast<ParticleReal>(amrex::RandomGamma(lparm->incubation_length_alpha, lparm->incubation_length_beta, engine));
+    *hospital_delay = static_cast<ParticleReal>(
+            amrex::RandomGamma(lparm->hospital_delay_length_alpha, lparm->hospital_delay_length_beta, engine));
     if (*latent_period < 0) { *latent_period = amrex::Real(0); }
     if (*infectious_period < 0) { *infectious_period = amrex::Real(0); }
     if (*incubation_period < 0) { *incubation_period = amrex::Real(0); }
+    if (*hospital_delay < 0) { *hospital_delay = amrex::Real(0); }
     if (*incubation_period > (*infectious_period + *latent_period)) {
         *incubation_period = std::floor(*infectious_period + *latent_period);
     }

@@ -665,6 +665,7 @@ void AgentContainer::infectAgents () {
                 auto latent_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::latent_period).data();
                 auto infectious_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::infectious_period).data();
                 auto incubation_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).data();
+                auto hospital_delay_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_delay).data();
 
                 const auto lparm = m_d_parm[d];
 
@@ -688,7 +689,7 @@ void AgentContainer::infectAgents () {
                     if (status_ptr[i] == Status::never || status_ptr[i] == Status::susceptible) {
                         if (amrex::Random(engine) < prob_ptr[i]) {
                             setInfected(&(status_ptr[i]), &(counter_ptr[i]), &(latent_period_ptr[i]), &(infectious_period_ptr[i]),
-                                        &(incubation_period_ptr[i]), engine, lparm);
+                                        &(incubation_period_ptr[i]), &(hospital_delay_ptr[i]), engine, lparm);
                             return;
                         }
                     }
