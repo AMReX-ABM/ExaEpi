@@ -347,7 +347,7 @@ def process_nt_dt_feather_files(fnames, out_fname):
         print(len(dfs[-1].index), "records in %.3f s" % (time.time() - t))
 
     df = pandas.concat(dfs)
-    df.sort_values(by=["p_id"], inplace=True)
+    df.sort_values(by=["p_id"], inplace=True, ignore_index=True)
     df.orig_geoid = df.orig_geoid.astype("int64")
     df.dest_geoid = df.dest_geoid.astype("int64")
 
