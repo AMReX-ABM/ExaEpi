@@ -151,13 +151,6 @@ def generate_nt_dt_workers(args, workers_df):
     return nt_dt_df
 
 
-# strictly speaking, this should be 100, but that is too fine-grained
-COUNTY_SUBDIV_SCALE = 100
-COUNTY_SCALE = 10000000
-CENSUS_PLACES_SCALE = 100000
-GEOID_SCALING = CENSUS_PLACES_SCALE
-
-
 @timer
 def get_schools(fname):
     print("Loading", fname)
@@ -167,50 +160,86 @@ def get_schools(fname):
     nm_schools = schools_df[schools_df.geoid.str.startswith("35")]
     print("NM schools:", len(nm_schools), "students", nm_schools.students.sum())
     schools_df.geoid = schools_df.geoid.astype("int64")
-    schools_df["county_subdiv"] = np.floor(schools_df.geoid / GEOID_SCALING)
-    schools_df.county_subdiv = schools_df.county_subdiv.astype("int64")
     return schools_df
 
 
 @timer
-def generate_nt_dt_school_students(args, orig_students_df):
-    # group by county subdivision
-    students_df = orig_students_df.copy()
-    students_df["county_subdiv"] = np.floor(students_df.geoid / GEOID_SCALING)
-    students_df.county_subdiv = students_df.county_subdiv.astype("int64")
-    student_groups = students_df.groupby(["county_subdiv"])
-    print("Found", len(student_groups), "county subdivision student groups")
-    schools_df = get_schools(args.schools_file)
-    school_groups = schools_df.groupby(["county_subdiv"])
-    print("Found", len(schools_df), "county subdivision school groups")
-    rgen = np.random.default_rng(seed=29)
+def generate_nt_dt_school_students_region(students_df, schools_df, geoid_scaling, rgen):
+    schools_df["region"] = np.floor(schools_df.geoid / geoid_scaling)
+    schools_df.region = schools_df.region.astype("int64")
+    # group by region
+    students_df = students_df[(students_df.allocated == False)]
+    students_df.loc[:, "region"] = np.floor(students_df.geoid / geoid_scaling)
+    student_groups = students_df.groupby(["region"])
+    print("Found", len(student_groups), "regions for student groups")
+    school_groups = schools_df.groupby(["region"])
+    print("Found", len(schools_df), "regions for school groups")
     nt_dt_df = pd.DataFrame()
     missing_keys = 0
     for name, student_group in student_groups:
-        num_students = len(student_group)
+        num_students_reqd = len(student_group)
+        # defaults to empty in case we can't find a key
+        dests = pd.DataFrame({0: [""] * num_students_reqd, 1: ["-1"] * num_students_reqd})
         try:
             school_group = school_groups.get_group(name)
-            if len(school_group) == 0:
-                print("ERROR: Could not find GEOID", name, "in LODES data")
-                sys.exit(1)
-            sum_students = school_group.students.sum()
-            school_probs = school_group.students / sum_students
+            num_students_avail = school_group.students.sum()
+            num_students = num_students_reqd
+            school_group = school_group[["geoid", "id", "students"]]
+            missing_students = max(num_students_reqd - num_students_avail, 0)
+            if missing_students > 0:
+                # add a dummy empty school for missing prob
+                school_group.loc[len(school_group)] = ["", "-1", missing_students]
+            school_probs = school_group.students / (num_students_avail + missing_students)
             dests = pd.DataFrame(rgen.choice(a=school_group[["geoid", "id"]], size=num_students, p=school_probs, replace=True))
-            print("Found group of", len(school_group), "schools,", sum_students, "students,", len(dests), "destinations")
-            nt_dt_group = student_group[["p_id", "geoid", "pr_naics", "pr_grade"]]
-            nt_dt_group = nt_dt_group.assign(dest_geoid=list(dests.iloc[:, 0]), school_id=list(dests.loc[:, 1]))
-            nt_dt_df = pd.concat([nt_dt_df, nt_dt_group])
-        except KeyError as err:
+            # print("Group of", len(school_group), "schools,", num_students_reqd, "reqd,", num_students_avail, "available,", end="")
+            # print(" ratio %.2f" % (num_students_reqd / num_students_avail))
+        except KeyError:
             missing_keys += 1
+        nt_dt_group = student_group[["p_id", "geoid", "pr_naics", "pr_grade"]]
+        nt_dt_group = nt_dt_group.assign(dest_geoid=list(dests.iloc[:, 0]), school_id=list(dests.loc[:, 1]))
+        nt_dt_df = pd.concat([nt_dt_df, nt_dt_group])
 
     print("Missing keys", missing_keys, "out of", len(student_groups))
+    print("Unallocated students", len(nt_dt_df[(nt_dt_df.school_id == "-1")]))
     nt_dt_df.rename(columns={"geoid": "orig_geoid", "pr_naics": "naics", "pr_grade": "grade"}, inplace=True)
     nt_dt_df["role"] = "student"
     # reorder the columns
     nt_dt_df = nt_dt_df[["p_id", "role", "orig_geoid", "dest_geoid", "naics", "grade", "school_id"]]
     nt_dt_df.naics = ""
     print("Added destinations for", len(nt_dt_df), "students")
+    nt_dt_df.sort_values(by=["p_id"], inplace=True, ignore_index=True)
+    students_df.loc[:, "allocated"] = np.bool(nt_dt_df.school_id != "-1")
+    nt_dt_df = nt_dt_df[(nt_dt_df.school_id != "-1")]
+    return nt_dt_df, students_df
+
+
+@timer
+def generate_nt_dt_school_students(students_df):
+    BLOCKGROUP_SCALE = 1
+    TRACT_SCALE = 10
+    COUNTY_SUBDIV_SCALE = 100
+    COUNTY_SCALE = 10000000
+    CENSUS_PLACES_SCALE = 100000
+
+    students_df.sort_values(by=["p_id"], inplace=True, ignore_index=True)
+    students_df["allocated"] = False
+    rgen = np.random.default_rng(seed=29)
+    schools_df = get_schools(args.schools_file)
+    nt_dt_df = pd.DataFrame()
+    # pick schools for students from decreasing resolution; the goal is to allocate students as close to home as possible
+    for scale in [TRACT_SCALE, COUNTY_SUBDIV_SCALE, COUNTY_SCALE]:
+        students_places_df, students_df = generate_nt_dt_school_students_region(students_df, schools_df, scale, rgen)
+        print("students places", len(students_places_df))
+        students_df.to_csv("upop_students-" + str(scale) + ".csv", sep="\t")
+        nt_dt_df = pd.concat([nt_dt_df, students_places_df])
+
     nt_dt_df.to_csv("students_nt_dt.csv", sep="\t")
+    alloc_schools_df = nt_dt_df.groupby(["school_id"])["p_id"].count().reset_index().rename(columns={"p_id": "alloc_students"})
+    alloc_schools_df.sort_values(by=["school_id"], inplace=True, ignore_index=True)
+    actual_schools_df = schools_df[["id", "students"]]
+    actual_schools_df = actual_schools_df.rename(columns={"id": "school_id"})
+    merged_df = actual_schools_df.merge(alloc_schools_df, on="school_id")
+    merged_df.to_csv("merged_schools.csv", sep="\t")
     return nt_dt_df
 
 
@@ -228,25 +257,30 @@ if __name__ == "__main__":
     # now split into students, workers and unemployed
     # students includes all children with assigned grades and adults with grad or undergrad grades
     # all other children are homeschooled or not in daycare
-    in_college = ((upop_df.pr_grade == "grad") | (upop_df.pr_grade == "undergrad")) & (upop_df.pr_age > 17)
+    in_college = (upop_df.pr_grade == "grad") | (upop_df.pr_grade == "undergrad")  # & (upop_df.pr_age > 17)
     college_students_df = upop_df[in_college]
-    in_school = (upop_df.pr_age <= 17) & (upop_df.pr_grade != "")
-    school_students_df = upop_df[in_school]
+    # in_school = (upop_df.pr_age <= 17) & (upop_df.pr_grade != "")
+    in_school = (upop_df.pr_grade != "") & ~in_college
+    school_students_df = upop_df[in_school].copy()
     is_employed = (upop_df.pr_emp_stat == "employed") | (upop_df.pr_emp_stat == "mil")
-    workers_df = upop_df[is_employed & ~in_school]
-    unemp_df = upop_df[~is_employed & ~in_school]
+    workers_df = upop_df[is_employed & ~in_school & ~in_college]
+    unemp_df = upop_df[~is_employed & ~in_school & ~in_college]
     print(
         "Workers:",
         len(workers_df),
-        "school students",
+        "school students:",
         len(school_students_df),
-        "college students",
+        "college students:",
         len(college_students_df),
-        "unemployed",
+        "unemployed:",
         len(unemp_df),
     )
+    tot = len(workers_df) + len(school_students_df) + len(college_students_df) + len(unemp_df)
+    if tot != len(upop_df):
+        print("ERROR: total agents mismatch, allocated", tot, "but found", len(upop_df), "in UrbanPop feather files")
+
     workers_nt_dt_df = generate_nt_dt_workers(args, workers_df)
-    school_students_nt_dt_df = generate_nt_dt_school_students(args, school_students_df)
+    school_students_nt_dt_df = generate_nt_dt_school_students(school_students_df)
 
     # append non-workers
     unemp_df = unemp_df[["p_id", "geoid", "pr_naics", "pr_grade"]]
