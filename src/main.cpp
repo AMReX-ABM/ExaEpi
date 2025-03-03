@@ -380,7 +380,15 @@ void runAgent () {
             }
 
             // Typical day
+            ExaEpi::IO::writePlotFile(pc, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf,
+                                      params.num_diseases, params.disease_names, cur_time, 1);
+
             pc.morningCommute(mask_behavior);
+
+            ExaEpi::IO::writePlotFile(pc, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf,
+                                      params.num_diseases, params.disease_names, cur_time, 2);
+
+            amrex::Abort();
             pc.interactDay(mask_behavior);
             pc.eveningCommute(mask_behavior);
             pc.interactEvening(mask_behavior);

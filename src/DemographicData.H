@@ -51,6 +51,7 @@ struct DemographicData {
     amrex::Vector<int> Ndaywork;     /*!< Number of daytime workers */
     amrex::Vector<int> myIDtoUnit;   /*!< Given myID #, what Unit # is it? */
     amrex::Vector<int> Unit_on_proc; /*!< Is any part of this unit on this processor? */
+    amrex::Vector<int> comm_permutation;
 
     /* The following are device copies of the above arrays */
     amrex::Gpu::DeviceVector<int> myID_d;         /*!< ID array (GPU device) */
@@ -73,6 +74,7 @@ struct DemographicData {
     amrex::Gpu::DeviceVector<int> Ndaywork_d;     /*!< Number of daytime workers (GPU device) */
     amrex::Gpu::DeviceVector<int> myIDtoUnit_d;   /*!< Given myID #, what Unit # is it? (GPU device) */
     amrex::Gpu::DeviceVector<int> Unit_on_proc_d; /*!< Is any part of this unit on this processor? (GPU device) */
+    amrex::Gpu::DeviceVector<int> comm_permutation_d;
 
     static const int COMMUNITY_SIZE = 2000;
 };

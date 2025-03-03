@@ -178,6 +178,7 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
         auto FIPS = demo.FIPS_d.data();
         auto Tract = demo.Tract_d.data();
         auto Population = demo.Population_d.data();
+        auto comm_permutation = demo.comm_permutation_d.data();
 
         auto H1 = demo.H1_d.data();
         auto H2 = demo.H2_d.data();
@@ -192,7 +193,8 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
 
         auto bx = mfi.tilebox();
         ParallelForRNG(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k, RandomEngine const& engine) noexcept {
-            int community = (int)domain.index(IntVect(AMREX_D_DECL(i, j, k)));
+            int community_index = (int)domain.index(IntVect(AMREX_D_DECL(i, j, k)));
+            int community = comm_permutation[community_index];
             if (community >= Ncommunity) { return; }
             comm_arr(i, j, k) = community;
 
@@ -629,6 +631,7 @@ void CensusData::readWorkerflow (AgentContainer& pc, /*!< Agent container (parti
         auto comm_arr = comm_mf[mfi].array();
 
         auto Population = demo.Population_d.data();
+        auto comm_permutation = demo.comm_permutation_d.data();
         auto Start = demo.Start_d.data();
         auto Ndaywork = demo.Ndaywork_d.data();
         auto Ncommunity = demo.Ncommunity;
@@ -665,7 +668,7 @@ void CensusData::readWorkerflow (AgentContainer& pc, /*!< Agent container (parti
                     AMREX_ALWAYS_ASSERT(comm_to < Ncommunity);
                 }
 
-                IntVect comm_to_iv = domain.atOffset(comm_to);
+                IntVect comm_to_iv = domain.atOffset(comm_permutation[comm_to]);
                 work_i_ptr[ip] = comm_to_iv[0];
                 work_j_ptr[ip] = comm_to_iv[1];
 

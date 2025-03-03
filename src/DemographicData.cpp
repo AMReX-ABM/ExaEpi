@@ -13,6 +13,9 @@
 #include <cmath>
 #include <sstream>
 #include <string>
+#include <numeric>
+#include <algorithm>
+#include <random>
 
 using namespace amrex;
 
@@ -143,6 +146,15 @@ void DemographicData::initFromFile (const std::string& fname, /*!< Name of file 
     }
     Start[Nunit] = Ncommunity;
 
+    comm_permutation.resize(Ncommunity);
+    std::iota(comm_permutation.begin(), comm_permutation.end(), 0);
+    {
+	std::random_device rd;
+	std::mt19937 g(rd());
+
+	std::shuffle(comm_permutation.begin(), comm_permutation.end(), g);
+    }
+
     long total_pop = 0;
     long total_workers = 0;
     for (int i = 0; i < Nunit; ++i) {
@@ -219,4 +231,5 @@ void DemographicData::copyDataToDevice () {
     copyToDeviceAsync(Ndaywork, Ndaywork_d);
     copyToDeviceAsync(myIDtoUnit, myIDtoUnit_d);
     copyToDeviceAsync(Unit_on_proc, Unit_on_proc_d);
+    copyToDeviceAsync(comm_permutation, comm_permutation_d);
 }
