@@ -63,6 +63,7 @@ PREK_SCHOOL_AGES = [0, 4]
 ELEM_SCHOOL_AGES = [5, 10]
 MID_SCHOOL_AGES = [11, 13]
 HIGH_SCHOOL_AGES = [14, 18]
+LEVEL_KEYS = {0: "P", 1: "E", 2: "M", 3: "H"}
 
 
 def get_level_from_age(start_age, end_age):
@@ -76,11 +77,14 @@ def get_level_from_age(start_age, end_age):
         end_age = HIGH_SCHOOL_AGES[1]
     for i, (low_age, high_age) in enumerate([PREK_SCHOOL_AGES, ELEM_SCHOOL_AGES, MID_SCHOOL_AGES, HIGH_SCHOOL_AGES]):
         if start_age >= low_age and start_age <= high_age:
-            levels += str(i)
+            levels += LEVEL_KEYS[i]
         elif end_age >= low_age and end_age <= high_age:
-            levels += str(i)
+            levels += LEVEL_KEYS[i]
         elif start_age < low_age and end_age > high_age:
-            levels += str(i)
+            levels += LEVEL_KEYS[i]
+    # for those rare cases when no start and end grades are present, just assume the schools handles all levels
+    if levels == "":
+        levels = "PEMH"
     return levels
 
 
