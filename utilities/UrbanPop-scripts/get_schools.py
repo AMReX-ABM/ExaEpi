@@ -59,22 +59,61 @@ def get_census_bgs(args):
     return census_bgs_df
 
 
+PREK_SCHOOL_AGES = [0, 4]
+ELEM_SCHOOL_AGES = [5, 10]
+MID_SCHOOL_AGES = [11, 13]
+HIGH_SCHOOL_AGES = [14, 18]
+
+
+def get_level_from_age(start_age, end_age):
+    levels = ""
+    try:
+        start_age = int(start_age)
+        end_age = int(end_age)
+    except:
+        # if the age ranges are messed up, just use full range
+        start_age = ELEM_SCHOOL_AGES[0]
+        end_age = HIGH_SCHOOL_AGES[1]
+    for i, (low_age, high_age) in enumerate([PREK_SCHOOL_AGES, ELEM_SCHOOL_AGES, MID_SCHOOL_AGES, HIGH_SCHOOL_AGES]):
+        if start_age >= low_age and start_age <= high_age:
+            levels += str(i)
+        elif end_age >= low_age and end_age <= high_age:
+            levels += str(i)
+        elif start_age < low_age and end_age > high_age:
+            levels += str(i)
+    return levels
+
+
+def get_age_from_grade(grade_str):
+    try:
+        return int(grade_str) + 5
+    except:
+        if grade_str == "KG":
+            return 5
+        if grade_str == "PK":
+            return 4
+    return -1
+
+
 def get_schools(args, census_bgs_df):
     school_df = pd.DataFrame()
-    for fname in args.school_files:
+    cols_to_read = ["NCES ID", "Latitude", "Longitude", "Enrollment", "Start Grade", "End Grade", "Full Time Teachers"]
+    for fname in args.private_school_files:
         print("Reading data from", fname, end=": ")
         t = time.time()
-        df = pd.read_csv(fname, low_memory=False)[
-            [
-                "NCES ID",
-                "Latitude",
-                "Longitude",
-                "Enrollment",
-                "Start Grade",
-                "End Grade",
-                "Full Time Teachers",
-            ]
-        ]
+        df = pd.read_csv(fname, low_memory=False)[cols_to_read]
+        # the grades are actually ages for these private schools
+        df["level"] = list(map(get_level_from_age, df["Start Grade"], df["End Grade"]))
+        school_df = pd.concat([school_df, df])
+        print(len(df.index), "records in % .3f s" % (time.time() - t))
+
+    for fname in args.public_school_files:
+        print("Reading data from", fname, end=": ")
+        t = time.time()
+        df = pd.read_csv(fname, low_memory=False)[cols_to_read]
+        df["Start Grade"] = list(map(get_age_from_grade, df["Start Grade"]))
+        df["End Grade"] = list(map(get_age_from_grade, df["End Grade"]))
+        df["level"] = list(map(get_level_from_age, df["Start Grade"], df["End Grade"]))
         school_df = pd.concat([school_df, df])
         print(len(df.index), "records in % .3f s" % (time.time() - t))
 
@@ -86,11 +125,11 @@ def get_schools(args, census_bgs_df):
             "NCES ID": "id",
             "Enrollment": "students",
             "Full Time Teachers": "teachers",
-            "Start Grade": "start_grade",
-            "End Grade": "end_grade",
+            "Start Grade": "start_age",
+            "End Grade": "end_age",
             "GEOID10": "geoid",
         }
-    )[["id", "students", "teachers", "start_grade", "end_grade", "geoid"]]
+    )[["id", "students", "teachers", "start_age", "end_age", "level", "geoid"]]
     num_schools = len(schools_with_geoids)
     # we could have schools without geoids - missing lng/lat?
     schools_with_geoids.dropna(inplace=True)
@@ -223,7 +262,8 @@ def get_colleges(args):
 parser = argparse.ArgumentParser(
     description="Generate school list with Census Block Group GEOID, using Census bg shapefiles and HIFLD data"
 )
-parser.add_argument("--school_files", "-s", required=True, nargs="+", help="School CSV files")
+parser.add_argument("--private_school_files", "-p", required=True, nargs="+", help="Private school CSV files")
+parser.add_argument("--public_school_files", "-s", required=True, nargs="+", help="Public school CSV files")
 parser.add_argument("--census_bg_files", "-c", required=True, nargs="+", help="Census Block Group (bg) shape files")
 parser.add_argument("--college_files", "-u", required=True, nargs="+", help="College/University CSV files")
 parser.add_argument("--childcare_files", "-a", required=True, nargs="+", help="Childcare CSV files")
@@ -231,7 +271,7 @@ args = parser.parse_args()
 
 start_t = time.time()
 census_bgs_df = get_census_bgs(args)
-# get_schools(args, census_bgs_df)
-get_childcare(args, census_bgs_df)
+get_schools(args, census_bgs_df)
+# get_childcare(args, census_bgs_df)
 # get_colleges(args)
 print("Finished in %.3f s" % (time.time() - start_t))
