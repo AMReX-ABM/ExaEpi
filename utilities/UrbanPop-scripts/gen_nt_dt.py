@@ -125,7 +125,7 @@ def get_lodes_groups(lodes_fname):
     # 12 SI03 Num Number of jobs in All Other Services industry sectors
     # 13 createdate Char Date on which data was created, formatted as YYYYMMDD
     print("Loading", lodes_fname)
-    lodes_df = pd.read_csv(lodes_fname, dtypes={"w_geocode": str, "h_geocode": str})[["w_geocode", "h_geocode", "S000"]]
+    lodes_df = pd.read_csv(lodes_fname, dtype={"w_geocode": str, "h_geocode": str})[["w_geocode", "h_geocode", "S000"]]
     print("Loaded", len(lodes_df), "entries")
     # truncate geoids to first 12, i.e. just census block groups
     lodes_df.h_geocode = lodes_df.h_geocode.str[:12]
@@ -354,7 +354,7 @@ if __name__ == "__main__":
     if tot != len(upop_df):
         print("ERROR: total agents mismatch, allocated", tot, "but found", len(upop_df), "in UrbanPop feather files")
     students_nt_dt_df = alloc_nt_dt_students(args, students_df)
-    sys.exit(0)
+
     # now get workers
     workers_nt_dt_df = alloc_nt_dt_workers(args, workers_df)
     # append non-workers
