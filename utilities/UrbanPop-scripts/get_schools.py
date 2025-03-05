@@ -29,7 +29,7 @@ def fetch_census_geographies(school_df):
         dfs.append(df)
         print(len(dfs[-1].index), "records in %.3f s" % (time.time() - t), flush=True)
 
-    geographies = pd.concat(dfs)
+    geographies = pd.concat(dfs, ignore_index=True)
     num_addresses = len(geographies.index)
     not_found = geographies[(geographies.match == False)]
     not_found.to_csv("unmatched_address_schools.csv", index=False)
@@ -130,7 +130,7 @@ def get_schools(args, census_bgs_df):
         df = pd.read_csv(fname, low_memory=False)[cols_to_read]
         # the grades are actually ages for these private schools
         df["level"] = list(map(get_level_from_age, df["Start Grade"], df["End Grade"]))
-        school_df = pd.concat([school_df, df])
+        school_df = pd.concat([school_df, df], ignore_index=True)
         print(len(df.index), "records in % .3f s" % (time.time() - t))
 
     for fname in args.public_school_files:
@@ -140,7 +140,7 @@ def get_schools(args, census_bgs_df):
         df["Start Grade"] = list(map(get_age_from_grade, df["Start Grade"]))
         df["End Grade"] = list(map(get_age_from_grade, df["End Grade"]))
         df["level"] = list(map(get_level_from_age, df["Start Grade"], df["End Grade"]))
-        school_df = pd.concat([school_df, df])
+        school_df = pd.concat([school_df, df], ignore_index=True)
         print(len(df.index), "records in % .3f s" % (time.time() - t))
 
     geometry = [shapely.geometry.Point(xy) for xy in zip(school_df.Longitude, school_df.Latitude)]
@@ -166,7 +166,7 @@ def get_childcare(args, census_bgs_df):
         print("Reading data from", fname, end=": ")
         t = time.time()
         df = pd.read_csv(fname, low_memory=False)[["ID", "LATITUDE", "LONGITUDE", "POPULATION"]]
-        childcare_df = pd.concat([childcare_df, df])
+        childcare_df = pd.concat([childcare_df, df], ignore_index=True)
         print(len(df.index), "records in % .3f s" % (time.time() - t))
 
     geometry = [shapely.geometry.Point(xy) for xy in zip(childcare_df.LONGITUDE, childcare_df.LATITUDE)]
@@ -190,12 +190,14 @@ def get_childcare(args, census_bgs_df):
     # childcare_with_geoids = childcare_with_geoids[childcare_with_geoids.students > 0]
     # assume 5 children per adult
     childcare_with_geoids.insert(childcare_with_geoids.columns.get_loc("students") + 1, "teachers", int(0))
+    childcare_with_geoids.insert(childcare_with_geoids.columns.get_loc("teachers") + 1, "level", "C")
     childcare_with_geoids.teachers = np.int32(np.ceil(childcare_with_geoids.students / 7))
     sum_children = childcare_with_geoids.students.sum()
     childcare_with_geoids.to_csv("childcare_with_geoids.csv", index=False)
     print("Wrote", len(childcare_with_geoids), "childcare records to childcare_with_geoids.csv")
     print("Total children:", sum_children)
     print("Dropped", num_childcare - len(childcare_with_geoids), "incomplete records")
+    return childcare_with_geoids
 
 
 def get_colleges(args):
@@ -206,7 +208,7 @@ def get_colleges(args):
         print("Reading data from", fname, end=": ")
         t = time.time()
         df = pd.read_csv(fname, low_memory=False)[["UNIQUEID", "ADDRESS", "CITY", "STATE", "ZIP", "TOT_ENROLL", "TOT_EMP"]]
-        colleges_df = pd.concat([colleges_df, df])
+        colleges_df = pd.concat([colleges_df, df], ignore_index=True)
         print(len(df.index), "records in % .3f s" % (time.time() - t))
 
     colleges_df.rename(
@@ -239,7 +241,7 @@ def get_colleges(args):
             df = pd.DataFrame(cg2010.addressbatch(addresses[batch : batch + batch_size], returntype="geographies"))
             # backup for resuming
             df.to_csv(batch_fname, index=False)
-        geo_df = pd.concat([geo_df, df])
+        geo_df = pd.concat([geo_df, df], ignore_index=True)
         print(len(df), "records in %.3f s" % (time.time() - t), flush=True)
 
     num_addresses = len(geo_df.index)
@@ -252,7 +254,7 @@ def get_colleges(args):
     # only need down to the census tract
     geoids_df["geoid"] = (geo_df.statefp + geo_df.countyfp + geo_df.tract + geo_df.block).str[:12]
     # add a college level indicator to fit with schools data
-    colleges_df["level"] = "C"
+    colleges_df["level"] = "U"
     colleges_with_geoids = colleges_df[["id", "students", "teachers", "level"]].merge(geoids_df, on="id")
     colleges_with_geoids = get_complete(colleges_with_geoids)
     colleges_with_geoids.to_csv("colleges_with_geoids.csv", index=False)
@@ -271,10 +273,10 @@ parser.add_argument("--childcare_files", "-a", required=True, nargs="+", help="C
 args = parser.parse_args()
 
 start_t = time.time()
-# get_childcare(args, census_bgs_df)
-colleges_geoids_df = get_colleges(args)
 census_bgs_df = get_census_bgs(args)
+childcare_geoids_df = get_childcare(args, census_bgs_df)
+colleges_geoids_df = get_colleges(args)
 schools_geoids_df = get_schools(args, census_bgs_df)
-schools_geoids_df = pd.concat([schools_geoids_df, colleges_geoids_df])
+schools_geoids_df = pd.concat([schools_geoids_df, colleges_geoids_df, childcare_geoids_df], ignore_index=True)
 schools_geoids_df.to_csv("schools_with_geoids.csv", index=False)
 print("Finished in %.3f s" % (time.time() - start_t))

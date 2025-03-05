@@ -346,7 +346,7 @@ def process_nt_dt_feather_files(fnames, out_fname):
         dfs.append(df_metro)
         print(len(dfs[-1].index), "records in %.3f s" % (time.time() - t))
 
-    df = pandas.concat(dfs)
+    df = pandas.concat(dfs, ignore_index=True)
     df.sort_values(by=["p_id"], inplace=True, ignore_index=True)
     df.orig_geoid = df.orig_geoid.astype("int64")
     df.dest_geoid = df.dest_geoid.astype("int64")
@@ -510,7 +510,7 @@ def process_pop_feather_files(fnames):
         dfs.append(df_read)
         print(len(dfs[-1].index), "records in %.3f s" % (time.time() - t))
 
-    df = pandas.concat(dfs)
+    df = pandas.concat(dfs, ignore_index=True)
     df.geoid = df.geoid.astype("int64")
     # need to sort to ensure the order is the same between the population files and the daytime/nighttime files
     df.sort_values(by=["p_id"], inplace=True)
