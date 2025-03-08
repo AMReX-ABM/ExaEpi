@@ -11,6 +11,7 @@ import shapely.geometry
 
 
 def fetch_census_geographies(school_df):
+    start_t = time.time()
     # fetch census geographies corresponding to addresses - unfortunately, about 15% of address don't get a match
     school_df.rename(columns={"NCES ID": "id", "Address": "street", "City": "city", "State": "state", "Zip": "zip"}, inplace=True)
     school_df.to_csv("school_df.csv", index=False)
@@ -262,21 +263,26 @@ def get_colleges(args):
     return colleges_with_geoids
 
 
-parser = argparse.ArgumentParser(
-    description="Generate school list with Census Block Group GEOID, using Census bg shapefiles and HIFLD data"
-)
-parser.add_argument("--private_school_files", "-p", required=True, nargs="+", help="Private school CSV files")
-parser.add_argument("--public_school_files", "-s", required=True, nargs="+", help="Public school CSV files")
-parser.add_argument("--census_bg_files", "-c", required=True, nargs="+", help="Census Block Group (bg) shape files")
-parser.add_argument("--college_files", "-u", required=True, nargs="+", help="College/University CSV files")
-parser.add_argument("--childcare_files", "-a", required=True, nargs="+", help="Childcare CSV files")
-args = parser.parse_args()
+def main():
+    parser = argparse.ArgumentParser(
+        description="Generate school list with Census Block Group GEOID, using Census bg shapefiles and HIFLD data"
+    )
+    parser.add_argument("--private_school_files", "-p", required=True, nargs="+", help="Private school CSV files")
+    parser.add_argument("--public_school_files", "-s", required=True, nargs="+", help="Public school CSV files")
+    parser.add_argument("--census_bg_files", "-c", required=True, nargs="+", help="Census Block Group (bg) shape files")
+    parser.add_argument("--college_files", "-u", required=True, nargs="+", help="College/University CSV files")
+    parser.add_argument("--childcare_files", "-a", required=True, nargs="+", help="Childcare CSV files")
+    args = parser.parse_args()
 
-start_t = time.time()
-census_bgs_df = get_census_bgs(args)
-childcare_geoids_df = get_childcare(args, census_bgs_df)
-colleges_geoids_df = get_colleges(args)
-schools_geoids_df = get_schools(args, census_bgs_df)
-schools_geoids_df = pd.concat([schools_geoids_df, colleges_geoids_df, childcare_geoids_df], ignore_index=True)
-schools_geoids_df.to_csv("schools_with_geoids.csv", index=False)
-print("Finished in %.3f s" % (time.time() - start_t))
+    start_t = time.time()
+    census_bgs_df = get_census_bgs(args)
+    childcare_geoids_df = get_childcare(args, census_bgs_df)
+    colleges_geoids_df = get_colleges(args)
+    schools_geoids_df = get_schools(args, census_bgs_df)
+    schools_geoids_df = pd.concat([schools_geoids_df, colleges_geoids_df, childcare_geoids_df], ignore_index=True)
+    schools_geoids_df.to_csv("schools_with_geoids.csv", index=False)
+    print("Finished in %.3f s" % (time.time() - start_t))
+
+
+if __name__ == "__main__":
+    main()

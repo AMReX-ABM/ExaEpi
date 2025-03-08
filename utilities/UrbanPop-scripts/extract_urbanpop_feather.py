@@ -416,7 +416,7 @@ def assign_educators_to_school(required_educators, df, school, school_geoid, min
     return required_educators - len(educator_sample)
 
 
-def allocate_educators(df, out_fname):
+def allocate_educators(df, out_fname, geoid_locs_map):
     df_special = df[["id", "age", "role", "grade", "school_id"]]
     df_special = df_special.loc[(df_special["school_id"] != "") & (df_special["school_id"] != 0)]
     t = time.time()
@@ -588,7 +588,7 @@ def set_types(df):
                     df[field_type] = df[field_type].astype("int64")
 
 
-def print_agents(df, work_geoids_map, out_fname):
+def print_agents(df, work_geoids_map, out_fname, geoid_locs_map):
     num_rows = len(df.index)
     # start with a distinct marker so that the file can be read in parallel more easily
     df.index = ["*"] * num_rows
@@ -675,7 +675,7 @@ def rename_fields(df):
             df.rename(columns={col: "household_" + col[3:]}, inplace=True)
 
 
-def set_lnglat(df):
+def set_lnglat(df, geoid_locs_map):
     t = time.time()
     print("Setting lat/long for data", end=" ", flush=True)
     # add lat/long locations from geoids
@@ -716,7 +716,7 @@ def adjust_school_ids(df):
     df["school_id"] = df["school_id"].map(school_id_map).apply(lambda x: x).fillna(0).astype("int32")
 
 
-if __name__ == "__main__":
+def main():
     t = time.time()
     np.random.seed(29)
     parser = argparse.ArgumentParser(description="Convert UrbanPop feather files to C++ struct binary file")
@@ -742,17 +742,21 @@ if __name__ == "__main__":
     merge_dt_nt(df, df_dt_nt)
     set_types(df)
     rename_fields(df)
-    set_lnglat(df)
+    set_lnglat(df, geoid_locs_map)
     # make sure all the ids are globally unique and just integers
     if not args.long_ids:
         df["id"] = np.arange(0, len(df.index))
     print("Fields are:\n", df.dtypes, sep="")
     print_header(df)
-    allocate_educators(df, args.output)
+    allocate_educators(df, args.output, geoid_locs_map)
     work_geoids_map = compute_worker_populations(df)
     adjust_school_ids(df)
-    print_agents(df, work_geoids_map, args.output)
+    print_agents(df, work_geoids_map, args.output, geoid_locs_map)
     fips_codes = sorted(set([int(str(geoid)[:5]) for geoid in df.work_geoid.unique()]))
     print("FIPS codes:", fips_codes)
 
     print("Processed", len(args.files), "files in %.2f s" % (time.time() - t))
+
+
+if __name__ == "__main__":
+    main()

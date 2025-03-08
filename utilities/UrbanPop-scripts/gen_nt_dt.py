@@ -278,15 +278,16 @@ def alloc_students_level(schools_df, students_df, level, rgen):
     scales = list(region_scales.keys()) if level != "C" else list(region_scales.keys())[:3]
     # pick schools for students from decreasing resolution; the goal is to allocate students as close to home as possible
     for scale in scales:
+        # FIXME: need to reduce student counts after each allocation round so that random weighting is correct in the next round
         print("    Region", region_scales[scale])
         alloc_all = False
         # make sure to allocate all at the final region scale
         alloc_all = True if scale == scales[-1] else False
-        students_places_df, students_df = alloc_students_region(students_df, schools_df, scale, alloc_all, rgen)
+        students_nt_dt_df, students_df = alloc_students_region(students_df, schools_df, scale, alloc_all, rgen)
         num_unalloc_students = len(students_df[(students_df.allocated == False)])
-        print("      Set destinations for", len(students_places_df), "students,", num_unalloc_students, "still unallocated")
+        print("      Set destinations for", len(students_nt_dt_df), "students,", num_unalloc_students, "still unallocated")
         # print("      students places", len(students_places_df))
-        nt_dt_df = pd.concat([nt_dt_df, students_places_df], ignore_index=True)
+        nt_dt_df = pd.concat([nt_dt_df, students_nt_dt_df], ignore_index=True)
         if num_unalloc_students == 0:
             break
     return nt_dt_df
@@ -314,12 +315,12 @@ def alloc_students(args, students_df, rgen):
     # set all unallocated students
     unalloc = students_nt_dt_df.school_id == "-1"
     students_nt_dt_df.loc[unalloc, "dest_geoid"] = students_nt_dt_df.orig_geoid
-    students_nt_dt_df.loc[unalloc, "grade"] = ""
+    students_nt_dt_df.loc[unalloc, "grade"] = None
     students_nt_dt_df.loc[unalloc, "role"] = "nope"
-    students_nt_dt_df.loc[unalloc, "school_id"] = ""
+    students_nt_dt_df.loc[unalloc, "school_id"] = None
 
-    # if DUMP_INTERMEDIATES:
-    students_nt_dt_df.to_csv("students_nt_dt.csv", sep="\t", index=False)
+    if DUMP_INTERMEDIATES:
+        students_nt_dt_df.to_csv("students_nt_dt.csv", sep="\t", index=False)
 
     return students_nt_dt_df
 
@@ -357,15 +358,65 @@ def set_childcare(upop_df, rgen):
     return df
 
 
+def alloc_teachers_region(teachers_df, schools_df, geoid_scaling, rgen):
+    schools_df["region"] = schools_df.geoid.str[:geoid_scaling]
+    schools_df.to_csv("schools.csv", sep="\t")
+    # group by region
+    teachers_df = teachers_df[(teachers_df.grade == "")].copy()
+    # print(len(teachers_df))
+    teachers_df.loc[:, "region"] = teachers_df.orig_geoid.str[:geoid_scaling]
+    teacher_groups = teachers_df.groupby(["region"])
+    # print("teacher groups:")
+    # print(list(teacher_groups)[:10])
+    school_groups = schools_df.groupby(["region"])
+    # print("school groups:")
+    # print(list(school_groups)[:10])
+    print("    There are", len(teacher_groups), "teacher groups and", len(school_groups), "school groups")
+    missing_regions = 0
+    for group_name, school_group in school_groups:
+        num_teachers_reqd = school_group.adj_teachers.sum()
+        if num_teachers_reqd == 0:
+            continue
+        try:
+            teacher_group = teacher_groups.get_group(group_name)
+        except KeyError:
+            missing_regions += 1
+            continue
+        # print("    Group", group_name, "num_teachers_reqd", num_teachers_reqd, "num_teachers_avail", teacher_group.p_id.count())
+        num_teachers_reqd = min(num_teachers_reqd, teacher_group.p_id.count())
+        teachers_selected = rgen.choice(a=teacher_group.index, size=num_teachers_reqd, replace=False)
+        probs = school_group.adj_teachers / num_teachers_reqd
+        schools_selected = school_group.sample(n=num_teachers_reqd, weights=probs, replace=True)
+        schools_selected.index.rename("index", inplace=True)
+        teachers_df.loc[teachers_selected, "school_id"] = list(schools_selected.id)
+        # FIXME: need to convert the school level to an age for the grade to match with the students
+        teachers_df.loc[teachers_selected, "grade"] = list(schools_selected.level)
+        teachers_df.loc[teachers_selected, "dest_geoid"] = list(schools_selected.geoid)
+        # reduce the reqd teachers count according to how many have been allocated
+        schools_selected_groups = schools_selected.groupby(["index"])
+        selected_school_indexes = list(schools_selected_groups.groups.keys())
+        selected_school_counts = schools_selected_groups.id.count().tolist()
+        schools_df.loc[schools_df.index.isin(selected_school_indexes), "adj_teachers"] -= np.int32(selected_school_counts)
+        schools_df.loc[schools_df.adj_teachers < 0, "adj_teachers"] = 0
+        schools_df.loc[schools_df.index.isin(selected_school_indexes), "alloc_teachers"] -= np.int32(selected_school_counts)
+        # print("      Region:", group_name, ":", len(teachers_selected), "teachers,", len(schools_selected_groups), "schools")
+
+    teachers_df.drop("region", axis=1, inplace=True)
+    print("    Allocated", len(teachers_df[(teachers_df.grade != "")]), "teachers")
+    teachers_df.to_csv("teachers_with_schools.csv", sep="\t")
+    print("    Found", len(school_groups), "school regions,", missing_regions, "without teachers")
+    return teachers_df
+
+
 @timer
-def alloc_teachers(args, workers_df, students_df, rgen):
+def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df, rgen):
     print(Fore.GREEN + "Allocating teachers" + Fore.RESET)
     # The number of students at each school will not exactly match the original schools data, so we use the actual number
     # of students we have allocated, and the original student/teacher ratio to set the desired teacher counts for each school
     schools_df = get_schools(args.schools_file)
     schools_df.to_csv("schools.csv", sep="\t")
     alloc_schools_df = (
-        students_df.groupby(["school_id"])["p_id"]
+        students_nt_dt_df.groupby(["school_id"])["p_id"]
         .count()
         .reset_index()
         .rename(columns={"p_id": "alloc_students", "school_id": "id"})
@@ -373,12 +424,32 @@ def alloc_teachers(args, workers_df, students_df, rgen):
     schools_df = schools_df.merge(alloc_schools_df, on="id")
     schools_df["ratio"] = schools_df.alloc_students / schools_df.students
     schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.teachers * schools_df.ratio))
-    schools_df.to_csv("merged_schools.csv", sep="\t", float_format="%.1f", index=False)
+    schools_df.to_csv("selected_schools.csv", sep="\t", float_format="%.1f", index=False)
+    schools_df["alloc_teachers"] = schools_df.adj_teachers
 
-    return workers_df
+    # workers_nt_dt_df.to_csv("workers_nt_dt.csv", sep="\t")
+    teachers_df = workers_nt_dt_df[(workers_nt_dt_df.naics == "edu")].copy()
+    teachers_df["school_id"] = None
+    if DUMP_INTERMEDIATES:
+        teachers_df.to_csv("teachers.csv", sep="\t")
+    num_reqd_teachers = schools_df.adj_teachers.sum()
+    print("Found", len(teachers_df), "edu workers for", num_reqd_teachers, "required teachers")
+    scales = list(region_scales.keys())
+    # pick schools for teachers from decreasing resolution; the goal is to allocate teachers as close to home as possible
+    for scale in scales:
+        print("  Region", region_scales[scale])
+        teachers_df = alloc_teachers_region(teachers_df, schools_df, scale, rgen)
+        # print("    Set destinations for", len(teachers_nt_dt_df), "teachers")
+        # nt_dt_df = pd.concat([nt_dt_df, teachers_nt_dt_df], ignore_index=True)
+        workers_nt_dt_df.loc[teachers_df.index, "school_id"] = teachers_df.school_id
+        workers_nt_dt_df.loc[teachers_df.index, "dest_geoid"] = teachers_df.dest_geoid
+        workers_nt_dt_df.loc[teachers_df.index, "grade"] = teachers_df.grade
+    schools_df.to_csv("adjusted_schools.csv", sep="\t")
+
+    return workers_nt_dt_df
 
 
-if __name__ == "__main__":
+def main():
     t = time.time()
     np.random.seed(29)
     parser = argparse.ArgumentParser(description="Generate nighttime/daytime worker/student populations for UrbanPop from LODES")
@@ -414,7 +485,7 @@ if __name__ == "__main__":
     # now get workers
     workers_nt_dt_df = alloc_workers(args, workers_df, rgen)
     # allocate teachers
-    # workers_nt_dt_df = alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df, rgen)
+    workers_nt_dt_df = alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df, rgen)
     # get non-workers
     unemp_df = get_unemp(unemp_df)
 
@@ -424,3 +495,7 @@ if __name__ == "__main__":
     print("Wrote nt/dt data to", args.output_file + "_nt_dt.csv")
 
     print("Completed in %.2f s" % (time.time() - t))
+
+
+if __name__ == "__main__":
+    main()
