@@ -177,7 +177,7 @@ void runAgent () {
     amrex::Vector<std::unique_ptr<MultiFab>> disease_stats;
     disease_stats.resize(params.num_diseases);
     for (int d = 0; d < params.num_diseases; d++) {
-        disease_stats[d] = std::make_unique<MultiFab>(ba, dm, 4, 0);
+        disease_stats[d] = std::make_unique<MultiFab>(ba, dm, 5, 0);
         disease_stats[d]->setVal(0);
     }
 
@@ -266,10 +266,10 @@ void runAgent () {
 
             if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
                 if (params.ic_type == ICType::Census) {
-                    ExaEpi::IO::writePlotFile(pc, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf,
+                    ExaEpi::IO::writePlotFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf,
                                               params.num_diseases, params.disease_names, cur_time, i);
                 } else {
-                    ExaEpi::IO::writePlotFile(pc, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
+                    ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
                                               params.num_diseases, params.disease_names, cur_time, i);
                 }
             }
@@ -394,7 +394,7 @@ void runAgent () {
             if ((params.air_travel_int > 0) && (i % params.air_travel_int == 0)) { pc.returnAirTravel(); }
 
             // Infect agents based on their interactions
-            pc.infectAgents();
+            pc.infectAgents(disease_stats);
 
             std::chrono::duration<double> elapsed_time = std::chrono::high_resolution_clock::now() - start_time;
 
@@ -430,10 +430,10 @@ void runAgent () {
 
     if (params.plot_int > 0) {
         if (params.ic_type == ICType::Census) {
-            ExaEpi::IO::writePlotFile(pc, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf, params.num_diseases,
+            ExaEpi::IO::writePlotFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf, params.num_diseases,
                                       params.disease_names, cur_time, params.nsteps);
         } else {
-            ExaEpi::IO::writePlotFile(pc, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf, params.num_diseases,
+            ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf, params.num_diseases,
                                       params.disease_names, cur_time, params.nsteps);
         }
     }

@@ -133,10 +133,11 @@ struct Status {
 /*! \brief Disease statistics */
 struct DiseaseStats {
     enum {
-        hospitalization = 0, /*!< number of hospitalizations */
-        ICU,                 /*!< number of ICU cases */
-        ventilator,          /*!< number of ventilator cases */
-        death                /*!< number of deaths */
+        hospitalization = 0, /*!< number of current hospitalizations */
+        ICU,                 /*!< number of current ICU cases */
+        ventilator,          /*!< number of current ventilator cases */
+        death,               /*!< number of deaths */
+	new_cases            /*!< number of new infections each day */
     };
 };
 
