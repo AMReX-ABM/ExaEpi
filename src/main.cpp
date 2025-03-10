@@ -430,11 +430,11 @@ void runAgent () {
 
     if (params.plot_int > 0) {
         if (params.ic_type == ICType::Census) {
-            ExaEpi::IO::writePlotFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf, params.num_diseases,
-                                      params.disease_names, cur_time, params.nsteps);
+            ExaEpi::IO::writePlotFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf,
+                                      params.num_diseases, params.disease_names, cur_time, params.nsteps);
         } else {
-            ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf, params.num_diseases,
-                                      params.disease_names, cur_time, params.nsteps);
+            ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
+                                      params.num_diseases, params.disease_names, cur_time, params.nsteps);
         }
     }
 

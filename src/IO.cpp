@@ -46,7 +46,7 @@ namespace IO {
     + Write agents to file - see AgentContainer::WritePlotFile().
 */
 void writePlotFile (const AgentContainer& pc,                      /*!< Agent (particle) container */
-            const MFPtrVec& a_disease_stats,               /*!< Disease stats tracker */
+                    const MFPtrVec& a_disease_stats,               /*!< Disease stats tracker */
                     const iMultiFab* unit_mf_ptr,                  /*!< MultiFabs to write out */
                     const iMultiFab* FIPS_mf_ptr,                  /*!< MultiFabs to write out */
                     const iMultiFab* comm_mf_ptr,                  /*!< MultiFabs to write out */
@@ -65,7 +65,7 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
     pc.generateCellData(output_mf);
 
     for (int d = 0; d < num_diseases; d++) {
-    amrex::Copy(output_mf, *a_disease_stats[d], DiseaseStats::new_cases, ncomp_d * num_diseases + d, 1, 0);
+        amrex::Copy(output_mf, *a_disease_stats[d], DiseaseStats::new_cases, ncomp_d * num_diseases + d, 1, 0);
     }
 
     amrex::Copy(output_mf, *FIPS_mf_ptr, 0, ncomp_d * num_diseases + num_diseases, 2, 0);
@@ -78,18 +78,18 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
             for (auto status_name : status_names) {
                 plt_varnames.push_back(status_name);
             }
-        plt_varnames.push_back("new_cases");
+            plt_varnames.push_back("new_cases");
         } else {
             for (int d = 0; d < num_diseases; d++) {
                 for (auto status_name : status_names) {
                     plt_varnames.push_back(disease_names[d] + "_" + status_name);
                 }
             }
-        for (int d = 0; d < num_diseases; d++) {
-        plt_varnames.push_back(disease_names[d] + "_new_cases");
+            for (int d = 0; d < num_diseases; d++) {
+                plt_varnames.push_back(disease_names[d] + "_new_cases");
+            }
         }
-        }
-    plt_varnames.push_back("FIPS");
+        plt_varnames.push_back("FIPS");
         plt_varnames.push_back("Tract");
         plt_varnames.push_back("comm");
         if (unit_mf_ptr != nullptr) { plt_varnames.push_back("unit"); }

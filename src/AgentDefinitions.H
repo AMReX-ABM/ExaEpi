@@ -137,7 +137,7 @@ struct DiseaseStats {
         ICU,                 /*!< number of current ICU cases */
         ventilator,          /*!< number of current ventilator cases */
         death,               /*!< number of deaths */
-    new_cases            /*!< number of new infections each day */
+        new_cases            /*!< number of new infections each day */
     };
 };
 
