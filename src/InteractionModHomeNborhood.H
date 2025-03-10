@@ -102,12 +102,12 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
 
             GetCommunityIndex<PTDType> getCommunityIndex;
             getCommunityIndex.init(agents.Geom(lev), mfi.tilebox(), agents.comm_mf[mfi].array());
-            auto plo= getCommunityIndex.plo;
-            auto dxi= getCommunityIndex.dxi;
-            auto domain= getCommunityIndex.domain;
-            auto valid_box= getCommunityIndex.valid_box;
-            auto bin_size= getCommunityIndex.bin_size;
-            auto comm_to_local_index_d= getCommunityIndex.comm_to_local_index_d;
+            auto plo = getCommunityIndex.plo;
+            auto dxi = getCommunityIndex.dxi;
+            auto domain = getCommunityIndex.domain;
+            auto valid_box = getCommunityIndex.valid_box;
+            auto bin_size = getCommunityIndex.bin_size;
+            auto comm_to_local_index_d = getCommunityIndex.comm_to_local_index_d;
 
             int max_communities = getCommunityIndex.max();
             int max_nborhood = agents.getMaxGroup(IntIdx::nborhood) + 1;
@@ -139,7 +139,7 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
                     if (isInfectious(i, ptd, d) && isCandidate(i, ptd)) {
                         Box tbx;
                         auto iv = getParticleCell(ptd, i, plo, dxi, domain);
-                        auto tidx= getTileIndex(iv, valid_box, true, bin_size, tbx);
+                        auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                         auto community = d_ptr[tidx];
                         auto nborhood = nborhood_ptr[i];
                         Gpu::Atomic::AddNoRet(&infected_community_d_ptr[community], 1);
@@ -152,8 +152,8 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
                     if (isSusceptible(i, ptd, d) && isCandidate(i, ptd)) {
                         Box tbx;
                         auto iv = getParticleCell(ptd, i, plo, dxi, domain);
-                        auto tidx= getTileIndex(iv, valid_box, true, bin_size, tbx);
-                        auto community =  d_ptr[tidx];
+                        auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
+                        auto community = d_ptr[tidx];
                         auto nborhood = nborhood_ptr[i];
                         int num_infected_nborhood = infected_nborhood_d_ptr[community * max_nborhood + nborhood];
                         int num_infected_community = infected_community_d_ptr[community];

@@ -118,12 +118,12 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
 
             GetCommunityIndex<PTDType> getCommunityIndex;
             getCommunityIndex.init(agents.Geom(lev), mfi.tilebox(), agents.comm_mf[mfi].array());
-            auto plo= getCommunityIndex.plo;
-            auto dxi= getCommunityIndex.dxi;
-            auto domain= getCommunityIndex.domain;
-            auto valid_box= getCommunityIndex.valid_box;
-            auto bin_size= getCommunityIndex.bin_size;
-            auto comm_to_local_index_d= getCommunityIndex.comm_to_local_index_d;
+            auto plo = getCommunityIndex.plo;
+            auto dxi = getCommunityIndex.dxi;
+            auto domain = getCommunityIndex.domain;
+            auto valid_box = getCommunityIndex.valid_box;
+            auto bin_size = getCommunityIndex.bin_size;
+            auto comm_to_local_index_d = getCommunityIndex.comm_to_local_index_d;
 
             // calculate the max group values for indexing
             int max_communities = getCommunityIndex.max();
@@ -170,7 +170,7 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
                         if (isInfectious(i, ptd, d) && isHomeCandidate(i, ptd) && (isAnAdult(i, ptd) == adults)) {
                             Box tbx;
                             auto iv = getParticleCell(ptd, i, plo, dxi, domain);
-                            auto tidx= getTileIndex(iv, valid_box, true, bin_size, tbx);
+                            auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                             auto community = d_ptr[tidx];
                             AMREX_ALWAYS_ASSERT(community <= max_communities);
                             int family_i = community * max_family + family_ptr[i];
@@ -201,7 +201,7 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
                             }
                             Box tbx;
                             auto iv = getParticleCell(ptd, i, plo, dxi, domain);
-                            auto tidx= getTileIndex(iv, valid_box, true, bin_size, tbx);
+                            auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                             auto community = d_ptr[tidx];
                             AMREX_ALWAYS_ASSERT(community <= max_communities);
                             int family_i = community * max_family + family_ptr[i];

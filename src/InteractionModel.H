@@ -243,7 +243,6 @@ struct GetCommunityIndex {
 
         int max_communities = numTilesInBox(valid_box, true, bin_size);
         comm_to_local_index_d.resize(max_communities, -1);
-        //comm_to_local_index_d_ptr = comm_to_local_index_d.data();
         auto d_ptr = comm_to_local_index_d.data();
 
         num_comms = 0;
@@ -284,7 +283,6 @@ struct GetCommunityIndex {
     IntVect bin_size;
     Box valid_box;
     Gpu::DeviceVector<int> comm_to_local_index_d;
-    //int* comm_to_local_index_d_ptr;
     int num_comms;
 };
 

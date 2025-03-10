@@ -108,12 +108,12 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
 
             GetCommunityIndex<PTDType> getCommunityIndex;
             getCommunityIndex.init(agents.Geom(lev), mfi.tilebox(), agents.comm_mf[mfi].array());
-            auto plo= getCommunityIndex.plo;
-            auto dxi= getCommunityIndex.dxi;
-            auto domain= getCommunityIndex.domain;
-            auto valid_box= getCommunityIndex.valid_box;
-            auto bin_size= getCommunityIndex.bin_size;
-            auto comm_to_local_index_d= getCommunityIndex.comm_to_local_index_d;
+            auto plo = getCommunityIndex.plo;
+            auto dxi = getCommunityIndex.dxi;
+            auto domain = getCommunityIndex.domain;
+            auto valid_box = getCommunityIndex.valid_box;
+            auto bin_size = getCommunityIndex.bin_size;
+            auto comm_to_local_index_d = getCommunityIndex.comm_to_local_index_d;
 
             int max_communities = getCommunityIndex.max();
             int max_workgroup = agents.getMaxGroup(IntIdx::workgroup) + 1;
@@ -140,7 +140,7 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
                     if (isInfectious(i, ptd, d) && isCandidate(i, ptd)) {
                         Box tbx;
                         auto iv = getParticleCell(ptd, i, plo, dxi, domain);
-                        auto tidx= getTileIndex(iv, valid_box, true, bin_size, tbx);
+                        auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                         auto community = d_ptr[tidx];
                         int wgroup_i = (community * max_workgroup + workgroup_ptr[i]) * max_naics + naics_ptr[i];
                         Gpu::Atomic::AddNoRet(&infected_workgroup_d_ptr[wgroup_i], 1);
@@ -152,7 +152,7 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
                     if (isSusceptible(i, ptd, d) && isCandidate(i, ptd)) {
                         Box tbx;
                         auto iv = getParticleCell(ptd, i, plo, dxi, domain);
-                        auto tidx= getTileIndex(iv, valid_box, true, bin_size, tbx);
+                        auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                         auto community = d_ptr[tidx];
                         int wgroup_i = (community * max_workgroup + workgroup_ptr[i]) * max_naics + naics_ptr[i];
                         int num_infected_workgroup = infected_workgroup_d_ptr[wgroup_i];
