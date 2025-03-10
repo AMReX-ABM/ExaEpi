@@ -107,7 +107,7 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
             auto domain= getCommunityIndex.domain;
             auto valid_box= getCommunityIndex.valid_box;
             auto bin_size= getCommunityIndex.bin_size;
-            auto comm_to_local_index_d= getCommunityIndex.comm_to_local_index_d;	    
+            auto comm_to_local_index_d= getCommunityIndex.comm_to_local_index_d;
 
             int max_communities = getCommunityIndex.max();
             int max_nborhood = agents.getMaxGroup(IntIdx::nborhood) + 1;

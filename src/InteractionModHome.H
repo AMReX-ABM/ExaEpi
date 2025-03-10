@@ -123,7 +123,7 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
             auto domain= getCommunityIndex.domain;
             auto valid_box= getCommunityIndex.valid_box;
             auto bin_size= getCommunityIndex.bin_size;
-            auto comm_to_local_index_d= getCommunityIndex.comm_to_local_index_d;	    
+            auto comm_to_local_index_d= getCommunityIndex.comm_to_local_index_d;
 
             // calculate the max group values for indexing
             int max_communities = getCommunityIndex.max();

@@ -264,7 +264,7 @@ struct GetCommunityIndex {
     }
 
     AMREX_GPU_HOST_DEVICE
-    int getIndex(int* d_ptr, const PTDType& ptd, int i) const noexcept {	    
+    int getIndex (int* d_ptr, const PTDType& ptd, int i) const noexcept {
         Box tbx;
         auto iv = getParticleCell(ptd, i, plo, dxi, domain);
 
@@ -291,11 +291,11 @@ struct GetCommunityIndex {
 #ifdef AMREX_USE_CUDA
 #define devMemset cudaMemset
 #else
-  #ifdef AMREX_USE_SYCL
-  #define devMemset dpct::get_default_queue().memset
-  #else
-     #define devMemset memset
-  #endif
+#ifdef AMREX_USE_SYCL
+#define devMemset dpct::get_default_queue().memset
+#else
+#define devMemset memset
+#endif
 #endif
 
 #ifdef AMREX_USE_OMP
