@@ -165,12 +165,12 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
                     Real scale = 1.0_rt; // TODO this should vary based on cell
                     Real infect = (1.0_rt - lparm_h->vac_eff);
                     // loop to count infectious agents in each group
-		    auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
+                    auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
                     ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                         if (isInfectious(i, ptd, d) && isHomeCandidate(i, ptd) && (isAnAdult(i, ptd) == adults)) {
-			    Box tbx;
-		            auto iv = getParticleCell(ptd, i, plo, dxi, domain);
-            		    auto tidx= getTileIndex(iv, valid_box, true, bin_size, tbx);
+                            Box tbx;
+                            auto iv = getParticleCell(ptd, i, plo, dxi, domain);
+                            auto tidx= getTileIndex(iv, valid_box, true, bin_size, tbx);
                             auto community = d_ptr[tidx];
                             AMREX_ALWAYS_ASSERT(community <= max_communities);
                             int family_i = community * max_family + family_ptr[i];
