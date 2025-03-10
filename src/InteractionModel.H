@@ -15,6 +15,9 @@
 #include <AMReX_IntVect.H>
 #include <AMReX_MultiFab.H>
 #include <AMReX_Particles.H>
+#ifdef AMREX_USE_SYCL
+#include <dpct/dpct.hpp>
+#endif
 
 using namespace amrex;
 
@@ -240,8 +243,8 @@ struct GetCommunityIndex {
 
         int max_communities = numTilesInBox(valid_box, true, bin_size);
         comm_to_local_index_d.resize(max_communities, -1);
-        comm_to_local_index_d_ptr = comm_to_local_index_d.data();
-        auto d_ptr = comm_to_local_index_d_ptr;
+        //comm_to_local_index_d_ptr = comm_to_local_index_d.data();
+        auto d_ptr = comm_to_local_index_d.data();
 
         num_comms = 0;
         Gpu::DeviceScalar<int> num_comms_d(num_comms);
@@ -261,11 +264,11 @@ struct GetCommunityIndex {
     }
 
     AMREX_GPU_HOST_DEVICE
-    int operator()(const PTDType& ptd, int i) const noexcept {
+    int getIndex(int* d_ptr, const PTDType& ptd, int i) const noexcept {	    
         Box tbx;
         auto iv = getParticleCell(ptd, i, plo, dxi, domain);
 
-        auto index = comm_to_local_index_d_ptr[getTileIndex(iv, valid_box, true, bin_size, tbx)];
+        auto index = d_ptr[getTileIndex(iv, valid_box, true, bin_size, tbx)];
 
         AMREX_ASSERT(index >= 0);
         AMREX_ASSERT(index < num_comms);
@@ -275,21 +278,24 @@ struct GetCommunityIndex {
     AMREX_GPU_HOST_DEVICE
     int max () { return num_comms; }
 
-  private:
     GpuArray<Real, AMREX_SPACEDIM> plo;
     GpuArray<Real, AMREX_SPACEDIM> dxi;
     Box domain;
     IntVect bin_size;
     Box valid_box;
     Gpu::DeviceVector<int> comm_to_local_index_d;
-    int* comm_to_local_index_d_ptr;
+    //int* comm_to_local_index_d_ptr;
     int num_comms;
 };
 
 #ifdef AMREX_USE_CUDA
 #define devMemset cudaMemset
 #else
-#define devMemset memset
+  #ifdef AMREX_USE_SYCL
+  #define devMemset dpct::get_default_queue().memset
+  #else
+     #define devMemset memset
+  #endif
 #endif
 
 #ifdef AMREX_USE_OMP

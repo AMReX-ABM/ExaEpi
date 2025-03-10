@@ -127,6 +127,12 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
 
             GetCommunityIndex<PTDType> getCommunityIndex;
             getCommunityIndex.init(agents.Geom(lev), mfi.tilebox(), agents.comm_mf[mfi].array());
+            auto plo= getCommunityIndex.plo;
+            auto dxi= getCommunityIndex.dxi;
+            auto domain= getCommunityIndex.domain;
+            auto valid_box= getCommunityIndex.valid_box;
+            auto bin_size= getCommunityIndex.bin_size;
+            auto comm_to_local_index_d= getCommunityIndex.comm_to_local_index_d;
 
             int max_communities = getCommunityIndex.max();
             int max_school_grade = agents.getMaxGroup(IntIdx::school_grade) + 1;
@@ -153,10 +159,14 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                     auto lparm_h = agents.getDiseaseParameters_h(d);
                     Real scale = 1.0_rt; // TODO this should vary based on cell
                     Real infect = (1.0_rt - lparm_h->vac_eff);
+		    auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
                     ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                         if (isInfectious(i, ptd, d) && isCandidate(i, ptd) && isAnAdult(i, ptd) == adults) {
-                            auto community = getCommunityIndex(ptd, i);
+                            Box tbx;
+                            auto iv = getParticleCell(ptd, i, plo, dxi, domain);
+                            auto tidx= getTileIndex(iv, valid_box, true, bin_size, tbx);
+                            auto community = d_ptr[tidx];
                             int pos = (community * max_school_id + school_id_ptr[i]) * max_school_grade + school_grade_ptr[i];
                             if (getSchoolType(school_grade_ptr[i]) == SchoolType::daycare) {
                                 Gpu::Atomic::AddNoRet(&infected_daycare_d_ptr[pos], 1);
@@ -169,7 +179,10 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
 
                     ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                         if (isSusceptible(i, ptd, d) && isCandidate(i, ptd)) {
-                            auto community = getCommunityIndex(ptd, i);
+                            Box tbx;
+                            auto iv = getParticleCell(ptd, i, plo, dxi, domain);
+                            auto tidx= getTileIndex(iv, valid_box, true, bin_size, tbx);
+                            auto community = d_ptr[tidx];
                             int pos = (community * max_school_id + school_id_ptr[i]) * max_school_grade + school_grade_ptr[i];
                             if (getSchoolType(school_grade_ptr[i]) == SchoolType::daycare) {
                                 int num_infected_daycare = infected_daycare_d_ptr[pos];
