@@ -206,7 +206,7 @@ def get_schools(fname):
 def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
     schools_df["region"] = schools_df.geoid.str[:geoid_scaling]
     # group by region
-    students_df = students_df[(students_df.allocated == False)]
+    # students_df = students_df[(students_df.allocated == False)]
     students_df.loc[:, "region"] = students_df.geoid.str[:geoid_scaling]
     student_groups = students_df.groupby(["region"])
     # print("      Found", len(student_groups), "regions for student groups")
@@ -216,28 +216,43 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
     missing_regions = 0
     for group_name, student_group in student_groups:
         num_students_reqd = len(student_group)
+        if num_students_reqd == 0:
+            continue
         # defaults to empty in case we can't find a key
-        rnd_sample = pd.DataFrame({"geoid": [""] * num_students_reqd, "id": ["-1"] * num_students_reqd})
+        # schools_selected = pd.DataFrame({"geoid": [""] * num_students_reqd, "id": ["-1"] * num_students_reqd})
         try:
             school_group = school_groups.get_group(group_name)[["geoid", "id", "remaining_students"]]
-            num_students_avail = school_group.remaining_students.sum()
-            if alloc_all:
-                num_students_avail = num_students_reqd
-                norm_factor = school_group.remaining_students.sum()
-            else:
-                missing_students = max(num_students_reqd - num_students_avail, 0)
-                if missing_students > 0:
-                    # add a dummy empty school for missing prob
-                    school_group.loc[len(school_group)] = ["", "-1", missing_students]
-                norm_factor = num_students_avail + missing_students
-            num_students = num_students_reqd
-            school_probs = school_group.remaining_students / norm_factor
-            rnd_sample = school_group.sample(n=num_students, weights=school_probs, replace=True)
         except KeyError:
             missing_regions += 1
+            continue
+        num_students_avail = school_group.remaining_students.sum()
+        if alloc_all:
+            num_students_avail = num_students_reqd
+            norm_factor = school_group.remaining_students.sum()
+        else:
+            missing_students = max(num_students_reqd - num_students_avail, 0)
+            if missing_students > 0:
+                # add a dummy empty school for missing prob
+                school_group.loc[len(school_group)] = ["", "-1", missing_students]
+            norm_factor = num_students_avail + missing_students
+        num_students = num_students_reqd
+        school_probs = school_group.remaining_students / norm_factor
+        schools_selected = school_group.sample(n=num_students, weights=school_probs, replace=True)
+        schools_selected.index.rename("index", inplace=True)
+
         nt_dt_group = student_group[["p_id", "geoid", "pr_naics", "pr_grade"]]
-        nt_dt_group = nt_dt_group.assign(dest_geoid=rnd_sample.geoid.tolist(), school_id=rnd_sample.id.tolist())
+        nt_dt_group = nt_dt_group.assign(dest_geoid=schools_selected.geoid.tolist(), school_id=schools_selected.id.tolist())
         nt_dt_df = pd.concat([nt_dt_df, nt_dt_group], ignore_index=True)
+
+        continue
+
+        # reduce the available students at schools count according to how many have been allocated
+        schools_selected_groups = schools_selected.groupby(["index"])
+        selected_school_indexes = list(schools_selected_groups.groups.keys())
+        selected_school_counts = schools_selected_groups.id.count().tolist()
+        schools_df.loc[schools_df.index.isin(selected_school_indexes), "remaining_students"] -= np.int32(selected_school_counts)
+        # always leave at least 1 student so we can always allocate to these schools, even at a low probability
+        schools_df.loc[schools_df.remaining_students < 1, "remaining_students"] = 1
 
     print("      Found", len(student_groups), "student regions,", missing_regions, "without schools")
     nt_dt_df.rename(columns={"geoid": "orig_geoid", "pr_naics": "naics", "pr_grade": "grade"}, inplace=True)
@@ -246,7 +261,8 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
     nt_dt_df = nt_dt_df[["p_id", "role", "orig_geoid", "dest_geoid", "naics", "grade", "school_id"]]
     nt_dt_df.naics = ""
     nt_dt_df.sort_values(by=["p_id"], inplace=True, ignore_index=True)
-    students_df.loc[:, "allocated"] = np.bool(nt_dt_df.school_id != "-1")
+    # students_df.loc[:, "allocated"] = np.bool(nt_dt_df.school_id != "-1")
+    # students_df.loc[:, "allocated"] = np.bool(nt_dt_df.school_id != np.nan)
     # only subset if this is not the last round
     if not alloc_all:
         nt_dt_df = nt_dt_df[(nt_dt_df.school_id != "-1")]
@@ -262,7 +278,7 @@ def alloc_students_level(schools_df, students_df, level):
     students_df.sort_values(by=["p_id"], inplace=True, ignore_index=True)
     if DUMP_INTERMEDIATES:
         students_df[["p_id", "pr_grade"]].to_csv("students-" + level + ".csv", sep="\t", index=False)
-    students_df["allocated"] = False
+    # students_df["allocated"] = False
     # Get all schools with the required level
     schools_df = schools_df[(schools_df.level.str.find(level) != -1)].copy()
     # Some schools have multiple levels and so students should be allocated proportionately. For simplicity, we
@@ -281,11 +297,13 @@ def alloc_students_level(schools_df, students_df, level):
         # make sure to allocate all at the final region scale
         alloc_all = True if scale == scales[-1] else False
         students_nt_dt_df, students_df = alloc_students_region(students_df, schools_df, scale, alloc_all)
-        num_unalloc_students = len(students_df[(students_df.allocated == False)])
+        # num_unalloc_students = len(students_df[(students_df.allocated == False)])
+        num_unalloc_students = len(students_df[(students_df.school_id == "-1")])
         print("      Set destinations for", len(students_nt_dt_df), "students,", num_unalloc_students, "still unallocated")
         nt_dt_df = pd.concat([nt_dt_df, students_nt_dt_df], ignore_index=True)
         if num_unalloc_students == 0:
             break
+
     return nt_dt_df
 
 
@@ -300,6 +318,7 @@ def alloc_students(args, students_df):
     if missing_grades:
         print("WARNING: Found missing categories for pr_grade:", missing_grades)
     students_df["pr_grade"] = students_df["pr_grade"].astype(grade_categs).cat.codes + 3
+    students_df["school_id"] = "-1"
 
     # allocate students from each level
     students_nt_dt_df = pd.DataFrame()
