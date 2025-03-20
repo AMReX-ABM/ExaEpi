@@ -60,7 +60,7 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
     pc.generateCellData(output_mf);
 
     amrex::Copy(output_mf, *FIPS_mf_ptr, 0, ncomp_d * num_diseases, 2, 0);
-    amrex::Copy(output_mf, *comm_mf_ptr, 0, ncomp_d * num_diseases + 1, 1, 0);
+    amrex::Copy(output_mf, *comm_mf_ptr, 0, ncomp_d * num_diseases + 2, 1, 0);
     if (unit_mf_ptr != nullptr) { amrex::Copy(output_mf, *unit_mf_ptr, 0, ncomp_d * num_diseases + 2, 1, 0); }
 
     {
