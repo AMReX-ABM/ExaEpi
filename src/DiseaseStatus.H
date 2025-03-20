@@ -25,7 +25,7 @@ void assignHospital (const int a_i,       /*!< agent index */
                      int* const a_hosp_i, /*!< hospital index i */
                      int* const a_hosp_j, /*!< hospital index j */
                      const PTDType& a_ptd /*!< Particle tile data */) {
-    AMREX_ALWAYS_ASSERT(!inHospital(a_i, a_ptd));
+    AMREX_ASSERT(!inHospital(a_i, a_ptd));
     auto home_i_ptr = a_ptd.m_idata[IntIdx::home_i];
     auto home_j_ptr = a_ptd.m_idata[IntIdx::home_j];
     a_hosp_i[a_i] = home_i_ptr[a_i];
