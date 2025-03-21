@@ -211,6 +211,18 @@ The following inputs specify the disease parameters:
 * ``disease.ventCVF`` (`list of float`, default ``0.20 0.20 0.20 0.45 0.45 1.0``)
     Probability of death when in hospital, on ventilator, for age groups: 0-4, 5-17, 18-29, 30-49, 50-64, 65 and over.
 
+The following inputs specify the disease-coupling parameters. They are valid only when simulating more than one disease
+(i.e., ``agent.number_of_diseases > 1``.
+
+* ``disease_coupling.coimmunity_matrix`` (matrix of `float`, default identity matrix)
+    Co-immunity matrix: co-immunity is the immunity that an agent has against a disease due to past infection with other
+    disease(s). The number of rows and columns of this matrix must be the same as the number of diseases
+    (``agent.number_of_diseases``).
+* ``disease_coupling.cosusceptibility_matrix`` (matrix of `float`, default full matrix of ``1.0``)
+    Co-susceptibility matrix: co-susceptibility is the factor why which an agent is more susceptible to a disease due to
+    current infection with other disease(s). The number of rows and columns of this matrix must be the same as the number
+    of diseases (``agent.number_of_diseases``).
+
 `Note`: for ``agent.number_of_diseases > 1``, the disease parameters that are common
 to all the diseases can be specified as above. Any parameter that is `different for a specific disease`
 can be specified as follows:

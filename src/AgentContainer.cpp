@@ -102,6 +102,9 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
 #endif
     }
 
+    m_disease_coupling = std::make_unique<DiseaseCouplingParm<PTDType>>(m_num_diseases);
+    m_disease_coupling->ReadInputs("disease_coupling");
+
     max_attribute_values.fill(-1);
 }
 
@@ -644,6 +647,7 @@ void AgentContainer::infectAgents () {
             int gid = mfi.index();
             int tid = mfi.LocalTileIndex();
             auto& ptile = plev[std::make_pair(gid, tid)];
+            const auto& ptd = ptile.getParticleTileData();
             auto& soa = ptile.GetStructOfArrays();
             const auto np = ptile.numParticles();
             if (np == 0) { continue; }
@@ -665,8 +669,23 @@ void AgentContainer::infectAgents () {
 
                 const auto lparm = m_d_parm[d];
 
+                Gpu::DeviceVector<ParticleReal> coimmunity, cosusceptibility;
+                coimmunity.resize(np);
+                cosusceptibility.resize(np);
+
+                m_disease_coupling->getCoimmunity(coimmunity, d, ptd);
+                m_disease_coupling->getCosusceptibility(cosusceptibility, d, ptd);
+
+                auto ci_arr = coimmunity.data();
+                auto cs_arr = cosusceptibility.data();
+
                 amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, amrex::RandomEngine const& engine) noexcept {
-                    prob_ptr[i] = 1.0_prt - prob_ptr[i];
+                    if (prob_ptr[i] == 1.0_prt) {
+                        prob_ptr[i] = 0.0_prt;
+                    } else {
+                        prob_ptr[i] = 1.0_prt - prob_ptr[i] / cs_arr[i];
+                    }
+                    prob_ptr[i] *= (1.0_prt - ci_arr[i]);
                     if (status_ptr[i] == Status::never || status_ptr[i] == Status::susceptible) {
                         if (amrex::Random(engine) < prob_ptr[i]) {
                             setInfected(&(status_ptr[i]), &(counter_ptr[i]), &(latent_period_ptr[i]), &(infectious_period_ptr[i]),
