@@ -71,14 +71,14 @@ struct DiseaseCouplingParm {
         {
             auto key_str = "coimmunity_matrix";
             if (pp.contains(key_str)) {
-                AMREX_ALWAYS_ASSERT(pp.countval(key_str) == m_n*m_n);
+                AMREX_ALWAYS_ASSERT(pp.countval(key_str) == m_n * m_n);
                 pp.getarr(key_str, m_coimmune_mat);
             }
         }
         {
             auto key_str = "cosusceptibility_matrix";
             if (pp.contains(key_str)) {
-                AMREX_ALWAYS_ASSERT(pp.countval(key_str) == m_n*m_n);
+                AMREX_ALWAYS_ASSERT(pp.countval(key_str) == m_n * m_n);
                 pp.getarr(key_str, m_cosuscept_mat);
             }
         }
