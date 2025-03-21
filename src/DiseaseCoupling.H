@@ -68,8 +68,20 @@ struct DiseaseCouplingParm {
     /*! Read inputs from file */
     inline void ReadInputs (const std::string& a_prefix /*!< prefix */) {
         ParmParse pp(a_prefix);
-        pp.queryarr("coimmunity_matrix", m_coimmune_mat);
-        pp.queryarr("cosusceptibility_matrix", m_cosuscept_mat);
+        {
+            auto key_str = "coimmunity_matrix";
+            if (pp.contains(key_str)) {
+                AMREX_ALWAYS_ASSERT(pp.countval(key_str) == m_n*m_n);
+                pp.getarr(key_str, m_coimmune_mat);
+            }
+        }
+        {
+            auto key_str = "cosusceptibility_matrix";
+            if (pp.contains(key_str)) {
+                AMREX_ALWAYS_ASSERT(pp.countval(key_str) == m_n*m_n);
+                pp.getarr(key_str, m_cosuscept_mat);
+            }
+        }
 
         Print() << "Co-immunity matrix:\n";
         for (int i = 0; i < m_n; i++) {
