@@ -3,6 +3,7 @@
 */
 
 #include "AgentContainer.H"
+#include "AgentDefinitions.H"
 
 using namespace amrex;
 using namespace ExaEpi::Utils;
@@ -634,7 +635,7 @@ void AgentContainer::shelterStop () {
 /*! \brief Infect agents based on their current status and the computed probability of infection.
     The infection probability is computed in AgentContainer::interactAgentsHomeWork() or
     AgentContainer::interactAgents() */
-void AgentContainer::infectAgents () {
+void AgentContainer::infectAgents (MFPtrVec& a_disease_stats /*!< Community-wise disease stats tracker */) {
     BL_PROFILE("AgentContainer::infectAgents");
 
     for (int lev = 0; lev <= finestLevel(); ++lev) {
@@ -657,6 +658,8 @@ void AgentContainer::infectAgents () {
             int n_disease = m_num_diseases;
 
             for (int d = 0; d < n_disease; d++) {
+                (*a_disease_stats[d])[mfi].setVal<RunOn::Gpu>(0, mfi.tilebox(), DiseaseStats::new_cases, 1);
+                auto ds_arr = (*a_disease_stats[d])[mfi].array();
 
                 auto status_ptr = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
 
@@ -666,6 +669,8 @@ void AgentContainer::infectAgents () {
                 auto infectious_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::infectious_period).data();
                 auto incubation_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).data();
                 auto hospital_delay_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_delay).data();
+                auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
+                auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
 
                 const auto lparm = m_d_parm[d];
 
@@ -690,6 +695,8 @@ void AgentContainer::infectAgents () {
                         if (amrex::Random(engine) < prob_ptr[i]) {
                             setInfected(&(status_ptr[i]), &(counter_ptr[i]), &(latent_period_ptr[i]), &(infectious_period_ptr[i]),
                                         &(incubation_period_ptr[i]), &(hospital_delay_ptr[i]), engine, lparm);
+                            Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::new_cases), 1.0_rt);
+
                             return;
                         }
                     }

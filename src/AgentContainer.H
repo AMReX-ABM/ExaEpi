@@ -118,7 +118,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void updateStatus(MFPtrVec&);
 
-    void infectAgents();
+    void infectAgents(MFPtrVec&);
 
     void shelterStart();
 
