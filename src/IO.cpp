@@ -96,6 +96,8 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
         plt_varnames.push_back("comm");
         if (unit_mf_ptr != nullptr) { plt_varnames.push_back("unit"); }
 
+        AMREX_ASSERT(plt_varnames.size() == output_mf.nComp());
+
 #ifdef AMREX_USE_HDF5
         WriteSingleLevelPlotfileHDF5MultiDset(amrex::Concatenate("plt", step, 5), output_mf, plt_varnames, pc.ParticleGeom(0),
                                               cur_time, step, "ZLIB@3");
