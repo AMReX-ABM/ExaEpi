@@ -684,11 +684,12 @@ void CensusData::readWorkerflow (AgentContainer& pc, /*!< Agent container (parti
     }
     The_Device_Arena()->free(d_flow);
 
-    assignTeachersAndWorkgroup(pc, workgroup_size);
+    assignTeachersAndWorkgroup(pc);
+    assignMedicalWorkers(pc);
 }
 
-void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workgroup_size) {
-    const Box& domain = pc.Geom(0).Domain();
+void CensusData::assignTeachersAndWorkgroup (AgentContainer& a_pc) {
+    const Box& domain = a_pc.Geom(0).Domain();
     auto Ncommunity = demo.Ncommunity;
     Gpu::HostVector<int> high_teachers_array(Ncommunity, 0);
     Gpu::HostVector<int> middle_teachers_array(Ncommunity, 0);
@@ -700,13 +701,13 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
     auto elem3_teachers_ptr = elem3_teachers_array.data();
     auto elem4_teachers_ptr = elem4_teachers_array.data();
     auto daycare_teachers_ptr = daycare_teachers_array.data();
-    auto student_teacher_ratio = pc.m_student_teacher_ratio;
+    auto student_teacher_ratio = a_pc.m_student_teacher_ratio;
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
     for (MFIter mfi(unit_mf); mfi.isValid(); ++mfi) {
-        auto student_counts_arr = pc.m_student_counts[mfi].array();
+        auto student_counts_arr = a_pc.m_student_counts[mfi].array();
         auto comm_arr = comm_mf[mfi].array();
         auto bx = mfi.tilebox();
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
@@ -730,7 +731,7 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
     for (MFIter mfi(unit_mf); mfi.isValid(); ++mfi) {
-        auto& agents_tile = pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
+        auto& agents_tile = a_pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
         auto& soa = agents_tile.GetStructOfArrays();
 
         auto np = soa.numParticles();
@@ -742,6 +743,7 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
         Gpu::HostVector<int> school_grade_h(np);
         Gpu::HostVector<int> school_id_h(np);
         Gpu::HostVector<int> work_nborhood_h(np);
+        Gpu::HostVector<int> naics_h(np);
 
         Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::age_group).begin(), soa.GetIntData(IntIdx::age_group).end(),
                   age_group_h.begin());
@@ -757,6 +759,8 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
                   school_id_h.begin());
         Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_nborhood).begin(), soa.GetIntData(IntIdx::work_nborhood).end(),
                   work_nborhood_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::naics).begin(), soa.GetIntData(IntIdx::naics).end(),
+                  naics_h.begin());
 
         auto age_group_ptr = age_group_h.data();
         auto workgroup_ptr = workgroup_h.data();
@@ -765,6 +769,7 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
         auto school_grade_ptr = school_grade_h.data();
         auto school_id_ptr = school_id_h.data();
         auto work_nborhood_ptr = work_nborhood_h.data();
+        auto naics_ptr = naics_h.data();
 
         for (int ip = 0; ip < np; ++ip) {
             int comm = (int)domain.index(IntVect(AMREX_D_DECL(work_i_ptr[ip], work_j_ptr[ip], 0)));
@@ -773,6 +778,8 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
             if (age_group_ptr[ip] < AgeGroups::a18to29 || age_group_ptr[ip] > AgeGroups::a50to64) { continue; }
             // skip non-workers
             if (workgroup_ptr[ip] == 0) { continue; }
+            // skip workers already assigned to other professions
+            if (naics_ptr[ip] != 0) { continue; }
 
             int high_teachers = high_teachers_ptr[comm];
             int middle_teachers = middle_teachers_ptr[comm];
@@ -820,5 +827,108 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
         Gpu::copy(Gpu::hostToDevice, workgroup_h.begin(), workgroup_h.end(), soa.GetIntData(IntIdx::workgroup).begin());
         Gpu::copy(Gpu::hostToDevice, work_nborhood_h.begin(), work_nborhood_h.end(),
                   soa.GetIntData(IntIdx::work_nborhood).begin());
+    }
+}
+
+void CensusData::assignMedicalWorkers (AgentContainer& a_pc) {
+    const Box& domain = a_pc.Geom(0).Domain();
+    auto Ncommunity = demo.Ncommunity;
+    Gpu::HostVector<int> medworkers_array(Ncommunity, 0);
+    auto medworkers_ptr = medworkers_array.data();
+    auto med_workers_prop = a_pc.medicalWorkersProportion();
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(unit_mf); mfi.isValid(); ++mfi) {
+        auto num_residents_arr = num_residents_mf[mfi].const_array();
+        auto comm_arr = comm_mf[mfi].const_array();
+        auto bx = mfi.tilebox();
+        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
+            int comm = comm_arr(i, j, k);
+            if (comm >= Ncommunity || comm < 0) { return; }
+            medworkers_ptr[comm] = int(std::round(med_workers_prop*double(num_residents_arr(i, j, k, 5))));
+        });
+        Gpu::synchronize();
+    }
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(unit_mf); mfi.isValid(); ++mfi) {
+        auto& agents_tile = a_pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
+        auto& soa = agents_tile.GetStructOfArrays();
+
+        auto np = soa.numParticles();
+
+        Gpu::HostVector<int> age_group_h(np);
+        Gpu::HostVector<int> workgroup_h(np);
+        Gpu::HostVector<int> work_nborhood_h(np);
+        Gpu::HostVector<int> work_i_h(np);
+        Gpu::HostVector<int> work_j_h(np);
+        Gpu::HostVector<int> naics_h(np);
+
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::age_group).begin(), soa.GetIntData(IntIdx::age_group).end(),
+                  age_group_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::workgroup).begin(), soa.GetIntData(IntIdx::workgroup).end(),
+                  workgroup_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_nborhood).begin(), soa.GetIntData(IntIdx::work_nborhood).end(),
+                  work_nborhood_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_i).begin(), soa.GetIntData(IntIdx::work_i).end(),
+                  work_i_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_j).begin(), soa.GetIntData(IntIdx::work_j).end(),
+                  work_j_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::naics).begin(), soa.GetIntData(IntIdx::naics).end(),
+                  naics_h.begin());
+
+        const auto age_group_ptr = age_group_h.data();
+        auto workgroup_ptr = workgroup_h.data();
+        const auto work_i_ptr = work_i_h.data();
+        const auto work_j_ptr = work_j_h.data();
+        auto work_nborhood_ptr = work_nborhood_h.data();
+        auto naics_ptr = naics_h.data();
+
+        Vector<int> idx(np);
+        for (int ip = 0; ip < np; ++ip) {
+            idx[ip] = ip;
+        }
+        {
+            unsigned long int seed = 1024UL;
+            std::mt19937 rndeng;
+            rndeng.seed(seed);
+            std::shuffle(idx.begin(), idx.end(), rndeng);
+        }
+
+        for (int i = 0; i < np; ++i) {
+            int ip = idx[i];
+            // skip non-working age
+            if (age_group_ptr[ip] < AgeGroups::a18to29 || age_group_ptr[ip] > AgeGroups::a50to64) { continue; }
+            // skip non-workers
+            if (workgroup_ptr[ip] == 0) { continue; }
+            // skip workers already assigned to other professions
+            if (naics_ptr[ip] != 0) { continue; }
+
+            int comm = (int)domain.index(IntVect(AMREX_D_DECL(work_i_ptr[ip], work_j_ptr[ip], 0)));
+            if (comm >= Ncommunity || comm < 0) { continue; }
+
+            int n_medworkers = medworkers_ptr[comm];
+            if (n_medworkers > 0) {
+                naics_h[ip] = 62000;
+
+                // Right now, each community has a medical facility;
+                // let it be in neighborhood 0
+                work_nborhood_ptr[ip] = 0;
+
+                // Assuming one medical facility per community, let all
+                // the medical workers be in one workgroup
+                workgroup_ptr[ip] = 1;
+
+                medworkers_ptr[comm]--;
+            }
+        }
+        Gpu::copy(Gpu::hostToDevice, workgroup_h.begin(), workgroup_h.end(), soa.GetIntData(IntIdx::workgroup).begin());
+        Gpu::copy(Gpu::hostToDevice, work_nborhood_h.begin(), work_nborhood_h.end(),
+                  soa.GetIntData(IntIdx::work_nborhood).begin());
+        Gpu::copy(Gpu::hostToDevice, naics_h.begin(), naics_h.end(), soa.GetIntData(IntIdx::naics).begin());
     }
 }

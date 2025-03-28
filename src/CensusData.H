@@ -26,7 +26,7 @@ struct CensusData {
                                             component 2: age group 18-29,
                                             component 3: age group 30-64,
                                             component 4: age group 65+,
-                                            component 4: total. */
+                                            component 5: total. */
     amrex::iMultiFab unit_mf;          /*!< Unit number of each community */
     amrex::iMultiFab FIPS_mf;          /*!< FIPS code (component 0) and
                                             census tract number (component 1)
@@ -41,6 +41,6 @@ struct CensusData {
 
     void readWorkerflow(AgentContainer& pc, const std::string& workerflow_filename, const int workgroup_size);
 
-    // private:
-    void assignTeachersAndWorkgroup(AgentContainer& pc, const int workgroup_size);
+    void assignTeachersAndWorkgroup(AgentContainer& pc);
+    void assignMedicalWorkers(AgentContainer& pc);
 };

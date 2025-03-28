@@ -151,7 +151,13 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void printStudentTeacherCounts() const;
 
+    /*! \brief print the total number of medical workers */
+    void printMedicalWorkerCounts() const;
+
     void printAgeGroupCounts() const;
+
+    /*! \brief return the proportion of medical workers */
+    inline amrex::Real medicalWorkersProportion() const { return m_med_workers_prop; }
 
     amrex::iMultiFab m_student_counts;
     /// Used only for Census data. A ratio for each school type: none, college, high, middle, elem, daycare
@@ -185,6 +191,9 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     DiseaseStatus<PCType, PTileType, PTDType, PType> m_disease_status;
 
     Array<int, IntIdx::nattribs> max_attribute_values;
+
+    /*! Proportion of medical workers in each community */
+    amrex::Real m_med_workers_prop = 0.0_rt;
 
     /*! \brief queries if a given interaction type (model) is available */
     inline bool haveInteractionModel (ExaEpi::InteractionNames a_mod_name) const {

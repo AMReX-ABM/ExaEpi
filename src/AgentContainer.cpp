@@ -58,6 +58,7 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
         amrex::ParmParse pp("agent");
         pp.query("shelter_compliance", m_shelter_compliance);
         pp.query("symptomatic_withdraw_compliance", m_symptomatic_withdraw_compliance);
+        pp.query("med_workers_proportion", m_med_workers_prop);
         int stratio[SchoolType::total];
         for (unsigned int i = 0; i < SchoolType::total; i++) {
             stratio[i] = m_student_teacher_ratio[i];
@@ -914,6 +915,20 @@ void AgentContainer::printStudentTeacherCounts () const {
                 << "  Childcare  " << counts[4] << " " << counts[9] << " " << ((Real)counts[9] / counts[4]) << "\n"
                 << "  Total      " << total_educators << " " << total_students << " " << ((Real)total_students / total_educators)
                 << "\n";
+    }
+}
+
+/*! Print the number of medical workers */
+void AgentContainer::printMedicalWorkerCounts () const {
+    Long count = ReduceSum(*this,
+                           [=] AMREX_GPU_HOST_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
+                                                      const int i) -> int
+                           { return (ptd.m_idata[IntIdx::naics][i] == 62000 ? 1 : 0);  });
+
+    ParallelDescriptor::ReduceLongSum(&count, 1, ParallelDescriptor::IOProcessorNumber());
+    if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
+        Print() << std::fixed << std::setprecision(1) << "Medical worker counts:\n"
+                << "  Total: " << count << "\n";
     }
 }
 
