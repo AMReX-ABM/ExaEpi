@@ -882,9 +882,9 @@ void CensusData::assignMedicalWorkers (AgentContainer& a_pc) {
                   naics_h.begin());
 
         const auto age_group_ptr = age_group_h.data();
-        auto workgroup_ptr = workgroup_h.data();
         const auto work_i_ptr = work_i_h.data();
         const auto work_j_ptr = work_j_h.data();
+        auto workgroup_ptr = workgroup_h.data();
         auto work_nborhood_ptr = work_nborhood_h.data();
         auto naics_ptr = naics_h.data();
 

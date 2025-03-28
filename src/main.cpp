@@ -220,6 +220,7 @@ void runAgent () {
         }
 
         pc.printStudentTeacherCounts();
+        pc.printMedicalWorkerCounts();
         pc.printAgeGroupCounts();
 
         if (params.ic_type == ICType::Census && params.air_travel_int > 0) {
