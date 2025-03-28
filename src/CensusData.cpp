@@ -852,9 +852,6 @@ void CensusData::assignMedicalWorkers (AgentContainer& a_pc) {
         Gpu::synchronize();
     }
 
-#ifdef AMREX_USE_OMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
     for (MFIter mfi(unit_mf); mfi.isValid(); ++mfi) {
         auto& agents_tile = a_pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
         auto& soa = agents_tile.GetStructOfArrays();
