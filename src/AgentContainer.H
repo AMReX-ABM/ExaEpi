@@ -124,7 +124,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void shelterStop();
 
-    void generateCellData(amrex::MultiFab& mf) const;
+    void generateCellData(amrex::MultiFab& mf, const int ncomp) const;
 
     std::array<amrex::Long, 9> getTotals(const int);
 
