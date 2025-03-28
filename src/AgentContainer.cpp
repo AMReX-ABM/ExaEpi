@@ -719,13 +719,15 @@ void AgentContainer::infectAgents (MFPtrVec& a_disease_stats /*!< Community-wise
     + component 5*d+3: number of agents that are immune (#Status::immune)
     + component 5*d+4: number of agents that are susceptible infected (#Status::susceptible)
 */
-void AgentContainer::generateCellData (MultiFab& mf /*!< MultiFab with at least 5*m_num_diseases components */) const {
+void AgentContainer::generateCellData (MultiFab& mf, /*!< MultiFab with at least a_ncomp*m_num_diseases components */
+                                       const int a_ncomp /*!< Number of components per disease */) const {
     BL_PROFILE("AgentContainer::generateCellData");
 
     const int lev = 0;
 
     AMREX_ASSERT(OK());
     AMREX_ASSERT(numParticlesOutOfRange(*this, 0) == 0);
+    AMREX_ASSERT(a_ncomp == (Status::dead + 1));
 
     const auto& geom = Geom(lev);
     const auto plo = geom.ProbLoArray();
@@ -742,8 +744,8 @@ void AgentContainer::generateCellData (MultiFab& mf /*!< MultiFab with at least 
 
                 for (int d = 0; d < n_disease; d++) {
                     int status = ptd.m_runtime_idata[i0(d) + IntIdxDisease::status][i];
-                    Gpu::Atomic::AddNoRet(&count(iv, 5 * d + 0), 1.0_rt);
-                    if (status != Status::dead) { Gpu::Atomic::AddNoRet(&count(iv, 5 * d + status + 1), 1.0_rt); }
+                    Gpu::Atomic::AddNoRet(&count(iv, a_ncomp * d + 0), 1.0_rt);
+                    if (status != Status::dead) { Gpu::Atomic::AddNoRet(&count(iv, a_ncomp * d + status + 1), 1.0_rt); }
                 }
             },
             false);
