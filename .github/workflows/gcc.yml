@@ -47,6 +47,9 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug    \
             -DCMAKE_VERBOSE_MAKEFILE=ON
         cmake --build build -j 2
+    - name: Run Tests
+      run: |
+           source .github/workflows/tests/test_runs.sh
 
   # Build ExaEpi
   tests_cxx20:
