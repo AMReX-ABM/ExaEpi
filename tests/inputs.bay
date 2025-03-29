@@ -10,18 +10,8 @@ agent.random_travel_int = 24
 agent.aggregated_diag_int = 1
 agent.aggregated_diag_prefix = "cases"
 
-contact.pSC  = 0.2
-contact.pCO  = 1.45
-contact.pNH  = 1.45
-contact.pWO  = 0.5
-contact.pFA  = 1.0
-contact.pBAR = -1.
-
 disease.initial_case_type = "file"
 disease.case_filename = "data/CaseData/July4.cases"
 
-disease.nstrain = 2
 disease.p_trans = 0.20 0.30
 disease.p_asymp = 0.40 0.40
-disease.reduced_inf = 0.75 0.75
-disease.reinfect_prob = 0.0

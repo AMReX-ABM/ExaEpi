@@ -10,12 +10,5 @@ agent.random_travel_int = 5
 agent.aggregated_diag_int = 1
 agent.aggregated_diag_prefix = "cases"
 
-contact.pSC  = 0.2
-contact.pCO  = 1.45
-contact.pNH  = 1.45
-contact.pWO  = 0.5
-contact.pFA  = 1.0
-contact.pBAR = -1.
-
 disease.initial_case_type = "random"
 disease.num_initial_cases = 10

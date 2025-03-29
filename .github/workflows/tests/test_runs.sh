@@ -43,6 +43,9 @@ for i in inputs*; do
 #   done
     echo "  Done."
     popd
+#   delete run directory
+    echo "Deleting $tmp_dir/$dirname"
+    rm -rf $tmp_dir/$dirname
     echo  ""
 done
 
