@@ -79,7 +79,7 @@ jobs:
         make -j 2
     - name: Run Tests
       run: |
-           source .github/workflows/tests/test_runs.sh 1 2
+           source .github/workflows/tests/test_runs.sh 1 4
 
   # Build ExaEpi w/o MPI
   tests-nonmpi:
