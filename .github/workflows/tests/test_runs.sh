@@ -39,7 +39,11 @@ for i in inputs*; do
 #   run ExaEpi
     echo "  Running $exaepi_exec with inputs $i ($nproc MPI ranks and $nomp OMP threads)"
     export OMP_NUM_THREADS=$nomp
-    mpiexec -n $nproc $exaepi_exec $i
+    if [[ "$nproc" == "1" ]]; then
+        $exaepi_exec $i
+    else
+        mpiexec -n $nproc $exaepi_exec $i
+    fi
 #   done
     echo "  Done."
     popd
