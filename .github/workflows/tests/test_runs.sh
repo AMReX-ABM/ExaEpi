@@ -37,7 +37,7 @@ for i in inputs*; do
 #   make symlinks to data files
     ln -sf $data_dir .
 #   run ExaEpi
-    echo "  Running $exaepi_exec with inputs $i..."
+    echo "  Running $exaepi_exec with inputs $i ($nproc MPI ranks and $nomp OMP threads)"
     export OMP_NUM_THREADS=$nomp
     mpiexec -n $nproc $exaepi_exec $i
 #   done
