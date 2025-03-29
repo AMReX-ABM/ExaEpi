@@ -4,10 +4,10 @@ agent.census_filename = "data/CensusData/CA.dat"
 agent.workerflow_filename = "data/CensusData/CA-wf.bin"
 
 agent.nsteps = 7
-agent.plot_int = 1
+agent.plot_int = 3
 agent.random_travel_int = 24
 
-agent.aggregated_diag_int = 1
+agent.aggregated_diag_int = 3
 agent.aggregated_diag_prefix = "cases"
 
 disease.initial_case_type = "file"

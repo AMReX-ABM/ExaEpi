@@ -11,5 +11,3 @@ agent.aggregated_diag_prefix = "cases"
 
 disease.initial_case_type = "file"
 disease.case_filename = "data/CaseData/nm-july4.cases"
-
-disease.nstrain = 1

@@ -14,14 +14,11 @@ agent.air_travel_int = -1
 agent.aggregated_diag_int = 10
 agent.aggregated_diag_prefix = "cases"
 
-agent.symptomatic_withdraw = 1
-
 disease_covid1.initial_case_type = "random"
 disease_covid1.num_initial_cases = 117
 disease_covid2.initial_case_type = "random"
 disease_covid2.num_initial_cases = 23
 
-disease.nstrain = 1
 disease.p_trans = 0.20
 disease.p_asymp = 0.40
 disease_covid2.p_trans = 0.25
