@@ -47,6 +47,9 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug    \
             -DCMAKE_VERBOSE_MAKEFILE=ON
         cmake --build build -j 2
+    - name: Run Tests
+      run: |
+           source .github/workflows/tests/test_runs.sh 2 1
 
   # Build ExaEpi
   tests_cxx20:
@@ -74,6 +77,9 @@ jobs:
             -DCMAKE_CXX_COMPILER=$(which g++-10)            \
             -DCMAKE_Fortran_COMPILER=$(which gfortran-10)
         make -j 2
+    - name: Run Tests
+      run: |
+           source .github/workflows/tests/test_runs.sh 1 4
 
   # Build ExaEpi w/o MPI
   tests-nonmpi:

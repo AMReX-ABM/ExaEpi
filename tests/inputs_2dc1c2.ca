@@ -1,0 +1,31 @@
+##
+agent.number_of_diseases = 2
+agent.disease_names = "covid1" "covid2"
+
+agent.ic_type = "census"
+agent.census_filename = "data/CensusData/CA.dat"
+agent.workerflow_filename = "data/CensusData/CA-wf.bin"
+
+agent.nsteps = 5
+agent.plot_int = 2
+agent.random_travel_int = 24
+agent.air_travel_int = -1
+
+agent.aggregated_diag_int = 10
+agent.aggregated_diag_prefix = "cases"
+
+disease_covid1.initial_case_type = "random"
+disease_covid1.num_initial_cases = 117
+disease_covid2.initial_case_type = "random"
+disease_covid2.num_initial_cases = 23
+
+disease.p_trans = 0.20
+disease.p_asymp = 0.40
+disease_covid2.p_trans = 0.25
+
+disease_coupling.coimmunity_matrix = \
+    1.0  0.75 \
+    0.9  1.0  \
+disease_coupling.cosusceptibility_matrix = \
+    1.0  2.0 \
+    1.6  1.0 \
