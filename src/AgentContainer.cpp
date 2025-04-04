@@ -922,16 +922,26 @@ void AgentContainer::printStudentTeacherCounts () const {
 
 /*! Print the number of medical workers */
 void AgentContainer::printMedicalWorkerCounts () const {
-    Long count = ReduceSum(*this,
-                           [=] AMREX_GPU_HOST_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
-                                                      const int i) -> int
-                           { return (ptd.m_idata[IntIdx::naics][i] == 62000 ? 1 : 0);  });
+    Long medcount = ReduceSum(*this,
+                              [=] AMREX_GPU_HOST_DEVICE (
+                                    const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
+                                    const int i) -> int
+                              { return (ptd.m_idata[IntIdx::naics][i] == 62000 ? 1 : 0);  });
 
-    ParallelDescriptor::ReduceLongSum(&count, 1, ParallelDescriptor::IOProcessorNumber());
-    if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
-        Print() << std::fixed << std::setprecision(1) << "Medical worker counts:\n"
-                << "  Total: " << count << "\n";
-    }
+    ParallelDescriptor::ReduceLongSum(&medcount, 1, ParallelDescriptor::IOProcessorNumber());
+
+    Long totcount = ReduceSum(*this,
+                              [=] AMREX_GPU_HOST_DEVICE (
+                                    const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
+                                    const int i) -> int
+                              { return (ptd.m_idata[IntIdx::workgroup][i] == 0 ? 0 : 1);  });
+
+    ParallelDescriptor::ReduceLongSum(&totcount, 1, ParallelDescriptor::IOProcessorNumber());
+
+    Print() << std::fixed << std::setprecision(1) << "Medical worker counts:\n"
+            << "  Total: " << medcount
+            << "  (" << (((double)medcount)/((double)totcount)*100) << "% of total " << totcount << " workers)"
+            << "\n";
 }
 
 void AgentContainer::printAgeGroupCounts () const {

@@ -831,28 +831,126 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& a_pc) {
 }
 
 void CensusData::assignMedicalWorkers (AgentContainer& a_pc) {
+    auto Ncommunity = demo.Ncommunity;
+
+    Gpu::HostVector<int> totworkers_array(Ncommunity, 0);
+    auto num_workers = countWorkers(a_pc, totworkers_array);
+    const auto totworkers_ptr = totworkers_array.data();
+
+    Print() << "Assigning medical workers:\n";
+    Print() << "  Number of workers = " << num_workers << "\n";
+
+    Gpu::HostVector<int> medworkers_array(Ncommunity, 0);
+    auto med_workers_prop = a_pc.medicalWorkersProportion();
+    auto medworkers_ptr = medworkers_array.data();
+    int tot_medworkers = 0;
+    for (int comm = 0; comm < Ncommunity; comm++) {
+        medworkers_ptr[comm] = med_workers_prop*totworkers_ptr[comm];
+        tot_medworkers += medworkers_ptr[comm];
+    }
+    Print() << "  Target number of medical workers: " << tot_medworkers << "\n";
+
+    auto num_medworkers_local = setAsMedicalWorkers( a_pc, medworkers_array, true);
+    ParallelDescriptor::ReduceIntSum(&num_medworkers_local, 1);
+    ParallelDescriptor::ReduceIntMin(medworkers_array.begin(), medworkers_array.size());
+
+    Vector<int> procs(ParallelDescriptor::NProcs());
+    for (int i = 0; i < procs.size(); i++) { procs[i] = i; }
+    {
+        /* TODO: use AMReX's seed? */
+        unsigned long int seed = 1024UL;
+        std::mt19937 rndeng;
+        rndeng.seed(seed);
+        std::shuffle(procs.begin(), procs.end(), rndeng);
+    }
+    int num_medworkers_nonlocal = 0;
+    for (int i = 0; i < procs.size(); i++) {
+        if (ParallelDescriptor::MyProc() == procs[i]) {
+            auto num_medworkers_nonlocal_proc = setAsMedicalWorkers( a_pc, medworkers_array, false);
+            num_medworkers_nonlocal += num_medworkers_nonlocal_proc;
+        }
+        ParallelDescriptor::ReduceIntMin(medworkers_array.begin(), medworkers_array.size());
+    }
+    ParallelDescriptor::ReduceIntSum(&num_medworkers_nonlocal, 1);
+
+    Print() << "  Total medical workers assigned: "
+            << num_medworkers_local + num_medworkers_nonlocal
+            << " (local - " << num_medworkers_local << ", nonlocal - " << num_medworkers_nonlocal << ")"
+            << "\n";
+}
+
+int  CensusData::countWorkers (AgentContainer& a_pc,
+                               Gpu::HostVector<int>& a_workers_array ) {
     const Box& domain = a_pc.Geom(0).Domain();
     auto Ncommunity = demo.Ncommunity;
-    Gpu::HostVector<int> medworkers_array(Ncommunity, 0);
-    auto medworkers_ptr = medworkers_array.data();
-    auto med_workers_prop = a_pc.medicalWorkersProportion();
-
-#ifdef AMREX_USE_OMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
+    auto workers_ptr = a_workers_array.data();
     for (MFIter mfi(unit_mf); mfi.isValid(); ++mfi) {
-        auto num_residents_arr = num_residents_mf[mfi].const_array();
-        auto comm_arr = comm_mf[mfi].const_array();
-        auto bx = mfi.tilebox();
-        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
-            int comm = comm_arr(i, j, k);
-            if (comm >= Ncommunity || comm < 0) { return; }
-            medworkers_ptr[comm] = int(std::round(med_workers_prop*double(num_residents_arr(i, j, k, 5))));
-        });
-        Gpu::synchronize();
+        auto& agents_tile = a_pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
+        auto& soa = agents_tile.GetStructOfArrays();
+        auto np = soa.numParticles();
+
+        Gpu::HostVector<int> age_group_h(np);
+        Gpu::HostVector<int> work_i_h(np);
+        Gpu::HostVector<int> work_j_h(np);
+        Gpu::HostVector<int> workgroup_h(np);
+
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::age_group).begin(), soa.GetIntData(IntIdx::age_group).end(),
+                  age_group_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_i).begin(), soa.GetIntData(IntIdx::work_i).end(),
+                  work_i_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_j).begin(), soa.GetIntData(IntIdx::work_j).end(),
+                  work_j_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::workgroup).begin(), soa.GetIntData(IntIdx::workgroup).end(),
+                  workgroup_h.begin());
+
+        const auto age_group_ptr = age_group_h.data();
+        const auto work_i_ptr = work_i_h.data();
+        const auto work_j_ptr = work_j_h.data();
+        auto workgroup_ptr = workgroup_h.data();
+
+        for (int ip = 0; ip < np; ++ip) {
+            // skip non-working age
+            if (age_group_ptr[ip] < AgeGroups::a18to29 || age_group_ptr[ip] > AgeGroups::a50to64) { continue; }
+            // skip non-workers
+            if (workgroup_ptr[ip] == 0) { continue; }
+
+            auto iv_work = IntVect(AMREX_D_DECL(work_i_ptr[ip], work_j_ptr[ip], 0));
+            int comm = (int)domain.index(iv_work);
+            if (comm >= Ncommunity || comm < 0) { continue; }
+            workers_ptr[comm]++;
+        }
     }
+    ParallelDescriptor::ReduceIntSum(a_workers_array.begin(), a_workers_array.size());
 
+    int total = 0;
+    for (int i = 0; i < a_workers_array.size(); i++) { total += workers_ptr[i]; }
+    return total;
+}
+
+
+AMREX_GPU_HOST AMREX_FORCE_INLINE
+static bool boxesContainIV( const IntVect& a_iv,
+                            const Gpu::HostVector<Box>& a_boxes )
+{
+    bool retval = false;
+    for (int i = 0; i < a_boxes.size(); i++) {
+        if (a_boxes[i].contains(a_iv)) { retval = true; }
+    }
+    return retval;
+}
+
+int  CensusData::setAsMedicalWorkers (AgentContainer& a_pc,
+                                      Gpu::HostVector<int>& a_medworkers_array,
+                                      bool a_local ) {
+    Gpu::HostVector<Box> local_boxes(0);
+    for (MFIter mfi(unit_mf); mfi.isValid(); ++mfi) { local_boxes.push_back(mfi.tilebox()); }
+
+    const Box& domain = a_pc.Geom(0).Domain();
+    auto Ncommunity = demo.Ncommunity;
+    auto medworkers_ptr = a_medworkers_array.data();
+    int total = 0;
     for (MFIter mfi(unit_mf); mfi.isValid(); ++mfi) {
+        Box local_bx = mfi.tilebox();
         auto& agents_tile = a_pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
         auto& soa = agents_tile.GetStructOfArrays();
 
@@ -890,6 +988,7 @@ void CensusData::assignMedicalWorkers (AgentContainer& a_pc) {
             idx[ip] = ip;
         }
         {
+            /* TODO: use AMReX's seed? */
             unsigned long int seed = 1024UL;
             std::mt19937 rndeng;
             rndeng.seed(seed);
@@ -905,7 +1004,11 @@ void CensusData::assignMedicalWorkers (AgentContainer& a_pc) {
             // skip workers already assigned to other professions
             if (naics_ptr[ip] != 0) { continue; }
 
-            int comm = (int)domain.index(IntVect(AMREX_D_DECL(work_i_ptr[ip], work_j_ptr[ip], 0)));
+            auto iv_work = IntVect(AMREX_D_DECL(work_i_ptr[ip], work_j_ptr[ip], 0));
+            if (   (( a_local) && (!boxesContainIV(iv_work, local_boxes)))
+                || ((!a_local) && ( boxesContainIV(iv_work, local_boxes))) ) { continue; }
+
+            int comm = (int)domain.index(iv_work);
             if (comm >= Ncommunity || comm < 0) { continue; }
 
             int n_medworkers = medworkers_ptr[comm];
@@ -921,6 +1024,7 @@ void CensusData::assignMedicalWorkers (AgentContainer& a_pc) {
                 workgroup_ptr[ip] = 1;
 
                 medworkers_ptr[comm]--;
+                total++;
             }
         }
         Gpu::copy(Gpu::hostToDevice, workgroup_h.begin(), workgroup_h.end(), soa.GetIntData(IntIdx::workgroup).begin());
@@ -928,4 +1032,5 @@ void CensusData::assignMedicalWorkers (AgentContainer& a_pc) {
                   soa.GetIntData(IntIdx::work_nborhood).begin());
         Gpu::copy(Gpu::hostToDevice, naics_h.begin(), naics_h.end(), soa.GetIntData(IntIdx::naics).begin());
     }
+    return total;
 }

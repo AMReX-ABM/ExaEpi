@@ -43,4 +43,7 @@ struct CensusData {
 
     void assignTeachersAndWorkgroup(AgentContainer& pc);
     void assignMedicalWorkers(AgentContainer& pc);
+
+    int  countWorkers(AgentContainer& pc, Gpu::HostVector<int>& a_array);
+    int  setAsMedicalWorkers(AgentContainer& pc, Gpu::HostVector<int>& a_array, bool a_local);
 };
