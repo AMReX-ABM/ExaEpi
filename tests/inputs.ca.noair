@@ -1,0 +1,17 @@
+##
+agent.ic_type = "census"
+agent.census_filename = "data/CensusData/CA.dat"
+agent.workerflow_filename = "data/CensusData/CA-wf.bin"
+
+agent.nsteps = 7
+agent.plot_int = 3
+agent.random_travel_int = 24
+
+agent.aggregated_diag_int = 3
+agent.aggregated_diag_prefix = "cases"
+
+disease.initial_case_type = "file"
+disease.case_filename = "data/CaseData/July4.cases"
+
+disease.p_trans = 0.20
+disease.p_asymp = 0.40
