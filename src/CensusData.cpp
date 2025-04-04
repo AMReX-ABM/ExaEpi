@@ -886,7 +886,7 @@ int  CensusData::countWorkersByComm (AgentContainer& a_pc,
                                      Gpu::HostVector<int>& a_workers_array ) {
     const Box& domain = a_pc.Geom(0).Domain();
     auto Ncommunity = demo.Ncommunity;
-    AMREX_ASSERT(a_workers_array.size() == Ncommunity);
+    AMREX_ASSERT(a_workers_array.size() == size_t(Ncommunity));
     auto workers_ptr = a_workers_array.data();
     for (MFIter mfi(unit_mf); mfi.isValid(); ++mfi) {
         auto& agents_tile = a_pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
