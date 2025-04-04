@@ -934,7 +934,7 @@ void AgentContainer::printMedicalWorkerCounts () const {
                               [=] AMREX_GPU_HOST_DEVICE (
                                     const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
                                     const int i) -> int
-                              { return (ptd.m_idata[IntIdx::workgroup][i] == 0 ? 0 : 1);  });
+                              { return (ptd.m_idata[IntIdx::naics][i] < 0 ? 0 : 1);  });
 
     ParallelDescriptor::ReduceLongSum(&totcount, 1, ParallelDescriptor::IOProcessorNumber());
 

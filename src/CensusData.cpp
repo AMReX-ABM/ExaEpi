@@ -462,7 +462,7 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                 nborhood_ptr[ip] = nborhood;
                 work_nborhood_ptr[ip] = nborhood;
                 workgroup_ptr[ip] = 0;
-                naics_ptr[ip] = 0;
+                naics_ptr[ip] = -1;
                 random_travel_ptr[ip] = -1;
                 air_travel_ptr[ip] = -1;
 
@@ -621,6 +621,7 @@ void CensusData::readWorkerflow (AgentContainer& pc, /*!< Agent container (parti
         auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
         auto work_i_ptr = soa.GetIntData(IntIdx::work_i).data();
         auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
+        auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
         auto work_nborhood_ptr = soa.GetIntData(IntIdx::work_nborhood).data();
         auto np = soa.numParticles();
@@ -669,8 +670,10 @@ void CensusData::readWorkerflow (AgentContainer& pc, /*!< Agent container (parti
                 work_i_ptr[ip] = comm_to_iv[0];
                 work_j_ptr[ip] = comm_to_iv[1];
 
-                number = (unsigned int)rint(((Real)Ndaywork[to]) / ((Real)workgroup_size * (Start[to + 1] - Start[to])));
+                // Set default NAICS code as 0
+                naics_ptr[ip] = 0;
 
+                number = (unsigned int)rint(((Real)Ndaywork[to]) / ((Real)workgroup_size * (Start[to + 1] - Start[to])));
                 if (number) {
                     workgroup_ptr[ip] = 1 + Random_int(number, engine);
                     work_nborhood_ptr[ip] = workgroup_ptr[ip] % 4; // each workgroup is assigned to a neighborhood as well
@@ -834,7 +837,7 @@ void CensusData::assignMedicalWorkers (AgentContainer& a_pc) {
     auto Ncommunity = demo.Ncommunity;
 
     Gpu::HostVector<int> totworkers_array(Ncommunity, 0);
-    auto num_workers = countWorkers(a_pc, totworkers_array);
+    auto num_workers = countWorkersByComm(a_pc, totworkers_array);
     const auto totworkers_ptr = totworkers_array.data();
 
     Print() << "Assigning medical workers:\n";
@@ -879,8 +882,8 @@ void CensusData::assignMedicalWorkers (AgentContainer& a_pc) {
             << "\n";
 }
 
-int  CensusData::countWorkers (AgentContainer& a_pc,
-                               Gpu::HostVector<int>& a_workers_array ) {
+int  CensusData::countWorkersByComm (AgentContainer& a_pc,
+                                     Gpu::HostVector<int>& a_workers_array ) {
     const Box& domain = a_pc.Geom(0).Domain();
     auto Ncommunity = demo.Ncommunity;
     auto workers_ptr = a_workers_array.data();
@@ -889,31 +892,23 @@ int  CensusData::countWorkers (AgentContainer& a_pc,
         auto& soa = agents_tile.GetStructOfArrays();
         auto np = soa.numParticles();
 
-        Gpu::HostVector<int> age_group_h(np);
+        Gpu::HostVector<int> naics_h(np);
         Gpu::HostVector<int> work_i_h(np);
         Gpu::HostVector<int> work_j_h(np);
-        Gpu::HostVector<int> workgroup_h(np);
 
-        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::age_group).begin(), soa.GetIntData(IntIdx::age_group).end(),
-                  age_group_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::naics).begin(), soa.GetIntData(IntIdx::naics).end(),
+                  naics_h.begin());
         Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_i).begin(), soa.GetIntData(IntIdx::work_i).end(),
                   work_i_h.begin());
         Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_j).begin(), soa.GetIntData(IntIdx::work_j).end(),
                   work_j_h.begin());
-        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::workgroup).begin(), soa.GetIntData(IntIdx::workgroup).end(),
-                  workgroup_h.begin());
 
-        const auto age_group_ptr = age_group_h.data();
+        const auto naics_ptr = naics_h.data();
         const auto work_i_ptr = work_i_h.data();
         const auto work_j_ptr = work_j_h.data();
-        auto workgroup_ptr = workgroup_h.data();
 
         for (int ip = 0; ip < np; ++ip) {
-            // skip non-working age
-            if (age_group_ptr[ip] < AgeGroups::a18to29 || age_group_ptr[ip] > AgeGroups::a50to64) { continue; }
-            // skip non-workers
-            if (workgroup_ptr[ip] == 0) { continue; }
-
+            if (naics_ptr[ip] < 0) { continue; }
             auto iv_work = IntVect(AMREX_D_DECL(work_i_ptr[ip], work_j_ptr[ip], 0));
             int comm = (int)domain.index(iv_work);
             if (comm >= Ncommunity || comm < 0) { continue; }
