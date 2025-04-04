@@ -848,7 +848,7 @@ void CensusData::assignMedicalWorkers (AgentContainer& a_pc) {
     auto medworkers_ptr = medworkers_array.data();
     int tot_medworkers = 0;
     for (int comm = 0; comm < Ncommunity; comm++) {
-        medworkers_ptr[comm] = med_workers_prop*totworkers_ptr[comm];
+        medworkers_ptr[comm] = int(std::round(med_workers_prop*double(totworkers_ptr[comm])));
         tot_medworkers += medworkers_ptr[comm];
     }
     Print() << "  Target number of medical workers: " << tot_medworkers << "\n";
@@ -858,7 +858,7 @@ void CensusData::assignMedicalWorkers (AgentContainer& a_pc) {
     ParallelDescriptor::ReduceIntMin(medworkers_array.begin(), medworkers_array.size());
 
     Vector<int> procs(ParallelDescriptor::NProcs());
-    for (int i = 0; i < procs.size(); i++) { procs[i] = i; }
+    for (int i = 0; i < ParallelDescriptor::NProcs(); i++) { procs[i] = i; }
     {
         /* TODO: use AMReX's seed? */
         unsigned long int seed = 1024UL;
@@ -867,7 +867,7 @@ void CensusData::assignMedicalWorkers (AgentContainer& a_pc) {
         std::shuffle(procs.begin(), procs.end(), rndeng);
     }
     int num_medworkers_nonlocal = 0;
-    for (int i = 0; i < procs.size(); i++) {
+    for (int i = 0; i < ParallelDescriptor::NProcs(); i++) {
         if (ParallelDescriptor::MyProc() == procs[i]) {
             auto num_medworkers_nonlocal_proc = setAsMedicalWorkers( a_pc, medworkers_array, false);
             num_medworkers_nonlocal += num_medworkers_nonlocal_proc;
@@ -886,6 +886,7 @@ int  CensusData::countWorkersByComm (AgentContainer& a_pc,
                                      Gpu::HostVector<int>& a_workers_array ) {
     const Box& domain = a_pc.Geom(0).Domain();
     auto Ncommunity = demo.Ncommunity;
+    AMREX_ASSERT(a_workers_array.size() == Ncommunity);
     auto workers_ptr = a_workers_array.data();
     for (MFIter mfi(unit_mf); mfi.isValid(); ++mfi) {
         auto& agents_tile = a_pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
@@ -918,17 +919,16 @@ int  CensusData::countWorkersByComm (AgentContainer& a_pc,
     ParallelDescriptor::ReduceIntSum(a_workers_array.begin(), a_workers_array.size());
 
     int total = 0;
-    for (int i = 0; i < a_workers_array.size(); i++) { total += workers_ptr[i]; }
+    for (int i = 0; i < Ncommunity; i++) { total += workers_ptr[i]; }
     return total;
 }
-
 
 AMREX_GPU_HOST AMREX_FORCE_INLINE
 static bool boxesContainIV( const IntVect& a_iv,
                             const Gpu::HostVector<Box>& a_boxes )
 {
     bool retval = false;
-    for (int i = 0; i < a_boxes.size(); i++) {
+    for (size_t i = 0; i < a_boxes.size(); i++) {
         if (a_boxes[i].contains(a_iv)) { retval = true; }
     }
     return retval;
@@ -945,7 +945,6 @@ int  CensusData::setAsMedicalWorkers (AgentContainer& a_pc,
     auto medworkers_ptr = a_medworkers_array.data();
     int total = 0;
     for (MFIter mfi(unit_mf); mfi.isValid(); ++mfi) {
-        Box local_bx = mfi.tilebox();
         auto& agents_tile = a_pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
         auto& soa = agents_tile.GetStructOfArrays();
 
