@@ -50,7 +50,7 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
     const auto domain = geom.Domain();
 
     int num_infected = 0;
-    for (MFIter mfi = pc.MakeMFIter(0); mfi.isValid(); ++mfi) {
+    for (MFIter mfi(comm_mf); mfi.isValid(); ++mfi) {
         DenseBins<AgentContainer::ParticleType>& bins = bin_map[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
         auto& agents_tile = pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
         auto& aos = agents_tile.GetArrayOfStructs();
