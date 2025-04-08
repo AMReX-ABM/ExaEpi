@@ -51,7 +51,7 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
     } else if (ic_type == "urbanpop") {
         params.ic_type = ICType::UrbanPop;
         pp.get("urbanpop_filename", params.urbanpop_filename);
-#ifdef AMREX_USE_CUDA
+#if defined(AMREX_USE_CUDA) || defined(AMREX_USE_HIP)
         params.max_box_size = 500;
 #else
         params.max_box_size = 100;

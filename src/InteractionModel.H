@@ -286,8 +286,10 @@ struct GetCommunityIndex {
     int num_comms;
 };
 
-#ifdef AMREX_USE_CUDA
+#if defined(AMREX_USE_CUDA)
 #define devMemset cudaMemset
+#elif defined(AMREX_USE_HIP)
+#define devMemset hipMemset
 #else
 #define devMemset memset
 #endif
