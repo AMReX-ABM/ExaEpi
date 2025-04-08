@@ -289,7 +289,7 @@ struct GetCommunityIndex {
 #if defined(AMREX_USE_CUDA)
 #define devMemset cudaMemset
 #elif defined(AMREX_USE_HIP)
-#define devMemset hipMemset
+#define devMemset (void)hipMemset
 #else
 #define devMemset memset
 #endif
