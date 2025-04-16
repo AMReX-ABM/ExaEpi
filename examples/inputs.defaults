@@ -107,6 +107,10 @@ disease.infectious_length_beta = 0.17
 disease.incubation_length_alpha = 25.0
 # Beta parameter for the incubation length Gamma distribution. The incubation length is the length in days from the time of infection until symptoms develop.
 disease.incubation_length_beta = 0.2
+# Alpha parameter for the hospital_delay length Gamma distribution. The hospital_delay length is the length in days after developing symptoms that agents seek treatment.
+disease.hospital_delay_length_alpha = 1.0
+# Beta parameter for the hospital_delay length Gamma distribution. The hospital_delay length is the length in days after developing symptoms that agents seek treatment.
+disease.hospital_delay_length_beta = 1.0
 
 # Number of days in hospital for the age groups under 50, 50 to 64 and over 64.
 disease.hospitalization_days = 3 8 7

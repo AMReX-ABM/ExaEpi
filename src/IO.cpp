@@ -60,7 +60,7 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
     pc.generateCellData(output_mf);
 
     amrex::Copy(output_mf, *FIPS_mf_ptr, 0, ncomp_d * num_diseases, 2, 0);
-    amrex::Copy(output_mf, *comm_mf_ptr, 0, ncomp_d * num_diseases + 1, 1, 0);
+    amrex::Copy(output_mf, *comm_mf_ptr, 0, ncomp_d * num_diseases + 2, 1, 0);
     if (unit_mf_ptr != nullptr) { amrex::Copy(output_mf, *unit_mf_ptr, 0, ncomp_d * num_diseases + 2, 1, 0); }
 
     {
@@ -147,6 +147,8 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
             write_real_comp.push_back(static_cast<int>(step == 0));
             real_varnames.push_back("incubation_period");
             write_real_comp.push_back(static_cast<int>(step == 0));
+            real_varnames.push_back("hospital_delay");
+            write_real_comp.push_back(static_cast<int>(step == 0));
             int_varnames.push_back("status");
             write_int_comp.push_back(1);
             int_varnames.push_back("symptomatic");
@@ -164,6 +166,8 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
                 real_varnames.push_back(disease_names[d] + "_infectious_period");
                 write_real_comp.push_back(static_cast<int>(step == 0));
                 real_varnames.push_back(disease_names[d] + "_incubation_period");
+                write_real_comp.push_back(static_cast<int>(step == 0));
+                real_varnames.push_back(disease_names[d] + "_hospital_delay");
                 write_real_comp.push_back(static_cast<int>(step == 0));
                 int_varnames.push_back(disease_names[d] + "_status");
                 write_int_comp.push_back(1);

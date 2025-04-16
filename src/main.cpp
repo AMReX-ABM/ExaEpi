@@ -32,6 +32,9 @@ void overrideAmrexDefaults () {
     bool the_arena_is_managed = true;
     pp.queryAdd("the_arena_is_managed", the_arena_is_managed);
 
+    bool use_comms_arena = true;
+    pp.queryAdd("use_comms_arena", use_comms_arena);
+
     amrex::ParmParse pp2("particles");
     // enable for CPUs, disable for GPUs
     bool do_tiling = TilingIfNotGPU();
