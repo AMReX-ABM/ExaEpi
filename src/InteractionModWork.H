@@ -6,8 +6,8 @@
 #define _INTERACTION_MOD_WORK_H_
 
 #include "AgentDefinitions.H"
-#include "NAICS.H"
 #include "InteractionModel.H"
+#include "NAICS.H"
 
 using namespace amrex;
 
@@ -62,8 +62,7 @@ struct WorkCandidate {
     AMREX_GPU_HOST_DEVICE
     bool operator()(const int idx, const PTDType& ptd) const noexcept {
         return !inHospital(idx, ptd) && ptd.m_idata[IntIdx::work_i][idx] >= 0 && ptd.m_idata[IntIdx::workgroup][idx] > 0 &&
-               !ptd.m_idata[IntIdx::withdrawn][idx] &&
-               ptd.m_idata[IntIdx::naics][idx] != NAICSCodes::NAICS::med_sca &&
+               !ptd.m_idata[IntIdx::withdrawn][idx] && ptd.m_idata[IntIdx::naics][idx] != NAICSCodes::NAICS::med_sca &&
                ptd.m_idata[IntIdx::air_travel][idx] < 0 && ptd.m_idata[IntIdx::random_travel][idx] < 0;
     }
 };

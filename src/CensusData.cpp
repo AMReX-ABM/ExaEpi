@@ -3,8 +3,8 @@
 
 #include <AMReX_ParticleUtil.H>
 
-#include "NAICS.H"
 #include "CensusData.H"
+#include "NAICS.H"
 
 using namespace amrex;
 using namespace ExaEpi;
@@ -763,8 +763,7 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& a_pc) {
                   school_id_h.begin());
         Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_nborhood).begin(), soa.GetIntData(IntIdx::work_nborhood).end(),
                   work_nborhood_h.begin());
-        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::naics).begin(), soa.GetIntData(IntIdx::naics).end(),
-                  naics_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::naics).begin(), soa.GetIntData(IntIdx::naics).end(), naics_h.begin());
 
         auto age_group_ptr = age_group_h.data();
         auto workgroup_ptr = workgroup_h.data();
@@ -849,17 +848,19 @@ void CensusData::assignMedicalWorkers (AgentContainer& a_pc) {
     auto medworkers_ptr = medworkers_array.data();
     int tot_medworkers = 0;
     for (int comm = 0; comm < Ncommunity; comm++) {
-        medworkers_ptr[comm] = int(std::round(med_workers_prop*double(totworkers_ptr[comm])));
+        medworkers_ptr[comm] = int(std::round(med_workers_prop * double(totworkers_ptr[comm])));
         tot_medworkers += medworkers_ptr[comm];
     }
     Print() << "  Target number of medical workers: " << tot_medworkers << "\n";
 
-    auto num_medworkers_local = setAsMedicalWorkers( a_pc, medworkers_array, true);
+    auto num_medworkers_local = setAsMedicalWorkers(a_pc, medworkers_array, true);
     ParallelDescriptor::ReduceIntSum(&num_medworkers_local, 1);
     ParallelDescriptor::ReduceIntMin(medworkers_array.begin(), medworkers_array.size());
 
     Vector<int> procs(ParallelDescriptor::NProcs());
-    for (int i = 0; i < ParallelDescriptor::NProcs(); i++) { procs[i] = i; }
+    for (int i = 0; i < ParallelDescriptor::NProcs(); i++) {
+        procs[i] = i;
+    }
     {
         /* TODO: use AMReX's seed? */
         unsigned long int seed = 1024UL;
@@ -870,21 +871,19 @@ void CensusData::assignMedicalWorkers (AgentContainer& a_pc) {
     int num_medworkers_nonlocal = 0;
     for (int i = 0; i < ParallelDescriptor::NProcs(); i++) {
         if (ParallelDescriptor::MyProc() == procs[i]) {
-            auto num_medworkers_nonlocal_proc = setAsMedicalWorkers( a_pc, medworkers_array, false);
+            auto num_medworkers_nonlocal_proc = setAsMedicalWorkers(a_pc, medworkers_array, false);
             num_medworkers_nonlocal += num_medworkers_nonlocal_proc;
         }
         ParallelDescriptor::ReduceIntMin(medworkers_array.begin(), medworkers_array.size());
     }
     ParallelDescriptor::ReduceIntSum(&num_medworkers_nonlocal, 1);
 
-    Print() << "  Total medical workers assigned: "
-            << num_medworkers_local + num_medworkers_nonlocal
-            << " (local - " << num_medworkers_local << ", nonlocal - " << num_medworkers_nonlocal << ")"
+    Print() << "  Total medical workers assigned: " << num_medworkers_local + num_medworkers_nonlocal << " (local - "
+            << num_medworkers_local << ", nonlocal - " << num_medworkers_nonlocal << ")"
             << "\n";
 }
 
-int  CensusData::countWorkersByComm (AgentContainer& a_pc,
-                                     Gpu::HostVector<int>& a_workers_array ) {
+int CensusData::countWorkersByComm (AgentContainer& a_pc, Gpu::HostVector<int>& a_workers_array) {
     const Box& domain = a_pc.Geom(0).Domain();
     auto Ncommunity = demo.Ncommunity;
     AMREX_ASSERT(a_workers_array.size() == size_t(Ncommunity));
@@ -898,8 +897,7 @@ int  CensusData::countWorkersByComm (AgentContainer& a_pc,
         Gpu::HostVector<int> work_i_h(np);
         Gpu::HostVector<int> work_j_h(np);
 
-        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::naics).begin(), soa.GetIntData(IntIdx::naics).end(),
-                  naics_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::naics).begin(), soa.GetIntData(IntIdx::naics).end(), naics_h.begin());
         Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_i).begin(), soa.GetIntData(IntIdx::work_i).end(),
                   work_i_h.begin());
         Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_j).begin(), soa.GetIntData(IntIdx::work_j).end(),
@@ -920,14 +918,13 @@ int  CensusData::countWorkersByComm (AgentContainer& a_pc,
     ParallelDescriptor::ReduceIntSum(a_workers_array.begin(), a_workers_array.size());
 
     int total = 0;
-    for (int i = 0; i < Ncommunity; i++) { total += workers_ptr[i]; }
+    for (int i = 0; i < Ncommunity; i++) {
+        total += workers_ptr[i];
+    }
     return total;
 }
 
-AMREX_GPU_HOST AMREX_FORCE_INLINE
-static bool boxesContainIV( const IntVect& a_iv,
-                            const Gpu::HostVector<Box>& a_boxes )
-{
+AMREX_GPU_HOST AMREX_FORCE_INLINE static bool boxesContainIV (const IntVect& a_iv, const Gpu::HostVector<Box>& a_boxes) {
     bool retval = false;
     for (size_t i = 0; i < a_boxes.size(); i++) {
         if (a_boxes[i].contains(a_iv)) { retval = true; }
@@ -935,11 +932,11 @@ static bool boxesContainIV( const IntVect& a_iv,
     return retval;
 }
 
-int  CensusData::setAsMedicalWorkers (AgentContainer& a_pc,
-                                      Gpu::HostVector<int>& a_medworkers_array,
-                                      bool a_local ) {
+int CensusData::setAsMedicalWorkers (AgentContainer& a_pc, Gpu::HostVector<int>& a_medworkers_array, bool a_local) {
     Gpu::HostVector<Box> local_boxes(0);
-    for (MFIter mfi(unit_mf); mfi.isValid(); ++mfi) { local_boxes.push_back(mfi.tilebox()); }
+    for (MFIter mfi(unit_mf); mfi.isValid(); ++mfi) {
+        local_boxes.push_back(mfi.tilebox());
+    }
 
     const Box& domain = a_pc.Geom(0).Domain();
     auto Ncommunity = demo.Ncommunity;
@@ -968,8 +965,7 @@ int  CensusData::setAsMedicalWorkers (AgentContainer& a_pc,
                   work_i_h.begin());
         Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::work_j).begin(), soa.GetIntData(IntIdx::work_j).end(),
                   work_j_h.begin());
-        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::naics).begin(), soa.GetIntData(IntIdx::naics).end(),
-                  naics_h.begin());
+        Gpu::copy(Gpu::deviceToHost, soa.GetIntData(IntIdx::naics).begin(), soa.GetIntData(IntIdx::naics).end(), naics_h.begin());
 
         const auto age_group_ptr = age_group_h.data();
         const auto work_i_ptr = work_i_h.data();
@@ -1000,8 +996,10 @@ int  CensusData::setAsMedicalWorkers (AgentContainer& a_pc,
             if (naics_ptr[ip] != NAICSCodes::NAICS::uncat) { continue; }
 
             auto iv_work = IntVect(AMREX_D_DECL(work_i_ptr[ip], work_j_ptr[ip], 0));
-            if (   (( a_local) && (!boxesContainIV(iv_work, local_boxes)))
-                || ((!a_local) && ( boxesContainIV(iv_work, local_boxes))) ) { continue; }
+            if (((a_local) && (!boxesContainIV(iv_work, local_boxes))) ||
+                ((!a_local) && (boxesContainIV(iv_work, local_boxes)))) {
+                continue;
+            }
 
             int comm = (int)domain.index(iv_work);
             if (comm >= Ncommunity || comm < 0) { continue; }

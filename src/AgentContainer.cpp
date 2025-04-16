@@ -2,9 +2,9 @@
     \brief Function implementations for #AgentContainer class
 */
 
-#include "NAICS.H"
 #include "AgentContainer.H"
 #include "AgentDefinitions.H"
+#include "NAICS.H"
 
 using namespace amrex;
 using namespace ExaEpi::Utils;
@@ -924,24 +924,24 @@ void AgentContainer::printStudentTeacherCounts () const {
 /*! Print the number of medical workers */
 void AgentContainer::printMedicalWorkerCounts () const {
     Long medcount = ReduceSum(*this,
-                              [=] AMREX_GPU_HOST_DEVICE (
-                                    const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
-                                    const int i) -> int
-                              { return (ptd.m_idata[IntIdx::naics][i] == NAICSCodes::NAICS::med_sca ? 1 : 0);  });
+                              [=] AMREX_GPU_HOST_DEVICE(const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
+                                                        const int i) -> int {
+                                  return (ptd.m_idata[IntIdx::naics][i] == NAICSCodes::NAICS::med_sca ? 1 : 0);
+                              });
 
     ParallelDescriptor::ReduceLongSum(&medcount, 1, ParallelDescriptor::IOProcessorNumber());
 
     Long totcount = ReduceSum(*this,
-                              [=] AMREX_GPU_HOST_DEVICE (
-                                    const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
-                                    const int i) -> int
-                              { return (ptd.m_idata[IntIdx::naics][i] < 0 ? 0 : 1);  });
+                              [=] AMREX_GPU_HOST_DEVICE(const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
+                                                        const int i) -> int {
+                                  return (ptd.m_idata[IntIdx::naics][i] < 0 ? 0 : 1);
+                              });
 
     ParallelDescriptor::ReduceLongSum(&totcount, 1, ParallelDescriptor::IOProcessorNumber());
 
     Print() << std::fixed << std::setprecision(1) << "Medical worker counts:\n"
-            << "  Total: " << medcount
-            << "  (" << (((double)medcount)/((double)totcount)*100) << "% of total " << totcount << " workers)"
+            << "  Total: " << medcount << "  (" << (((double)medcount) / ((double)totcount) * 100) << "% of total " << totcount
+            << " workers)"
             << "\n";
 }
 

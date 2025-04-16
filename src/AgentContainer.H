@@ -157,7 +157,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     void printAgeGroupCounts() const;
 
     /*! \brief return the proportion of medical workers */
-    inline amrex::Real medicalWorkersProportion() const { return m_med_workers_prop; }
+    inline amrex::Real medicalWorkersProportion () const { return m_med_workers_prop; }
 
     amrex::iMultiFab m_student_counts;
     /// Used only for Census data. A ratio for each school type: none, college, high, middle, elem, daycare
