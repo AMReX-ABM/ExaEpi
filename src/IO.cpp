@@ -30,18 +30,23 @@ namespace IO {
       + component 5*d+3: immune (#Status::immune)
       + component 5*d+4: susceptible (#Status::susceptible)
 
+      Then, for each disease, we write the number of new cases each day at
+      + component 5*n+d (d being the disease index and n the number of diseases)
+
       Then (n being the number of diseases):
-      + component 5*n+0: unit number
-      + component 5*n+1: FIPS ID
-      + component 5*n+2: census tract number
-      + component 5*n+3: community number
-    + Get disease spread data (first 5*n components) from AgentContainer::generateCellData().
+      + component 6*n+0: unit number
+      + component 6*n+1: FIPS ID
+      + component 6*n+2: census tract number
+      + component 6*n+3: community number
+    + Get disease spread data (first 7*n components) from AgentContainer::generateCellData() and
+    + also the disease_stats multifab, which tracts the number of new cases each day.
     + Copy unit number, FIPS code, census tract ID, and community number from the input MultiFabs to
       the remaining components.
     + Write the output MultiFab to file.
     + Write agents to file - see AgentContainer::WritePlotFile().
 */
 void writePlotFile (const AgentContainer& pc,                      /*!< Agent (particle) container */
+                    const MFPtrVec& a_disease_stats,               /*!< Disease stats tracker */
                     const iMultiFab* unit_mf_ptr,                  /*!< MultiFabs to write out */
                     const iMultiFab* FIPS_mf_ptr,                  /*!< MultiFabs to write out */
                     const iMultiFab* comm_mf_ptr,                  /*!< MultiFabs to write out */
@@ -51,17 +56,23 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
                     const int step /*!< Current step */) {
     amrex::Print() << "Writing plotfile \n";
 
-    static const Vector<std::string> status_names = {"total", "never_infected", "infected", "immune", "susceptible", "dead"};
+    // make sure status_names are in the same order as the struct Status in AgentDefinitions.H (do not include "dead")
+    static const Vector<std::string> status_names = {"total", "never_infected", "infected", "immune", "susceptible"};
+
     static const int ncomp_d = status_names.size();
-    static const int ncomp = ncomp_d * num_diseases + (unit_mf_ptr != nullptr ? 4 : 3);
+    static const int ncomp = ncomp_d * num_diseases + num_diseases + (unit_mf_ptr != nullptr ? 4 : 3);
 
     MultiFab output_mf(pc.ParticleBoxArray(0), pc.ParticleDistributionMap(0), ncomp, 0);
     output_mf.setVal(0.0);
-    pc.generateCellData(output_mf);
+    pc.generateCellData(output_mf, ncomp_d);
 
-    amrex::Copy(output_mf, *FIPS_mf_ptr, 0, ncomp_d * num_diseases, 2, 0);
-    amrex::Copy(output_mf, *comm_mf_ptr, 0, ncomp_d * num_diseases + 2, 1, 0);
-    if (unit_mf_ptr != nullptr) { amrex::Copy(output_mf, *unit_mf_ptr, 0, ncomp_d * num_diseases + 2, 1, 0); }
+    for (int d = 0; d < num_diseases; d++) {
+        amrex::Copy(output_mf, *a_disease_stats[d], DiseaseStats::new_cases, ncomp_d * num_diseases + d, 1, 0);
+    }
+
+    amrex::Copy(output_mf, *FIPS_mf_ptr, 0, ncomp_d * num_diseases + num_diseases, 2, 0);
+    amrex::Copy(output_mf, *comm_mf_ptr, 0, ncomp_d * num_diseases + num_diseases + 2, 1, 0);
+    if (unit_mf_ptr != nullptr) { amrex::Copy(output_mf, *unit_mf_ptr, 0, ncomp_d * num_diseases + 3, 1, 0); }
 
     {
         Vector<std::string> plt_varnames = {};
@@ -69,17 +80,23 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
             for (auto status_name : status_names) {
                 plt_varnames.push_back(status_name);
             }
+            plt_varnames.push_back("new_cases");
         } else {
             for (int d = 0; d < num_diseases; d++) {
                 for (auto status_name : status_names) {
                     plt_varnames.push_back(disease_names[d] + "_" + status_name);
                 }
             }
+            for (int d = 0; d < num_diseases; d++) {
+                plt_varnames.push_back(disease_names[d] + "_new_cases");
+            }
         }
         plt_varnames.push_back("FIPS");
         plt_varnames.push_back("Tract");
         plt_varnames.push_back("comm");
         if (unit_mf_ptr != nullptr) { plt_varnames.push_back("unit"); }
+
+        AMREX_ASSERT(plt_varnames.size() == output_mf.nComp());
 
 #ifdef AMREX_USE_HDF5
         WriteSingleLevelPlotfileHDF5MultiDset(amrex::Concatenate("plt", step, 5), output_mf, plt_varnames, pc.ParticleGeom(0),
@@ -212,7 +229,7 @@ void writeFIPSData (const AgentContainer& agents,                  /*!< Agents (
     for (int lev = 0; lev < nlevs; ++lev) {
         mf_vec[lev] = std::make_unique<MultiFab>(agents.ParticleBoxArray(lev), agents.ParticleDistributionMap(lev), ncomp, 0);
         mf_vec[lev]->setVal(0.0);
-        agents.generateCellData(*mf_vec[lev]);
+        agents.generateCellData(*mf_vec[lev], ncomp_d);
     }
 
     for (int d = 0; d < num_diseases; d++) {
@@ -292,7 +309,7 @@ void writeAggregatedData (const AgentContainer& agents,                  /*!< Ag
     for (int lev = 0; lev < nlevs; ++lev) {
         mf_vec[lev] = std::make_unique<MultiFab>(agents.ParticleBoxArray(lev), agents.ParticleDistributionMap(lev), ncomp, 0);
         mf_vec[lev]->setVal(0.0);
-        agents.generateCellData(*mf_vec[lev]);
+        agents.generateCellData(*mf_vec[lev], ncomp_d);
     }
 
     for (int d = 0; d < num_diseases; d++) {
