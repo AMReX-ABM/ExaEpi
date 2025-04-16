@@ -3,6 +3,7 @@
 
 #include <AMReX_ParticleUtil.H>
 
+#include "NAICS.H"
 #include "CensusData.H"
 
 using namespace amrex;
@@ -670,8 +671,8 @@ void CensusData::readWorkerflow (AgentContainer& pc, /*!< Agent container (parti
                 work_i_ptr[ip] = comm_to_iv[0];
                 work_j_ptr[ip] = comm_to_iv[1];
 
-                // Set default NAICS code as 0
-                naics_ptr[ip] = 0;
+                // Set default NAICS code as "uncategorized"
+                naics_ptr[ip] = NAICSCodes::NAICS::uncat;
 
                 number = (unsigned int)rint(((Real)Ndaywork[to]) / ((Real)workgroup_size * (Start[to + 1] - Start[to])));
                 if (number) {
@@ -782,7 +783,7 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& a_pc) {
             // skip non-workers
             if (workgroup_ptr[ip] == 0) { continue; }
             // skip workers already assigned to other professions
-            if (naics_ptr[ip] != 0) { continue; }
+            if (naics_ptr[ip] != NAICSCodes::NAICS::uncat) { continue; }
 
             int high_teachers = high_teachers_ptr[comm];
             int middle_teachers = middle_teachers_ptr[comm];
@@ -996,7 +997,7 @@ int  CensusData::setAsMedicalWorkers (AgentContainer& a_pc,
             // skip non-workers
             if (workgroup_ptr[ip] == 0) { continue; }
             // skip workers already assigned to other professions
-            if (naics_ptr[ip] != 0) { continue; }
+            if (naics_ptr[ip] != NAICSCodes::NAICS::uncat) { continue; }
 
             auto iv_work = IntVect(AMREX_D_DECL(work_i_ptr[ip], work_j_ptr[ip], 0));
             if (   (( a_local) && (!boxesContainIV(iv_work, local_boxes)))
@@ -1007,7 +1008,7 @@ int  CensusData::setAsMedicalWorkers (AgentContainer& a_pc,
 
             int n_medworkers = medworkers_ptr[comm];
             if (n_medworkers > 0) {
-                naics_h[ip] = 62000;
+                naics_h[ip] = NAICSCodes::NAICS::med_sca;
 
                 // Right now, each community has a medical facility;
                 // let it be in neighborhood 0

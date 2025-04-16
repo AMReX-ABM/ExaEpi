@@ -26,6 +26,7 @@ set(_sources
     InteractionModelLibrary.H
     InitializeInfections.H
     InitializeInfections.cpp
+    NAICS.H
     UrbanPopAgentStruct.H
     UrbanPopData.H
     UrbanPopData.cpp

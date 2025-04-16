@@ -2,6 +2,7 @@
     \brief Function implementations for #AgentContainer class
 */
 
+#include "NAICS.H"
 #include "AgentContainer.H"
 #include "AgentDefinitions.H"
 
@@ -926,7 +927,7 @@ void AgentContainer::printMedicalWorkerCounts () const {
                               [=] AMREX_GPU_HOST_DEVICE (
                                     const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
                                     const int i) -> int
-                              { return (ptd.m_idata[IntIdx::naics][i] == 62000 ? 1 : 0);  });
+                              { return (ptd.m_idata[IntIdx::naics][i] == NAICSCodes::NAICS::med_sca ? 1 : 0);  });
 
     ParallelDescriptor::ReduceLongSum(&medcount, 1, ParallelDescriptor::IOProcessorNumber());
 
