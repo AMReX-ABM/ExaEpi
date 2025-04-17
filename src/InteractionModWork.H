@@ -40,6 +40,7 @@ struct BinaryInteractionWork {
     AMREX_GPU_HOST_DEVICE
     ParticleReal operator()(const int infectious_i, const int susceptible_i, const PTDType& a_ptd,
                             const DiseaseParm* const a_lparm, const Real a_work_scale) const noexcept {
+        AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::naics][infectious_i] == a_ptd.m_idata[IntIdx::naics][susceptible_i]);
         AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::workgroup][infectious_i] == a_ptd.m_idata[IntIdx::workgroup][susceptible_i]);
         AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::work_i][infectious_i] == a_ptd.m_idata[IntIdx::work_i][susceptible_i] &&
                             a_ptd.m_idata[IntIdx::work_j][infectious_i] == a_ptd.m_idata[IntIdx::work_j][susceptible_i]);
@@ -56,7 +57,7 @@ struct WorkCandidate {
      * + in hospital
      * + non-workers or work-from-home
      * + withdrawn due to symptomatic infections
-     * + medical workers (they interact in InteractionModHospital)
+     * + medical workers (they interact in HospitalModel)
      * + workers on travel
      */
     AMREX_GPU_HOST_DEVICE

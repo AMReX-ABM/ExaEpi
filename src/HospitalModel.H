@@ -10,8 +10,41 @@
 #include "DiseaseParm.H"
 #include "InteractionModel.H"
 #include "Utils.H"
+#include "NAICS.H"
 
 using namespace amrex;
+
+#ifndef FAST_INTERACTIONS
+/*! \brief One-on-one interaction between an infectious agent and a susceptible agent.
+ *
+ * This function defines the one-on-one interaction between an infectious agent and a
+ * susceptible agent in a hospital. */
+template <typename PTDType>
+struct BinaryInteractionHospWorkers {
+    AMREX_GPU_HOST_DEVICE
+    ParticleReal operator()(const int infectious_i, const int susceptible_i, const PTDType& a_ptd,
+                            const DiseaseParm* const a_lparm, const Real a_hosp_scale) const noexcept {
+        AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::naics][infectious_i] == a_ptd.m_idata[IntIdx::naics][susceptible_i]);
+        AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::naics][infectious_i] == NAICSCodes::NAICS::med_sca);
+        AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::workgroup][infectious_i] == a_ptd.m_idata[IntIdx::workgroup][susceptible_i]);
+        AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::work_i][infectious_i] == a_ptd.m_idata[IntIdx::work_i][susceptible_i] &&
+                            a_ptd.m_idata[IntIdx::work_j][infectious_i] == a_ptd.m_idata[IntIdx::work_j][susceptible_i]);
+        // infect *= i_mask;
+        // infect *= j_mask;
+        return a_lparm->xmit_hosp * a_hosp_scale;
+    }
+};
+#endif
+
+template <typename PTDType>
+struct HospWorkerCandidate {
+    AMREX_GPU_HOST_DEVICE
+    bool operator()(const int idx, const PTDType& ptd) const noexcept {
+        return !inHospital(idx, ptd) && ptd.m_idata[IntIdx::work_i][idx] >= 0 && ptd.m_idata[IntIdx::workgroup][idx] > 0 &&
+               !ptd.m_idata[IntIdx::withdrawn][idx] && ptd.m_idata[IntIdx::naics][idx] == NAICSCodes::NAICS::med_sca &&
+               ptd.m_idata[IntIdx::air_travel][idx] < 0 && ptd.m_idata[IntIdx::random_travel][idx] < 0;
+    }
+};
 
 /*! \brief Class describing agent interactions and treatment at hospital */
 template <typename PCType, typename PTDType, typename PType>
@@ -24,8 +57,13 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
     virtual ~HospitalModel() = default;
 
     /*! \brief Simulate agent interaction at hospital */
-    virtual void interactAgents (PCType&, MultiFab&) override {
-        // not yet implemented
+    virtual void interactAgents (PCType& a_agents, MultiFab&) override {
+#ifdef FAST_INTERACTIONS
+        fastInteractHospWorkers(a_agents);
+#else
+        interactAgentsImpl<HospitalModel<PCType, PTDType, PType>, PCType, PTDType, HospWorkerCandidate<PTDType>,
+                           BinaryInteractionHospWorker<PTDType>>(*this, a_agents, IntIdx::workgroup);
+#endif
     }
 
     using MFPtr = std::unique_ptr<MultiFab>;
@@ -33,6 +71,9 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
 
     /*! \brief Simulate treatment of agents in a hospital */
     virtual void treatAgents(PCType&, MFPtrVec&);
+
+    /*! \brief Interactions between hospital workers */
+    void fastInteractHospWorkers(PCType&);
 
   protected:
   private:
@@ -225,6 +266,70 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                     }
                     if (std::abs(flag_status_ptr[i]) > DiseaseStats::ventilator) {
                         Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::ventilator), -1.0_rt);
+                    }
+                });
+                Gpu::synchronize();
+            }
+        }
+    }
+}
+
+template <typename PCType, typename PTDType, typename PType>
+void HospitalModel<PCType, PTDType, PType>::fastInteractHospWorkers (PCType& a_agents) {
+    BL_PROFILE(__func__);
+    int n_disease = a_agents.numDiseases();
+
+    HospWorkerCandidate<PTDType> isCandidate;
+    Vector<Gpu::DeviceVector<int>> infected_group_d(OMP_MAX_THREADS);
+
+    for (int lev = 0; lev < a_agents.numLevels(); ++lev) {
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi = a_agents.MakeMFIter(lev); mfi.isValid(); ++mfi) {
+            auto& ptile = a_agents.ParticlesAt(lev, mfi);
+
+            const auto& ptd = ptile.getParticleTileData();
+            const auto np = ptile.GetArrayOfStructs().numParticles();
+            if (np == 0) { continue; }
+
+            auto& soa = ptile.GetStructOfArrays();
+            auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
+
+            GetCommunityIndex<PTDType> getCommunityIndex;
+            getCommunityIndex.init(a_agents.Geom(lev), mfi.tilebox(), a_agents.comm_mf[mfi].array());
+
+            int max_communities = getCommunityIndex.max();
+            int max_group = a_agents.getMaxGroup(IntIdx::workgroup) + 1;
+
+            infected_group_d[OMP_THREAD_NUM].resize(max_communities * max_group);
+            auto infected_group_d_ptr = infected_group_d[OMP_THREAD_NUM].data();
+
+            for (int d = 0; d < n_disease; d++) {
+                devMemset(infected_group_d_ptr, 0, infected_group_d[OMP_THREAD_NUM].size() * sizeof(int));
+
+                auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
+                auto lparm = a_agents.getDiseaseParameters_d(d);
+                auto lparm_h = a_agents.getDiseaseParameters_h(d);
+                Real scale = 1.0_rt; // TODO this should vary based on cell
+                Real infect = 1.0_rt - lparm_h->vac_eff;
+
+                ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
+                    if (isInfectious(i, ptd, d) && isCandidate(i, ptd)) {
+                        auto community = getCommunityIndex(ptd, i);
+                        int group_i = community * max_group + workgroup_ptr[i];
+                        Gpu::Atomic::AddNoRet(&infected_group_d_ptr[group_i], 1);
+                    }
+                });
+                Gpu::synchronize();
+
+                ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
+                    if (isSusceptible(i, ptd, d) && isCandidate(i, ptd)) {
+                        auto community = getCommunityIndex(ptd, i);
+                        int group_i = community * max_group + workgroup_ptr[i];
+                        int num_infected_group = infected_group_d_ptr[group_i];
+                        Real group_prob = 1.0_prt - infect * lparm->xmit_hosp * scale;
+                        prob_ptr[i] *= static_cast<ParticleReal>(std::pow(group_prob, num_infected_group));
                     }
                 });
                 Gpu::synchronize();

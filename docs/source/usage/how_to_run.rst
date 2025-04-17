@@ -166,6 +166,8 @@ The following inputs specify the disease parameters:
     Number of hospitalization days for age groups: under 50, 50-64, 65 and over.
 * ``disease.xmit_work`` (`float`, default ``0.0575``)
     Transmission probability within a workgroup.
+* ``disease.xmit_hosp`` (`float`, default ``0.01*disease.xmit_work``)
+    Transmission probability within a hospital workgroup (between doctors/medical workers). Default value is 1/100th that of ``disease.xmit_work`` since medical workers take more precautions.
 * ``disease.xmit_comm`` (`list of float`, default ``0.000018125 0.000054375 0.000145 0.000145 0.000145 0.0002175``)
     Transmission probabilities at the community level, for both work and home locations,
     given the age group of the susceptible agent (0-4, 5-17, 18-29, 30-49, 50-64).
