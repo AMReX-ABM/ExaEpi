@@ -10,7 +10,7 @@ jobs:
   # Build ExaEpi with CUDA 11.0.2 (minimum supported)
   build-cuda11:
     name: CUDA@11.2 GNU@9.3.0 C++17 Release
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-fno-operator-names -Werror -Wall -Wextra -Wpedantic -Wnull-dereference -Wfloat-conversion -Wshadow -Woverloaded-virtual -Wextra-semi -Wunreachable-code -Wnon-virtual-dtor -Wlogical-op -Wmisleading-indentation -Wduplicated-cond -Wduplicated-branches"}
     steps:
     - uses: actions/checkout@v3
@@ -39,7 +39,7 @@ jobs:
   # Build ExaEpi with NVHPC (recent supported)
   build-nvhpc21-11-nvcc:
     name: NVHPC@21.11 NVCC/NVC++ C++17 Release
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-Werror -Wall -Wextra -Wpedantic -Wshadow"}
     steps:
     - uses: actions/checkout@v3
