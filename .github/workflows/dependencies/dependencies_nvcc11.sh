@@ -10,7 +10,12 @@ sudo apt-get -qqq update
 sudo apt-get install -y \
     build-essential     \
     ca-certificates     \
-    cmake               \
+    cmake
+
+sudo update-alternatives --remove-all gcc
+sudo update-alternatives --remove-all g++
+
+sudo apt-get install -y \
     g++-9               \
     gnupg               \
     libopenmpi-dev      \
