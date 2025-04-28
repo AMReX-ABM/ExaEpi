@@ -11,13 +11,13 @@ concurrency:
 jobs:
   # Build ExaEpi
   build_clang_single:
-    name: Clang@7.0 C++17 SP NOMPI Debug [lib]
+    name: Clang@18.0 C++17 SP NOMPI Debug [lib]
     runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-fno-operator-names -Werror -Wall -Wextra -Wpedantic -Wnull-dereference -Wfloat-conversion -Wshadow -Woverloaded-virtual -Wextra-semi -Wunreachable-code -Wnon-virtual-dtor -Wno-unused-parameter"}
     steps:
     - uses: actions/checkout@v3
     - name: Dependencies
-      run: .github/workflows/dependencies/dependencies_clang7.sh
+      run: .github/workflows/dependencies/dependencies_clang18.sh
     - name: Build & Install
       run: |
         mkdir build
@@ -33,14 +33,14 @@ jobs:
         make -j 2
 
   build_clang_mixed:
-    name: Clang@7.0 C++17 SP Particles DP Mesh Debug
+    name: Clang@18.0 C++17 SP Particles DP Mesh Debug
     runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-fno-operator-names -Werror -Wall -Wextra -Wpedantic -Wnull-dereference -Wfloat-conversion -Wshadow -Woverloaded-virtual -Wextra-semi -Wunreachable-code -O1 -Wnon-virtual-dtor -Wno-unused-parameter"}
       # It's too slow with -O0
     steps:
     - uses: actions/checkout@v3
     - name: Dependencies
-      run: .github/workflows/dependencies/dependencies_clang7.sh
+      run: .github/workflows/dependencies/dependencies_clang18.sh
     - name: Build & Install
       run: |
         mkdir build
@@ -56,14 +56,14 @@ jobs:
         make -j 2
 
   build_clang_double:
-    name: Clang@7.0 C++17 DP Particles DP Mesh Debug
+    name: Clang@18.0 C++17 DP Particles DP Mesh Debug
     runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-fno-operator-names -Werror -Wall -Wextra -Wpedantic -Wnull-dereference -Wfloat-conversion -Wshadow -Woverloaded-virtual -Wextra-semi -Wunreachable-code -O1 -Wnon-virtual-dtor -Wno-unused-parameter"}
       # It's too slow with -O0
     steps:
     - uses: actions/checkout@v3
     - name: Dependencies
-      run: .github/workflows/dependencies/dependencies_clang7.sh
+      run: .github/workflows/dependencies/dependencies_clang18.sh
     - name: Build & Install
       run: |
         mkdir build
