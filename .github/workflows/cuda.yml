@@ -7,15 +7,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Build ExaEpi with CUDA 11.0.2 (minimum supported)
-  build-cuda11:
-    name: CUDA@11.2 GNU@9.3.0 C++17 Release
+  # Build ExaEpi with CUDA 12.6 (minimum supported)
+  build-cuda12:
+    name: CUDA@12.6 C++17 Release
     runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-fno-operator-names -Werror -Wall -Wextra -Wpedantic -Wnull-dereference -Wfloat-conversion -Wshadow -Woverloaded-virtual -Wextra-semi -Wunreachable-code -Wnon-virtual-dtor -Wlogical-op -Wmisleading-indentation -Wduplicated-cond -Wduplicated-branches"}
     steps:
     - uses: actions/checkout@v3
     - name: Dependencies
-      run: .github/workflows/dependencies/dependencies_nvcc11.sh
+      run: .github/workflows/dependencies/dependencies_nvcc12.sh
     - name: Build & Install
       run: |
         export PATH=/usr/local/nvidia/bin:/usr/local/cuda/bin:${PATH}

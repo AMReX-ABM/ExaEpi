@@ -10,13 +10,8 @@ sudo apt-get -qqq update
 sudo apt-get install -y \
     build-essential     \
     ca-certificates     \
-    cmake
-
-sudo update-alternatives --remove-all gcc
-sudo update-alternatives --remove-all g++
-
-sudo apt-get install -y \
-    g++-9               \
+    cmake               \
+    g++                 \
     gnupg               \
     libopenmpi-dev      \
     openmpi-bin         \
@@ -29,12 +24,12 @@ echo "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x8
     | sudo tee /etc/apt/sources.list.d/cuda.list
 sudo apt-get update
 sudo apt-get install -y \
-    cuda-command-line-tools-11-2 \
-    cuda-compiler-11-2           \
-    cuda-cupti-dev-11-2          \
-    cuda-minimal-build-11-2      \
-    cuda-nvml-dev-11-2           \
-    cuda-nvtx-11-2               \
-    libcurand-dev-11-2
-sudo ln -s cuda-11.2 /usr/local/cuda
+    cuda-command-line-tools-12-6 \
+    cuda-compiler-12-6           \
+    cuda-cupti-dev-12-6          \
+    cuda-minimal-build-12-6      \
+    cuda-nvml-dev-12-6           \
+    cuda-nvtx-12-6               \
+    libcurand-dev-12-6
+sudo ln -s cuda-12.6 /usr/local/cuda
 
