@@ -48,7 +48,18 @@ jobs:
     - name: Build & Install
       run: |
         source /etc/profile.d/modules.sh
-        module load /opt/nvidia/hpc_sdk/modulefiles/nvhpc/23.3
+        nvhpc_version=`ls -v /opt/nvidia/hpc_sdk/modulefiles/nvhpc/ | tail -n 1`
+        module load /opt/nvidia/hpc_sdk/modulefiles/nvhpc/${nvhpc_version}
+
+        which nvcc || echo "nvcc not in PATH!"
+        which nvc++ || echo "nvc++ not in PATH!"
+        which nvc || echo "nvc not in PATH!"
+        which nvfortran || echo "nvfortran not in PATH!"
+        nvcc --version
+        nvc++ --version
+        nvc --version
+        nvfortran --version
+        cmake --version
 
         export HDF5_ROOT=/usr/lib/x86_64-linux-gnu/hdf5/openmpi
 
