@@ -37,18 +37,18 @@ jobs:
         cmake --build build -j 2
 
   # Build ExaEpi with NVHPC (recent supported)
-  build-nvhpc21-11-nvcc:
-    name: NVHPC@21.11 NVCC/NVC++ C++17 Release
+  build-nvhpc-nvcc:
+    name: NVHPC NVCC/NVC++ C++17 Release
     runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-Werror -Wall -Wextra -Wpedantic -Wshadow"}
     steps:
     - uses: actions/checkout@v3
     - name: Dependencies
-      run: .github/workflows/dependencies/dependencies_nvhpc21-11.sh
+      run: .github/workflows/dependencies/dependencies_nvhpc.sh
     - name: Build & Install
       run: |
         source /etc/profile.d/modules.sh
-        module load /opt/nvidia/hpc_sdk/modulefiles/nvhpc/21.11
+        module load /opt/nvidia/hpc_sdk/modulefiles/nvhpc/23.3
 
         export HDF5_ROOT=/usr/lib/x86_64-linux-gnu/hdf5/openmpi
 
