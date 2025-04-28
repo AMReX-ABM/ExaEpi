@@ -114,7 +114,7 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
                     }
                 } else {
                     setInfected(&(status_ptr[pindex]), &(counter_ptr[pindex]), &(latent_period_ptr[pindex]),
-                                &(infectious_period_ptr[pindex]), &(incubation_period_ptr[pindex]), &(hospital_delay_ptr[i]),
+                                &(infectious_period_ptr[pindex]), &(incubation_period_ptr[pindex]), &(hospital_delay_ptr[pindex]),
                                 engine, lparm);
                     ++ni;
                 }
