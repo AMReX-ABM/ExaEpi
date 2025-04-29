@@ -134,6 +134,8 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void moveAgentsToHome();
 
+    void setTileSize (IntVect newTileSize) { tile_size = newTileSize; }
+
     /*! \brief Return flag indicating if agents are at work */
     inline bool isAtWork () const { return m_at_work; }
 
