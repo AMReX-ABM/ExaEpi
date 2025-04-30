@@ -14,7 +14,7 @@ jobs:
   # Note: this is an intentional "minimal" build that does not enable (many) options
   library:
     name: GNU@8.4 C++17 Release
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-fno-operator-names -Werror -Wall -Wextra -Wpedantic -Wnull-dereference -Wfloat-conversion -Wshadow -Woverloaded-virtual -Wnon-virtual-dtor -Wlogical-op -Wmisleading-indentation -Wduplicated-cond -Wduplicated-branches -Wmissing-include-dirs -Wno-unused-parameter"}
     steps:
     - uses: actions/checkout@v3
@@ -34,7 +34,7 @@ jobs:
   # Build ExaEpi [Debug]
   build_debug:
     name: GNU@9.3 C++17 Debug
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-fno-operator-names -Werror -Wall -Wextra -Wpedantic -Wnull-dereference -Wfloat-conversion -Wshadow -Woverloaded-virtual -O1 -Wnon-virtual-dtor -Wlogical-op -Wmisleading-indentation -Wduplicated-cond -Wduplicated-branches -Wmissing-include-dirs -Wno-unused-parameter"}
       # It's too slow with -O0
     steps:
@@ -54,7 +54,7 @@ jobs:
   # Build ExaEpi
   tests_cxx20:
     name: GNU@10.1 C++20 OMP
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-fno-operator-names -Werror -Wall -Wextra -Wpedantic -Wnull-dereference -Wfloat-conversion -Wshadow -Woverloaded-virtual -Wextra-semi -Wnon-virtual-dtor -Wlogical-op -Wmisleading-indentation -Wduplicated-cond -Wduplicated-branches -Wmissing-include-dirs -Wno-unused-parameter"}
     steps:
     - uses: actions/checkout@v3
@@ -84,7 +84,7 @@ jobs:
   # Build ExaEpi w/o MPI
   tests-nonmpi:
     name: GNU@8.4 C++17 NOMPI
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-fno-operator-names -Werror -Wall -Wextra -Wpedantic -Wnull-dereference -Wfloat-conversion -Wshadow -Woverloaded-virtual -Wnon-virtual-dtor -Wlogical-op -Wmisleading-indentation -Wduplicated-cond -Wduplicated-branches -Wmissing-include-dirs -Wno-unused-parameter"}
     steps:
     - uses: actions/checkout@v3
