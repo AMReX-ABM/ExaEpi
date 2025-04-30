@@ -187,6 +187,7 @@ void runAgent () {
     AgentContainer pc(geom, dm, ba, params.num_diseases, params.disease_names, params.fast, params.ic_type);
     bool stable_redistribute = !params.fast;
     pc.setStableRedistribute(stable_redistribute);
+    pc.setTileSize(censusData.unit_mf.mfiter_tile_size);
 
     {
         BL_PROFILE_REGION("Initialization");
