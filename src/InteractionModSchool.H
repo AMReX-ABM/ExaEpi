@@ -177,7 +177,7 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                             if (getSchoolType(school_grade_ptr[i]) == SchoolType::daycare) {
                                 if (adults && age_group_ptr[i] > AgeGroups::a5to17) { // adults-adults interaction accounted for
                                                                                       // in InteractionModWork.H
-                                    // do nothing
+                                    // do nothing!
                                 } else {
                                     int num_infected_daycare = infected_daycare_d_ptr[pos];
                                     Real daycare_prob = 1.0_rt - infect * lparm->xmit_school[SchoolType::daycare] * scale;
@@ -191,7 +191,7 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                                         xmit = lparm->xmit_school_a2c[getSchoolType(school_grade_ptr[i])];
                                     } else { //  adults-adults interaction accounted for in InteractionModWork.H // adult to adult
                                              //  - teachers also have grades (the grade they teach)
-                                        // do nothing
+                                        // do nothing!
                                         // xmit = lparm->xmit_school[getSchoolType(school_grade_ptr[i])];
                                     }
                                 } else {                                         // transmitters are children
