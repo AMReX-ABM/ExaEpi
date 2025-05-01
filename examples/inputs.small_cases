@@ -7,16 +7,7 @@ agent.plot_int = 10
 
 agent.aggregated_diag_int = -1
 
-contact.pSC  = 0.2
-contact.pCO  = 1.5
-contact.pNH  = 1.5
-contact.pWO  = 0.5
-contact.pFA  = 1.0
-contact.pBAR = -1.
-
 disease.initial_case_type = "file"
 disease.case_filename = "../../data/CaseData/small.cases"
-disease.nstrain = 1
 disease.p_trans = 0.1
 disease.p_asymp = 0.4
-disease.reduced_inf = 0.75
