@@ -16,14 +16,14 @@ using namespace amrex;
  * This function defines the one-on-one interaction between an infectious agent and a
  * susceptible agent on air travel. */
 template <typename PTDType>
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE static void
-binaryInteractionAirTravel (const int a_i,                    /*!< Index of infectious agent */
-                            const int a_j,                    /*!< Index of susceptible agent */
-                            const PTDType& a_ptd_i,           /*!< Particle tile data for infectious agent */
-                            const PTDType& a_ptd_j,           /*!< Particle tile data for susceptible agent*/
-                            const DiseaseParm* const a_lparm, /*!< disease paramters */
-                            const Real a_social_scale,        /*!< Social scale */
-                            ParticleReal* const a_prob_ptr /*!< infection probability */) {
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+static void binaryInteractionAirTravel (const int a_i,                    /*!< Index of infectious agent */
+                                        const int a_j,                    /*!< Index of susceptible agent */
+                                        const PTDType& a_ptd_i,           /*!< Particle tile data for infectious agent */
+                                        const PTDType& a_ptd_j,           /*!< Particle tile data for susceptible agent*/
+                                        const DiseaseParm* const a_lparm, /*!< disease paramters */
+                                        const Real a_social_scale,        /*!< Social scale */
+                                        ParticleReal* const a_prob_ptr /*!< infection probability */) {
     Real infect = a_lparm->infect;
     infect *= a_lparm->vac_eff;
 
