@@ -9,12 +9,12 @@ concurrency:
 jobs:
   tests-hip:
     name: HIP ROCm C++17 [tests]
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v4
     - name: Dependencies
       run: |
-        .github/workflows/dependencies/dependencies_hip.sh
+        .github/workflows/dependencies/dependencies_hip.sh 6.3.2
         .github/workflows/dependencies/dependencies_ccache.sh
     - name: Set Up Cache
       uses: actions/cache@v4
@@ -41,11 +41,6 @@ jobs:
         which clang++
         which flang
 
-        # "mpic++ --showme" forgets open-pal in Ubuntu 20.04 + OpenMPI 4.0.3
-        #   https://bugs.launchpad.net/ubuntu/+source/openmpi/+bug/1941786
-        #   https://github.com/open-mpi/ompi/issues/9317
-        export LDFLAGS="-lopen-pal"
-
         cmake -S . -B build                               \
             -DCMAKE_VERBOSE_MAKEFILE=ON                   \
             -DAMReX_GPU_BACKEND=HIP                       \
@@ -58,12 +53,12 @@ jobs:
 
   tests-hip-wrapper:
     name: HIP ROCm GFortran@9.3 C++17 [tests-hipcc]
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v4
     - name: Dependencies
       run: |
-        .github/workflows/dependencies/dependencies_hip.sh
+        .github/workflows/dependencies/dependencies_hip.sh 6.3.2
         .github/workflows/dependencies/dependencies_ccache.sh
     - name: Set Up Cache
       uses: actions/cache@v4
@@ -86,11 +81,6 @@ jobs:
 
         source /etc/profile.d/rocm.sh
         hipcc --version
-
-        # "mpic++ --showme" forgets open-pal in Ubuntu 20.04 + OpenMPI 4.0.3
-        #   https://bugs.launchpad.net/ubuntu/+source/openmpi/+bug/1941786
-        #   https://github.com/open-mpi/ompi/issues/9317
-        export LDFLAGS="-lopen-pal"
 
         cmake -S . -B build_full_legacywrapper            \
             -DCMAKE_VERBOSE_MAKEFILE=ON                   \

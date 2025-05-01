@@ -1,0 +1,14 @@
+##
+agent.ic_type = "census"
+agent.census_filename = "data/CensusData/CA.dat"
+agent.workerflow_filename = "data/CensusData/CA-wf.bin"
+
+agent.nsteps = 13
+agent.plot_int = 4
+agent.random_travel_int = 5
+
+agent.aggregated_diag_int = 1
+agent.aggregated_diag_prefix = "cases"
+
+disease.initial_case_type = "random"
+disease.num_initial_cases = 10

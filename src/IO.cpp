@@ -13,10 +13,8 @@
 
 using namespace amrex;
 
-namespace ExaEpi
-{
-namespace IO
-{
+namespace ExaEpi {
+namespace IO {
 
 /*! \brief Write plotfile of computational domain with disease spread and census data at a given step.
 
@@ -32,74 +30,79 @@ namespace IO
       + component 5*d+3: immune (#Status::immune)
       + component 5*d+4: susceptible (#Status::susceptible)
 
+      Then, for each disease, we write the number of new cases each day at
+      + component 5*n+d (d being the disease index and n the number of diseases)
+
       Then (n being the number of diseases):
-      + component 5*n+0: unit number
-      + component 5*n+1: FIPS ID
-      + component 5*n+2: census tract number
-      + component 5*n+3: community number
-    + Get disease spread data (first 5*n components) from AgentContainer::generateCellData().
+      + component 6*n+0: unit number
+      + component 6*n+1: FIPS ID
+      + component 6*n+2: census tract number
+      + component 6*n+3: community number
+    + Get disease spread data (first 7*n components) from AgentContainer::generateCellData() and
+    + also the disease_stats multifab, which tracts the number of new cases each day.
     + Copy unit number, FIPS code, census tract ID, and community number from the input MultiFabs to
       the remaining components.
     + Write the output MultiFab to file.
     + Write agents to file - see AgentContainer::WritePlotFile().
 */
-void writePlotFile (const AgentContainer& pc, /*!< Agent (particle) container */
-                    const CensusData& censusData,  /*!< Contains census data */
-                    const int num_diseases, /*!< Number of diseases */
+void writePlotFile (const AgentContainer& pc,                      /*!< Agent (particle) container */
+                    const MFPtrVec& a_disease_stats,               /*!< Disease stats tracker */
+                    const iMultiFab* unit_mf_ptr,                  /*!< MultiFabs to write out */
+                    const iMultiFab* FIPS_mf_ptr,                  /*!< MultiFabs to write out */
+                    const iMultiFab* comm_mf_ptr,                  /*!< MultiFabs to write out */
+                    const int num_diseases,                        /*!< Number of diseases */
                     const std::vector<std::string>& disease_names, /*!< Names of diseases */
-                    const Real cur_time, /*!< current time */
+                    const Real cur_time,                           /*!< current time */
                     const int step /*!< Current step */) {
     amrex::Print() << "Writing plotfile \n";
 
-    static const int ncomp_d = 5;
-    static const int ncomp = ncomp_d*num_diseases + 4;
+    // make sure status_names are in the same order as the struct Status in AgentDefinitions.H (do not include "dead")
+    static const Vector<std::string> status_names = {"total", "never_infected", "infected", "immune", "susceptible"};
 
-    MultiFab output_mf(pc.ParticleBoxArray(0),
-                       pc.ParticleDistributionMap(0), ncomp, 0);
+    static const int ncomp_d = status_names.size();
+    static const int ncomp = ncomp_d * num_diseases + num_diseases + (unit_mf_ptr != nullptr ? 4 : 3);
+
+    MultiFab output_mf(pc.ParticleBoxArray(0), pc.ParticleDistributionMap(0), ncomp, 0);
     output_mf.setVal(0.0);
-    pc.generateCellData(output_mf);
+    pc.generateCellData(output_mf, ncomp_d);
 
-    amrex::Copy(output_mf, censusData.unit_mf, 0, ncomp_d*num_diseases  , 1, 0);
-    amrex::Copy(output_mf, censusData.FIPS_mf, 0, ncomp_d*num_diseases+1, 2, 0);
-    amrex::Copy(output_mf, censusData.comm_mf, 0, ncomp_d*num_diseases+3, 1, 0);
+    for (int d = 0; d < num_diseases; d++) {
+        amrex::Copy(output_mf, *a_disease_stats[d], DiseaseStats::new_cases, ncomp_d * num_diseases + d, 1, 0);
+    }
+
+    amrex::Copy(output_mf, *FIPS_mf_ptr, 0, ncomp_d * num_diseases + num_diseases, 2, 0);
+    amrex::Copy(output_mf, *comm_mf_ptr, 0, ncomp_d * num_diseases + num_diseases + 2, 1, 0);
+    if (unit_mf_ptr != nullptr) { amrex::Copy(output_mf, *unit_mf_ptr, 0, ncomp_d * num_diseases + 3, 1, 0); }
 
     {
         Vector<std::string> plt_varnames = {};
         if (num_diseases == 1) {
-            plt_varnames.push_back("total");
-            plt_varnames.push_back("never_infected");
-            plt_varnames.push_back("infected");
-            plt_varnames.push_back("immune");
-            plt_varnames.push_back("susceptible");
+            for (auto status_name : status_names) {
+                plt_varnames.push_back(status_name);
+            }
+            plt_varnames.push_back("new_cases");
         } else {
             for (int d = 0; d < num_diseases; d++) {
-                plt_varnames.push_back(disease_names[d]+"_total");
-                plt_varnames.push_back(disease_names[d]+"_never_infected");
-                plt_varnames.push_back(disease_names[d]+"_infected");
-                plt_varnames.push_back(disease_names[d]+"_immune");
-                plt_varnames.push_back(disease_names[d]+"_susceptible");
+                for (auto status_name : status_names) {
+                    plt_varnames.push_back(disease_names[d] + "_" + status_name);
+                }
+            }
+            for (int d = 0; d < num_diseases; d++) {
+                plt_varnames.push_back(disease_names[d] + "_new_cases");
             }
         }
-        plt_varnames.push_back("unit");
         plt_varnames.push_back("FIPS");
         plt_varnames.push_back("Tract");
         plt_varnames.push_back("comm");
+        if (unit_mf_ptr != nullptr) { plt_varnames.push_back("unit"); }
+
+        AMREX_ASSERT(plt_varnames.size() == output_mf.nComp());
 
 #ifdef AMREX_USE_HDF5
-        WriteSingleLevelPlotfileHDF5MultiDset(  amrex::Concatenate("plt", step, 5),
-                                                output_mf,
-                                                plt_varnames,
-                                                pc.ParticleGeom(0),
-                                                cur_time,
-                                                step,
-                                                "ZLIB@3" );
+        WriteSingleLevelPlotfileHDF5MultiDset(amrex::Concatenate("plt", step, 5), output_mf, plt_varnames, pc.ParticleGeom(0),
+                                              cur_time, step, "ZLIB@3");
 #else
-        WriteSingleLevelPlotfile(   amrex::Concatenate("plt", step, 5),
-                                    output_mf,
-                                    plt_varnames,
-                                    pc.ParticleGeom(0),
-                                    cur_time,
-                                    step );
+        WriteSingleLevelPlotfile(amrex::Concatenate("plt", step, 5), output_mf, plt_varnames, pc.ParticleGeom(0), cur_time, step);
 #endif
     }
 
@@ -107,65 +110,97 @@ void writePlotFile (const AgentContainer& pc, /*!< Agent (particle) container */
         Vector<int> write_real_comp = {}, write_int_comp = {};
         Vector<std::string> real_varnames = {}, int_varnames = {};
         // non-disease-specific attributes
-        int_varnames.push_back ("age_group"); write_int_comp.push_back(static_cast<int>(step==0));
-        int_varnames.push_back ("family"); write_int_comp.push_back(static_cast<int>(step==0));
-        int_varnames.push_back ("home_i"); write_int_comp.push_back(static_cast<int>(step==0));
-        int_varnames.push_back ("home_j"); write_int_comp.push_back(static_cast<int>(step==0));
-        int_varnames.push_back ("work_i"); write_int_comp.push_back(static_cast<int>(step==0));
-        int_varnames.push_back ("work_j"); write_int_comp.push_back(static_cast<int>(step==0));
-        int_varnames.push_back ("hosp_i"); write_int_comp.push_back(static_cast<int>(step==0));
-        int_varnames.push_back ("hosp_j"); write_int_comp.push_back(static_cast<int>(step==0));
-        int_varnames.push_back ("trav_i"); write_int_comp.push_back(static_cast<int>(step==0));
-        int_varnames.push_back ("trav_j"); write_int_comp.push_back(static_cast<int>(step==0));
-        int_varnames.push_back ("nborhood"); write_int_comp.push_back(static_cast<int>(step==0));
-        int_varnames.push_back ("school_grade"); write_int_comp.push_back(static_cast<int>(step==0));
-        int_varnames.push_back ("school_id"); write_int_comp.push_back(static_cast<int>(step==0));
-        int_varnames.push_back ("school_closed"); write_int_comp.push_back(static_cast<int>(step==0));
-        int_varnames.push_back ("naics"); write_int_comp.push_back(static_cast<int>(step==0));
-        int_varnames.push_back ("workgroup"); write_int_comp.push_back(static_cast<int>(step==0));
-        int_varnames.push_back ("work_nborhood"); write_int_comp.push_back(static_cast<int>(step==0));
-        int_varnames.push_back ("withdrawn"); write_int_comp.push_back(1);
-        int_varnames.push_back ("withdrawn_date"); write_int_comp.push_back(1);
-        int_varnames.push_back ("random_travel"); write_int_comp.push_back(1);
-        int_varnames.push_back ("air_travel"); write_int_comp.push_back(1);
+        int_varnames.push_back("age_group");
+        write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("family");
+        write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("home_i");
+        write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("home_j");
+        write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("work_i");
+        write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("work_j");
+        write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("hosp_i");
+        write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("hosp_j");
+        write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("trav_i");
+        write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("trav_j");
+        write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("nborhood");
+        write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("school_grade");
+        write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("school_id");
+        write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("school_closed");
+        write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("naics");
+        write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("workgroup");
+        write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("work_nborhood");
+        write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("withdrawn");
+        write_int_comp.push_back(1);
+        int_varnames.push_back ("withdrawn_date");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("random_travel");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("air_travel");
+        write_int_comp.push_back(1);
         // disease-specific (runtime-added) attributes
         if (num_diseases == 1) {
-            real_varnames.push_back("treatment_timer"); write_real_comp.push_back(1);
-            real_varnames.push_back("disease_counter"); write_real_comp.push_back(1);
-            real_varnames.push_back("infection_prob"); write_real_comp.push_back(1);
-            real_varnames.push_back("latent_period"); write_real_comp.push_back(static_cast<int>(step==0));
-            real_varnames.push_back("infectious_period"); write_real_comp.push_back(static_cast<int>(step==0));
-            real_varnames.push_back("incubation_period"); write_real_comp.push_back(static_cast<int>(step==0));
-            int_varnames.push_back ("status"); write_int_comp.push_back(1);
-            int_varnames.push_back ("symptomatic"); write_int_comp.push_back(1);
+            real_varnames.push_back("treatment_timer");
+            write_real_comp.push_back(1);
+            real_varnames.push_back("disease_counter");
+            write_real_comp.push_back(1);
+            real_varnames.push_back("infection_prob");
+            write_real_comp.push_back(1);
+            real_varnames.push_back("latent_period");
+            write_real_comp.push_back(static_cast<int>(step == 0));
+            real_varnames.push_back("infectious_period");
+            write_real_comp.push_back(static_cast<int>(step == 0));
+            real_varnames.push_back("incubation_period");
+            write_real_comp.push_back(static_cast<int>(step == 0));
+            real_varnames.push_back("hospital_delay");
+            write_real_comp.push_back(static_cast<int>(step == 0));
+            int_varnames.push_back("status");
+            write_int_comp.push_back(1);
+            int_varnames.push_back("symptomatic");
+            write_int_comp.push_back(1);
         } else {
             for (int d = 0; d < num_diseases; d++) {
-                real_varnames.push_back(disease_names[d]+"treatment_timer"); write_real_comp.push_back(1);
-                real_varnames.push_back(disease_names[d]+"_disease_counter"); write_real_comp.push_back(1);
-                real_varnames.push_back(disease_names[d]+"_infection_prob"); write_real_comp.push_back(1);
-                real_varnames.push_back(disease_names[d]+"_latent_period"); write_real_comp.push_back(static_cast<int>(step==0));
-                real_varnames.push_back(disease_names[d]+"_infectious_period"); write_real_comp.push_back(static_cast<int>(step==0));
-                real_varnames.push_back(disease_names[d]+"_incubation_period"); write_real_comp.push_back(static_cast<int>(step==0));
-                int_varnames.push_back (disease_names[d]+"_status"); write_int_comp.push_back(1);
-                int_varnames.push_back (disease_names[d]+"_symptomatic"); write_int_comp.push_back(1);
+                real_varnames.push_back(disease_names[d] + "treatment_timer");
+                write_real_comp.push_back(1);
+                real_varnames.push_back(disease_names[d] + "_disease_counter");
+                write_real_comp.push_back(1);
+                real_varnames.push_back(disease_names[d] + "_infection_prob");
+                write_real_comp.push_back(1);
+                real_varnames.push_back(disease_names[d] + "_latent_period");
+                write_real_comp.push_back(static_cast<int>(step == 0));
+                real_varnames.push_back(disease_names[d] + "_infectious_period");
+                write_real_comp.push_back(static_cast<int>(step == 0));
+                real_varnames.push_back(disease_names[d] + "_incubation_period");
+                write_real_comp.push_back(static_cast<int>(step == 0));
+                real_varnames.push_back(disease_names[d] + "_hospital_delay");
+                write_real_comp.push_back(static_cast<int>(step == 0));
+                int_varnames.push_back(disease_names[d] + "_status");
+                write_int_comp.push_back(1);
+                int_varnames.push_back(disease_names[d] + "_symptomatic");
+                write_int_comp.push_back(1);
             }
         }
 
 #ifdef AMREX_USE_HDF5
-        pc.WritePlotFileHDF5(   amrex::Concatenate("plt", step, 5),
-                                "agents",
-                                write_real_comp,
-                                write_int_comp,
-                                real_varnames,
-                                int_varnames,
-                                "ZLIB@3" );
+        pc.WritePlotFileHDF5(amrex::Concatenate("plt", step, 5), "agents", write_real_comp, write_int_comp, real_varnames,
+                             int_varnames, "ZLIB@3");
 #else
-        pc.WritePlotFile(   amrex::Concatenate("plt", step, 5),
-                            "agents",
-                            write_real_comp,
-                            write_int_comp,
-                            real_varnames,
-                            int_varnames );
+        pc.WritePlotFile(amrex::Concatenate("plt", step, 5), "agents", write_real_comp, write_int_comp, real_varnames,
+                         int_varnames);
 #endif
     }
 }
@@ -181,32 +216,27 @@ void writePlotFile (const AgentContainer& pc, /*!< Agent (particle) container */
       infected agents in the communities on this processor belonging to that unit.
     + Sum across all processors and write to file.
 */
-void writeFIPSData (const AgentContainer& agents, /*!< Agents (particle) container */
-                    const CensusData& censusData, /*!< Census data */
-                    const std::string& prefix, /*!< Filename prefix */
-                    const int num_diseases, /*!< Number of diseases */
+void writeFIPSData (const AgentContainer& agents,                  /*!< Agents (particle) container */
+                    const CensusData& censusData,                  /*!< Census data */
+                    const std::string& prefix,                     /*!< Filename prefix */
+                    const int num_diseases,                        /*!< Number of diseases */
                     const std::vector<std::string>& disease_names, /*!< Names of diseases */
-                    const int step /*!< Current step */)
-{
+                    const int step /*!< Current step */) {
     static const int ncomp_d = 5;
-    static const int ncomp = ncomp_d*num_diseases + 4;
+    static const int ncomp = ncomp_d * num_diseases + 4;
 
-    static const int nlevs = std::max(0, agents.finestLevel()+1);
+    static const int nlevs = std::max(0, agents.finestLevel() + 1);
     std::vector<std::unique_ptr<MultiFab>> mf_vec;
     mf_vec.resize(nlevs);
     for (int lev = 0; lev < nlevs; ++lev) {
-        mf_vec[lev] = std::make_unique<MultiFab>(   agents.ParticleBoxArray(lev),
-                                                    agents.ParticleDistributionMap(lev),
-                                                    ncomp,
-                                                    0 );
+        mf_vec[lev] = std::make_unique<MultiFab>(agents.ParticleBoxArray(lev), agents.ParticleDistributionMap(lev), ncomp, 0);
         mf_vec[lev]->setVal(0.0);
-        agents.generateCellData(*mf_vec[lev]);
+        agents.generateCellData(*mf_vec[lev], ncomp_d);
     }
 
     for (int d = 0; d < num_diseases; d++) {
 
-        amrex::Print() << "Generating diagnostic data by FIPS code "
-                       << "for " << disease_names[d] << "\n";
+        amrex::Print() << "Generating diagnostic data by FIPS code " << "for " << disease_names[d] << "\n";
 
         std::vector<amrex::Real> data(censusData.demo.Nunit, 0.0);
         amrex::Gpu::DeviceVector<amrex::Real> d_data(data.size(), 0.0);
@@ -222,26 +252,22 @@ void writeFIPSData (const AgentContainer& agents, /*!< Agents (particle) contain
                     auto cell_data_arr = (*mf_vec[lev])[mfi].array();
 
                     auto bx = mfi.tilebox();
-                    amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-                        {
-                            int unit = unit_arr(i, j, k);  // which FIPS
-                            int num_infected = int(cell_data_arr(i, j, k, 2));
-                            amrex::Gpu::Atomic::AddNoRet(&data_ptr[unit], (amrex::Real) num_infected);
-                        });
+                    amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
+                        int unit = unit_arr(i, j, k); // which FIPS
+                        int num_infected = int(cell_data_arr(i, j, k, 2));
+                        amrex::Gpu::Atomic::AddNoRet(&data_ptr[unit], (amrex::Real)num_infected);
+                    });
                 }
             }
         }
 
         // blocking copy from device to host
-        amrex::Gpu::copy(amrex::Gpu::deviceToHost,
-                         d_data.begin(), d_data.end(), data.begin());
+        amrex::Gpu::copy(amrex::Gpu::deviceToHost, d_data.begin(), d_data.end(), data.begin());
 
         // reduced sum over mpi ranks
-        ParallelDescriptor::ReduceRealSum
-            (data.data(), data.size(), ParallelDescriptor::IOProcessorNumber());
+        ParallelDescriptor::ReduceRealSum(data.data(), data.size(), ParallelDescriptor::IOProcessorNumber());
 
-        if (ParallelDescriptor::IOProcessor())
-        {
+        if (ParallelDescriptor::IOProcessor()) {
             std::string fn = amrex::Concatenate(prefix, step, 5);
             if (num_diseases > 1) { fn += ("_" + disease_names[d]); }
             std::ofstream ofs{fn, std::ofstream::out | std::ofstream::app};
@@ -260,5 +286,86 @@ void writeFIPSData (const AgentContainer& agents, /*!< Agents (particle) contain
     }
 }
 
+/*! \brief Writes diagnostic data aggregated by block group
+
+    Writes a file with the total number of infected agents for each census block group;
+    it writes out the number of infected agents in the same order as the block groups in the UrbanPop .idx input file.
+    + Creates a output vector of size #UrbanPopData::num_communities
+    + Gets the disease status in agents from AgentContainer::generateCellData().
+    + On each processor, sets the block-group-th element of the output vector to the number of
+      infected agents in the block group on this processor belonging to that unit.
+    + Sum across all processors and write to file.
+*/
+void writeAggregatedData (const AgentContainer& agents,                  /*!< Agents (particle) container */
+                          const UrbanPopData& urbanpopData,              /*!< UrbanPop data */
+                          const std::string& prefix,                     /*!< Filename prefix */
+                          const int num_diseases,                        /*!< Number of diseases */
+                          const std::vector<std::string>& disease_names, /*!< Names of diseases */
+                          const int step /*!< Current step */) {
+    static const int ncomp_d = 5;
+    static const int ncomp = ncomp_d * num_diseases + 4;
+
+    static const int nlevs = std::max(0, agents.finestLevel() + 1);
+    std::vector<std::unique_ptr<MultiFab>> mf_vec;
+    mf_vec.resize(nlevs);
+    for (int lev = 0; lev < nlevs; ++lev) {
+        mf_vec[lev] = std::make_unique<MultiFab>(agents.ParticleBoxArray(lev), agents.ParticleDistributionMap(lev), ncomp, 0);
+        mf_vec[lev]->setVal(0.0);
+        agents.generateCellData(*mf_vec[lev], ncomp_d);
+    }
+
+    for (int d = 0; d < num_diseases; d++) {
+        amrex::Print() << "Generating diagnostic data by census block group " << "for " << disease_names[d] << "\n";
+        std::vector<amrex::Real> data(urbanpopData.num_communities, 0.0);
+        amrex::Gpu::DeviceVector<amrex::Real> d_data(data.size(), 0.0);
+        amrex::Real* const AMREX_RESTRICT data_ptr = d_data.dataPtr();
+
+        for (int lev = 0; lev < nlevs; ++lev) {
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (amrex::Gpu::notInLaunchRegion())
+#endif
+            {
+                for (MFIter mfi(*mf_vec[lev]); mfi.isValid(); ++mfi) {
+                    auto block_group_indices_arr = urbanpopData.community_mf[mfi].array();
+                    auto cell_data_arr = (*mf_vec[lev])[mfi].array();
+
+                    auto bx = mfi.tilebox();
+                    amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
+                        int block_group_i = block_group_indices_arr(i, j, k);
+                        if (block_group_i == -1) { return; }
+                        int num_infected = int(cell_data_arr(i, j, k, 2));
+                        // This should not require an atomic operation because each block group is at a separate i,j location
+                        // amrex::Gpu::Atomic::AddNoRet(&data_ptr[block_group_i], (amrex::Real)num_infected);
+                        data_ptr[block_group_i] = (amrex::Real)num_infected;
+                    });
+                }
+            }
+        }
+
+        // blocking copy from device to host
+        amrex::Gpu::copy(amrex::Gpu::deviceToHost, d_data.begin(), d_data.end(), data.begin());
+
+        // reduced sum over mpi ranks
+        ParallelDescriptor::ReduceRealSum(data.data(), data.size(), ParallelDescriptor::IOProcessorNumber());
+
+        if (ParallelDescriptor::IOProcessor()) {
+            std::string fn = amrex::Concatenate(prefix, step, 5);
+            if (num_diseases > 1) { fn += ("_" + disease_names[d]); }
+            std::ofstream ofs{fn, std::ofstream::out | std::ofstream::app};
+
+            // set precision
+            ofs << std::fixed << std::setprecision(14) << std::scientific;
+
+            // loop over data size and write
+            for (const auto& item : data) {
+                ofs << " " << item;
+            }
+
+            ofs << std::endl;
+            ofs.close();
+        }
+    }
 }
-}
+
+} // namespace IO
+} // namespace ExaEpi

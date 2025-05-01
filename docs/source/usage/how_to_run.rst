@@ -109,6 +109,7 @@ The following are inputs for the overall simulation:
 
 The following inputs specify the disease parameters:
 
+
 * ``disease.initial_case_type`` (`string`, default ``random``)
     The size of the list must be the same as ``agent.number_of_diseases``. The value can be ``random`` or ``file``.
     If ``random``, then ``disease.num_initial_cases`` must be set. If ``file``, then ``disease.case_filename`` must be set.
@@ -129,10 +130,10 @@ The following inputs specify the disease parameters:
 * ``disease.vac_eff`` (`float`, default ``0``)
     The vaccine efficacy - the probability of transmission will be multiplied by one minus this factor.
     `Vaccination is not yet implemented, so this factor must be left at 0`.
-* ``disease.immune_length_alpha`` (`float`, default ``9.0``)
+* ``disease.immune_length_alpha`` (`float`, default ``540.0``)
     Alpha parameter for the immunity length Gamma distribution. The immunity length is the length of time in days that agents
     are immune to the disease after recovering from it. For a Gamma distribution, the mean is alpha*beta and the variance is alpha*beta^2.
-* ``disease.immune_length_beta`` (`float`, default ``20.0``)
+* ``disease.immune_length_beta`` (`float`, default ``0.33``)
     Beta parameter for the immunity length Gamma distribution. The immunity length is the length of time in days that agents
     are immune to the disease after recovering from it. For a Gamma distribution, the mean is alpha*beta and the variance is alpha*beta^2.
 * ``disease.latent_length_alpha`` (`float`, default ``9.0``)
@@ -155,8 +156,16 @@ The following inputs specify the disease parameters:
 * ``disease.incubation_length_beta`` (`float`, default ``0.2``)
     Beta parameter for the incubation length Gamma distribution. The incubation length is the length of time in days after exposure until agents develop symptoms.
     For a Gamma distribution, the mean is alpha*beta and the variance is alpha*beta^2.
+* ``disease.hospital_delay_length_alpha`` (`float`, default ``1.0``)
+    Alpha parameter for the hospital_delay length Gamma distribution. The hospital_delay length is the length of time in days after agents develop symptoms that they seek treatment.
+    For a Gamma distribution, the mean is alpha*beta and the variance is alpha*beta^2.
+* ``disease.hospital_delay_length_beta`` (`float`, default ``1.0``)
+    Beta parameter for the hospital_delay length Gamma distribution. The hospital_delay length is the length of time in days after agents develop symptoms that they seek treatment.
+    For a Gamma distribution, the mean is alpha*beta and the variance is alpha*beta^2.
 * ``disease.hospitalization_days`` (`list of float`, default ``3.0 8.0 7.0``)
     Number of hospitalization days for age groups: under 50, 50-64, 65 and over.
+* ``disease.xmit_work`` (`float`, default ``0.0575``)
+    Transmission probability within a workgroup.
 * ``disease.xmit_comm`` (`list of float`, default ``0.000018125 0.000054375 0.000145 0.000145 0.000145 0.0002175``)
     Transmission probabilities at the community level, for both work and home locations,
     given the age group of the susceptible agent (0-4, 5-17, 18-29, 30-49, 50-64).
@@ -201,6 +210,18 @@ The following inputs specify the disease parameters:
     Probability of death when in hospital, in the ICU, for age groups: 0-4, 5-17, 18-29, 30-49, 50-64, 65 and over.
 * ``disease.ventCVF`` (`list of float`, default ``0.20 0.20 0.20 0.45 0.45 1.0``)
     Probability of death when in hospital, on ventilator, for age groups: 0-4, 5-17, 18-29, 30-49, 50-64, 65 and over.
+
+The following inputs specify the disease-coupling parameters. They are valid only when simulating more than one disease
+(i.e., ``agent.number_of_diseases > 1``.
+
+* ``disease_coupling.coimmunity_matrix`` (matrix of `float`, default identity matrix)
+    Co-immunity matrix: co-immunity is the immunity that an agent has against a disease due to past infection with other
+    disease(s). The number of rows and columns of this matrix must be the same as the number of diseases
+    (``agent.number_of_diseases``).
+* ``disease_coupling.cosusceptibility_matrix`` (matrix of `float`, default full matrix of ``1.0``)
+    Co-susceptibility matrix: co-susceptibility is the factor why which an agent is more susceptible to a disease due to
+    current infection with other disease(s). The number of rows and columns of this matrix must be the same as the number
+    of diseases (``agent.number_of_diseases``).
 
 `Note`: for ``agent.number_of_diseases > 1``, the disease parameters that are common
 to all the diseases can be specified as above. Any parameter that is `different for a specific disease`

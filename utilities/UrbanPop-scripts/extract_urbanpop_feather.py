@@ -19,19 +19,19 @@ import geopandas
 # only include these fields in the output csv and c++ structure
 
 include_fields = [
-    'p_id',
-    'h_id',
-    'geoid',
-    'pr_age',
-    'pr_sex',
-    'pr_race',
-    'pr_travel',
-    'pr_veh_occ',
-    'role',
-    'naics',
-    'grade',
-    'school_id',
-    ]
+    "p_id",
+    "h_id",
+    "geoid",
+    "pr_age",
+    "pr_sex",
+    "pr_race",
+    "pr_travel",
+    "pr_veh_occ",
+    "role",
+    "naics",
+    "grade",
+    "school_id",
+]
 
 PUMS_ID_LEN = 14
 NAICS_LEN = 9
@@ -40,91 +40,134 @@ NAICS_LEN = 9
 # we could extract these from the dataset, but then they will not be in a suitable order, even with sorting
 # so we predefine and check for values in the data that are not listed here
 categ_types = {
-    'hh_type':
-        CategoricalDtype(categories=["hh", "gq"]),
-    'hh_living_arrangement':
-        CategoricalDtype(categories=["married", "male_no_spouse", "female_no_spouse", "alone", "not_alone"]),
-    'hh_has_kids':
-        CategoricalDtype(categories=["no", "yes"]),
-    'hh_dwg':
-        CategoricalDtype(categories=[
-            "single_fam_detach", "single_fam_attach", "2_unit", "3_4_unit", "5_9_unit", "10_19_unit", "20_49_unit", "GE50_unit",
-            "mob_home", "other"]),
-    'hh_tenure':
-        CategoricalDtype(categories=["own", "rent", "other"]),
-    'hh_vehicles':
-        CategoricalDtype(categories=["01", "02", "03", "04", "05", "GE06"]),
-    'pr_sex':
-        CategoricalDtype(categories=["female", "male"]),
-    'pr_race':
-        CategoricalDtype(categories=["white", "blk_af_amer", "asian", "native_amer", "pac_island", "other", "mult"]),
-    'pr_hsplat':
-        CategoricalDtype(categories=["no", "yes"]),
-    'pr_ipr':
-        CategoricalDtype(categories=["L050", "050_099", "100_124", "125_149", "150_184", "185_199", "GE200"]),
-    'pr_emp_stat':
-        CategoricalDtype(categories=["not.in.force", "unemp", "employed", "mil"]),
-    'pr_travel':
-        CategoricalDtype(
-            categories=["car_truck_van", "public_transportation", "bicycle", "walked", "motorcycle", "taxicab", "other", "wfh"]),
-    'pr_veh_occ':
-        CategoricalDtype(categories=["drove_alone", "carpooled"]),
-    'pr_grade':
-        CategoricalDtype(categories=[
+    "hh_type": CategoricalDtype(categories=["hh", "gq"]),
+    "hh_living_arrangement": CategoricalDtype(categories=["married", "male_no_spouse", "female_no_spouse", "alone", "not_alone"]),
+    "hh_has_kids": CategoricalDtype(categories=["no", "yes"]),
+    "hh_dwg": CategoricalDtype(
+        categories=[
+            "single_fam_detach",
+            "single_fam_attach",
+            "2_unit",
+            "3_4_unit",
+            "5_9_unit",
+            "10_19_unit",
+            "20_49_unit",
+            "GE50_unit",
+            "mob_home",
+            "other",
+        ]
+    ),
+    "hh_tenure": CategoricalDtype(categories=["own", "rent", "other"]),
+    "hh_vehicles": CategoricalDtype(categories=["01", "02", "03", "04", "05", "GE06"]),
+    "pr_sex": CategoricalDtype(categories=["female", "male"]),
+    "pr_race": CategoricalDtype(categories=["white", "blk_af_amer", "asian", "native_amer", "pac_island", "other", "mult"]),
+    "pr_hsplat": CategoricalDtype(categories=["no", "yes"]),
+    "pr_ipr": CategoricalDtype(categories=["L050", "050_099", "100_124", "125_149", "150_184", "185_199", "GE200"]),
+    "pr_emp_stat": CategoricalDtype(categories=["not.in.force", "unemp", "employed", "mil"]),
+    "pr_travel": CategoricalDtype(
+        categories=["car_truck_van", "public_transportation", "bicycle", "walked", "motorcycle", "taxicab", "other", "wfh"]
+    ),
+    "pr_veh_occ": CategoricalDtype(categories=["drove_alone", "carpooled"]),
+    "pr_grade": CategoricalDtype(
+        categories=[
             "childcare",
-            "preschl", "kind", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th", "11th", "12th",
-            "undergrad", "grad"]),
-    'role':
-        CategoricalDtype(categories=['nope', 'worker', 'student']),
-    'naics_2010':
-        CategoricalDtype(categories=[
-           'edu_med_sca', # 0 Educational services, and health care and social assistance
-           'con',         # 1 Construction
-           'prf',         # 2 Professional, scientific, and management, and administrative, and waste management services
-           'agr_ext',     # 3 Agriculture, forestry, fishing and hunting, and mining
-           'mfg',         # 4 Manufacturing
-           'wfh',         # 5 Work from home
-           'ent',         # 6 Arts, entertainment, and recreation, and accommodation and food services
-           'fin',         # 7 Finance and insurance, and real estate, and rental and leasing
-           'ret',         # 8 Retail trade
-           'srv',         # 9 Other services, except public administration
-           'adm',         # 10 Public administration
-           'utl_trn',     # 11 Transportation and warehousing, and utilities
-           'whl',         # 12 Wholesale trade
-           'inf'          # 13 Information
-           ]),
-    'naics':   # 2017 - latest
-        CategoricalDtype(categories=[
-           'agr_ffh',     # 0 Agriculture, forestry, fishing and hunting
-           'ext',         # 1 Mining, quarrying, and oil and gas extraction
-           'utl',         # 2 Utilities
-           'con',         # 3 Construction
-           'mfg',         # 4 Manufacturing
-           'whl',         # 5 Wholesale trade
-           'ret',         # 6 Retail trade
-           'trn_whs',     # 7 Transportation and warehousing
-           'inf',         # 8 Information
-           'fin_ins',     # 9 Finance and insurance
-           'rrl',         # 10 Real estate rental and leasing
-           'prf',         # 11 Professional, scientific and technical services
-           'mgt',         # 12 Management of companies and enterprises
-           'adm_wmr',     # 13 Administrative and support and waste management and remediating services
-           'edu',         # 14 Educational services
-           'med_sca',     # 15 Health care and social services
-           'ent',         # 16 Arts, entertainment and recreation
-           'afs',         # 17 Accomodation and food services
-           'srv',         # 18 Other services (except public administration)
-           'pad',         # 19 Public administration
-           'wfh',         # 20 Work from home
-           ]),
-    'grade':
-        CategoricalDtype(categories=[
-            'childcare',
-            'k12pub_preschl', 'k12pub_kind', 'k12pub_1st', 'k12pub_2nd', 'k12pub_3rd', 'k12pub_4th', 'k12pub_5th', 'k12pub_6th',
-            'k12pub_7th', 'k12pub_8th', 'k12pub_9th', 'k12pub_10th', 'k12pub_11th', 'k12pub_12th',
-            'k12pv_preschl', 'k12pv_kind', 'k12pv_1st', 'k12pv_2nd', 'k12pv_3rd', 'k12pv_4th', 'k12pv_5th', 'k12pv_6th',
-            'k12pv_7th', 'k12pv_8th', 'k12pv_9th', 'k12pv_10th', 'k12pv_11th', 'k12pv_12th',
-            'undergrad', 'grad'])
+            "preschl",
+            "kind",
+            "1st",
+            "2nd",
+            "3rd",
+            "4th",
+            "5th",
+            "6th",
+            "7th",
+            "8th",
+            "9th",
+            "10th",
+            "11th",
+            "12th",
+            "undergrad",
+            "grad",
+        ]
+    ),
+    "role": CategoricalDtype(categories=["nope", "worker", "student"]),
+    "naics_2010": CategoricalDtype(
+        categories=[
+            "edu_med_sca",  # 0 Educational services, and health care and social assistance
+            "con",  # 1 Construction
+            "prf",  # 2 Professional, scientific, and management, and administrative, and waste management services
+            "agr_ext",  # 3 Agriculture, forestry, fishing and hunting, and mining
+            "mfg",  # 4 Manufacturing
+            "wfh",  # 5 Work from home
+            "ent",  # 6 Arts, entertainment, and recreation, and accommodation and food services
+            "fin",  # 7 Finance and insurance, and real estate, and rental and leasing
+            "ret",  # 8 Retail trade
+            "srv",  # 9 Other services, except public administration
+            "adm",  # 10 Public administration
+            "utl_trn",  # 11 Transportation and warehousing, and utilities
+            "whl",  # 12 Wholesale trade
+            "inf",  # 13 Information
+        ]
+    ),
+    "naics": CategoricalDtype(  # 2017 - latest
+        categories=[
+            "agr_ffh",  # 0 Agriculture, forestry, fishing and hunting
+            "ext",  # 1 Mining, quarrying, and oil and gas extraction
+            "utl",  # 2 Utilities
+            "con",  # 3 Construction
+            "mfg",  # 4 Manufacturing
+            "whl",  # 5 Wholesale trade
+            "ret",  # 6 Retail trade
+            "trn_whs",  # 7 Transportation and warehousing
+            "inf",  # 8 Information
+            "fin_ins",  # 9 Finance and insurance
+            "rrl",  # 10 Real estate rental and leasing
+            "prf",  # 11 Professional, scientific and technical services
+            "mgt",  # 12 Management of companies and enterprises
+            "adm_wmr",  # 13 Administrative and support and waste management and remediating services
+            "edu",  # 14 Educational services
+            "med_sca",  # 15 Health care and social services
+            "ent",  # 16 Arts, entertainment and recreation
+            "afs",  # 17 Accomodation and food services
+            "srv",  # 18 Other services (except public administration)
+            "pad",  # 19 Public administration
+            "wfh",  # 20 Work from home
+        ]
+    ),
+    "grade": CategoricalDtype(
+        categories=[
+            "childcare",
+            "k12pub_preschl",
+            "k12pub_kind",
+            "k12pub_1st",
+            "k12pub_2nd",
+            "k12pub_3rd",
+            "k12pub_4th",
+            "k12pub_5th",
+            "k12pub_6th",
+            "k12pub_7th",
+            "k12pub_8th",
+            "k12pub_9th",
+            "k12pub_10th",
+            "k12pub_11th",
+            "k12pub_12th",
+            "k12pv_preschl",
+            "k12pv_kind",
+            "k12pv_1st",
+            "k12pv_2nd",
+            "k12pv_3rd",
+            "k12pv_4th",
+            "k12pv_5th",
+            "k12pv_6th",
+            "k12pv_7th",
+            "k12pv_8th",
+            "k12pv_9th",
+            "k12pv_10th",
+            "k12pv_11th",
+            "k12pv_12th",
+            "undergrad",
+            "grad",
+        ]
+    ),
     # public elementary 2-7, middle 8-10, high 11-14
     # private elementary 16-21, middle 22-24, high 25-28
     # college 29-30 (original data has 29-32, undergrade_female, undergrad_male, grad_female, grad_male
@@ -160,9 +203,9 @@ namespace UrbanPop {{
 const size_t NUM_COLS = {len(df.columns)};
 
 """
-    #const size_t PUMS_ID_LEN = {PUMS_ID_LEN};
-    #const size_t NAICS_LEN = {NAICS_LEN};
-    #"""
+    # const size_t PUMS_ID_LEN = {PUMS_ID_LEN};
+    # const size_t NAICS_LEN = {NAICS_LEN};
+    # """
 
     # print out string arrays with category names
     for field_type in df:
@@ -175,7 +218,7 @@ const size_t NUM_COLS = {len(df.columns)};
     hdr += "\n"
 
     hdr += """
-static std::vector<string> split_string(const string &s, char delim) {
+static std::vector<string> splitString(const string &s, char delim) {
     std::vector<string> elems;
     std::stringstream ss(s);
     string item;
@@ -185,7 +228,7 @@ static std::vector<string> split_string(const string &s, char delim) {
 
 """
 
-    hdr += 'struct UrbanPopAgent {\n'
+    hdr += "struct UrbanPopAgent {\n"
     for i, col in enumerate(df.columns):
         if col in string_fields:
             hdr += f"""    char {col}[{string_fields[col]}];\n"""
@@ -193,7 +236,7 @@ static std::vector<string> split_string(const string &s, char delim) {
             hdr += f"""    {df.dtypes.iloc[i]}_t {col};\n"""
 
     hdr += """
-    bool read_csv(std::ifstream &f) {
+    bool readCsv(std::ifstream &f) {
         string buf;
         if (!getline(f, buf)) return false;
         if (buf[0] != '*') {
@@ -201,7 +244,7 @@ static std::vector<string> split_string(const string &s, char delim) {
             return true;
         }
         try {
-            std::vector<string> tokens = split_string(buf.substr(2), ',');
+            std::vector<string> tokens = splitString(buf.substr(2), ',');
             if (tokens.size() != NUM_COLS)
                 throw std::runtime_error("Incorrect number of tokens, expected " + std::to_string(NUM_COLS) +
                                          " got " + std::to_string(tokens.size()));\n"""
@@ -235,10 +278,19 @@ static std::vector<string> split_string(const string &s, char delim) {
     for i, col in enumerate(df.columns):
         c_type = str(df.dtypes.iloc[i]) + "_t"
         if col in string_fields:
-            hdr += '        os << string(agent.' + col + ', ' + string_fields[col] + ')'
+            hdr += "        os << string(agent." + col + ", " + string_fields[col] + ")"
         elif col in categ_types:
-            hdr += '        os << (int)agent.' + col + ' << (agent.' + col + ' != -1 ? ":" + ' + col + '_descriptions[agent.' + \
-                   col + '] : "")'
+            hdr += (
+                "        os << (int)agent."
+                + col
+                + " << (agent."
+                + col
+                + ' != -1 ? ":" + '
+                + col
+                + "_descriptions[agent."
+                + col
+                + '] : "")'
+            )
         else:
             hdr += "        os << " + ("(int)" if c_type == "int8_t" else "") + "agent." + col
 
@@ -246,7 +298,7 @@ static std::vector<string> split_string(const string &s, char delim) {
             hdr += ' << ",";\n'
         else:
             hdr += ";"
-        #os << (int)agent.hh_dwg << (agent.hh_dwg != -1 ? ":" + hh_dwg_descriptions[agent.hh_dwg] : "") << ",";
+        # os << (int)agent.hh_dwg << (agent.hh_dwg != -1 ? ":" + hh_dwg_descriptions[agent.hh_dwg] : "") << ",";
 
     hdr += """
         return os;
@@ -269,9 +321,9 @@ def process_census_bg_shape_file(dir_names):
             dname = dname[:-1]
         shape_fname = dname + "/" + os.path.split(dname)[1] + ".shp"
         # don't actually need to compute the centroid because the block group file has it under the INTPTLAT10 and INTPTLON10 cols
-        #df = geopandas.read_file(shape_fname, include_fields=["GEOID10", "geometry"])
-        #df = df.to_crs(crs=4326)
-        #df["centroid"] = df.centroid
+        # df = geopandas.read_file(shape_fname, include_fields=["GEOID10", "geometry"])
+        # df = df.to_crs(crs=4326)
+        # df["centroid"] = df.centroid
         print("Reading shape files at", shape_fname)
         df = geopandas.read_file(shape_fname, include_fields=["GEOID10", "INTPTLAT10", "INTPTLON10"], ignore_geometry=True)
         df.GEOID10 = df.GEOID10.astype("int64")
@@ -279,7 +331,7 @@ def process_census_bg_shape_file(dir_names):
         df.INTPTLON10 = df.INTPTLON10.astype("float32")
         df.to_csv(shape_fname + ".csv")
         print("Wrote", len(df.index), "GEOID locations to", shape_fname + ".csv")
-        #print(df.dtypes)
+        # print(df.dtypes)
         geoid_locs_map.update(df.set_index("GEOID10").T.to_dict("list"))
     print("GEOID to locations map contains", len(geoid_locs_map), "entries")
     return geoid_locs_map
@@ -289,43 +341,43 @@ def process_nt_dt_feather_files(fnames, out_fname):
     start_t = time.time()
     dfs = []
     for i, fname in enumerate(fnames):
-        print("Reading data from", fname, end=': ')
+        print("Reading data from", fname, end=": ")
         t = time.time()
         df_metro = pandas.read_feather(fname)
         dfs.append(df_metro)
         print(len(dfs[-1].index), "records in %.3f s" % (time.time() - t))
 
     df = pandas.concat(dfs)
-    df.sort_values(by=['p_id'], inplace=True)
+    df.sort_values(by=["p_id"], inplace=True)
     df.orig_geoid = df.orig_geoid.astype("int64")
     df.dest_geoid = df.dest_geoid.astype("int64")
 
     # convert school ids to unique 64 bit ints
     unique_school_ids = sorted(df.school_id.unique(), key=lambda x: (x is None, x))
-    school_id_map = dict(zip(unique_school_ids, range(len(unique_school_ids))));
+    school_id_map = dict(zip(unique_school_ids, range(len(unique_school_ids))))
     school_id_map[None] = -1
 
     df["school_name"] = df["school_id"]
     df["school_id"] = df["school_id"].map(school_id_map).apply(lambda x: x).astype("int64")
     # make the valid school ids start at 1, 0 means no school
-    df['school_id'] += 1
+    df["school_id"] += 1
     # correct students to have only undergrad and grad, not split by male/female
-    df['grade'] = df['grade'].replace(['undergrad_female'], 'undergrad', regex=True)
-    df['grade'] = df['grade'].replace(['undergrad_male'], 'undergrad', regex=True)
-    df['grade'] = df['grade'].replace(['grad_female'], 'grad', regex=True)
-    df['grade'] = df['grade'].replace(['grad_male'], 'grad', regex=True)
+    df["grade"] = df["grade"].replace(["undergrad_female"], "undergrad", regex=True)
+    df["grade"] = df["grade"].replace(["undergrad_male"], "undergrad", regex=True)
+    df["grade"] = df["grade"].replace(["grad_female"], "grad", regex=True)
+    df["grade"] = df["grade"].replace(["grad_male"], "grad", regex=True)
 
     print("Processed", len(df.index), "records in %.3f s" % (time.time() - start_t))
 
     t = time.time()
-    df.to_csv(out_fname + ".work.csv", sep=' ', index=False)
+    df.to_csv(out_fname + ".work.csv", sep=" ", index=False)
     print("Wrote", out_fname + ".work.csv in %.3f s" % (time.time() - t))
 
     return df
 
 
 def assign_educators_to_school(required_educators, df, school, school_geoid, min_grade, max_grade, local_geoid_only):
-    required_educators -= len(df.loc[(df['role'] == 1) & (df['school_id'] == school) & (df['work_geoid'] == school_geoid)])
+    required_educators -= len(df.loc[(df["role"] == 1) & (df["school_id"] == school) & (df["work_geoid"] == school_geoid)])
     if required_educators < 0:
         print("ERROR: negative required educators", required_educators)
         sys.exit(0)
@@ -333,14 +385,19 @@ def assign_educators_to_school(required_educators, df, school, school_geoid, min
         return 0
     if local_geoid_only:
         # select from the same work geoid
-        df_educators = df.loc[(df['role'] == 1) & (df['naics'] == NAICS_EDU) & (df['school_id'] == 0) &
-                              (df['work_geoid'] == school_geoid)]
+        df_educators = df.loc[
+            (df["role"] == 1) & (df["naics"] == NAICS_EDU) & (df["school_id"] == 0) & (df["work_geoid"] == school_geoid)
+        ]
     else:
         # select the same county (first 5 of GEOID)
         factor = 10**7
         county_code = school_geoid / factor - school_geoid % factor / factor
-        df_educators = df.loc[(df['role'] == 1) & (df['naics'] == NAICS_EDU) & (df['school_id'] == 0) &
-                              (df['work_geoid'] / factor - df['work_geoid'] % factor / factor == county_code)]
+        df_educators = df.loc[
+            (df["role"] == 1)
+            & (df["naics"] == NAICS_EDU)
+            & (df["school_id"] == 0)
+            & (df["work_geoid"] / factor - df["work_geoid"] % factor / factor == county_code)
+        ]
 
     if len(df_educators) == 0:
         return required_educators
@@ -350,20 +407,21 @@ def assign_educators_to_school(required_educators, df, school, school_geoid, min
     else:
         educator_sample = df_educators.sample(n=required_educators)
 
-    df.loc[df['id'].isin(educator_sample['id']), ['school_id', 'work_geoid']] = [school, school_geoid]
+    df.loc[df["id"].isin(educator_sample["id"]), ["school_id", "work_geoid"]] = [school, school_geoid]
     # randomly choosing the grade is ok if the students are spread out equally across the grades, which we'd generally
     # expect, except for colleges, where there are far more undergrads than grads. So that will need a special case
     # FIXME: special case for colleges
-    df.loc[df['id'].isin(educator_sample['id']), 'grade'] = \
-        np.random.randint(min_grade, max_grade + 1, size=len(educator_sample)).astype('int8')
+    df.loc[df["id"].isin(educator_sample["id"]), "grade"] = np.random.randint(
+        min_grade, max_grade + 1, size=len(educator_sample)
+    ).astype("int8")
     return required_educators - len(educator_sample)
 
 
 def allocate_educators(df, out_fname):
-    df_special = df[['id', 'age', 'role', 'grade', 'school_id']]
-    df_special = df_special.loc[(df_special['school_id'] != '') & (df_special['school_id'] != 0)]
+    df_special = df[["id", "age", "role", "grade", "school_id"]]
+    df_special = df_special.loc[(df_special["school_id"] != "") & (df_special["school_id"] != 0)]
     t = time.time()
-    df_special.to_csv(out_fname + ".students.csv", sep=' ', index=False)
+    df_special.to_csv(out_fname + ".students.csv", sep=" ", index=False)
     print("Wrote", out_fname + ".students.csv in %.3f s" % (time.time() - t))
     print("Student population", len(df_special))
 
@@ -374,7 +432,7 @@ def allocate_educators(df, out_fname):
     for _, school in enumerate(schools):
         if school == 0:
             continue
-        students_df = df.loc[(df['school_id'] == school) & (df['role'] == 2)]
+        students_df = df.loc[(df["school_id"] == school) & (df["role"] == 2)]
         max_grade = students_df.grade.max()
         min_grade = students_df.grade.min()
         if min_grade < 0:
@@ -387,11 +445,11 @@ def allocate_educators(df, out_fname):
         student_schools_map[school] = [len(students_df.index), geoids[0], min_grade, max_grade]
     print("Counted students for", len(schools), "schools in %.3f s" % (time.time() - t))
 
-    df_edu = df.loc[(df['role'] == 1) & (df['naics'] == NAICS_EDU)]
+    df_edu = df.loc[(df["role"] == 1) & (df["naics"] == NAICS_EDU)]
     print("NAICS edu population", len(df_edu))
 
     t = time.time()
-    with open(out_fname + ".schools.csv", mode='w') as f:
+    with open(out_fname + ".schools.csv", mode="w") as f:
         print("school students geoid min_grade max_grade", file=f)
         for _, school in enumerate(schools):
             if school == -1:
@@ -440,11 +498,11 @@ def allocate_educators(df, out_fname):
             shortfall_educator_schools += 1
     print("Final educator shortfall:", shortfall_educator_schools, "schools;", shortfall_educators, "educators")
 
-    df_educators = df.loc[(df['school_id'] != 0) & (df['role'] == 1)]
+    df_educators = df.loc[(df["school_id"] != 0) & (df["role"] == 1)]
     print("Allocated", len(df_educators), "educators in %.3f s" % (time.time() - t))
 
     t = time.time()
-    df_educators.to_csv(out_fname + ".educators.csv", sep=' ', index=False)
+    df_educators.to_csv(out_fname + ".educators.csv", sep=" ", index=False)
     print("Wrote", out_fname + ".educators.csv in %.3f s" % (time.time() - t))
 
     # need to reset the work lat/lng after potentially changing the work geoids for educators
@@ -456,7 +514,7 @@ def process_pop_feather_files(fnames):
     dfs = []
     start_t = time.time()
     for fname in fnames:
-        print("Reading data from", fname, end=': ')
+        print("Reading data from", fname, end=": ")
         t = time.time()
         df_read = pandas.read_feather(fname)
         df_read.to_csv(fname + ".csv")
@@ -466,7 +524,7 @@ def process_pop_feather_files(fnames):
     df = pandas.concat(dfs)
     df.geoid = df.geoid.astype("int64")
     # need to sort to ensure the order is the same between the population files and the daytime/nighttime files
-    df.sort_values(by=['p_id'], inplace=True)
+    df.sort_values(by=["p_id"], inplace=True)
     # remove all not found in include list
     cols_to_purge = set(list(df.columns.values)) - set(include_fields)
     df.drop(columns=cols_to_purge, inplace=True)
@@ -511,8 +569,8 @@ def set_types(df):
         print("Unique NAICS", len(df.pr_naics.unique()), "max length", NAICS_LEN)
         df.insert(len(df.columns) - 1, "pr_naics", df.pop("pr_naics"))
         # ensure the NAICS fields don't contain an empty string, which can muddle parsing down the line
-        #df['pr_naics'] = df['pr_naics'].replace(["^\s*$"], 'NA', regex=True)
-        df['pr_naics'] = df['pr_naics'].replace([''], 'NA', regex=True)
+        # df['pr_naics'] = df['pr_naics'].replace(["^\s*$"], 'NA', regex=True)
+        df["pr_naics"] = df["pr_naics"].replace([""], "NA", regex=True)
 
     df.h_id = df.h_id.str.split("-").str[-1].astype("int32")
 
@@ -521,7 +579,7 @@ def set_types(df):
             # compare the list with the unique to make sure we haven't fonud anything not in our predefined list
             categs_found = list(df[field_type].unique())
             categs_expected = list(categ_types[field_type].categories)
-            missing = [x for x in categs_found if x not in categs_expected and x != '' and x is not None]
+            missing = [x for x in categs_found if x not in categs_expected and x != "" and x is not None]
             if missing:
                 print("WARNING: Found missing categories for", field_type, ":", missing)
             df[field_type] = df[field_type].astype(categ_types[field_type]).cat.codes
@@ -544,15 +602,15 @@ def set_types(df):
 def print_agents(df, work_geoids_map, out_fname):
     num_rows = len(df.index)
     # start with a distinct marker so that the file can be read in parallel more easily
-    df.index = ['*'] * num_rows
+    df.index = ["*"] * num_rows
     # print each geoid in turn so we can track the file offsets
     t = time.time()
-    naics_types = list(categ_types['naics'].categories)
+    naics_types = list(categ_types["naics"].categories)
     out_fname_idx = out_fname + ".idx"
     out_fname_csv = out_fname + ".csv"
     print("Writing CSV text data to", out_fname_csv, "and block group indexes to", out_fname_idx)
-    with open(out_fname_idx, mode='w') as f:
-        print("geoid lat lng foff h_pop w_pop", ' '.join(naics_types), file=f)
+    with open(out_fname_idx, mode="w") as f:
+        print("geoid lat lng foff h_pop w_pop", " ".join(naics_types), file=f)
         geoids = df.home_geoid.unique()
         work_geoids = df.work_geoid.unique()
         if len(work_geoids) > len(geoids):
@@ -560,39 +618,41 @@ def print_agents(df, work_geoids_map, out_fname):
             print("Work-only geoids", only_work_geoids)
             for i, geoid in enumerate(only_work_geoids):
                 work_pops = work_geoids_map[geoid] if geoid in work_geoids_map else []
-                print(geoid, ' '.join(map(str, geoid_locs_map[geoid])), 0, 0, ' '.join(map(str, work_pops)), file=f)
+                print(geoid, " ".join(map(str, geoid_locs_map[geoid])), 0, 0, " ".join(map(str, work_pops)), file=f)
 
         for i, geoid in enumerate(geoids):
             foffset = os.stat(out_fname_csv).st_size if i > 0 else 0
-            subset_df = df.loc[df['home_geoid'] == geoid]
-            min_hh_id = subset_df['household_id'].min()
+            subset_df = df.loc[df["home_geoid"] == geoid]
+            min_hh_id = subset_df["household_id"].min()
             # set household id to be unique only to home geoid
-            subset_df.loc[:, 'household_id'] -= min_hh_id
-            subset_df.to_csv(out_fname_csv, index=True, header=(i == 0), mode='w' if i == 0 else 'a', float_format="%.6f")
+            subset_df.loc[:, "household_id"] -= min_hh_id
+            subset_df.to_csv(out_fname_csv, index=True, header=(i == 0), mode="w" if i == 0 else "a", float_format="%.6f")
             work_pops = work_geoids_map[geoid] if geoid in work_geoids_map else []
-            print(geoid,
-                  ' '.join(map(str, geoid_locs_map[geoid])),
-                  foffset,
-                  len(subset_df.index),
-                  ' '.join(map(str, work_pops)),
-                  file=f)
+            print(
+                geoid,
+                " ".join(map(str, geoid_locs_map[geoid])),
+                foffset,
+                len(subset_df.index),
+                " ".join(map(str, work_pops)),
+                file=f,
+            )
     print("Wrote", len(df.index), "records in %.3f s" % (time.time() - t))
 
 
 def compute_worker_populations(df):
     # compute worker populations
     t = time.time()
-    naics_types = list(categ_types['naics'].categories)
+    naics_types = list(categ_types["naics"].categories)
     num_naics = len(naics_types)
     work_geoids_map = {}
     work_geoids = df.work_geoid.unique()
     num_workers = 0
     for i, geoid in enumerate(work_geoids):
         # don't include wfh
-        subset_df = df.loc[(df['work_geoid'] == geoid) & (df['role'] == 1) & (df['naics'] != NAICS_WFH)]
+        subset_df = df.loc[(df["work_geoid"] == geoid) & (df["role"] == 1) & (df["naics"] != NAICS_WFH)]
         naics_counts = []
         for naics_i in range(num_naics):
-            naics_counts.append(len(subset_df.loc[subset_df['naics'] == naics_i]))
+            naics_counts.append(len(subset_df.loc[subset_df["naics"] == naics_i]))
         work_pops = [len(subset_df.index)]
         if work_pops[0] != sum(naics_counts):
             print("ERROR: NAICS codes don't sum up to work population for geoid", geoid, work_pops[0], sum(naics_counts))
@@ -601,8 +661,13 @@ def compute_worker_populations(df):
         work_pops.extend(naics_counts)
         work_geoids_map[geoid] = work_pops
     print("workers population", num_workers)
-    print("Found", len(df.home_geoid.unique()), "home locations and", len(work_geoids_map),
-          "work locations in %.3f s" % (time.time() - t))
+    print(
+        "Found",
+        len(df.home_geoid.unique()),
+        "home locations and",
+        len(work_geoids_map),
+        "work locations in %.3f s" % (time.time() - t),
+    )
     return work_geoids_map
 
 
@@ -612,7 +677,7 @@ def rename_fields(df):
 
     df.rename(columns={"p_id": "id"}, inplace=True)
     for col in df.columns:
-        if col.startswith("pr_") and col != 'pr_naics':
+        if col.startswith("pr_") and col != "pr_naics":
             df.rename(columns={col: col[3:]}, inplace=True)
         elif col.startswith("h_"):
             df.rename(columns={col: "home_" + col[2:]}, inplace=True)
@@ -653,14 +718,14 @@ def adjust_school_ids(df):
     work_geoids = df.work_geoid.unique()
     school_id_map = {}
     for geoid in work_geoids:
-        subset_df = df.loc[(df['work_geoid'] == geoid) & (df['school_id'] != 0)]
+        subset_df = df.loc[(df["work_geoid"] == geoid) & (df["school_id"] != 0)]
         if len(subset_df) == 0:
             continue
 
         subset_school_ids = subset_df.school_id.unique()
         subset_school_id_map = {key: i + 1 for i, key in enumerate(subset_school_ids)}
         school_id_map.update(subset_school_id_map)
-    df['school_id'] = df['school_id'].map(school_id_map).apply(lambda x: x).fillna(0).astype("int32")
+    df["school_id"] = df["school_id"].map(school_id_map).apply(lambda x: x).fillna(0).astype("int32")
 
 
 if __name__ == "__main__":
@@ -669,14 +734,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert UrbanPop feather files to C++ struct binary file")
     parser.add_argument("--output", "-o", required=True, help="Output file")
     parser.add_argument("--files", "-f", required=True, nargs="+", help="Feather files")
-    parser.add_argument("--shape_files_dir", "-s", required=True, nargs="+",
-                        help="Directories for census block group shape files. Available from\n" + \
-                        "https://www.census.gov/cgi-bin/geo/shapefiles/index.php?year=2010&layergroup=Block+Groups")
-    parser.add_argument("--day_night_files",
-                        "-d",
-                        required=True,
-                        nargs="+",
-                        help="Feather files containing daytime and nighttime locations")
+    parser.add_argument(
+        "--shape_files_dir",
+        "-s",
+        required=True,
+        nargs="+",
+        help="Directories for census block group shape files. Available from\n"
+        + "https://www.census.gov/cgi-bin/geo/shapefiles/index.php?year=2010&layergroup=Block+Groups",
+    )
+    parser.add_argument(
+        "--day_night_files", "-d", required=True, nargs="+", help="Feather files containing daytime and nighttime locations"
+    )
     parser.add_argument("--long_ids", "-l", action="store_true", help="Use original long UrbanPop ids for agents")
     args = parser.parse_args()
 
@@ -689,7 +757,7 @@ if __name__ == "__main__":
     set_lnglat(df)
     # make sure all the ids are globally unique and just integers
     if not args.long_ids:
-        df['id'] = np.arange(0, len(df.index))
+        df["id"] = np.arange(0, len(df.index))
     print("Fields are:\n", df.dtypes, sep="")
     print_header(df)
     allocate_educators(df, args.output)
