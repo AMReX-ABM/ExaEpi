@@ -20,7 +20,7 @@ using namespace amrex;
 
 // Count infected in each group and use the number as the exponent for calculating the probability.
 // Slow interactions involve binning each group and doing an n^2 evaluation - might be needed for contact tracing
-//#define FAST_INTERACTIONS
+// #define FAST_INTERACTIONS
 
 namespace ExaEpi {
 
@@ -155,11 +155,12 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                 auto bingroup_ptr = soa.GetIntData(bin_idx).data();
                 auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
                 for (int i = 0; i < np; ++i) {
-                   if (bingroup_ptr[i] > max_group) {
-                       printf("DEBUG: Particle %d has school_id = %d, has bingroup_ptr[%d] = %d, max_group = %d\n", i, school_id_ptr[i], i, bingroup_ptr[i], max_group);
-                   }
+                    if (bingroup_ptr[i] > max_group) {
+                        printf("DEBUG: Particle %d has school_id = %d, has bingroup_ptr[%d] = %d, max_group = %d\n", i,
+                               school_id_ptr[i], i, bingroup_ptr[i], max_group);
+                    }
                 }
-                ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
+                ParallelFor(np, [=] AMREX_GPU_DEVICE(int i) noexcept {
                     AMREX_ASSERT(bingroup_ptr[i] <= max_group);
                 });
 #endif
@@ -188,10 +189,10 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                 auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                 auto lparm = agents.getDiseaseParameters_d(d);
                 auto lparm_h = agents.getDiseaseParameters_h(d);
-                Real scale = 1.0_rt;  // TODO this should vary based on cell
+                Real scale = 1.0_rt; // TODO this should vary based on cell
                 Real infect = (1.0_rt - lparm_h->vac_eff);
 
-                ParallelFor(bins_ptr->numItems(), [=] AMREX_GPU_DEVICE (int ii) noexcept {
+                ParallelFor(bins_ptr->numItems(), [=] AMREX_GPU_DEVICE(int ii) noexcept {
                     auto infectious_i = inds[ii];
                     int i_cell = binner(ptd, infectious_i);
                     auto cell_start = offsets[i_cell];
@@ -223,8 +224,8 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
 }
 
 template <typename PTDType>
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-Real infectProb (const PTDType &ptd, int infectious_i, int susceptible_i, const Real* xmit_SC, const Real* xmit) {
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE Real infectProb (const PTDType& ptd, int infectious_i, int susceptible_i, const Real* xmit_SC,
+                                                     const Real* xmit) {
     //  ptd.m_idata[IntIdx::school_closed][infectious_i] == 1 means a child/teacher normally attends school, but not today
     if (ptd.m_idata[IntIdx::school_closed][infectious_i] == 1) { // school closed, use _SC contacts
         return xmit_SC[ptd.m_idata[IntIdx::age_group][susceptible_i]];
@@ -255,7 +256,7 @@ struct GetCommunityIndex {
         auto bx = valid_box;
 
         auto bsize = bin_size;
-        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
+        ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
             if (comm_arr(i, j, k) != -1) {
                 Box tbx;
                 auto ti = getTileIndex(IntVect(i, j), bx, true, bsize, tbx);

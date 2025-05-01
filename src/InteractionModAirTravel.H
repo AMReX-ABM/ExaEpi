@@ -16,14 +16,14 @@ using namespace amrex;
  * This function defines the one-on-one interaction between an infectious agent and a
  * susceptible agent on air travel. */
 template <typename PTDType>
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-static void binaryInteractionAirTravel (const int a_i,                    /*!< Index of infectious agent */
-                                        const int a_j,                    /*!< Index of susceptible agent */
-                                        const PTDType& a_ptd_i,           /*!< Particle tile data for infectious agent */
-                                        const PTDType& a_ptd_j,           /*!< Particle tile data for susceptible agent*/
-                                        const DiseaseParm* const a_lparm, /*!< disease paramters */
-                                        const Real a_social_scale,        /*!< Social scale */
-                                        ParticleReal* const a_prob_ptr /*!< infection probability */) {
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE static void
+binaryInteractionAirTravel (const int a_i,                    /*!< Index of infectious agent */
+                            const int a_j,                    /*!< Index of susceptible agent */
+                            const PTDType& a_ptd_i,           /*!< Particle tile data for infectious agent */
+                            const PTDType& a_ptd_j,           /*!< Particle tile data for susceptible agent*/
+                            const DiseaseParm* const a_lparm, /*!< disease paramters */
+                            const Real a_social_scale,        /*!< Social scale */
+                            ParticleReal* const a_prob_ptr /*!< infection probability */) {
     Real infect = a_lparm->infect;
     infect *= a_lparm->vac_eff;
 
@@ -48,7 +48,7 @@ static void binaryInteractionAirTravel (const int a_i,                    /*!< I
 
     //  ptd.m_idata[IntIdx::school_closed][infectious_i] == 1 means a child/teacher normally attends school, but not today
     /* Should always be in the same community = same cell */
-    if (school_closed_ptr_i[a_i] == 1 ) {  // not attending school, use _SC contacts
+    if (school_closed_ptr_i[a_i] == 1) { // not attending school, use _SC contacts
         prob *= 1.0_prt - infect * a_lparm->xmit_comm_SC[age_group_ptr_j[a_j]] * a_social_scale;
     } else {
         prob *= 1.0_prt - infect * a_lparm->xmit_comm[age_group_ptr_j[a_j]] * a_social_scale;
@@ -136,7 +136,7 @@ void InteractionModAirTravel<AC, ACT, ACTD, A>::interactAgents (AC& a_agents,   
                 // auto mask_arr = a_mask[mfi].array();
                 auto lparm = a_agents.getDiseaseParameters_d(d);
 
-                ParallelFor(bins_ptr->numItems(), [=] AMREX_GPU_DEVICE (int ii) noexcept {
+                ParallelFor(bins_ptr->numItems(), [=] AMREX_GPU_DEVICE(int ii) noexcept {
                     auto i = inds[ii];
                     int i_cell = binner(pstruct_ptr[i]);
                     auto cell_start = travel_offsets[i_cell];
@@ -196,7 +196,7 @@ void InteractionModAirTravel<AC, ACT, ACTD, A>::interactAgents (AC& a_agents,   
                 // auto mask_arr = a_mask[mfi].array();
                 auto lparm = a_agents.getDiseaseParameters_d(d);
 
-                ParallelFor(travel_bins_ptr->numItems(), [=] AMREX_GPU_DEVICE (int ii) noexcept {
+                ParallelFor(travel_bins_ptr->numItems(), [=] AMREX_GPU_DEVICE(int ii) noexcept {
                     auto i = travel_inds[ii];
                     int i_cell = binner(pstruct_ptr[i]);
                     auto cell_start = offsets[i_cell];
