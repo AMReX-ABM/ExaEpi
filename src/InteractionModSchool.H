@@ -17,11 +17,12 @@ using namespace amrex;
  * susceptible agent at school. */
 template <typename PTDType>
 struct BinaryInteractionSchool {
-    AMREX_GPU_DEVICE AMREX_FORCE_INLINE ParticleReal operator()(const int infectious_i,  /*!< Index of infectious agent */
-                                                                const int susceptible_i, /*!< Index of susceptible agent */
-                                                                const PTDType& a_ptd,    /*!< Particle tile data */
-                                                                const DiseaseParm* const a_lparm, /*!< disease paramters */
-                                                                const Real a_social_scale /*!< Social scale */) const noexcept {
+    AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+    ParticleReal operator()(const int infectious_i,           /*!< Index of infectious agent */
+                            const int susceptible_i,          /*!< Index of susceptible agent */
+                            const PTDType& a_ptd,             /*!< Particle tile data */
+                            const DiseaseParm* const a_lparm, /*!< disease paramters */
+                            const Real a_social_scale /*!< Social scale */) const noexcept {
         AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::school_id][infectious_i] == a_ptd.m_idata[IntIdx::school_id][susceptible_i]);
         AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::school_grade][infectious_i] ==
                             a_ptd.m_idata[IntIdx::school_grade][susceptible_i]);
@@ -38,10 +39,10 @@ struct BinaryInteractionSchool {
         // infect *= j_mask;
         //  Elementary/middle/high school in common
         if (school_id > 0 && school_id < 5) {
-            if (age_group_ptr[infectious_i] <= 1) {      // Transmitter i is a child
-                if (age_group_ptr[susceptible_i] <= 1) { // Receiver j is a child
+            if (age_group_ptr[infectious_i] <= 1) {                              // Transmitter i is a child
+                if (age_group_ptr[susceptible_i] <= 1) {                         // Receiver j is a child
                     return a_lparm->xmit_school[school_id] * a_social_scale;
-                } else {                                 // Child student -> adult teacher/staff transmission
+                } else {                                                         // Child student -> adult teacher/staff transmission
                     return a_lparm->xmit_school_c2a[school_id] * a_social_scale; // * 0.5; // hack for testing
                 }
             } else {                                                             // transmitter is an adult
