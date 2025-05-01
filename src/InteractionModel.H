@@ -160,7 +160,7 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                                school_id_ptr[i], i, bingroup_ptr[i], max_group);
                     }
                 }
-                ParallelFor(np, [=] AMREX_GPU_DEVICE(int i) noexcept {
+                ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                     AMREX_ASSERT(bingroup_ptr[i] <= max_group);
                 });
 #endif
@@ -192,7 +192,7 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                 Real scale = 1.0_rt; // TODO this should vary based on cell
                 Real infect = (1.0_rt - lparm_h->vac_eff);
 
-                ParallelFor(bins_ptr->numItems(), [=] AMREX_GPU_DEVICE(int ii) noexcept {
+                ParallelFor(bins_ptr->numItems(), [=] AMREX_GPU_DEVICE (int ii) noexcept {
                     auto infectious_i = inds[ii];
                     int i_cell = binner(ptd, infectious_i);
                     auto cell_start = offsets[i_cell];
@@ -256,7 +256,7 @@ struct GetCommunityIndex {
         auto bx = valid_box;
 
         auto bsize = bin_size;
-        ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
             if (comm_arr(i, j, k) != -1) {
                 Box tbx;
                 auto ti = getTileIndex(IntVect(i, j), bx, true, bsize, tbx);

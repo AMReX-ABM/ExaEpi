@@ -157,7 +157,7 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                     Real scale = 1.0_rt; // TODO this should vary based on cell
                     Real infect = (1.0_rt - lparm_h->vac_eff);
 
-                    ParallelFor(np, [=] AMREX_GPU_DEVICE(int i) noexcept {
+                    ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                         if (isInfectious(i, ptd, d) && isCandidate(i, ptd) && isAnAdult(i, ptd) == adults) {
                             auto community = getCommunityIndex(ptd, i);
                             int pos = (community * max_school_id + school_id_ptr[i]) * max_school_grade + school_grade_ptr[i];
@@ -170,7 +170,7 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                     });
                     Gpu::synchronize();
 
-                    ParallelFor(np, [=] AMREX_GPU_DEVICE(int i) noexcept {
+                    ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                         if (isSusceptible(i, ptd, d) && isCandidate(i, ptd)) {
                             auto community = getCommunityIndex(ptd, i);
                             int pos = (community * max_school_id + school_id_ptr[i]) * max_school_grade + school_grade_ptr[i];
