@@ -39,10 +39,10 @@ struct BinaryInteractionSchool {
         // infect *= j_mask;
         //  Elementary/middle/high school in common
         if (school_id > 0 && school_id < 5) {
-            if (age_group_ptr[infectious_i] <= 1) {                              // Transmitter i is a child
-                if (age_group_ptr[susceptible_i] <= 1) {                         // Receiver j is a child
+            if (age_group_ptr[infectious_i] <= 1) {      // Transmitter i is a child
+                if (age_group_ptr[susceptible_i] <= 1) { // Receiver j is a child
                     return a_lparm->xmit_school[school_id] * a_social_scale;
-                } else {                                                         // Child student -> adult teacher/staff transmission
+                } else {                                 // Child student -> adult teacher/staff transmission
                     return a_lparm->xmit_school_c2a[school_id] * a_social_scale; // * 0.5; // hack for testing
                 }
             } else {                                                             // transmitter is an adult
