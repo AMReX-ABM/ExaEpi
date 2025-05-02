@@ -574,7 +574,7 @@ void AgentContainer::updateStatus (MFPtrVec& a_disease_stats, amrex::Real a_cur_
 }
 
 /*! \brief Start shelter-in-place */
-void AgentContainer::shelterStart () {
+void AgentContainer::shelterStart (amrex::Real a_cur_time) {
     BL_PROFILE("AgentContainer::shelterStart");
 
     amrex::Print() << "Starting shelter in place order \n";

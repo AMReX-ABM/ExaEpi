@@ -30,7 +30,7 @@ static void binaryInteractionAirTravel (const int a_i,                    /*!< I
     auto age_group_ptr_j = a_ptd_j.m_idata[IntIdx::age_group];
     auto nborhood_ptr_i = a_ptd_i.m_idata[IntIdx::nborhood];
     auto nborhood_ptr_j = a_ptd_j.m_idata[IntIdx::nborhood];
-    auto school_closed_ptr_i = a_ptd_i.m_idata[IntIdx::school_closed];
+    auto school_ptr_i = a_ptd_i.m_idata[IntIdx::school];
     auto withdrawn_ptr_i = a_ptd_i.m_idata[IntIdx::withdrawn];
     auto withdrawn_ptr_j = a_ptd_j.m_idata[IntIdx::withdrawn];
     if (withdrawn_ptr_i[a_i] || withdrawn_ptr_j[a_j]) { return; }

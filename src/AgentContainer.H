@@ -158,7 +158,6 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     void printAgeGroupCounts() const;
 
     amrex::iMultiFab m_student_counts;
-
     /// Used only for Census data. A ratio for each school type: none, college, high, middle, elem, daycare
     amrex::GpuArray<int, SchoolType::total> m_student_teacher_ratio = {0, 15, 15, 15, 15, 15};
 
