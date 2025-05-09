@@ -89,7 +89,7 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
 
         const auto lparm = pc.getDiseaseParameters_d(d_idx);
 
-        Gpu::DeviceScalar<int> num_infected_d(num_infected);
+        Gpu::DeviceScalar<int> num_infected_d(0);
         int* num_infected_p = num_infected_d.dataPtr();
         ParallelForRNG(box, [=] AMREX_GPU_DEVICE (int i, int j, int k, amrex::RandomEngine const& engine) noexcept {
             if (comm_arr(i, j, k) != random_comm) { return; }
@@ -174,6 +174,8 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
                 int u = 0;
                 int i = 0;
                 while (i < cases.Size_hubs[ihub]) {
+                    int diff = cases.Size_hubs[ihub] - i;
+                    ntry = diff > 5 ? 5 : diff; 
                     int nSuccesses =
                             infectRandomCommunity(pc, unit_community_start, comm_mf, bin_map, units[u], d_idx, ntry, fast_bin);
                     ninf += nSuccesses;
