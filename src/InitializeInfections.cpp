@@ -175,8 +175,8 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
                 int i = 0;
                 while (i < cases.Size_hubs[ihub]) {
                     int diff = cases.Size_hubs[ihub] - i;
-                    ntry = diff > 5 ? 5 : diff; 
-                    int nSuccesses =
+                    ntry = diff > 5 ? 5 : diff;
+		    int nSuccesses =
                             infectRandomCommunity(pc, unit_community_start, comm_mf, bin_map, units[u], d_idx, ntry, fast_bin);
                     ninf += nSuccesses;
                     i += nSuccesses;
