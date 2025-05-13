@@ -275,6 +275,16 @@ void runAgent () {
                 }
             }
 
+            if ((params.check_int > 0) && (i % params.check_int == 0)) {
+                if (params.ic_type == ICType::Census) {
+                    ExaEpi::IO::writeCheckpointFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf,
+                                                    params.num_diseases, params.disease_names, cur_time, i);
+                } else {
+                    ExaEpi::IO::writeCheckpointFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
+                                                    params.num_diseases, params.disease_names, cur_time, i);
+                }
+            }
+
             if ((params.aggregated_diag_int > 0) && (i % params.aggregated_diag_int == 0)) {
                 if (params.ic_type == ICType::Census) {
                     ExaEpi::IO::writeFIPSData(pc, censusData, params.aggregated_diag_prefix, params.num_diseases,
@@ -436,6 +446,16 @@ void runAgent () {
         } else {
             ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
                                       params.num_diseases, params.disease_names, cur_time, params.nsteps);
+        }
+    }
+
+    if (params.check_int > 0) {
+        if (params.ic_type == ICType::Census) {
+            ExaEpi::IO::writeCheckpointFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf,
+                                            params.num_diseases, params.disease_names, cur_time, params.nsteps);
+        } else {
+            ExaEpi::IO::writeCheckpointFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
+                                            params.num_diseases, params.disease_names, cur_time, params.nsteps);
         }
     }
 

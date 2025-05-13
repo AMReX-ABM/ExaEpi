@@ -203,6 +203,159 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
     }
 }
 
+void writeCheckpointFile (const AgentContainer& pc,                      /*!< Agent (particle) container */
+                          const MFPtrVec& a_disease_stats,               /*!< Disease stats tracker */
+                          const iMultiFab* unit_mf_ptr,                  /*!< MultiFabs to write out */
+                          const iMultiFab* FIPS_mf_ptr,                  /*!< MultiFabs to write out */
+                          const iMultiFab* comm_mf_ptr,                  /*!< MultiFabs to write out */
+                          const int num_diseases,                        /*!< Number of diseases */
+                          const std::vector<std::string>& disease_names, /*!< Names of diseases */
+                          const Real cur_time,                           /*!< current time */
+                          const int step /*!< Current step */) {
+    amrex::Print() << "Writing checkfile \n";
+
+    // make sure status_names are in the same order as the struct Status in AgentDefinitions.H (do not include "dead")
+    static const Vector<std::string> status_names = {"total", "never_infected", "infected", "immune", "susceptible"};
+
+    static const int ncomp_d = status_names.size();
+    static const int ncomp = ncomp_d * num_diseases + num_diseases + (unit_mf_ptr != nullptr ? 4 : 3);
+
+    MultiFab output_mf(pc.ParticleBoxArray(0), pc.ParticleDistributionMap(0), ncomp, 0);
+    output_mf.setVal(0.0);
+    pc.generateCellData(output_mf, ncomp_d);
+
+    for (int d = 0; d < num_diseases; d++) {
+        amrex::Copy(output_mf, *a_disease_stats[d], DiseaseStats::new_cases, ncomp_d * num_diseases + d, 1, 0);
+    }
+
+    amrex::Copy(output_mf, *FIPS_mf_ptr, 0, ncomp_d * num_diseases + num_diseases, 2, 0);
+    amrex::Copy(output_mf, *comm_mf_ptr, 0, ncomp_d * num_diseases + num_diseases + 2, 1, 0);
+    if (unit_mf_ptr != nullptr) { amrex::Copy(output_mf, *unit_mf_ptr, 0, ncomp_d * num_diseases + 3, 1, 0); }
+
+    {
+        Vector<std::string> plt_varnames = {};
+        if (num_diseases == 1) {
+            for (auto status_name : status_names) {
+                plt_varnames.push_back(status_name);
+            }
+            plt_varnames.push_back("new_cases");
+        } else {
+            for (int d = 0; d < num_diseases; d++) {
+                for (auto status_name : status_names) {
+                    plt_varnames.push_back(disease_names[d] + "_" + status_name);
+                }
+            }
+            for (int d = 0; d < num_diseases; d++) {
+                plt_varnames.push_back(disease_names[d] + "_new_cases");
+            }
+        }
+        plt_varnames.push_back("FIPS");
+        plt_varnames.push_back("Tract");
+        plt_varnames.push_back("comm");
+        if (unit_mf_ptr != nullptr) { plt_varnames.push_back("unit"); }
+
+        AMREX_ASSERT(plt_varnames.size() == output_mf.nComp());
+
+#ifdef AMREX_USE_HDF5
+        WriteSingleLevelPlotfileHDF5MultiDset(amrex::Concatenate("plt", step, 5), output_mf, plt_varnames, pc.ParticleGeom(0),
+                                              cur_time, step, "ZLIB@3");
+#else
+        WriteSingleLevelPlotfile(amrex::Concatenate("plt", step, 5), output_mf, plt_varnames, pc.ParticleGeom(0), cur_time, step);
+#endif
+    }
+
+    {
+        Vector<int> write_real_comp = {}, write_int_comp = {};
+        Vector<std::string> real_varnames = {}, int_varnames = {};
+        // non-disease-specific attributes
+        int_varnames.push_back("age_group");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("family");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("home_i");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("home_j");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("work_i");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("work_j");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("hosp_i");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("hosp_j");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("trav_i");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("trav_j");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("nborhood");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("school_grade");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("school_id");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("school_closed");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("naics");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("workgroup");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("work_nborhood");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("withdrawn");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("random_travel");
+        write_int_comp.push_back(1);
+        int_varnames.push_back("air_travel");
+        write_int_comp.push_back(1);
+        // disease-specific (runtime-added) attributes
+        if (num_diseases == 1) {
+            real_varnames.push_back("treatment_timer");
+            write_real_comp.push_back(1);
+            real_varnames.push_back("disease_counter");
+            write_real_comp.push_back(1);
+            real_varnames.push_back("infection_prob");
+            write_real_comp.push_back(1);
+            real_varnames.push_back("latent_period");
+            write_real_comp.push_back(1);
+            real_varnames.push_back("infectious_period");
+            write_real_comp.push_back(1);
+            real_varnames.push_back("incubation_period");
+            write_real_comp.push_back(1);
+            real_varnames.push_back("hospital_delay");
+            write_real_comp.push_back(1);
+            int_varnames.push_back("status");
+            write_int_comp.push_back(1);
+            int_varnames.push_back("symptomatic");
+            write_int_comp.push_back(1);
+        } else {
+            for (int d = 0; d < num_diseases; d++) {
+                real_varnames.push_back(disease_names[d] + "treatment_timer");
+                write_real_comp.push_back(1);
+                real_varnames.push_back(disease_names[d] + "_disease_counter");
+                write_real_comp.push_back(1);
+                real_varnames.push_back(disease_names[d] + "_infection_prob");
+                write_real_comp.push_back(1);
+                real_varnames.push_back(disease_names[d] + "_latent_period");
+                write_real_comp.push_back(1);
+                real_varnames.push_back(disease_names[d] + "_infectious_period");
+                write_real_comp.push_back(1);
+                real_varnames.push_back(disease_names[d] + "_incubation_period");
+                write_real_comp.push_back(1);
+                real_varnames.push_back(disease_names[d] + "_hospital_delay");
+                write_real_comp.push_back(1);
+                int_varnames.push_back(disease_names[d] + "_status");
+                write_int_comp.push_back(1);
+                int_varnames.push_back(disease_names[d] + "_symptomatic");
+                write_int_comp.push_back(1);
+            }
+        }
+
+        pc.Checkpoint(amrex::Concatenate("chk", step, 5), "agents", write_real_comp, write_int_comp, real_varnames,
+                      int_varnames);
+    }
+}
+
 /*! \brief Writes diagnostic data by FIPS code
 
     Writes a file with the total number of infected agents for each unit;

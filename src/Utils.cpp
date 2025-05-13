@@ -26,6 +26,7 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
 
     pp.query("nsteps", params.nsteps);
     pp.query("plot_int", params.plot_int);
+    pp.query("check_int", params.check_int);
     pp.query("random_travel_int", params.random_travel_int);
     pp.query("random_travel_prob", params.random_travel_prob);
     pp.query("air_travel_int", params.air_travel_int);
