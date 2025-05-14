@@ -254,15 +254,15 @@ void runAgent () {
                 }
                 inFile.close();
 
-                AMREX_ALWAYS_ASSERT(start_day + 1 <= lines.size());
+                AMREX_ALWAYS_ASSERT(std::size_t(start_day + 1) <= lines.size());
                 lines.erase(lines.begin() + start_day + 1, lines.end());
 
                 std::ofstream outFile;
                 outFile.open(output_filename[d].c_str(), std::ios::out | std::ios::trunc);
 
                 if (!outFile.good()) { amrex::FileOpenFailed(output_filename[d]); }
-                for (auto line : lines) {
-                    outFile << line << "\n";
+                for (auto li : lines) {
+                    outFile << li << "\n";
                 }
 
                 outFile.flush();
