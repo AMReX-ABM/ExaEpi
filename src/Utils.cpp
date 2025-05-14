@@ -69,6 +69,8 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
         pp.get("aggregated_diag_prefix", params.aggregated_diag_prefix);
     }
 
+    pp.query("restart", params.restart_chkfile);
+
     pp.query("shelter_start", params.shelter_start);
     pp.query("shelter_length", params.shelter_length);
 

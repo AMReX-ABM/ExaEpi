@@ -189,42 +189,50 @@ void runAgent () {
     pc.setStableRedistribute(stable_redistribute);
     pc.setTileSize(censusData.unit_mf.mfiter_tile_size);
 
+    amrex::Real cur_time = 0;
+    int start_day = 0;
     {
         BL_PROFILE_REGION("Initialization");
-        if (params.ic_type == ICType::Census) {
-            censusData.initAgents(pc, params.nborhood_size);
-            censusData.readWorkerflow(pc, params.workerflow_filename, params.workgroup_size);
-        } else if (params.ic_type == ICType::UrbanPop) {
-            urbanPopData.initAgents(pc, params);
-        } else {
-            Abort("Unimplemented ic_type");
-        }
-
-        for (int d = 0; d < params.num_diseases; d++) {
-            auto disease_params = pc.getDiseaseParameters_h(d);
-            if (disease_params->initial_case_type == CaseTypes::file) {
-                CaseData cases;
-                cases.initFromFile(disease_params->disease_name, std::string(disease_params->case_filename));
-                setInitialCasesFromFile(pc, cases, disease_params->disease_name, d,
-                                        (params.ic_type == ICType::Census ? censusData.demo.FIPS : urbanPopData.FIPS_codes),
-                                        (params.ic_type == ICType::Census ? censusData.demo.Start
-                                                                          : urbanPopData.fips_community_start),
-                                        (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.community_mf),
-                                        params.fast);
+        if( params.restart_chkfile.empty() ) {
+            if (params.ic_type == ICType::Census) {
+                censusData.initAgents(pc, params.nborhood_size);
+                censusData.readWorkerflow(pc, params.workerflow_filename, params.workgroup_size);
+            } else if (params.ic_type == ICType::UrbanPop) {
+                urbanPopData.initAgents(pc, params);
             } else {
-                setInitialCasesRandom(pc, disease_params->num_initial_cases, disease_params->disease_name, d,
-                                      (params.ic_type == ICType::Census ? censusData.demo.Start
-                                                                        : urbanPopData.fips_community_start),
-                                      (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.community_mf),
-                                      params.fast);
+                Abort("Unimplemented ic_type");
             }
-        }
 
-        pc.printStudentTeacherCounts();
-        pc.printAgeGroupCounts();
+            for (int d = 0; d < params.num_diseases; d++) {
+                auto disease_params = pc.getDiseaseParameters_h(d);
+                if (disease_params->initial_case_type == CaseTypes::file) {
+                    CaseData cases;
+                    cases.initFromFile(disease_params->disease_name, std::string(disease_params->case_filename));
+                    setInitialCasesFromFile(pc, cases, disease_params->disease_name, d,
+                                            (params.ic_type == ICType::Census ? censusData.demo.FIPS : urbanPopData.FIPS_codes),
+                                            (params.ic_type == ICType::Census ? censusData.demo.Start
+                                             : urbanPopData.fips_community_start),
+                                            (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.community_mf),
+                                            params.fast);
+                } else {
+                    setInitialCasesRandom(pc, disease_params->num_initial_cases, disease_params->disease_name, d,
+                                          (params.ic_type == ICType::Census ? censusData.demo.Start
+                                           : urbanPopData.fips_community_start),
+                                          (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.community_mf),
+                                          params.fast);
+                }
+            }
 
-        if (params.ic_type == ICType::Census && params.air_travel_int > 0) {
-            pc.setAirTravel(censusData.unit_mf, air, censusData.demo);
+            pc.printStudentTeacherCounts();
+            pc.printAgeGroupCounts();
+
+            if (params.ic_type == ICType::Census && params.air_travel_int > 0) {
+                pc.setAirTravel(censusData.unit_mf, air, censusData.demo);
+            }
+        } else {
+            IO::readCheckpointFile(params.restart_chkfile,
+               pc, &(censusData.unit_mf), &(censusData.FIPS_mf), &(censusData.comm_mf),
+               cur_time, start_day);
         }
     }
 
@@ -254,15 +262,13 @@ void runAgent () {
         cumulative_deaths[d] = counts[4];
     }
 
-    amrex::Real cur_time = 0;
-
     Vector<Long> num_infected(params.num_diseases, 0);
 
     amrex::ParmParse::QueryUnusedInputs();
 
     {
         BL_PROFILE_REGION("Evolution");
-        for (int i = 0; i < params.nsteps; ++i) {
+        for (int i = start_day; i < params.nsteps; ++i) {
             auto start_time = std::chrono::high_resolution_clock::now();
 
             if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
