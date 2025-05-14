@@ -146,31 +146,33 @@ void runAgent () {
     ParmParse pp("diag");
     pp.queryarr("output_filename", output_filename, 0, params.num_diseases);
 
-    for (int d = 0; d < params.num_diseases; d++) {
-        if (ParallelDescriptor::IOProcessor()) {
-            std::ofstream File;
-            File.open(output_filename[d].c_str(), std::ios::out | std::ios::trunc);
+    if (params.restart_chkfile == "") {
+        for (int d = 0; d < params.num_diseases; d++) {
+            if (ParallelDescriptor::IOProcessor()) {
+                std::ofstream File;
+                File.open(output_filename[d].c_str(), std::ios::out | std::ios::trunc);
 
-            if (!File.good()) { amrex::FileOpenFailed(output_filename[d]); }
+                if (!File.good()) { amrex::FileOpenFailed(output_filename[d]); }
 
-            File << std::setw(5) << "Day";
-            File << std::setw(12) << "Susceptible";
-            File << std::setw(12) << "Infected";
-            File << std::setw(12) << "Recovered";
-            File << std::setw(12) << "Deaths";
-            File << std::setw(15) << "Hospitalized";
-            File << std::setw(15) << "ICU";
-            File << std::setw(12) << "Ventilated";
-            File << std::setw(12) << "Exposed";
-            File << std::setw(15) << "Asymptomatic";
-            File << std::setw(15) << "Presymptomatic";
-            File << std::setw(15) << "Symptomatic\n";
+                File << std::setw(5) << "Day";
+                File << std::setw(12) << "Susceptible";
+                File << std::setw(12) << "Infected";
+                File << std::setw(12) << "Recovered";
+                File << std::setw(12) << "Deaths";
+                File << std::setw(15) << "Hospitalized";
+                File << std::setw(15) << "ICU";
+                File << std::setw(12) << "Ventilated";
+                File << std::setw(12) << "Exposed";
+                File << std::setw(15) << "Asymptomatic";
+                File << std::setw(15) << "Presymptomatic";
+                File << std::setw(15) << "Symptomatic\n";
 
-            File.flush();
+                File.flush();
 
-            File.close();
+                File.close();
 
-            if (!File.good()) { amrex::Abort("problem writing output file"); }
+                if (!File.good()) { amrex::Abort("problem writing output file"); }
+            }
         }
     }
 
@@ -233,6 +235,42 @@ void runAgent () {
             IO::readCheckpointFile(params.restart_chkfile,
                pc, &(censusData.unit_mf), &(censusData.FIPS_mf), &(censusData.comm_mf),
                cur_time, start_day);
+        }
+    }
+
+    // if we are doing a restart, we need to fix up the output_file
+    if (params.restart_chkfile != "") {
+        for (int d = 0; d < params.num_diseases; d++) {
+            if (ParallelDescriptor::IOProcessor()) {
+                std::ifstream inFile;
+                inFile.open(output_filename[d].c_str(), std::ios::in);
+
+                if (!inFile.good()) { amrex::FileOpenFailed(output_filename[d]); }
+
+                std::vector<std::string> lines;
+                std::string line;
+                while (std::getline(inFile, line)) {
+                    lines.push_back(line);
+                }
+                inFile.close();
+
+                AMREX_ALWAYS_ASSERT(start_day + 1 <= lines.size());
+                lines.erase(lines.begin() + start_day + 1, lines.end());
+
+                std::ofstream outFile;
+                outFile.open(output_filename[d].c_str(), std::ios::out | std::ios::trunc);
+
+                if (!outFile.good()) { amrex::FileOpenFailed(output_filename[d]); }
+                for (auto line : lines) {
+                    outFile << line << "\n";
+                }
+
+                outFile.flush();
+
+                outFile.close();
+
+                if (!outFile.good()) { amrex::Abort("problem writing output file"); }
+            }
         }
     }
 
