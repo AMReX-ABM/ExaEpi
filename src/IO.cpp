@@ -204,13 +204,13 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
 }
 
     void readCheckpointFile (
-	const std::string restart_chkfile,       /*!< checkpoint filename */
-	AgentContainer& pc,                      /*!< Agent (particle) container */
-	iMultiFab* unit_mf_ptr,                  /*!< MultiFabs to write out */
-	iMultiFab* FIPS_mf_ptr,                  /*!< MultiFabs to write out */
-	iMultiFab* comm_mf_ptr,                  /*!< MultiFabs to write out */
-	Real& cur_time,                          /*!< current time */
-	int& step /*!< Current step */)
+    const std::string restart_chkfile,       /*!< checkpoint filename */
+    AgentContainer& pc,                      /*!< Agent (particle) container */
+    iMultiFab* unit_mf_ptr,                  /*!< MultiFabs to write out */
+    iMultiFab* FIPS_mf_ptr,                  /*!< MultiFabs to write out */
+    iMultiFab* comm_mf_ptr,                  /*!< MultiFabs to write out */
+    Real& cur_time,                          /*!< current time */
+    int& step /*!< Current step */)
 {
     amrex::Print() << "Restarting from " << restart_chkfile << "\n";
     const std::string level_prefix {"Level_"};
@@ -233,7 +233,7 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
         std::getline(is, line);
 
         is >> cur_time;
-	is >> step;
+    is >> step;
     }
 
     auto unit = amrex::cast<MultiFab>(*unit_mf_ptr);
@@ -297,14 +297,14 @@ void writeCheckpointFile (const AgentContainer& pc,                      /*!< Ag
 
     // write the mesh data
     {
-	auto fips = amrex::cast<MultiFab>(*FIPS_mf_ptr);
-	VisMF::Write(fips, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "FIPS"));
+    auto fips = amrex::cast<MultiFab>(*FIPS_mf_ptr);
+    VisMF::Write(fips, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "FIPS"));
 
-	auto comm = amrex::cast<MultiFab>(*comm_mf_ptr);
-	VisMF::Write(comm, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "comm"));
+    auto comm = amrex::cast<MultiFab>(*comm_mf_ptr);
+    VisMF::Write(comm, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "comm"));
 
-	auto unit = amrex::cast<MultiFab>(*unit_mf_ptr);
-	VisMF::Write(unit, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "unit"));
+    auto unit = amrex::cast<MultiFab>(*unit_mf_ptr);
+    VisMF::Write(unit, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "unit"));
     }
 
     // Now the agent components
