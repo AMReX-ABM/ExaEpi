@@ -195,7 +195,7 @@ void runAgent () {
     int start_day = 0;
     {
         BL_PROFILE_REGION("Initialization");
-        if( params.restart_chkfile.empty() ) {
+        if (params.restart_chkfile.empty()) {
             if (params.ic_type == ICType::Census) {
                 censusData.initAgents(pc, params.nborhood_size);
                 censusData.readWorkerflow(pc, params.workerflow_filename, params.workgroup_size);
@@ -213,13 +213,13 @@ void runAgent () {
                     setInitialCasesFromFile(pc, cases, disease_params->disease_name, d,
                                             (params.ic_type == ICType::Census ? censusData.demo.FIPS : urbanPopData.FIPS_codes),
                                             (params.ic_type == ICType::Census ? censusData.demo.Start
-                                             : urbanPopData.fips_community_start),
+                                                                              : urbanPopData.fips_community_start),
                                             (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.community_mf),
                                             params.fast);
                 } else {
                     setInitialCasesRandom(pc, disease_params->num_initial_cases, disease_params->disease_name, d,
                                           (params.ic_type == ICType::Census ? censusData.demo.Start
-                                           : urbanPopData.fips_community_start),
+                                                                            : urbanPopData.fips_community_start),
                                           (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.community_mf),
                                           params.fast);
                 }
@@ -232,9 +232,8 @@ void runAgent () {
                 pc.setAirTravel(censusData.unit_mf, air, censusData.demo);
             }
         } else {
-            IO::readCheckpointFile(params.restart_chkfile,
-               pc, &(censusData.unit_mf), &(censusData.FIPS_mf), &(censusData.comm_mf),
-               cur_time, start_day);
+            IO::readCheckpointFile(params.restart_chkfile, pc, &(censusData.unit_mf), &(censusData.FIPS_mf),
+                                   &(censusData.comm_mf), cur_time, start_day);
         }
     }
 
@@ -321,11 +320,12 @@ void runAgent () {
 
             if ((params.check_int > 0) && (i % params.check_int == 0)) {
                 if (params.ic_type == ICType::Census) {
-                    ExaEpi::IO::writeCheckpointFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf,
-                                                    params.num_diseases, params.disease_names, cur_time, i);
+                    ExaEpi::IO::writeCheckpointFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf,
+                                                    &censusData.comm_mf, params.num_diseases, params.disease_names, cur_time, i);
                 } else {
-                    ExaEpi::IO::writeCheckpointFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
-                                                    params.num_diseases, params.disease_names, cur_time, i);
+                    ExaEpi::IO::writeCheckpointFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf,
+                                                    &urbanPopData.community_mf, params.num_diseases, params.disease_names,
+                                                    cur_time, i);
                 }
             }
 

@@ -203,17 +203,15 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
     }
 }
 
-    void readCheckpointFile (
-    const std::string restart_chkfile,       /*!< checkpoint filename */
-    AgentContainer& pc,                      /*!< Agent (particle) container */
-    iMultiFab* unit_mf_ptr,                  /*!< MultiFabs to write out */
-    iMultiFab* FIPS_mf_ptr,                  /*!< MultiFabs to write out */
-    iMultiFab* comm_mf_ptr,                  /*!< MultiFabs to write out */
-    Real& cur_time,                          /*!< current time */
-    int& step /*!< Current step */)
-{
+void readCheckpointFile (const std::string restart_chkfile, /*!< checkpoint filename */
+                         AgentContainer& pc,                /*!< Agent (particle) container */
+                         iMultiFab* unit_mf_ptr,            /*!< MultiFabs to write out */
+                         iMultiFab* FIPS_mf_ptr,            /*!< MultiFabs to write out */
+                         iMultiFab* comm_mf_ptr,            /*!< MultiFabs to write out */
+                         Real& cur_time,                    /*!< current time */
+                         int& step /*!< Current step */) {
     amrex::Print() << "Restarting from " << restart_chkfile << "\n";
-    const std::string level_prefix {"Level_"};
+    const std::string level_prefix{"Level_"};
     const int lev = 0;
 
     // Header
@@ -233,7 +231,7 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
         std::getline(is, line);
 
         is >> cur_time;
-    is >> step;
+        is >> step;
     }
 
     auto unit = amrex::cast<MultiFab>(*unit_mf_ptr);
@@ -269,22 +267,17 @@ void writeCheckpointFile (const AgentContainer& pc,                      /*!< Ag
     const int nlev = 1;
     const int lev = 0;
     const std::string& checkpointname = amrex::Concatenate("chk", step, 5);
-    const std::string default_level_prefix {"Level_"};
+    const std::string default_level_prefix{"Level_"};
 
     amrex::PreBuildDirectorHierarchy(checkpointname, default_level_prefix, nlev, true);
 
-    if (ParallelDescriptor::IOProcessor())
-    {
+    if (ParallelDescriptor::IOProcessor()) {
         VisMF::IO_Buffer io_buffer(VisMF::IO_Buffer_Size);
         std::ofstream HeaderFile;
         HeaderFile.rdbuf()->pubsetbuf(io_buffer.dataPtr(), io_buffer.size());
         const std::string HeaderFileName(checkpointname + "/ExaEpiHeader");
-        HeaderFile.open(HeaderFileName.c_str(), std::ofstream::out   |
-                                                std::ofstream::trunc |
-                                                std::ofstream::binary);
-        if( ! HeaderFile.good()) {
-            amrex::FileOpenFailed(HeaderFileName);
-        }
+        HeaderFile.open(HeaderFileName.c_str(), std::ofstream::out | std::ofstream::trunc | std::ofstream::binary);
+        if (!HeaderFile.good()) { amrex::FileOpenFailed(HeaderFileName); }
 
         HeaderFile.precision(17);
 
@@ -297,14 +290,14 @@ void writeCheckpointFile (const AgentContainer& pc,                      /*!< Ag
 
     // write the mesh data
     {
-    auto fips = amrex::cast<MultiFab>(*FIPS_mf_ptr);
-    VisMF::Write(fips, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "FIPS"));
+        auto fips = amrex::cast<MultiFab>(*FIPS_mf_ptr);
+        VisMF::Write(fips, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "FIPS"));
 
-    auto comm = amrex::cast<MultiFab>(*comm_mf_ptr);
-    VisMF::Write(comm, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "comm"));
+        auto comm = amrex::cast<MultiFab>(*comm_mf_ptr);
+        VisMF::Write(comm, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "comm"));
 
-    auto unit = amrex::cast<MultiFab>(*unit_mf_ptr);
-    VisMF::Write(unit, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "unit"));
+        auto unit = amrex::cast<MultiFab>(*unit_mf_ptr);
+        VisMF::Write(unit, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "unit"));
     }
 
     // Now the agent components
@@ -395,9 +388,7 @@ void writeCheckpointFile (const AgentContainer& pc,                      /*!< Ag
             }
         }
 
-        pc.Checkpoint(checkpointname, "agents",
-                      write_real_comp, write_int_comp,
-                      real_varnames, int_varnames);
+        pc.Checkpoint(checkpointname, "agents", write_real_comp, write_int_comp, real_varnames, int_varnames);
     }
 }
 

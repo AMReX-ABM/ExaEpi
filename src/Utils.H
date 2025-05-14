@@ -68,7 +68,7 @@ struct TestParams {
     std::string aggregated_diag_prefix; /*!< filename prefix for diagnostic data
                                              (see: ExaEpi::IO::writeFIPSData) */
 
-    std::string restart_chkfile = "";  /*!< the name of the checkpoint to restart from */
+    std::string restart_chkfile = "";   /*!< the name of the checkpoint to restart from */
 
     int shelter_start = -1;
     int shelter_length = 0;
