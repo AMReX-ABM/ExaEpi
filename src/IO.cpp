@@ -205,6 +205,7 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
 
 void readCheckpointFile (const std::string restart_chkfile, /*!< checkpoint filename */
                          AgentContainer& pc,                /*!< Agent (particle) container */
+			 MFPtrVec& a_disease_stats,         /*!< Disease stats tracker */
                          iMultiFab* unit_mf_ptr,            /*!< MultiFabs to write out */
                          iMultiFab* FIPS_mf_ptr,            /*!< MultiFabs to write out */
                          iMultiFab* comm_mf_ptr,            /*!< MultiFabs to write out */
@@ -245,6 +246,10 @@ void readCheckpointFile (const std::string restart_chkfile, /*!< checkpoint file
     auto comm = amrex::cast<MultiFab>(*comm_mf_ptr);
     VisMF::Read(comm, amrex::MultiFabFileFullPrefix(lev, restart_chkfile, level_prefix, "comm"));
     *comm_mf_ptr = amrex::cast<iMultiFab>(comm);
+
+    for (std::size_t i = 0; i < a_disease_stats.size(); ++i) {
+	VisMF::Read(*a_disease_stats[i], amrex::MultiFabFileFullPrefix(lev, restart_chkfile, level_prefix, "disease_stats_" + std::to_string(i)));
+    }
 
     pc.Restart(restart_chkfile, "agents");
 
@@ -292,104 +297,16 @@ void writeCheckpointFile (const AgentContainer& pc,                      /*!< Ag
     {
         auto fips = amrex::cast<MultiFab>(*FIPS_mf_ptr);
         VisMF::Write(fips, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "FIPS"));
-
         auto comm = amrex::cast<MultiFab>(*comm_mf_ptr);
         VisMF::Write(comm, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "comm"));
-
         auto unit = amrex::cast<MultiFab>(*unit_mf_ptr);
         VisMF::Write(unit, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "unit"));
+	for (std::size_t i = 0; i < a_disease_stats.size(); ++i) {
+            VisMF::Write(*a_disease_stats[i], amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "disease_stats_" + std::to_string(i)));
+	}
     }
 
-    // Now the agent components
-    {
-        Vector<int> write_real_comp = {}, write_int_comp = {};
-        Vector<std::string> real_varnames = {}, int_varnames = {};
-        // non-disease-specific attributes
-        int_varnames.push_back("age_group");
-        write_int_comp.push_back(1);
-        int_varnames.push_back("family");
-        write_int_comp.push_back(1);
-        int_varnames.push_back("home_i");
-        write_int_comp.push_back(1);
-        int_varnames.push_back("home_j");
-        write_int_comp.push_back(1);
-        int_varnames.push_back("work_i");
-        write_int_comp.push_back(1);
-        int_varnames.push_back("work_j");
-        write_int_comp.push_back(1);
-        int_varnames.push_back("hosp_i");
-        write_int_comp.push_back(1);
-        int_varnames.push_back("hosp_j");
-        write_int_comp.push_back(1);
-        int_varnames.push_back("trav_i");
-        write_int_comp.push_back(1);
-        int_varnames.push_back("trav_j");
-        write_int_comp.push_back(1);
-        int_varnames.push_back("nborhood");
-        write_int_comp.push_back(1);
-        int_varnames.push_back("school_grade");
-        write_int_comp.push_back(1);
-        int_varnames.push_back("school_id");
-        write_int_comp.push_back(1);
-        int_varnames.push_back("school_closed");
-        write_int_comp.push_back(1);
-        int_varnames.push_back("naics");
-        write_int_comp.push_back(1);
-        int_varnames.push_back("workgroup");
-        write_int_comp.push_back(1);
-        int_varnames.push_back("work_nborhood");
-        write_int_comp.push_back(1);
-        int_varnames.push_back("withdrawn");
-        write_int_comp.push_back(1);
-        int_varnames.push_back("random_travel");
-        write_int_comp.push_back(1);
-        int_varnames.push_back("air_travel");
-        write_int_comp.push_back(1);
-        // disease-specific (runtime-added) attributes
-        if (num_diseases == 1) {
-            real_varnames.push_back("treatment_timer");
-            write_real_comp.push_back(1);
-            real_varnames.push_back("disease_counter");
-            write_real_comp.push_back(1);
-            real_varnames.push_back("infection_prob");
-            write_real_comp.push_back(1);
-            real_varnames.push_back("latent_period");
-            write_real_comp.push_back(1);
-            real_varnames.push_back("infectious_period");
-            write_real_comp.push_back(1);
-            real_varnames.push_back("incubation_period");
-            write_real_comp.push_back(1);
-            real_varnames.push_back("hospital_delay");
-            write_real_comp.push_back(1);
-            int_varnames.push_back("status");
-            write_int_comp.push_back(1);
-            int_varnames.push_back("symptomatic");
-            write_int_comp.push_back(1);
-        } else {
-            for (int d = 0; d < num_diseases; d++) {
-                real_varnames.push_back(disease_names[d] + "treatment_timer");
-                write_real_comp.push_back(1);
-                real_varnames.push_back(disease_names[d] + "_disease_counter");
-                write_real_comp.push_back(1);
-                real_varnames.push_back(disease_names[d] + "_infection_prob");
-                write_real_comp.push_back(1);
-                real_varnames.push_back(disease_names[d] + "_latent_period");
-                write_real_comp.push_back(1);
-                real_varnames.push_back(disease_names[d] + "_infectious_period");
-                write_real_comp.push_back(1);
-                real_varnames.push_back(disease_names[d] + "_incubation_period");
-                write_real_comp.push_back(1);
-                real_varnames.push_back(disease_names[d] + "_hospital_delay");
-                write_real_comp.push_back(1);
-                int_varnames.push_back(disease_names[d] + "_status");
-                write_int_comp.push_back(1);
-                int_varnames.push_back(disease_names[d] + "_symptomatic");
-                write_int_comp.push_back(1);
-            }
-        }
-
-        pc.Checkpoint(checkpointname, "agents", write_real_comp, write_int_comp, real_varnames, int_varnames);
-    }
+    pc.Checkpoint(checkpointname, "agents");
 }
 
 /*! \brief Writes diagnostic data by FIPS code
