@@ -205,7 +205,7 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
 
 void readCheckpointFile (const std::string restart_chkfile, /*!< checkpoint filename */
                          AgentContainer& pc,                /*!< Agent (particle) container */
-			 MFPtrVec& a_disease_stats,         /*!< Disease stats tracker */
+             MFPtrVec& a_disease_stats,         /*!< Disease stats tracker */
                          iMultiFab* unit_mf_ptr,            /*!< MultiFabs to write out */
                          iMultiFab* FIPS_mf_ptr,            /*!< MultiFabs to write out */
                          iMultiFab* comm_mf_ptr,            /*!< MultiFabs to write out */
@@ -248,7 +248,7 @@ void readCheckpointFile (const std::string restart_chkfile, /*!< checkpoint file
     *comm_mf_ptr = amrex::cast<iMultiFab>(comm);
 
     for (std::size_t i = 0; i < a_disease_stats.size(); ++i) {
-	VisMF::Read(*a_disease_stats[i], amrex::MultiFabFileFullPrefix(lev, restart_chkfile, level_prefix, "disease_stats_" + std::to_string(i)));
+    VisMF::Read(*a_disease_stats[i], amrex::MultiFabFileFullPrefix(lev, restart_chkfile, level_prefix, "disease_stats_" + std::to_string(i)));
     }
 
     pc.Restart(restart_chkfile, "agents");
@@ -301,9 +301,9 @@ void writeCheckpointFile (const AgentContainer& pc,                      /*!< Ag
         VisMF::Write(comm, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "comm"));
         auto unit = amrex::cast<MultiFab>(*unit_mf_ptr);
         VisMF::Write(unit, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "unit"));
-	for (std::size_t i = 0; i < a_disease_stats.size(); ++i) {
+    for (std::size_t i = 0; i < a_disease_stats.size(); ++i) {
             VisMF::Write(*a_disease_stats[i], amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "disease_stats_" + std::to_string(i)));
-	}
+    }
     }
 
     pc.Checkpoint(checkpointname, "agents");
