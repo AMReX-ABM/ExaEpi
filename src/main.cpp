@@ -232,8 +232,7 @@ void runAgent () {
                 pc.setAirTravel(censusData.unit_mf, air, censusData.demo);
             }
         } else {
-            IO::readCheckpointFile(params.restart_chkfile, pc, disease_stats,
-                                   &(censusData.unit_mf), &(censusData.FIPS_mf),
+            IO::readCheckpointFile(params.restart_chkfile, pc, disease_stats, &(censusData.unit_mf), &(censusData.FIPS_mf),
                                    &(censusData.comm_mf), cur_time, start_day);
         }
     }
