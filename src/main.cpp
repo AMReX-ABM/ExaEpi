@@ -318,7 +318,7 @@ void runAgent () {
                 }
             }
 
-            if ((params.check_int > 0) && (i % params.check_int == 0)) {
+            if ((params.check_int > 0) && (i % params.check_int == 0) && ((params.restart_chkfile == "") || (i != start_day))) {
                 if (params.ic_type == ICType::Census) {
                     ExaEpi::IO::writeCheckpointFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf,
                                                     &censusData.comm_mf, params.num_diseases, params.disease_names, cur_time, i);
