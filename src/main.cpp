@@ -3,6 +3,7 @@
 */
 
 #include <chrono>
+#include <filesystem>
 
 #include <AMReX.H>
 #include <AMReX_MultiFab.H>
@@ -241,6 +242,14 @@ void runAgent () {
     if (params.restart_chkfile != "") {
         for (int d = 0; d < params.num_diseases; d++) {
             if (ParallelDescriptor::IOProcessor()) {
+
+		if (amrex::FileExists(output_filename[d]))
+		{
+		    std::string newoldname(output_filename[d] + ".old." + amrex::UniqueString());
+                    amrex::Print() << output_filename[d] << " exists.  Renaming to:  " << newoldname << '\n';
+		    std::filesystem::copy(output_filename[d], newoldname);
+		}
+
                 std::ifstream inFile;
                 inFile.open(output_filename[d].c_str(), std::ios::in);
 
