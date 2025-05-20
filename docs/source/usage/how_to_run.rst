@@ -64,6 +64,8 @@ The following are inputs for the overall simulation:
     The number of days to simulate.
 * ``agent.plot_int`` (`integer`, default ``-1``)
     The number of time steps between successive plot file writes. Set to -1 to disable writing.
+* ``agent.check_int`` (`integer`, default ``-1``)
+    The number of time steps between successive checkfile writes. Set to -1 to disable writing.
 * ``agent.random_travel_int`` (`integer`, default ``-1``)
     The number of time steps between random long distance travel events. Set to -1 to disable all random travel.
 * ``agent.random_travel_prob`` (`float`, default ``0.0001``)
@@ -76,6 +78,8 @@ The following are inputs for the overall simulation:
 * ``agent.aggregated_diag_prefix`` (`string`, default ``cases``)
     Prefix to use when writing aggregated data. For example, if this is set to `cases`, the
     aggregated data files will be named `cases000010`, etc.
+* ``agent.restart`` (`string`)
+    Name of the checkpoint file to restart from. If not present, the simulation will run from the beginning.
 * ``agent.seed`` (`long integer`, default ``0``)
     Use this to specify the random seed to use for the run.
 * ``agent.shelter_start`` (`integer`, default ``-1``)
