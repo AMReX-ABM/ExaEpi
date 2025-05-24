@@ -39,7 +39,7 @@ struct BinaryInteractionWorkNborhood {
         int nborhood_susceptible =
                 age_group_ptr[susceptible_i] > 1 ? work_nborhood_ptr[susceptible_i] : nborhood_ptr[susceptible_i];
 
-        // school < 0 means a child normally attends school, but not today
+        //  ptd.m_idata[IntIdx::school_closed][infectious_i] == 1 means a child/teacher normally attends school, but not today
         // Should always be in the same community = same cell
         // Neighborhood?
         if (nborhood_infectious == nborhood_susceptible) {

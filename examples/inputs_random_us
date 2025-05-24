@@ -1,6 +1,6 @@
 agent.ic_type = "census"
-agent.census_filename = "/global/homes/a/atmyers/ExaEpi/data/CensusData/US.dat"
-agent.workerflow_filename = "/global/homes/a/atmyers/ExaEpi/data/CensusData/US-wf.bin"
+agent.census_filename = "../../data/CensusData/US.dat"
+agent.workerflow_filename = "../../data/CensusData/US-wf.bin"
 
 agent.nsteps = 20
 agent.max_box_size = 16
@@ -19,4 +19,4 @@ disease.incubation_length_beta = 0.33
 
 agent.fast=1
 particles.use_comms_arena=1
-amrex.use_gpu_aware_mpi=1
+#amrex.use_gpu_aware_mpi=1
