@@ -2,15 +2,11 @@
 
 # This code is for generating nighttime/daytime flows that are missing from UrbanPop
 
-import functools
 import time
 import pandas as pd
-import pickle
-import os
 import sys
 import argparse
 import numpy as np
-import random
 from pandas.api.types import CategoricalDtype
 from colorama import Fore
 
@@ -206,7 +202,7 @@ def get_schools(fname):
 def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
     schools_df["region"] = schools_df.geoid.str[:geoid_scaling]
     # group by region
-    # students_df = students_df[(students_df.allocated == False)]
+    students_df = students_df[(students_df.school_id == "-1")]
     students_df.loc[:, "region"] = students_df.geoid.str[:geoid_scaling]
     student_groups = students_df.groupby(["region"])
     # print("      Found", len(student_groups), "regions for student groups")
@@ -219,40 +215,35 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
         if num_students_reqd == 0:
             continue
         # defaults to empty in case we can't find a key
-        # schools_selected = pd.DataFrame({"geoid": [""] * num_students_reqd, "id": ["-1"] * num_students_reqd})
         try:
-            school_group = school_groups.get_group(group_name)[["geoid", "id", "remaining_students"]]
+            school_group = school_groups.get_group(group_name)[["geoid", "id", "remaining_student_places"]]
         except KeyError:
             missing_regions += 1
             continue
-        num_students_avail = school_group.remaining_students.sum()
-        if alloc_all:
-            num_students_avail = num_students_reqd
-            norm_factor = school_group.remaining_students.sum()
+        sum_remaining_student_places = school_group.remaining_student_places.sum()
+        if not alloc_all and num_students_reqd > sum_remaining_student_places:
+            # add an extra dummy row so that all students have a chance of being allocated to available slots
+            school_group.loc[len(school_group)] = ["", "", num_students_reqd - sum_remaining_student_places]
+            # calculate probs with sum of newly remaining places (incl dummy spots)
+            school_probs = school_group.remaining_student_places / school_group.remaining_student_places.sum()
         else:
-            missing_students = max(num_students_reqd - num_students_avail, 0)
-            if missing_students > 0:
-                # add a dummy empty school for missing prob
-                school_group.loc[len(school_group)] = ["", "-1", missing_students]
-            norm_factor = num_students_avail + missing_students
-        num_students = num_students_reqd
-        school_probs = school_group.remaining_students / norm_factor
-        schools_selected = school_group.sample(n=num_students, weights=school_probs, replace=True)
+            school_probs = school_group.remaining_student_places / sum_remaining_student_places
+        schools_selected = school_group.sample(n=num_students_reqd, weights=school_probs, replace=True)
         schools_selected.index.rename("index", inplace=True)
 
         nt_dt_group = student_group[["p_id", "geoid", "pr_naics", "pr_grade"]]
         nt_dt_group = nt_dt_group.assign(dest_geoid=schools_selected.geoid.tolist(), school_id=schools_selected.id.tolist())
         nt_dt_df = pd.concat([nt_dt_df, nt_dt_group], ignore_index=True)
-
-        continue
-
+        # clear out dummy schools
+        schools_selected = schools_selected[(schools_selected.id != "")]
         # reduce the available students at schools count according to how many have been allocated
         schools_selected_groups = schools_selected.groupby(["index"])
         selected_school_indexes = list(schools_selected_groups.groups.keys())
         selected_school_counts = schools_selected_groups.id.count().tolist()
-        schools_df.loc[schools_df.index.isin(selected_school_indexes), "remaining_students"] -= np.int32(selected_school_counts)
-        # always leave at least 1 student so we can always allocate to these schools, even at a low probability
-        schools_df.loc[schools_df.remaining_students < 1, "remaining_students"] = 1
+        indexes = schools_df.index.isin(selected_school_indexes)
+        schools_df.loc[indexes, "remaining_student_places"] -= np.int32(selected_school_counts)
+        # always set to 1 to enable a slight chance of allocating to this school
+        schools_df.loc[schools_df.remaining_student_places < 1, "remaining_student_places"] = 1
 
     print("      Found", len(student_groups), "student regions,", missing_regions, "without schools")
     nt_dt_df.rename(columns={"geoid": "orig_geoid", "pr_naics": "naics", "pr_grade": "grade"}, inplace=True)
@@ -261,12 +252,15 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
     nt_dt_df = nt_dt_df[["p_id", "role", "orig_geoid", "dest_geoid", "naics", "grade", "school_id"]]
     nt_dt_df.naics = ""
     nt_dt_df.sort_values(by=["p_id"], inplace=True, ignore_index=True)
-    # students_df.loc[:, "allocated"] = np.bool(nt_dt_df.school_id != "-1")
-    # students_df.loc[:, "allocated"] = np.bool(nt_dt_df.school_id != np.nan)
+
+    idx_to = students_df["p_id"].isin(nt_dt_df["p_id"])
+    idx_from = nt_dt_df["p_id"].isin(students_df["p_id"])
+    students_df.loc[idx_to, "school_id"] = nt_dt_df.loc[idx_from, "school_id"].values
+
     # only subset if this is not the last round
     if not alloc_all:
         nt_dt_df = nt_dt_df[(nt_dt_df.school_id != "-1")]
-    return nt_dt_df, students_df
+    return nt_dt_df, students_df[(students_df.school_id == "-1")]
 
 
 @timer
@@ -285,7 +279,7 @@ def alloc_students_level(schools_df, students_df, level):
     # just allocate uniformly among the levels, e.g. a EMH school would have 1/3 students each in elem, middle and high
     # divide by the number of levels to get the proportion
     schools_df.loc[:, "students"] = np.int32(np.ceil(schools_df.students / schools_df.level.str.len()))
-    schools_df["remaining_students"] = schools_df.students
+    schools_df["remaining_student_places"] = schools_df.students
     nt_dt_df = pd.DataFrame()
     # for childcare, we assume that it is all close to home
     scales = list(region_scales.keys()) if level != "C" else list(region_scales.keys())[:3]
@@ -293,13 +287,11 @@ def alloc_students_level(schools_df, students_df, level):
     for scale in scales:
         # FIXME: need to reduce student counts after each allocation round so that random weighting is correct in the next round
         print("    Region", region_scales[scale])
-        alloc_all = False
         # make sure to allocate all at the final region scale
         alloc_all = True if scale == scales[-1] else False
         students_nt_dt_df, students_df = alloc_students_region(students_df, schools_df, scale, alloc_all)
-        # num_unalloc_students = len(students_df[(students_df.allocated == False)])
         num_unalloc_students = len(students_df[(students_df.school_id == "-1")])
-        print("      Set destinations for", len(students_nt_dt_df), "students,", num_unalloc_students, "still unallocated")
+        print("      Set destinations for", len(students_nt_dt_df), "students,", num_unalloc_students, "unallocated")
         nt_dt_df = pd.concat([nt_dt_df, students_nt_dt_df], ignore_index=True)
         if num_unalloc_students == 0:
             break
@@ -434,7 +426,7 @@ def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df):
     schools_df = schools_df.merge(alloc_schools_df, on="id")
     schools_df["ratio"] = schools_df.alloc_students / schools_df.students
     schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.teachers * schools_df.ratio))
-    schools_df.to_csv("selected_schools.csv", sep="\t", float_format="%.1f", index=False)
+    schools_df.to_csv("selected_schools.csv", sep="\t", float_format="%.2f", index=False)
     schools_df["alloc_teachers"] = schools_df.adj_teachers
 
     # workers_nt_dt_df.to_csv("workers_nt_dt.csv", sep="\t")
@@ -452,7 +444,7 @@ def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df):
         workers_nt_dt_df.loc[teachers_df.index, "school_id"] = teachers_df.school_id
         workers_nt_dt_df.loc[teachers_df.index, "dest_geoid"] = teachers_df.dest_geoid
         workers_nt_dt_df.loc[teachers_df.index, "grade"] = teachers_df.grade
-    schools_df.to_csv("adjusted_schools.csv", sep="\t")
+    # schools_df.to_csv("adjusted_schools.csv", sep="\t")
 
     return workers_nt_dt_df
 
