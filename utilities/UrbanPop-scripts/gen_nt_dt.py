@@ -204,7 +204,7 @@ def get_schools(fname):
 def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
     schools_df["region"] = schools_df.geoid.str[:geoid_scaling]
     # group by region
-    students_df = students_df[(students_df.school_id == "-1")]
+    students_df = students_df[(students_df.school_id == "")]
     students_df.loc[:, "region"] = students_df.geoid.str[:geoid_scaling]
     student_groups = students_df.groupby(["region"])
     # print("      Found", len(student_groups), "regions for student groups")
@@ -261,8 +261,8 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
 
     # only subset if this is not the last round
     if not alloc_all:
-        nt_dt_df = nt_dt_df[(nt_dt_df.school_id != "-1")]
-    return nt_dt_df, students_df[(students_df.school_id == "-1")]
+        nt_dt_df = nt_dt_df[(nt_dt_df.school_id != "")]
+    return nt_dt_df, students_df[(students_df.school_id == "")]
 
 
 @timer
@@ -287,16 +287,15 @@ def alloc_students_level(schools_df, students_df, level):
     scales = list(region_scales.keys()) if level != "C" else list(region_scales.keys())[:3]
     # pick schools for students from decreasing resolution; the goal is to allocate students as close to home as possible
     for scale in scales:
-        # FIXME: need to reduce student counts after each allocation round so that random weighting is correct in the next round
         print("    Region", region_scales[scale])
         # make sure to allocate all at the final region scale
         alloc_all = True if scale == scales[-1] else False
         students_nt_dt_df, students_df = alloc_students_region(students_df, schools_df, scale, alloc_all)
-        num_unalloc_students = len(students_df[(students_df.school_id == "-1")])
+        num_unalloc_students = len(students_df[(students_df.school_id == "")])
         print("      Set destinations for", len(students_nt_dt_df), "students,", num_unalloc_students, "unallocated")
         nt_dt_df = pd.concat([nt_dt_df, students_nt_dt_df], ignore_index=True)
         if alloc_all:
-            unalloc_students_df = students_df[(students_df.school_id == "-1")].copy()
+            unalloc_students_df = students_df[(students_df.school_id == "")].copy()
             unalloc_students_df.rename(columns={"geoid": "orig_geoid", "pr_naics": "naics", "pr_grade": "grade"}, inplace=True)
             unalloc_students_df["role"] = "student"
             unalloc_students_df["dest_geoid"] = unalloc_students_df["orig_geoid"]
@@ -319,7 +318,7 @@ def alloc_students(args, students_df):
     if missing_grades:
         print("WARNING: Found missing categories for pr_grade:", missing_grades)
     students_df["pr_grade"] = students_df["pr_grade"].astype(grade_categs).cat.codes + 3
-    students_df["school_id"] = "-1"
+    students_df["school_id"] = ""
 
     # allocate students from each level
     students_nt_dt_df = pd.DataFrame()
@@ -329,11 +328,11 @@ def alloc_students(args, students_df):
         students_nt_dt_df = pd.concat([students_nt_dt_df, df], ignore_index=True)
 
     # set all unallocated students
-    unalloc = students_nt_dt_df.school_id == "-1"
+    unalloc = students_nt_dt_df.school_id == ""
+    print("Unallocated students:", len(students_nt_dt_df.loc[unalloc]))
     students_nt_dt_df.loc[unalloc, "dest_geoid"] = students_nt_dt_df.orig_geoid
-    students_nt_dt_df.loc[unalloc, "grade"] = None
+    students_nt_dt_df.loc[unalloc, "grade"] = -1
     students_nt_dt_df.loc[unalloc, "role"] = "nope"
-    students_nt_dt_df.loc[unalloc, "school_id"] = None
 
     if DUMP_INTERMEDIATES:
         students_nt_dt_df.to_csv("students_nt_dt.csv", sep="\t", index=False)
@@ -376,12 +375,10 @@ def set_childcare(upop_df):
 
 def alloc_teachers_region(teachers_df, schools_df, geoid_scaling):
     schools_df["region"] = schools_df.geoid.str[:geoid_scaling]
-    schools_df.to_csv("schools.csv", sep="\t")
     teachers_df = teachers_df[(teachers_df.grade == "")].copy()
     teachers_df.loc[:, "region"] = teachers_df.orig_geoid.str[:geoid_scaling]
     teacher_groups = teachers_df.groupby(["region"])
     school_groups = schools_df.groupby(["region"])
-    # print("    Found", len(teacher_groups), "teacher groups")
     missing_regions = 0
     tot_reqd_teachers = 0
     for group_name, school_group in school_groups:
@@ -394,7 +391,6 @@ def alloc_teachers_region(teachers_df, schools_df, geoid_scaling):
         except KeyError:
             missing_regions += 1
             continue
-        # print("    Group", group_name, "num_teachers_reqd", num_teachers_reqd, "num_teachers_avail", teacher_group.p_id.count())
         num_teachers_reqd = min(num_teachers_reqd, teacher_group.p_id.count())
         teachers_selected = teacher_group.sample(n=num_teachers_reqd, replace=False)
         probs = school_group.adj_teachers / num_teachers_reqd
@@ -425,7 +421,8 @@ def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df):
     # The number of students at each school will not exactly match the original schools data, so we use the actual number
     # of students we have allocated, and the original student/teacher ratio to set the desired teacher counts for each school
     schools_df = get_schools(args.schools_file)
-    schools_df.to_csv("schools.csv", sep="\t")
+    if DUMP_INTERMEDIATES:
+        schools_df.to_csv("schools.csv", sep="\t")
     alloc_schools_df = (
         students_nt_dt_df.groupby(["school_id"])["p_id"]
         .count()
@@ -435,14 +432,12 @@ def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df):
     schools_df = schools_df.merge(alloc_schools_df, on="id")
     schools_df["ratio"] = schools_df.alloc_students / schools_df.students
     schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.teachers * schools_df.ratio))
-    schools_df.to_csv("selected_schools.csv", sep="\t", float_format="%.2f", index=False)
+    if DUMP_INTERMEDIATES:
+        schools_df.to_csv("selected_schools.csv", sep="\t", float_format="%.2f", index=False)
     schools_df["alloc_teachers"] = schools_df.adj_teachers
 
-    # workers_nt_dt_df.to_csv("workers_nt_dt.csv", sep="\t")
     teachers_df = workers_nt_dt_df[(workers_nt_dt_df.naics == "edu")].copy()
     teachers_df["school_id"] = None
-    if DUMP_INTERMEDIATES:
-        teachers_df.to_csv("teachers.csv", sep="\t")
     num_reqd_teachers = schools_df.adj_teachers.sum()
     print("Found", len(teachers_df), "edu workers for", num_reqd_teachers, "required teachers")
     scales = list(region_scales.keys())
@@ -453,7 +448,8 @@ def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df):
         workers_nt_dt_df.loc[teachers_df.index, "school_id"] = teachers_df.school_id
         workers_nt_dt_df.loc[teachers_df.index, "dest_geoid"] = teachers_df.dest_geoid
         workers_nt_dt_df.loc[teachers_df.index, "grade"] = teachers_df.grade
-    # schools_df.to_csv("adjusted_schools.csv", sep="\t")
+        if DUMP_INTERMEDIATES:
+            teachers_df.to_csv("teachers-" + region_scales[scale] + ".csv", sep="\t")
 
     return workers_nt_dt_df
 
@@ -493,11 +489,11 @@ def main():
     is_employed = (upop_df.pr_emp_stat == "employed") | (upop_df.pr_emp_stat == "mil")
     in_school = (upop_df.pr_grade != "") & ~is_employed
     students_df = upop_df[in_school].copy()
-    students_df.to_csv("students.csv")
+    # students_df.to_csv("students.csv")
     workers_df = upop_df[is_employed]
-    workers_df.to_csv("workers.csv")
+    # workers_df.to_csv("workers.csv")
     unemp_df = upop_df[~is_employed & ~in_school]
-    unemp_df.to_csv("unemp.csv")
+    # unemp_df.to_csv("unemp.csv")
     tot = len(workers_df) + len(students_df) + len(unemp_df)
     print("Counts:")
     print("  workers:   ", len(workers_df))
