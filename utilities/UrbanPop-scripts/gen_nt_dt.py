@@ -6,6 +6,8 @@ import time
 import pandas as pd
 import sys
 import argparse
+import configparser
+import glob
 import numpy as np
 from pandas.api.types import CategoricalDtype
 from colorama import Fore
@@ -91,7 +93,7 @@ def perc_str(n, m):
     return "%d out of %d (%.2f%%)" % (n, m, 100.0 * float(n) / m)
 
 
-DUMP_INTERMEDIATES = False
+DUMP_INTERMEDIATES = True
 
 
 @timer
@@ -293,6 +295,13 @@ def alloc_students_level(schools_df, students_df, level):
         num_unalloc_students = len(students_df[(students_df.school_id == "-1")])
         print("      Set destinations for", len(students_nt_dt_df), "students,", num_unalloc_students, "unallocated")
         nt_dt_df = pd.concat([nt_dt_df, students_nt_dt_df], ignore_index=True)
+        if alloc_all:
+            unalloc_students_df = students_df[(students_df.school_id == "-1")].copy()
+            unalloc_students_df.rename(columns={"geoid": "orig_geoid", "pr_naics": "naics", "pr_grade": "grade"}, inplace=True)
+            unalloc_students_df["role"] = "student"
+            unalloc_students_df["dest_geoid"] = unalloc_students_df["orig_geoid"]
+            unalloc_students_df = unalloc_students_df[["p_id", "role", "orig_geoid", "dest_geoid", "naics", "grade", "school_id"]]
+            nt_dt_df = pd.concat([nt_dt_df, unalloc_students_df], ignore_index=True)
         if num_unalloc_students == 0:
             break
 
@@ -355,7 +364,7 @@ def set_childcare(upop_df):
     for age in np.arange(0, 5):
         is_candidate = (df.pr_grade == "") & (df.pr_age == age)
         num_candidates = int(len(df[is_candidate]) * PROBS[age])
-        to_set = df.sample(n=num_candidates, replace=False)
+        to_set = df[is_candidate].sample(n=num_candidates, replace=False)
         print("  Age", age, "set", len(to_set), "out of", len(df[is_candidate]))
         df.loc[to_set.index, "pr_grade"] = "childcare"
 
@@ -451,13 +460,29 @@ def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df):
 
 def main():
     t = time.time()
-    parser = argparse.ArgumentParser(description="Generate nighttime/daytime worker/student populations for UrbanPop from LODES")
-    parser.add_argument("--urbanpop_files", "-f", required=True, nargs="+", help="UrbanPop feather files")
-    parser.add_argument("--lodes_file", "-l", required=True, help="LODES7 origin-destination (OD) file in csv format")
-    parser.add_argument("--output_file", "-o", required=True, help="Output file (will be written in feather format)")
-    parser.add_argument("--schools_file", "-s", required=True, help="File containing schools data in CSV")
+    cfg_parser = argparse.ArgumentParser(
+        description="Generate nighttime/daytime worker/student populations for UrbanPop from LODES", add_help=False
+    )
+    cfg_parser.add_argument("-c", "--config", help="Config file", metavar="FILE")
+    args, remaining_argv = cfg_parser.parse_known_args()
+    main_args = {"urbanpop_files": "", "lodes_file": "", "schools_file": "", "output_file": "", "rseed": 11}
+    if args.config:
+        cfg = configparser.ConfigParser()
+        cfg.read([args.config])
+        main_args.update(dict(cfg.items("main")))
+        main_args["urbanpop_files"] = glob.glob(main_args["urbanpop_files"])
+    parser = argparse.ArgumentParser(parents=[cfg_parser])
+    parser.set_defaults(**main_args)
+    parser.add_argument("--urbanpop_files", "-f", nargs="+", help="UrbanPop feather files")
+    parser.add_argument("--lodes_file", "-l", help="LODES7 origin-destination (OD) file in csv format")
+    parser.add_argument("--output_file", "-o", help="Output file (will be written in feather format)")
+    parser.add_argument("--schools_file", "-s", help="File containing schools data in CSV")
     parser.add_argument("--rseed", "-r", help="Random seed", default=29, type=int)
-    args = parser.parse_args()
+    args = parser.parse_args(remaining_argv)
+    print(Fore.CYAN, "Options:", sep="")
+    for arg, value in args.__dict__.items():
+        print(f"  {arg:20s} {value}")
+    print(Fore.RESET)
 
     np.random.seed(args.rseed)
 
@@ -465,11 +490,14 @@ def main():
     # randomly allocate some young agents to childcare
     upop_df = set_childcare(upop_df)
     # now split into students, workers and unemployed
-    in_school = upop_df.pr_grade != ""
-    students_df = upop_df[in_school].copy()
     is_employed = (upop_df.pr_emp_stat == "employed") | (upop_df.pr_emp_stat == "mil")
-    workers_df = upop_df[is_employed & ~in_school]
+    in_school = (upop_df.pr_grade != "") & ~is_employed
+    students_df = upop_df[in_school].copy()
+    students_df.to_csv("students.csv")
+    workers_df = upop_df[is_employed]
+    workers_df.to_csv("workers.csv")
     unemp_df = upop_df[~is_employed & ~in_school]
+    unemp_df.to_csv("unemp.csv")
     tot = len(workers_df) + len(students_df) + len(unemp_df)
     print("Counts:")
     print("  workers:   ", len(workers_df))
@@ -489,8 +517,12 @@ def main():
     unemp_df = get_unemp(unemp_df)
 
     nt_dt_df = pd.concat([workers_nt_dt_df, unemp_df, students_nt_dt_df], ignore_index=True)
+    nt_dt_df.grade = nt_dt_df.grade.astype(str)
+    # ensure dest_geoid is set to origin if blank
+    nt_dt_df.loc[nt_dt_df.dest_geoid == "", "dest_geoid"] = nt_dt_df.orig_geoid
     nt_dt_df.sort_values(by=["p_id"], inplace=True, ignore_index=True)
     nt_dt_df.to_csv(args.output_file + "_nt_dt.csv", index=False)
+    nt_dt_df.to_feather(args.output_file + "_nt_dt.feather")
     print("Wrote nt/dt data to", args.output_file + "_nt_dt.csv")
 
     print("Completed in %.2f s" % (time.time() - t))

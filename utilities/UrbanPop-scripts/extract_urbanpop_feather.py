@@ -6,14 +6,17 @@
 # the data.
 
 import sys
-import os.path
 import os
-import pandas
+import pandas as pd
 from pandas.api.types import CategoricalDtype
+from pandas.api.types import is_array_like
 import numpy as np
 import time
 import argparse
+import configparser
+import glob
 import geopandas
+from colorama import Fore
 
 # only include these fields in the output csv and c++ structure
 
@@ -312,13 +315,10 @@ static std::vector<string> splitString(const string &s, char delim) {
     print("Wrote", len(df.columns), "fields to", hdr_fname)
 
 
-def process_census_bg_shape_file(dir_names):
+def process_census_bg_shape_file(fnames):
     geoid_locs_map = {}
-    for dname in dir_names:
-        # remove trailing slash if it exists
-        if dname[-1] == "/":
-            dname = dname[:-1]
-        shape_fname = dname + "/" + os.path.split(dname)[1] + ".shp"
+    print(fnames)
+    for shape_fname in fnames:
         # don't actually need to compute the centroid because the block group file has it under the INTPTLAT10 and INTPTLON10 cols
         # df = geopandas.read_file(shape_fname, columns=["GEOID10", "INTPTLAT10", "INTPTLON10"])
         # df = df.to_crs(crs=4326)
@@ -342,11 +342,11 @@ def process_nt_dt_feather_files(fnames, out_fname):
     for i, fname in enumerate(fnames):
         print("Reading data from", fname, end=": ")
         t = time.time()
-        df_metro = pandas.read_feather(fname)
+        df_metro = pd.read_feather(fname)
         dfs.append(df_metro)
         print(len(dfs[-1].index), "records in %.3f s" % (time.time() - t))
 
-    df = pandas.concat(dfs, ignore_index=True)
+    df = pd.concat(dfs, ignore_index=True)
     df.sort_values(by=["p_id"], inplace=True, ignore_index=True)
     df.orig_geoid = df.orig_geoid.astype("int64")
     df.dest_geoid = df.dest_geoid.astype("int64")
@@ -369,7 +369,7 @@ def process_nt_dt_feather_files(fnames, out_fname):
     print("Processed", len(df.index), "records in %.3f s" % (time.time() - start_t))
 
     t = time.time()
-    df.to_csv(out_fname + ".work.csv", sep=" ", index=False)
+    df.to_csv(out_fname + ".work.csv", sep=",", index=False)
     print("Wrote", out_fname + ".work.csv in %.3f s" % (time.time() - t))
 
     return df
@@ -505,12 +505,12 @@ def process_pop_feather_files(fnames):
     for fname in fnames:
         print("Reading data from", fname, end=": ")
         t = time.time()
-        df_read = pandas.read_feather(fname)
+        df_read = pd.read_feather(fname)
         df_read.to_csv(fname + ".csv")
         dfs.append(df_read)
         print(len(dfs[-1].index), "records in %.3f s" % (time.time() - t))
 
-    df = pandas.concat(dfs, ignore_index=True)
+    df = pd.concat(dfs, ignore_index=True)
     df.geoid = df.geoid.astype("int64")
     # need to sort to ensure the order is the same between the population files and the daytime/nighttime files
     df.sort_values(by=["p_id"], inplace=True)
@@ -541,6 +541,8 @@ def merge_dt_nt(df, df_dt_nt):
     if not np.array_equal(df.work_geoid.values, df_dt_nt.dest_geoid.values):
         print("Mismatched work geoids for population vs daytime/nightime")
         sys.exit(0)
+
+    df.to_csv("merged.csv")
 
 
 def set_types(df):
@@ -688,15 +690,30 @@ def set_lnglat(df, geoid_locs_map):
     df.home_lng = df.home_lng.astype("float32")
     df.work_lat = df.work_lat.astype("float32")
     df.work_lng = df.work_lng.astype("float32")
+    df.work_geoid = df.work_geoid.astype("int")
+    df.home_geoid = df.home_geoid.astype("int")
 
     # find lat/long for each row entry
     df["home_lat"] = df["home_geoid"].map(geoid_locs_map).apply(lambda x: x[0]).astype("float32")
     df["home_lng"] = df["home_geoid"].map(geoid_locs_map).apply(lambda x: x[1]).astype("float32")
 
-    df["work_lat"] = df["work_geoid"].map(geoid_locs_map).apply(lambda x: x[0]).astype("float32")
-    df["work_lng"] = df["work_geoid"].map(geoid_locs_map).apply(lambda x: x[1]).astype("float32")
+    # work_geoids = df["work_geoid"].map(geoid_locs_map)
+    # print(work_geoids.loc[pd.isna(work_geoids["work_geoid"])])
+    # for item in work_geoids:
+    # if pd.isna(item):
+    #    if not type(item) is list:
+    #        print(item, file=sys.stderr)
+
+    try:
+        df["work_lat"] = df["work_geoid"].map(geoid_locs_map).apply(lambda x: x[0] if type(x) is list else x).astype("float32")
+        df["work_lng"] = df["work_geoid"].map(geoid_locs_map).apply(lambda x: x[1] if type(x) is list else x).astype("float32")
+    except TypeError as err:
+        print(err)
+        print(df["work_geoid"])
+        raise (err)
 
     df.sort_values(by=["home_lat", "home_lng"], inplace=True)
+    df.to_csv("latlng.csv")
 
     print("\nSet lat/long for", len(df.index), "agents in %.3f s" % (time.time() - t))
 
@@ -719,24 +736,40 @@ def adjust_school_ids(df):
 def main():
     t = time.time()
     np.random.seed(29)
-    parser = argparse.ArgumentParser(description="Convert UrbanPop feather files to C++ struct binary file")
-    parser.add_argument("--output", "-o", required=True, help="Output file")
-    parser.add_argument("--files", "-f", required=True, nargs="+", help="Feather files")
+
+    cfg_parser = argparse.ArgumentParser(description="Convert UrbanPop feather files to C++ struct binary file", add_help=False)
+    cfg_parser.add_argument("-c", "--config", help="Config file", metavar="FILE")
+    args, remaining_argv = cfg_parser.parse_known_args()
+    main_args = {"output": "", "files": "", "shape_files": "", "day_night_files": "", "long_ids": ""}
+    if args.config:
+        cfg = configparser.ConfigParser()
+        cfg.read([args.config])
+        main_args.update(dict(cfg.items("main")))
+        for f in ["files", "shape_files", "day_night_files"]:
+            main_args[f] = glob.glob(main_args[f])
+    parser = argparse.ArgumentParser(parents=[cfg_parser])
+    parser.set_defaults(**main_args)
+
+    parser = argparse.ArgumentParser(parents=[cfg_parser])
+    parser.set_defaults(**main_args)
+    parser.add_argument("--output", "-o", help="Output file")
+    parser.add_argument("--files", "-f", nargs="+", help="Feather files")
     parser.add_argument(
-        "--shape_files_dir",
+        "--shape_files",
         "-s",
-        required=True,
         nargs="+",
-        help="Directories for census block group shape files. Available from\n"
+        help="Census block group shape files. Available from\n"
         + "https://www.census.gov/cgi-bin/geo/shapefiles/index.php?year=2010&layergroup=Block+Groups",
     )
-    parser.add_argument(
-        "--day_night_files", "-d", required=True, nargs="+", help="Feather files containing daytime and nighttime locations"
-    )
+    parser.add_argument("--day_night_files", "-d", nargs="+", help="Feather files containing daytime and nighttime locations")
     parser.add_argument("--long_ids", "-l", action="store_true", help="Use original long UrbanPop ids for agents")
-    args = parser.parse_args()
+    args = parser.parse_args(remaining_argv)
+    print(Fore.CYAN, "Options:", sep="")
+    for arg, value in args.__dict__.items():
+        print(f"  {arg:20s} {value}")
+    print(Fore.RESET)
 
-    geoid_locs_map = process_census_bg_shape_file(args.shape_files_dir)
+    geoid_locs_map = process_census_bg_shape_file(args.shape_files)
     df_dt_nt = process_nt_dt_feather_files(args.day_night_files, args.output)
     df = process_pop_feather_files(args.files)
     merge_dt_nt(df, df_dt_nt)
@@ -748,7 +781,7 @@ def main():
         df["id"] = np.arange(0, len(df.index))
     print("Fields are:\n", df.dtypes, sep="")
     print_header(df)
-    allocate_educators(df, args.output, geoid_locs_map)
+    # allocate_educators(df, args.output, geoid_locs_map)
     work_geoids_map = compute_worker_populations(df)
     adjust_school_ids(df)
     print_agents(df, work_geoids_map, args.output, geoid_locs_map)
