@@ -9,7 +9,6 @@ import sys
 import os
 import pandas as pd
 from pandas.api.types import CategoricalDtype
-from pandas.api.types import is_array_like
 import numpy as np
 import time
 import argparse
@@ -317,7 +316,6 @@ static std::vector<string> splitString(const string &s, char delim) {
 
 def process_census_bg_shape_file(fnames):
     geoid_locs_map = {}
-    print(fnames)
     for shape_fname in fnames:
         # don't actually need to compute the centroid because the block group file has it under the INTPTLAT10 and INTPTLON10 cols
         # df = geopandas.read_file(shape_fname, columns=["GEOID10", "INTPTLAT10", "INTPTLON10"])
@@ -378,8 +376,8 @@ def process_nt_dt_feather_files(fnames, out_fname):
 def assign_educators_to_school(required_educators, df, school, school_geoid, min_grade, max_grade, local_geoid_only):
     required_educators -= len(df.loc[(df["role"] == 1) & (df["school_id"] == school) & (df["work_geoid"] == school_geoid)])
     if required_educators < 0:
-        print("ERROR: negative required educators", required_educators)
-        sys.exit(0)
+        print(f"{Fore.RED}ERROR: negative required educators {required_educators}{Fore.RESET}")
+        raise RuntimeError
     if required_educators == 0:
         return 0
     if local_geoid_only:
@@ -435,11 +433,13 @@ def allocate_educators(df, out_fname, geoid_locs_map):
         max_grade = students_df.grade.max()
         min_grade = students_df.grade.min()
         if min_grade < 0:
-            print("ERROR: min grade is", min_grade, max_grade, "for school", school, students_df.grade)
-            sys.exit(0)
+            print(
+                f"{Fore.RED}ERROR: min grade is {min_grade}, max_grade is {max_grade} for school {school}, {students_df.grade}{Fore.RESET}"
+            )
+            raise RuntimeError
         geoids = students_df.work_geoid.unique()
         if len(geoids) != 1:
-            print("WARNING: more than one unique geoids for the school")
+            print(f"{Fore.RED}WARNING: more than one unique geoids for the school{Fore.RESET}")
             sys.exit(0)
         student_schools_map[school] = [len(students_df.index), geoids[0], min_grade, max_grade]
     print("Counted students for", len(schools), "schools in %.3f s" % (time.time() - t))
@@ -572,7 +572,7 @@ def set_types(df):
             categs_expected = list(categ_types[field_type].categories)
             missing = [x for x in categs_found if x not in categs_expected and x != "" and x is not None]
             if missing:
-                print("WARNING: Found missing categories for", field_type, ":", missing)
+                print(f"{Fore.RED}WARNING: Found missing categories for {field_type}: {missing}{Fore.RESET}")
             df[field_type] = df[field_type].astype(categ_types[field_type]).cat.codes
         else:
             if df.dtypes[field_type] == object:
@@ -646,8 +646,10 @@ def compute_worker_populations(df):
             naics_counts.append(len(subset_df.loc[subset_df["naics"] == naics_i]))
         work_pops = [len(subset_df.index)]
         if work_pops[0] != sum(naics_counts):
-            print("ERROR: NAICS codes don't sum up to work population for geoid", geoid, work_pops[0], sum(naics_counts))
-            sys.exit(0)
+            print(
+                f"{Fore.RED}ERROR: NAICS codes don't sum up to work population for geoid {geoid} {work_pops[0]} {sum(naics_counts)}                                                                                                                   {Fore.RESET}"
+            )
+            raise RuntimeError
         num_workers += work_pops[0]
         work_pops.extend(naics_counts)
         work_geoids_map[geoid] = work_pops
@@ -697,20 +699,14 @@ def set_lnglat(df, geoid_locs_map):
     df["home_lat"] = df["home_geoid"].map(geoid_locs_map).apply(lambda x: x[0]).astype("float32")
     df["home_lng"] = df["home_geoid"].map(geoid_locs_map).apply(lambda x: x[1]).astype("float32")
 
-    # work_geoids = df["work_geoid"].map(geoid_locs_map)
-    # print(work_geoids.loc[pd.isna(work_geoids["work_geoid"])])
-    # for item in work_geoids:
-    # if pd.isna(item):
-    #    if not type(item) is list:
-    #        print(item, file=sys.stderr)
-
+    # df["work_lat"] = df["work_geoid"].map(geoid_locs_map).apply(lambda x: x[0] if type(x) is list else x).astype("float32")
+    # df["work_lng"] = df["work_geoid"].map(geoid_locs_map).apply(lambda x: x[1] if type(x) is list else x).astype("float32")
     try:
-        df["work_lat"] = df["work_geoid"].map(geoid_locs_map).apply(lambda x: x[0] if type(x) is list else x).astype("float32")
-        df["work_lng"] = df["work_geoid"].map(geoid_locs_map).apply(lambda x: x[1] if type(x) is list else x).astype("float32")
+        df["work_lat"] = df["work_geoid"].map(geoid_locs_map).apply(lambda x: x[0]).astype("float32")
+        df["work_lng"] = df["work_geoid"].map(geoid_locs_map).apply(lambda x: x[1]).astype("float32")
     except TypeError as err:
-        print(err)
-        print(df["work_geoid"])
-        raise (err)
+        print(f"\n{Fore.RED}ERROR: Found work GEOID that is not in the shape files{Fore.RESET}")
+        raise err
 
     df.sort_values(by=["home_lat", "home_lng"], inplace=True)
     df.to_csv("latlng.csv")
