@@ -75,6 +75,21 @@ CENSUS_PLACES_SCALE = 7
 COUNTY_SCALE = 5
 STATE_SCALE = 2
 
+age_levels = {
+    "C": [3, 3],
+    "P": [4, 4],
+    "E": [5, 10],
+    "M": [11, 13],
+    "H": [14, 17],
+    "U": [18, 19],
+    "PE": [4, 10],
+    "PEM": [4, 13],
+    "PEMH": [4, 17],
+    "EM": [5, 13],
+    "EMH": [5, 17],
+    "MH": [11, 17],
+}
+
 
 def timer(func):
     # @functools.wraps(func)
@@ -93,7 +108,7 @@ def perc_str(n, m):
     return "%d out of %d (%.2f%%)" % (n, m, 100.0 * float(n) / m)
 
 
-DUMP_INTERMEDIATES = True
+DUMP_INTERMEDIATES = False
 
 
 @timer
@@ -267,7 +282,6 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
 
 @timer
 def alloc_students_level(schools_df, students_df, level):
-    age_levels = {"C": [3, 3], "P": [4, 4], "E": [5, 10], "M": [11, 13], "H": [14, 17], "U": [18, 19]}
     start_age = age_levels[level][0]
     end_age = age_levels[level][1]
     students_df = students_df[(students_df.pr_grade >= start_age) & (students_df.pr_grade <= end_age)].copy()
@@ -359,7 +373,7 @@ def set_childcare(upop_df):
     PROBS = {0: 0.32, 1: 0.47, 2: 0.47, 3: 0.83, 4: 0.83}
     df = upop_df.copy()
     if DUMP_INTERMEDIATES:
-        df.to_csv("upop.csv", sep="\t")
+        df.to_csv("upop.csv", sep="\t", index=False)
     for age in np.arange(0, 5):
         is_candidate = (df.pr_grade == "") & (df.pr_age == age)
         num_candidates = int(len(df[is_candidate]) * PROBS[age])
@@ -369,7 +383,7 @@ def set_childcare(upop_df):
 
     print("Set", len(df[(df.pr_grade.str.startswith("childcare"))]), "agents to childcare")
     if DUMP_INTERMEDIATES:
-        df.to_csv("childcare_set.csv", sep="\t")
+        df.to_csv("childcare_set.csv", sep="\t", index=False)
     return df
 
 
@@ -396,9 +410,15 @@ def alloc_teachers_region(teachers_df, schools_df, geoid_scaling):
         probs = school_group.adj_teachers / num_teachers_reqd
         schools_selected = school_group.sample(n=num_teachers_reqd, weights=probs, replace=True)
         schools_selected.index.rename("index", inplace=True)
+        schools_selected["grade"] = (
+            schools_selected["level"].map(age_levels).apply(lambda x: np.random.randint(x[0], x[1] + 1)).astype("str")
+        )
+        # the university teachers will be uniformly split betw undergrad and grad. Readjust this to a 80:20 split
+        schools_selected["rnd"] = np.random.uniform(size=len(schools_selected))
+        schools_selected.loc[(schools_selected.grade == "19") & (schools_selected.rnd < 0.5), "grade"] = "18"
+
         teachers_df.loc[teachers_selected.index, "school_id"] = list(schools_selected.id)
-        # FIXME: need to convert the school level to an age for the grade to match with the students
-        teachers_df.loc[teachers_selected.index, "grade"] = list(schools_selected.level)
+        teachers_df.loc[teachers_selected.index, "grade"] = list(schools_selected.grade)
         teachers_df.loc[teachers_selected.index, "dest_geoid"] = list(schools_selected.geoid)
         # reduce the reqd teachers count according to how many have been allocated
         schools_selected_groups = schools_selected.groupby(["index"])
@@ -407,7 +427,6 @@ def alloc_teachers_region(teachers_df, schools_df, geoid_scaling):
         schools_df.loc[schools_df.index.isin(selected_school_indexes), "adj_teachers"] -= np.int32(selected_school_counts)
         schools_df.loc[schools_df.adj_teachers < 0, "adj_teachers"] = 0
         schools_df.loc[schools_df.index.isin(selected_school_indexes), "alloc_teachers"] -= np.int32(selected_school_counts)
-        # print("      Region:", group_name, ":", len(teachers_selected), "teachers,", len(schools_selected_groups), "schools")
 
     teachers_df.drop("region", axis=1, inplace=True)
     print("    Found", len(school_groups), "school regions,", missing_regions, "without teachers")
@@ -422,7 +441,7 @@ def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df):
     # of students we have allocated, and the original student/teacher ratio to set the desired teacher counts for each school
     schools_df = get_schools(args.schools_file)
     if DUMP_INTERMEDIATES:
-        schools_df.to_csv("schools.csv", sep="\t")
+        schools_df.to_csv("schools.csv", sep="\t", index=False)
     alloc_schools_df = (
         students_nt_dt_df.groupby(["school_id"])["p_id"]
         .count()
@@ -449,7 +468,7 @@ def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df):
         workers_nt_dt_df.loc[teachers_df.index, "dest_geoid"] = teachers_df.dest_geoid
         workers_nt_dt_df.loc[teachers_df.index, "grade"] = teachers_df.grade
         if DUMP_INTERMEDIATES:
-            teachers_df.to_csv("teachers-" + region_scales[scale] + ".csv", sep="\t")
+            teachers_df.to_csv("teachers-" + region_scales[scale] + ".csv", sep="\t", index=False)
 
     return workers_nt_dt_df
 
@@ -478,7 +497,7 @@ def main():
     print(Fore.CYAN, "Options:", sep="")
     for arg, value in args.__dict__.items():
         print(f"  {arg:20s} {value}")
-    print(Fore.RESET)
+    print(Fore.RESET, end="")
 
     np.random.seed(args.rseed)
 
