@@ -195,6 +195,9 @@ def alloc_workers(args, workers_df):
     # reorder the columns
     nt_dt_df = nt_dt_df[["p_id", "role", "orig_geoid", "dest_geoid", "naics", "grade"]]
     nt_dt_df.naics = nt_dt_df.naics.str[:2].replace(naics_to_description)
+    # FIXME: there is no single NAICS code for military - so we just use "srv". We should split these up according to the various
+    # military roles
+    nt_dt_df.loc[nt_dt_df["naics"] == "", "naics"] = "srv"
     print("Added destinations for", len(nt_dt_df), "workers")
     if DUMP_INTERMEDIATES:
         nt_dt_df.to_csv("workers_nt_dt.csv", index=False)

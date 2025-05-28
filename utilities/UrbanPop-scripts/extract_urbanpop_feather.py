@@ -134,7 +134,7 @@ categ_types = {
             "wfh",  # 20 Work from home
         ]
     ),
-    "grade": CategoricalDtype(
+    "grade-UP": CategoricalDtype(
         categories=[
             "childcare",
             "k12pub_preschl",
@@ -176,6 +176,8 @@ categ_types = {
 
 NAICS_EDU = 14
 NAICS_WFH = 20
+
+DUMP_INTERMEDIATES = True
 
 
 def print_header(df):
@@ -367,136 +369,11 @@ def process_nt_dt_feather_files(fnames, out_fname):
     print("Processed", len(df.index), "records in %.3f s" % (time.time() - start_t))
 
     t = time.time()
-    df.to_csv(out_fname + ".work.csv", sep=",", index=False)
+    if DUMP_INTERMEDIATES:
+        df.to_csv(out_fname + ".work.csv", sep=",", index=False)
     print("Wrote", out_fname + ".work.csv in %.3f s" % (time.time() - t))
 
     return df
-
-
-def assign_educators_to_school(required_educators, df, school, school_geoid, min_grade, max_grade, local_geoid_only):
-    required_educators -= len(df.loc[(df["role"] == 1) & (df["school_id"] == school) & (df["work_geoid"] == school_geoid)])
-    if required_educators < 0:
-        print(f"{Fore.RED}ERROR: negative required educators {required_educators}{Fore.RESET}")
-        raise RuntimeError
-    if required_educators == 0:
-        return 0
-    if local_geoid_only:
-        # select from the same work geoid
-        df_educators = df.loc[
-            (df["role"] == 1) & (df["naics"] == NAICS_EDU) & (df["school_id"] == 0) & (df["work_geoid"] == school_geoid)
-        ]
-    else:
-        # select the same county (first 5 of GEOID)
-        factor = 10**7
-        county_code = school_geoid / factor - school_geoid % factor / factor
-        df_educators = df.loc[
-            (df["role"] == 1)
-            & (df["naics"] == NAICS_EDU)
-            & (df["school_id"] == 0)
-            & (df["work_geoid"] / factor - df["work_geoid"] % factor / factor == county_code)
-        ]
-
-    if len(df_educators) == 0:
-        return required_educators
-
-    if len(df_educators) <= required_educators:
-        educator_sample = df_educators
-    else:
-        educator_sample = df_educators.sample(n=required_educators)
-
-    df.loc[df["id"].isin(educator_sample["id"]), ["school_id", "work_geoid"]] = [school, school_geoid]
-    # randomly choosing the grade is ok if the students are spread out equally across the grades, which we'd generally
-    # expect, except for colleges, where there are far more undergrads than grads. So that will need a special case
-    # FIXME: special case for colleges
-    df.loc[df["id"].isin(educator_sample["id"]), "grade"] = np.random.randint(
-        min_grade, max_grade + 1, size=len(educator_sample)
-    ).astype("int8")
-    return required_educators - len(educator_sample)
-
-
-def allocate_educators(df, out_fname, geoid_locs_map):
-    df_special = df[["id", "age", "role", "grade", "school_id"]]
-    df_special = df_special.loc[(df_special["school_id"] != "") & (df_special["school_id"] != 0)]
-    t = time.time()
-    df_special.to_csv(out_fname + ".students.csv", sep=" ", index=False)
-    print("Wrote", out_fname + ".students.csv in %.3f s" % (time.time() - t))
-    print("Student population", len(df_special))
-
-    t = time.time()
-    # allocate educators at a ratio of 15:1 - this is the average for the US
-    student_schools_map = {}
-    schools = df.school_id.unique()
-    for school in schools:
-        if school == 0:
-            continue
-        students_df = df.loc[(df["school_id"] == school) & (df["role"] == 2)]
-        max_grade = students_df.grade.max()
-        min_grade = students_df.grade.min()
-        if min_grade < 0:
-            print(
-                f"{Fore.RED}ERROR: min grade is {min_grade}, max_grade is {max_grade} for school {school}, {students_df.grade}{Fore.RESET}"
-            )
-            raise RuntimeError
-        geoids = students_df.work_geoid.unique()
-        if len(geoids) != 1:
-            print(f"{Fore.RED}WARNING: more than one unique geoids for the school{Fore.RESET}")
-            sys.exit(0)
-        student_schools_map[school] = [len(students_df.index), geoids[0], min_grade, max_grade]
-    print("Counted students for", len(schools), "schools in %.3f s" % (time.time() - t))
-
-    df_edu = df.loc[(df["role"] == 1) & (df["naics"] == NAICS_EDU)]
-    print("NAICS edu population", len(df_edu))
-
-    t = time.time()
-    with open(out_fname + ".schools.csv", mode="w") as f:
-        print("school students geoid min_grade max_grade", file=f)
-        for _, school in enumerate(schools):
-            if school == -1:
-                continue
-            if not school in student_schools_map:
-                continue
-            student_pop, school_geoid, min_grade, max_grade = student_schools_map[school]
-            print(school, student_pop, school_geoid, min_grade, max_grade, file=f)
-
-    print("Wrote", len(schools), "schools to", out_fname + ".schools.csv", "in %.3f s" % (time.time() - t))
-
-    t = time.time()
-    shortfall_educators = 0
-    shortfall_educator_schools = 0
-    # first allocate educators from local geoids
-    for school, [student_pop, school_geoid, min_grade, max_grade] in student_schools_map.items():
-        required_educators = int(student_pop / 15)
-        if required_educators == 0:
-            continue
-        required_educators = assign_educators_to_school(required_educators, df, school, school_geoid, min_grade, max_grade, True)
-        if required_educators > 0:
-            shortfall_educators += required_educators
-            shortfall_educator_schools += 1
-    print("Local educator shortfall:", shortfall_educator_schools, "schools;", shortfall_educators, "educators")
-
-    shortfall_educators = 0
-    shortfall_educator_schools = 0
-    # now allocate educators from the county
-    for school, [student_pop, school_geoid, min_grade, max_grade] in student_schools_map.items():
-        required_educators = int(student_pop / 15)
-        if required_educators == 0:
-            continue
-        required_educators = assign_educators_to_school(required_educators, df, school, school_geoid, min_grade, max_grade, False)
-        if required_educators > 0:
-            shortfall_educators += required_educators
-            shortfall_educator_schools += 1
-    print("Final educator shortfall:", shortfall_educator_schools, "schools;", shortfall_educators, "educators")
-
-    df_educators = df.loc[(df["school_id"] != 0) & (df["role"] == 1)]
-    print("Allocated", len(df_educators), "educators in %.3f s" % (time.time() - t))
-
-    t = time.time()
-    df_educators.to_csv(out_fname + ".educators.csv", sep=" ", index=False)
-    print("Wrote", out_fname + ".educators.csv in %.3f s" % (time.time() - t))
-
-    # need to reset the work lat/lng after potentially changing the work geoids for educators
-    df["work_lat"] = df["work_geoid"].map(geoid_locs_map).apply(lambda x: x[0]).astype("float32")
-    df["work_lng"] = df["work_geoid"].map(geoid_locs_map).apply(lambda x: x[1]).astype("float32")
 
 
 def process_pop_feather_files(fnames):
@@ -506,7 +383,8 @@ def process_pop_feather_files(fnames):
         print("Reading data from", fname, end=": ")
         t = time.time()
         df_read = pd.read_feather(fname)
-        df_read.to_csv(fname + ".csv")
+        if DUMP_INTERMEDIATES:
+            df_read.to_csv(fname + ".csv")
         dfs.append(df_read)
         print(len(dfs[-1].index), "records in %.3f s" % (time.time() - t))
 
@@ -541,8 +419,8 @@ def merge_dt_nt(df, df_dt_nt):
     if not np.array_equal(df.work_geoid.values, df_dt_nt.dest_geoid.values):
         print("Mismatched work geoids for population vs daytime/nightime")
         sys.exit(0)
-
-    df.to_csv("merged.csv")
+    if DUMP_INTERMEDIATES:
+        df.to_csv("merged.csv")
 
 
 def set_types(df):
@@ -606,7 +484,7 @@ def print_agents(df, work_geoids_map, out_fname, geoid_locs_map):
         work_geoids = df.work_geoid.unique()
         if len(work_geoids) > len(geoids):
             only_work_geoids = list(set(work_geoids) - set(geoids))
-            print("Work-only geoids", only_work_geoids)
+            print(f"Found {len(only_work_geoids)} work-only geoids")
             for i, geoid in enumerate(only_work_geoids):
                 work_pops = work_geoids_map[geoid] if geoid in work_geoids_map else []
                 print(geoid, " ".join(map(str, geoid_locs_map[geoid])), 0, 0, " ".join(map(str, work_pops)), file=f)
@@ -646,9 +524,7 @@ def compute_worker_populations(df):
             naics_counts.append(len(subset_df.loc[subset_df["naics"] == naics_i]))
         work_pops = [len(subset_df.index)]
         if work_pops[0] != sum(naics_counts):
-            print(
-                f"{Fore.RED}ERROR: NAICS codes don't sum up to work population for geoid {geoid} {work_pops[0]} {sum(naics_counts)}                                                                                                                   {Fore.RESET}"
-            )
+            print(f"{Fore.RED}ERROR: NAICS codes != sum work pop, geoid {geoid} {work_pops[0]} {sum(naics_counts)}{Fore.RESET}")
             raise RuntimeError
         num_workers += work_pops[0]
         work_pops.extend(naics_counts)
@@ -709,7 +585,8 @@ def set_lnglat(df, geoid_locs_map):
         raise err
 
     df.sort_values(by=["home_lat", "home_lng"], inplace=True)
-    df.to_csv("latlng.csv")
+    if DUMP_INTERMEDIATES:
+        df.to_csv("latlng.csv")
 
     print("\nSet lat/long for", len(df.index), "agents in %.3f s" % (time.time() - t))
 
@@ -763,7 +640,7 @@ def main():
     print(Fore.CYAN, "Options:", sep="")
     for arg, value in args.__dict__.items():
         print(f"  {arg:20s} {value}")
-    print(Fore.RESET)
+    print(Fore.RESET, end="")
 
     geoid_locs_map = process_census_bg_shape_file(args.shape_files)
     df_dt_nt = process_nt_dt_feather_files(args.day_night_files, args.output)
@@ -777,12 +654,11 @@ def main():
         df["id"] = np.arange(0, len(df.index))
     print("Fields are:\n", df.dtypes, sep="")
     print_header(df)
-    # allocate_educators(df, args.output, geoid_locs_map)
     work_geoids_map = compute_worker_populations(df)
     adjust_school_ids(df)
     print_agents(df, work_geoids_map, args.output, geoid_locs_map)
-    fips_codes = sorted(set([int(str(geoid)[:5]) for geoid in df.work_geoid.unique()]))
-    print("FIPS codes:", fips_codes)
+    # fips_codes = sorted(set([int(str(geoid)[:5]) for geoid in df.work_geoid.unique()]))
+    # print("FIPS codes:", fips_codes)
 
     print("Processed", len(args.files), "files in %.2f s" % (time.time() - t))
 
