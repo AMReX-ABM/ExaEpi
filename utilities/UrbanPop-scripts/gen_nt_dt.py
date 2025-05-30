@@ -134,7 +134,7 @@ def load_urbanpop_files(fnames):
 
 
 @timer
-def get_lodes_groups(lodes_fname):
+def get_lodes_groups(lodes_fnames):
     # Origin-Destination (OD) File Structure (LODES flows)
     # Pos Variable Type Explanation
     # 1 w_geocode Char15 Workplace Census Block Code
@@ -150,17 +150,22 @@ def get_lodes_groups(lodes_fname):
     # 11 SI02 Num Number of jobs in Trade, Transportation, and Utilities industry sectors
     # 12 SI03 Num Number of jobs in All Other Services industry sectors
     # 13 createdate Char Date on which data was created, formatted as YYYYMMDD
-    print("Loading", lodes_fname)
-    lodes_df = pd.read_csv(lodes_fname, dtype={"w_geocode": str, "h_geocode": str})[["w_geocode", "h_geocode", "S000"]]
-    print("Loaded", len(lodes_df), "entries")
-    # truncate geoids to first 12, i.e. just census block groups
-    lodes_df.h_geocode = lodes_df.h_geocode.str[:12]
-    lodes_df.w_geocode = lodes_df.w_geocode.str[:12]
-    # lodes_df = lodes_df.groupby(lodes_df.columns.tolist()).size().reset_index().rename(columns={0: "count"})
-    lodes_df = lodes_df.groupby(["w_geocode", "h_geocode"]).S000.sum().reset_index().rename(columns={0: "count"})
-    if DUMP_INTERMEDIATES:
-        lodes_df.to_csv(lodes_fname + "-short.csv", index=False)
-    return lodes_df
+    df = pd.DataFrame()
+    for lodes_fname in lodes_fnames:
+        print("Loading", lodes_fname)
+        lodes_df = pd.read_csv(lodes_fname, dtype={"w_geocode": str, "h_geocode": str, "S000": int})[
+            ["w_geocode", "h_geocode", "S000"]
+        ]
+        print("Loaded", len(lodes_df), "entries")
+        # truncate geoids to first 12, i.e. just census block groups
+        lodes_df.h_geocode = lodes_df.h_geocode.str[:12]
+        lodes_df.w_geocode = lodes_df.w_geocode.str[:12]
+        # lodes_df = lodes_df.groupby(lodes_df.columns.tolist()).size().reset_index().rename(columns={0: "count"})
+        lodes_df = lodes_df.groupby(["w_geocode", "h_geocode"]).S000.sum().reset_index().rename(columns={0: "count"})
+        if DUMP_INTERMEDIATES:
+            lodes_df.to_csv(lodes_fname + "-short.csv", index=False)
+        df = pd.concat([df, lodes_df], ignore_index=True)
+    return df
 
 
 @timer
@@ -170,19 +175,18 @@ def alloc_workers(args, workers_df):
     # p_id,role,orig_geoid,dest_geoid,lodes_segment,naics,grade,school_id
     # we can skip the lodes_segment, since we don't use it in later processing
     worker_groups = workers_df.groupby(["geoid"])
-    lodes_df = get_lodes_groups(args.lodes_file)
+    lodes_df = get_lodes_groups(args.lodes_files)
     lodes_groups = lodes_df.groupby(["h_geocode"])
     nt_dt_df = pd.DataFrame()
     for name, worker_group in worker_groups:
         num_workers = len(worker_group)
-        # print("Worker group for", name, "of size", num_workers)
-        lodes_group = lodes_groups.get_group(name)
-        if len(lodes_group) == 0:
-            print("ERROR: Could not find GEOID", name, "in LODES data")
-            sys.exit(1)
+        try:
+            lodes_group = lodes_groups.get_group(name)
+        except KeyError as err:
+            print(f"{Fore.RED}ERROR: Could not find GEOID {name} in LODES data{Fore.RESET}")
+            raise err
         sum_flows = lodes_group["S000"].sum()
         flow_probs = lodes_group["S000"] / sum_flows
-        # print("Found lodes group of size", len(lodes_group), "with", sum_flows, "flows")
         rnd_sample = lodes_group.sample(n=num_workers, weights=flow_probs, replace=True)
         nt_dt_group = worker_group[["p_id", "geoid", "pr_naics", "pr_grade"]]
         nt_dt_group = nt_dt_group.assign(dest_geoid=rnd_sample["w_geocode"].tolist())
@@ -225,9 +229,7 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
     students_df = students_df[(students_df.school_id == "")]
     students_df.loc[:, "region"] = students_df.geoid.str[:geoid_scaling]
     student_groups = students_df.groupby(["region"])
-    # print("      Found", len(student_groups), "regions for student groups")
     school_groups = schools_df.groupby(["region"])
-    # print("      Found", len(schools_df), "regions for school groups")
     nt_dt_df = pd.DataFrame()
     missing_regions = 0
     for group_name, student_group in student_groups:
@@ -265,7 +267,7 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
         # always set to 1 to enable a slight chance of allocating to this school
         schools_df.loc[schools_df.remaining_student_places < 1, "remaining_student_places"] = 1
 
-    print("      Found", len(student_groups), "student regions,", missing_regions, "without schools")
+    # print("    Found", len(student_groups), "student regions,", missing_regions, "without schools")
     nt_dt_df.rename(columns={"geoid": "orig_geoid", "pr_naics": "naics", "pr_grade": "grade"}, inplace=True)
     nt_dt_df["role"] = "student"
     # reorder the columns
@@ -304,12 +306,12 @@ def alloc_students_level(schools_df, students_df, level):
     scales = list(region_scales.keys()) if level != "C" else list(region_scales.keys())[:3]
     # pick schools for students from decreasing resolution; the goal is to allocate students as close to home as possible
     for scale in scales:
-        print("    Region", region_scales[scale])
+        # print("  Region", region_scales[scale])
         # make sure to allocate all at the final region scale
         alloc_all = True if scale == scales[-1] else False
         students_nt_dt_df, students_df = alloc_students_region(students_df, schools_df, scale, alloc_all)
         num_unalloc_students = len(students_df[(students_df.school_id == "")])
-        print("      Set destinations for", len(students_nt_dt_df), "students,", num_unalloc_students, "unallocated")
+        # print("    Set destinations for", len(students_nt_dt_df), "students,", num_unalloc_students, "unallocated")
         nt_dt_df = pd.concat([nt_dt_df, students_nt_dt_df], ignore_index=True)
         if alloc_all:
             unalloc_students_df = students_df[(students_df.school_id == "")].copy()
@@ -340,7 +342,7 @@ def alloc_students(args, students_df):
     # allocate students from each level
     students_nt_dt_df = pd.DataFrame()
     for level in ["C", "P", "E", "M", "H", "U"]:
-        print("  Allocating students for level", level)
+        print("Allocating students for level", level)
         df = alloc_students_level(schools_df, students_df, level=level)
         students_nt_dt_df = pd.concat([students_nt_dt_df, df], ignore_index=True)
 
@@ -417,9 +419,9 @@ def alloc_teachers_region(teachers_df, schools_df, geoid_scaling):
             schools_selected["level"].map(age_levels).apply(lambda x: np.random.randint(x[0], x[1] + 1)).astype("str")
         )
         # the university teachers will be uniformly split betw undergrad and grad. Readjust this to a 80:20 split
+        # FIXME: at college level, "teachers" will likely interact with both grad and undergrads
         schools_selected["rnd"] = np.random.uniform(size=len(schools_selected))
         schools_selected.loc[(schools_selected.grade == "19") & (schools_selected.rnd < 0.5), "grade"] = "18"
-
         teachers_df.loc[teachers_selected.index, "school_id"] = list(schools_selected.id)
         teachers_df.loc[teachers_selected.index, "grade"] = list(schools_selected.grade)
         teachers_df.loc[teachers_selected.index, "dest_geoid"] = list(schools_selected.geoid)
@@ -432,8 +434,8 @@ def alloc_teachers_region(teachers_df, schools_df, geoid_scaling):
         schools_df.loc[schools_df.index.isin(selected_school_indexes), "alloc_teachers"] -= np.int32(selected_school_counts)
 
     teachers_df.drop("region", axis=1, inplace=True)
-    print("    Found", len(school_groups), "school regions,", missing_regions, "without teachers")
-    print("    Allocated", len(teachers_df[(teachers_df.grade != "")]), "teachers out of", tot_reqd_teachers)
+    # print("    Found", len(school_groups), "school regions,", missing_regions, "without teachers")
+    # print("    Allocated", len(teachers_df[(teachers_df.grade != "")]), "teachers out of", tot_reqd_teachers)
     return teachers_df
 
 
@@ -465,7 +467,7 @@ def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df):
     scales = list(region_scales.keys())
     # pick schools for teachers from decreasing resolution; the goal is to allocate teachers as close to home as possible
     for scale in scales:
-        print("  Region", region_scales[scale])
+        # print("  Region", region_scales[scale])
         teachers_df = alloc_teachers_region(teachers_df, schools_df, scale)
         workers_nt_dt_df.loc[teachers_df.index, "school_id"] = teachers_df.school_id
         workers_nt_dt_df.loc[teachers_df.index, "dest_geoid"] = teachers_df.dest_geoid
@@ -483,16 +485,25 @@ def main():
     )
     cfg_parser.add_argument("-c", "--config", help="Config file", metavar="FILE")
     args, remaining_argv = cfg_parser.parse_known_args()
-    main_args = {"urbanpop_files": "", "lodes_file": "", "schools_file": "", "output_file": "", "rseed": 11}
+    main_args = {"urbanpop_files": "", "lodes_files": "", "schools_file": "", "output_file": "", "rseed": 11}
     if args.config:
         cfg = configparser.ConfigParser()
         cfg.read([args.config])
         main_args.update(dict(cfg.items("main")))
-        main_args["urbanpop_files"] = glob.glob(main_args["urbanpop_files"])
+        up_files = main_args["urbanpop_files"].split()
+        up_file_list = []
+        for f in up_files:
+            up_file_list.extend(glob.glob(f))
+        main_args["urbanpop_files"] = up_file_list
+        lodes_files = main_args["lodes_files"].split()
+        lodes_files_list = []
+        for f in lodes_files:
+            lodes_files_list.extend(glob.glob(f))
+        main_args["lodes_files"] = lodes_files_list
     parser = argparse.ArgumentParser(parents=[cfg_parser])
     parser.set_defaults(**main_args)
     parser.add_argument("--urbanpop_files", "-f", nargs="+", help="UrbanPop feather files")
-    parser.add_argument("--lodes_file", "-l", help="LODES7 origin-destination (OD) file in csv format")
+    parser.add_argument("--lodes_files", "-l", nargs="+", help="LODES7 origin-destination (OD) files in csv format")
     parser.add_argument("--output_file", "-o", help="Output file (will be written in feather format)")
     parser.add_argument("--schools_file", "-s", help="File containing schools data in CSV")
     parser.add_argument("--rseed", "-r", help="Random seed", default=29, type=int)
@@ -525,10 +536,10 @@ def main():
     if tot != len(upop_df):
         print("ERROR: total agents mismatch, allocated", tot, "but found", len(upop_df), "in UrbanPop feather files")
 
-    # get students
-    students_nt_dt_df = alloc_students(args, students_df)
     # now get workers
     workers_nt_dt_df = alloc_workers(args, workers_df)
+    # get students
+    students_nt_dt_df = alloc_students(args, students_df)
     # allocate teachers
     workers_nt_dt_df = alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df)
     # get non-workers
@@ -542,7 +553,6 @@ def main():
     nt_dt_df.to_csv(args.output_file + "_nt_dt.csv", index=False)
     nt_dt_df.to_feather(args.output_file + "_nt_dt.feather")
     print("Wrote nt/dt data to", args.output_file + "_nt_dt.csv")
-
     print("Completed in %.2f s" % (time.time() - t))
 
 
