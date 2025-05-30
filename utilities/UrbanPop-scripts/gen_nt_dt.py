@@ -211,8 +211,7 @@ def alloc_workers(args, workers_df):
     generated_df = nt_dt_df.groupby(["orig_geoid", "dest_geoid"]).size().reset_index(name="total")
     generated_df["key"] = generated_df["orig_geoid"].astype(str) + "-" + generated_df["dest_geoid"].astype(str)
     lodes_df["key"] = lodes_df["h_geocode"].astype(str) + "-" + lodes_df["w_geocode"].astype(str)
-    merged_df = generated_df.merge(lodes_df, on="key", how="outer", suffixes=["_gen", "_lodes"])
-    merged_df = generated_df.merge(lodes_df, on="key", how="outer")[["key", "total", "S000"]]
+    merged_df = generated_df.merge(lodes_df, on="key", how="inner")[["key", "total", "S000"]]
     merged_df = merged_df.fillna(0).astype({"total": "int", "S000": "int"})
     if DUMP_INTERMEDIATES:
         merged_df.to_csv("worker_check_ods.csv")
