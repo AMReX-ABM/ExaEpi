@@ -110,6 +110,8 @@ def perc_str(n, m):
 
 DUMP_INTERMEDIATES = False
 
+CORR_CHECK_LEVEL = 0.85
+
 
 @timer
 def load_urbanpop_files(fnames):
@@ -205,6 +207,20 @@ def alloc_workers(args, workers_df):
     print("Added destinations for", len(nt_dt_df), "workers")
     if DUMP_INTERMEDIATES:
         nt_dt_df.to_csv("workers_nt_dt.csv", index=False)
+    # check that the actual allocated workers follow the lodes flows closely
+    generated_df = nt_dt_df.groupby(["orig_geoid", "dest_geoid"]).size().reset_index(name="total")
+    generated_df["key"] = generated_df["orig_geoid"].astype(str) + "-" + generated_df["dest_geoid"].astype(str)
+    lodes_df["key"] = lodes_df["h_geocode"].astype(str) + "-" + lodes_df["w_geocode"].astype(str)
+    merged_df = generated_df.merge(lodes_df, on="key", how="outer", suffixes=["_gen", "_lodes"])
+    merged_df = generated_df.merge(lodes_df, on="key", how="outer")[["key", "total", "S000"]]
+    merged_df = merged_df.fillna(0).astype({"total": "int", "S000": "int"})
+    if DUMP_INTERMEDIATES:
+        merged_df.to_csv("worker_check_ods.csv")
+    corr = merged_df.total.corr(merged_df.S000)
+    print(f"LODES flows correlation: {corr:.3f} (generated count {merged_df.total.sum()}, actual count {merged_df.S000.sum()})")
+    if corr < CORR_CHECK_LEVEL:
+        print(f"{Fore.RED}WARNING: low correlation!{Fore.RESET}")
+
     return nt_dt_df
 
 
@@ -215,10 +231,6 @@ def get_schools(fname):
     print("Loaded", len(schools_df), "entries:", schools_df.students.sum(), "students,", schools_df.teachers.sum(), "teachers")
     if DUMP_INTERMEDIATES:
         schools_df.to_csv("schools.csv", sep="\t", index=False)
-    nm_schools = schools_df[schools_df.geoid.str.startswith("35")]
-    if DUMP_INTERMEDIATES:
-        nm_schools.to_csv("nm_schools.csv", sep="\t", index=False)
-    print("NM schools:", len(nm_schools), "students", nm_schools.students.sum())
     return schools_df
 
 
@@ -356,6 +368,28 @@ def alloc_students(args, students_df):
     if DUMP_INTERMEDIATES:
         students_nt_dt_df.to_csv("students_nt_dt.csv", sep="\t", index=False)
 
+    gen_schools_df = (
+        students_nt_dt_df.loc[students_nt_dt_df["role"] == "student"].groupby(["school_id"]).size().reset_index(name="students")
+    )
+    schools_check_df = schools_df.copy()
+    gen_schools_df["key"] = gen_schools_df["school_id"].astype(str)
+    schools_check_df["key"] = schools_check_df["id"].astype(str)
+    # only merge in the matching schools from the actual data, since that consists of potentially many more schools than we are
+    # using for this subset (e.g. NM)
+    merged_df = gen_schools_df.merge(schools_check_df, on="key", how="left", suffixes=["_gen", "_orig"])[
+        ["key", "students_gen", "students_orig"]
+    ]
+    merged_df = merged_df.fillna(0).astype({"students_gen": "int", "students_orig": "int"})
+    if DUMP_INTERMEDIATES:
+        merged_df.to_csv("schools_check.csv")
+    corr = merged_df.students_gen.corr(merged_df.students_orig)
+    print(
+        f"Student school counts correlation: {corr:.3f} "
+        + f"(generated count {merged_df.students_gen.sum()}, actual count {merged_df.students_orig.sum()})"
+    )
+    if corr < CORR_CHECK_LEVEL:
+        print(f"{Fore.RED}WARNING: low correlation!{Fore.RESET}")
+
     return students_nt_dt_df
 
 
@@ -475,6 +509,28 @@ def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df):
         if DUMP_INTERMEDIATES:
             teachers_df.to_csv("teachers-" + region_scales[scale] + ".csv", sep="\t", index=False)
 
+    gen_schools_df = (
+        workers_nt_dt_df.loc[workers_nt_dt_df["school_id"] != ""].groupby(["school_id"]).size().reset_index(name="teachers")
+    )
+    schools_check_df = schools_df.copy()
+    gen_schools_df["key"] = gen_schools_df["school_id"].astype(str)
+    schools_check_df["key"] = schools_check_df["id"].astype(str)
+    # only merge in the matching schools from the actual data, since that consists of potentially many more schools than we are
+    # using for this subset (e.g. NM)
+    merged_df = gen_schools_df.merge(schools_check_df, on="key", how="left", suffixes=["_gen", "_orig"])[
+        ["key", "teachers_gen", "teachers_orig"]
+    ]
+    merged_df = merged_df.fillna(0).astype({"teachers_gen": "int", "teachers_orig": "int"})
+    if DUMP_INTERMEDIATES:
+        merged_df.to_csv("schools_check.csv")
+    corr = merged_df.teachers_gen.corr(merged_df.teachers_orig)
+    print(
+        f"Teacher school counts correlation: {corr:.3f} "
+        + f"(generated count {merged_df.teachers_gen.sum()}, actual count {merged_df.teachers_orig.sum()})"
+    )
+    if corr < CORR_CHECK_LEVEL:
+        print(f"{Fore.RED}WARNING: low correlation!{Fore.RESET}")
+
     return workers_nt_dt_df
 
 
@@ -522,11 +578,8 @@ def main():
     is_employed = (upop_df.pr_emp_stat == "employed") | (upop_df.pr_emp_stat == "mil")
     in_school = (upop_df.pr_grade != "") & ~is_employed
     students_df = upop_df[in_school].copy()
-    # students_df.to_csv("students.csv")
     workers_df = upop_df[is_employed]
-    # workers_df.to_csv("workers.csv")
     unemp_df = upop_df[~is_employed & ~in_school]
-    # unemp_df.to_csv("unemp.csv")
     tot = len(workers_df) + len(students_df) + len(unemp_df)
     print("Counts:")
     print("  workers:   ", len(workers_df))
@@ -536,13 +589,9 @@ def main():
     if tot != len(upop_df):
         print("ERROR: total agents mismatch, allocated", tot, "but found", len(upop_df), "in UrbanPop feather files")
 
-    # now get workers
     workers_nt_dt_df = alloc_workers(args, workers_df)
-    # get students
     students_nt_dt_df = alloc_students(args, students_df)
-    # allocate teachers
     workers_nt_dt_df = alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df)
-    # get non-workers
     unemp_df = get_unemp(unemp_df)
 
     nt_dt_df = pd.concat([workers_nt_dt_df, unemp_df, students_nt_dt_df], ignore_index=True)
@@ -553,6 +602,7 @@ def main():
     nt_dt_df.to_csv(args.output_file + "_nt_dt.csv", index=False)
     nt_dt_df.to_feather(args.output_file + "_nt_dt.feather")
     print("Wrote nt/dt data to", args.output_file + "_nt_dt.csv")
+
     print("Completed in %.2f s" % (time.time() - t))
 
 
