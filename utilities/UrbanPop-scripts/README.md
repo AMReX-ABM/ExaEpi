@@ -20,8 +20,8 @@ shape_files=../../NM_2010_Census_BlockGroups/*.shp
 day_night_files=nm_nt_dt.feather
 ```
 
-Currently, UrbanPop nightime/daytime files are not available for all locations. If they are, they can be used in the
-`gen_nt_dt.py` script. If not, `gen_nt_dt.py` requires as input the UrbanPop feather files, LODES files containing
+Currently, UrbanPop nightime/daytime files are not available for all locations. If they are available, they can be used
+in the `gen_nt_dt.py` script. If not, `gen_nt_dt.py` requires as input the UrbanPop feather files, LODES files containing
 origin/destination flows, and a schools file, containing information on school sizes and locations. Here's an example
 config file for New Mexico is:
 
@@ -45,6 +45,17 @@ college_files=hifld-data-2024/Colleges_and_Universities_Campuses_-49192967142473
 childcare_files=hifld-data-2024/Child_Care_Centers.csv
 census_bg_files=../US_Census_BlockGroups/*.shp
 ```
+
+Also provided is a script `check_nt_dt.py`, which compares the results generated from the LODES flows and schools files with the
+UrbanPop nighttime/daytime flows. It computes correlations. An example config file for New Mexico is:
+
+```
+[main]
+generated_nt_dt_file=nm_nt_dt.csv
+urbanpop_nt_dt_file=up_nm_nt_dt.csv
+schools_file=../../EducationData/schools_with_geoids.csv
+```
+
 
 ## Data sources
 
