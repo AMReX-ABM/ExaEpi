@@ -122,18 +122,9 @@ def get_complete(schools_with_geoids):
     return schools_with_geoids
 
 
-def get_schools(args, census_bgs_df):
+def get_hifld_public_schools(args, census_bgs_df):
     school_df = pd.DataFrame()
     cols_to_read = ["NCES ID", "Latitude", "Longitude", "Enrollment", "Start Grade", "End Grade", "Full Time Teachers"]
-    for fname in args.private_school_files:
-        print("Reading data from", fname, end=": ")
-        t = time.time()
-        df = pd.read_csv(fname, low_memory=False)[cols_to_read]
-        # the grades are actually ages for these private schools
-        df["level"] = list(map(get_level_from_age, df["Start Grade"], df["End Grade"]))
-        school_df = pd.concat([school_df, df], ignore_index=True)
-        print(len(df.index), "records in % .3f s" % (time.time() - t))
-
     for fname in args.public_school_files:
         print("Reading data from", fname, end=": ")
         t = time.time()
@@ -161,7 +152,36 @@ def get_schools(args, census_bgs_df):
     return schools_with_geoids
 
 
-def get_childcare(args, census_bgs_df):
+def get_hifld_private_schools(args, census_bgs_df):
+    school_df = pd.DataFrame()
+    cols_to_read = ["NCES ID", "Latitude", "Longitude", "Enrollment", "Start Grade", "End Grade", "Full Time Teachers"]
+    for fname in args.private_school_files:
+        print("Reading data from", fname, end=": ")
+        t = time.time()
+        df = pd.read_csv(fname, low_memory=False)[cols_to_read]
+        # the grades are actually ages for these private schools
+        df["level"] = list(map(get_level_from_age, df["Start Grade"], df["End Grade"]))
+        school_df = pd.concat([school_df, df], ignore_index=True)
+        print(len(df.index), "records in % .3f s" % (time.time() - t))
+
+    geometry = [shapely.geometry.Point(xy) for xy in zip(school_df.Longitude, school_df.Latitude)]
+    school_gdf = gpd.GeoDataFrame(school_df, crs="EPSG:4269", geometry=geometry)
+    schools_with_geoids = pd.DataFrame(gpd.sjoin(school_gdf, census_bgs_df, how="left", predicate="within"))
+    schools_with_geoids = schools_with_geoids.rename(
+        columns={
+            "NCES ID": "id",
+            "Enrollment": "students",
+            "Full Time Teachers": "teachers",
+            "GEOID10": "geoid",
+        }
+    )[["id", "students", "teachers", "level", "geoid"]]
+    schools_with_geoids = get_complete(schools_with_geoids)
+    schools_with_geoids.to_csv("non_college_schools_with_geoids.csv", index=False)
+    print("Wrote", len(schools_with_geoids), "schools to non_college_schools_with_geoids.csv")
+    return schools_with_geoids
+
+
+def get_hifld_childcare(args, census_bgs_df):
     childcare_df = pd.DataFrame()
     for fname in args.childcare_files:
         print("Reading data from", fname, end=": ")
@@ -201,7 +221,7 @@ def get_childcare(args, census_bgs_df):
     return childcare_with_geoids
 
 
-def get_colleges(args):
+def get_hifld_colleges(args):
     start_t = time.time()
     # we don't have lng/lat for colleges so we have to fetch with addresses
     colleges_df = pd.DataFrame()
@@ -263,24 +283,83 @@ def get_colleges(args):
     return colleges_with_geoids
 
 
+def get_nces_public_schools(args, census_bgs_df):
+    print(f"Reading from {args.public_nces_school_file}: ", end="")
+    t = time.time()
+    df = pd.read_csv(args.public_nces_school_file)[["NCESSCH", "TOTAL", "STUTERATIO", "LATCOD", "LONCOD", "GSLO", "GSHI"]]
+    print(len(df.index), "records in % .3f s" % (time.time() - t))
+    # drop schools without grade information or for adults - N = not available, UG = ungraded, AE = adult education, M = missing
+    no_grades = ["N ", "UG", "AE", "M "]
+    for no_grade in no_grades:
+        df = df.drop(df[df["GSLO"] == no_grade].index)
+
+    geometry = [shapely.geometry.Point(xy) for xy in zip(df.LONCOD, df.LATCOD)]
+    gdf = gpd.GeoDataFrame(df, crs="EPSG:4269", geometry=geometry)
+    geoids_df = pd.DataFrame(gpd.sjoin(gdf, census_bgs_df, how="left", predicate="within"))
+    geoids_df["teachers"] = np.round(geoids_df.TOTAL / geoids_df.STUTERATIO)
+    # avoid infinities
+    geoids_df.loc[geoids_df["STUTERATIO"] == 0, "teachers"] = 0
+    geoids_df.fillna(0, inplace=True)
+    grade_descr_to_num = {"PK": "-1", "KG": "0"}
+    for grade_descr, grade_num in grade_descr_to_num.items():
+        geoids_df.loc[geoids_df["GSLO"] == grade_descr, "GSLO"] = grade_num
+        geoids_df.loc[geoids_df["GSHI"] == grade_descr, "GSHI"] = grade_num
+    geoids_df = geoids_df.astype({"TOTAL": "int", "teachers": "int", "GSLO": "int", "GSHI": "int"})
+
+    geoids_df["level"] = ""
+    geoids_df.loc[(geoids_df.GSLO < 0), "level"] = "P"
+    geoids_df.loc[(geoids_df.GSLO >= 0) & (geoids_df.GSLO <= 5), "level"] = "E"
+    geoids_df.loc[(geoids_df.GSLO >= 6) & (geoids_df.GSLO <= 8), "level"] = "M"
+    geoids_df.loc[(geoids_df.GSLO >= 9), "level"] = "H"
+    geoids_df.loc[(geoids_df.GSLO <= 0) & (geoids_df.GSHI >= 5) & (geoids_df.level != "E"), "level"] += "E"
+    geoids_df.loc[(geoids_df.GSLO <= 6) & (geoids_df.GSHI >= 8) & (geoids_df.level != "M"), "level"] += "M"
+    geoids_df.loc[(geoids_df.GSHI >= 9) & (geoids_df.level != "H"), "level"] += "H"
+
+    geoids_df = geoids_df.rename(
+        columns={
+            "NCESSCH": "id",
+            "TOTAL": "students",
+            "GEOID10": "geoid",
+        }
+    )[
+        ["id", "students", "teachers", "level", "geoid"]
+    ]  # , "GSLO", "GSHI"]]
+    geoids_df = get_complete(geoids_df)
+    geoids_df.to_csv("non_college_schools_with_geoids.csv", index=False)
+    print("Wrote", len(geoids_df), "schools to non_college_schools_with_geoids.csv")
+    geoids_df.to_csv("schools_geoids_nces.csv", index=False)
+    return geoids_df
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate school list with Census Block Group GEOID, using Census bg shapefiles and HIFLD data"
     )
-    parser.add_argument("--private_school_files", "-p", required=True, nargs="+", help="Private school CSV files")
-    parser.add_argument("--public_school_files", "-s", required=True, nargs="+", help="Public school CSV files")
+    parser.add_argument("--private_school_files", "-p", required=True, nargs="+", help="HIFLD Private school CSV files")
+    parser.add_argument("--public_school_files", "-s", required=True, nargs="+", help="HIFLD Public school CSV files")
+    # NCES data is only available for public schools. It may be preferable because we have historical data, unlike HIFLD
+    # which is the latest data. However, using 2019 NCES vs 2024 HIFLD data appears to make no significant difference overall
+    parser.add_argument("--public_nces_school_file", help="NCES Public school CSV files - use instead of HIFLD")
+    parser.add_argument("--college_files", "-u", required=True, nargs="+", help="HIFLD College/University CSV files")
+    parser.add_argument("--childcare_files", "-a", required=True, nargs="+", help="HIFLD Childcare CSV files")
     parser.add_argument("--census_bg_files", "-c", required=True, nargs="+", help="Census Block Group (bg) shape files")
-    parser.add_argument("--college_files", "-u", required=True, nargs="+", help="College/University CSV files")
-    parser.add_argument("--childcare_files", "-a", required=True, nargs="+", help="Childcare CSV files")
     args = parser.parse_args()
 
     start_t = time.time()
     census_bgs_df = get_census_bgs(args)
-    childcare_geoids_df = get_childcare(args, census_bgs_df)
-    colleges_geoids_df = get_colleges(args)
-    schools_geoids_df = get_schools(args, census_bgs_df)
-    schools_geoids_df = pd.concat([schools_geoids_df, colleges_geoids_df, childcare_geoids_df], ignore_index=True)
+    childcare_geoids_df = get_hifld_childcare(args, census_bgs_df)
+    colleges_geoids_df = get_hifld_colleges(args)
+    private_schools_geoids_df = get_hifld_private_schools(args, census_bgs_df)
+    if args.public_nces_school_file:
+        public_schools_geoids_df = get_nces_public_schools(args, census_bgs_df)
+    else:
+        public_schools_geoids_df = get_hifld_public_schools(args, census_bgs_df)
+    schools_geoids_df = pd.concat(
+        [public_schools_geoids_df, private_schools_geoids_df, colleges_geoids_df, childcare_geoids_df], ignore_index=True
+    )
     schools_geoids_df.to_csv("schools_with_geoids.csv", index=False)
+    print("Wrote", len(schools_geoids_df), "schools to schools_with_geoids.csv")
+
     print("Finished in %.3f s" % (time.time() - start_t))
 
 
