@@ -4,10 +4,13 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 import argparse
+import configparser
+import glob
 import time
 import censusgeocode as cg
 import sys
 import shapely.geometry
+from colorama import Fore
 
 
 def fetch_census_geographies(school_df):
@@ -332,18 +335,45 @@ def get_nces_public_schools(args, census_bgs_df):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Generate school list with Census Block Group GEOID, using Census bg shapefiles and HIFLD data"
+    cfg_parser = argparse.ArgumentParser(
+        description="Generate school list with Census Block Group GEOID, using Census bg shapefiles and HIFLD data",
+        add_help=False,
     )
-    parser.add_argument("--private_school_files", "-p", required=True, nargs="+", help="HIFLD Private school CSV files")
-    parser.add_argument("--public_school_files", "-s", required=True, nargs="+", help="HIFLD Public school CSV files")
+    cfg_parser.add_argument("-c", "--config", help="Config file", metavar="FILE")
+    args, remaining_argv = cfg_parser.parse_known_args()
+    main_args = {
+        "private_school_files": "",
+        "public_school_files": "",
+        "public_nces_school_files": "",
+        "college_files": "",
+        "childcare_files": "",
+        "census_bg_files": "",
+    }
+    if args.config:
+        cfg = configparser.ConfigParser()
+        cfg.read([args.config])
+        main_args.update(dict(cfg.items("main")))
+        for key in main_args.keys():
+            files = main_args[key].split()
+            file_list = []
+            for f in files:
+                file_list.extend(glob.glob(f))
+            main_args[key] = file_list
+    parser = argparse.ArgumentParser(parents=[cfg_parser])
+    parser.set_defaults(**main_args)
+    parser.add_argument("--private_school_files", "-p", nargs="+", help="HIFLD Private school CSV files")
+    parser.add_argument("--public_school_files", "-s", nargs="+", help="HIFLD Public school CSV files")
     # NCES data is only available for public schools. It may be preferable because we have historical data, unlike HIFLD
     # which is the latest data. However, using 2019 NCES vs 2024 HIFLD data appears to make no significant difference overall
     parser.add_argument("--public_nces_school_file", help="NCES Public school CSV files - use instead of HIFLD")
-    parser.add_argument("--college_files", "-u", required=True, nargs="+", help="HIFLD College/University CSV files")
-    parser.add_argument("--childcare_files", "-a", required=True, nargs="+", help="HIFLD Childcare CSV files")
-    parser.add_argument("--census_bg_files", "-c", required=True, nargs="+", help="Census Block Group (bg) shape files")
-    args = parser.parse_args()
+    parser.add_argument("--college_files", "-u", nargs="+", help="HIFLD College/University CSV files")
+    parser.add_argument("--childcare_files", "-a", nargs="+", help="HIFLD Childcare CSV files")
+    parser.add_argument("--census_bg_files", "-b", nargs="+", help="Census Block Group (bg) shape files")
+    args = parser.parse_args(remaining_argv)
+    print(Fore.CYAN, "Options:", sep="")
+    for arg, value in args.__dict__.items():
+        print(f"  {arg:20s} {value}")
+    print(Fore.RESET, end="")
 
     start_t = time.time()
     census_bgs_df = get_census_bgs(args)
