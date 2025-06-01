@@ -108,7 +108,7 @@ def perc_str(n, m):
     return "%d out of %d (%.2f%%)" % (n, m, 100.0 * float(n) / m)
 
 
-DUMP_INTERMEDIATES = True
+DUMP_INTERMEDIATES = False
 
 CORR_CHECK_LEVEL = 0.8
 
@@ -427,7 +427,7 @@ def set_childcare(upop_df):
 
 def alloc_teachers_region(teachers_df, schools_df, geoid_scaling):
     schools_df["region"] = schools_df.geoid.str[:geoid_scaling]
-    teachers_df = teachers_df[(teachers_df.grade == "")].copy()
+    teachers_df = teachers_df[teachers_df.grade == ""].copy()
     teachers_df.loc[:, "region"] = teachers_df.orig_geoid.str[:geoid_scaling]
     teacher_groups = teachers_df.groupby(["region"])
     school_groups = schools_df.groupby(["region"])
@@ -494,6 +494,7 @@ def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df, schools_df):
 
     teachers_df = workers_nt_dt_df[(workers_nt_dt_df.naics == "edu")].copy()
     teachers_df["school_id"] = None
+    teachers_df["grade"] = ""
     num_reqd_teachers = schools_df.adj_teachers.sum()
     print("Found", len(teachers_df), "edu workers for", num_reqd_teachers, "required teachers")
     scales = list(region_scales.keys())
@@ -542,9 +543,12 @@ def get_level_from_age(min_age, max_age):
 
 def get_from_up_nt_dt(args):
     df = pd.read_csv(args.up_nt_dt_file)[["p_id", "role", "orig_geoid", "dest_geoid", "naics", "grade", "school_id"]].astype(
-        {"orig_geoid": "str", "dest_geoid": "str"}
+        {"orig_geoid": "str", "dest_geoid": "str", "grade": "str"}
     )
     workers_df = df[df.role == "worker"].reset_index(drop=True)
+    workers_df["grade"] = ""
+    unemp_df = df[df.role == "nope"].reset_index(drop=True)
+    unemp_df["grade"] = ""
     students_df = df[df.role == "student"].reset_index(drop=True)
     idx = students_df["grade"].isin(["childcare", "undergrad_male", "undergrad_female", "grad_male", "grad_female"])
     students_df.loc[idx, "grade"] = students_df.loc[idx, "grade"].str.split("_", n=1, expand=True).iloc[:, 0]
@@ -560,8 +564,8 @@ def get_from_up_nt_dt(args):
     schools_df["max_age"] = students_df.groupby(["school_id", "dest_geoid"], as_index=False)["grade"].max()["grade"]
     schools_df["level"] = list(map(get_level_from_age, schools_df["min_age"], schools_df["max_age"]))
     schools_df = schools_df[["id", "students", "teachers", "level", "geoid"]]
-    schools_df.to_csv("up_schools.csv", index=False)
-    return workers_df, students_df, schools_df
+    schools_df.to_csv("schools_with_geoids_up.csv", index=False)
+    return workers_df, students_df, schools_df, unemp_df
 
 
 def main():
@@ -618,15 +622,14 @@ def main():
         print("ERROR: total agents mismatch, allocated", tot, "but found", len(upop_df), "in UrbanPop feather files")
 
     if args.up_nt_dt_file:
-        workers_nt_dt_df, students_nt_dt_df, schools_df = get_from_up_nt_dt(args)
-        unemp_df = pd.DataFrame()
+        workers_nt_dt_df, students_nt_dt_df, schools_df, unemp_df = get_from_up_nt_dt(args)
     else:
         workers_nt_dt_df = alloc_workers(args, workers_df)
         students_nt_dt_df = alloc_students(args, students_df)
         schools_df = load_schools(args.schools_file)
         unemp_df = get_unemp(unemp_df)
-    workers_nt_dt_df = alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df, schools_df)
 
+    workers_nt_dt_df = alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df, schools_df)
     nt_dt_df = pd.concat([workers_nt_dt_df, unemp_df, students_nt_dt_df], ignore_index=True)
     nt_dt_df.grade = nt_dt_df.grade.astype(str)
     # ensure dest_geoid is set to origin if blank
