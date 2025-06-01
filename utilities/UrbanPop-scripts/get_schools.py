@@ -299,24 +299,20 @@ def get_nces_public_schools(args, census_bgs_df):
     geometry = [shapely.geometry.Point(xy) for xy in zip(df.LONCOD, df.LATCOD)]
     gdf = gpd.GeoDataFrame(df, crs="EPSG:4269", geometry=geometry)
     geoids_df = pd.DataFrame(gpd.sjoin(gdf, census_bgs_df, how="left", predicate="within"))
-    geoids_df["teachers"] = np.round(geoids_df.TOTAL / geoids_df.STUTERATIO)
+    geoids_df["teachers"] = np.ceil(geoids_df.TOTAL / geoids_df.STUTERATIO)
     # avoid infinities
     geoids_df.loc[geoids_df["STUTERATIO"] == 0, "teachers"] = 0
     geoids_df.fillna(0, inplace=True)
+
     grade_descr_to_num = {"PK": "-1", "KG": "0"}
     for grade_descr, grade_num in grade_descr_to_num.items():
         geoids_df.loc[geoids_df["GSLO"] == grade_descr, "GSLO"] = grade_num
         geoids_df.loc[geoids_df["GSHI"] == grade_descr, "GSHI"] = grade_num
     geoids_df = geoids_df.astype({"TOTAL": "int", "teachers": "int", "GSLO": "int", "GSHI": "int"})
 
-    geoids_df["level"] = ""
-    geoids_df.loc[(geoids_df.GSLO < 0), "level"] = "P"
-    geoids_df.loc[(geoids_df.GSLO >= 0) & (geoids_df.GSLO <= 5), "level"] = "E"
-    geoids_df.loc[(geoids_df.GSLO >= 6) & (geoids_df.GSLO <= 8), "level"] = "M"
-    geoids_df.loc[(geoids_df.GSLO >= 9), "level"] = "H"
-    geoids_df.loc[(geoids_df.GSLO <= 0) & (geoids_df.GSHI >= 5) & (geoids_df.level != "E"), "level"] += "E"
-    geoids_df.loc[(geoids_df.GSLO <= 6) & (geoids_df.GSHI >= 8) & (geoids_df.level != "M"), "level"] += "M"
-    geoids_df.loc[(geoids_df.GSHI >= 9) & (geoids_df.level != "H"), "level"] += "H"
+    geoids_df["GSLO"] = list(map(get_age_from_grade, geoids_df["GSLO"]))
+    geoids_df["GSHI"] = list(map(get_age_from_grade, geoids_df["GSHI"]))
+    geoids_df["level"] = list(map(get_level_from_age, geoids_df["GSLO"], geoids_df["GSHI"]))
 
     geoids_df = geoids_df.rename(
         columns={

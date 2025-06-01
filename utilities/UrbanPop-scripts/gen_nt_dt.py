@@ -11,7 +11,7 @@ import glob
 import numpy as np
 from pandas.api.types import CategoricalDtype
 from colorama import Fore
-
+import get_schools
 
 grade_categs = CategoricalDtype(
     categories=[
@@ -108,7 +108,7 @@ def perc_str(n, m):
     return "%d out of %d (%.2f%%)" % (n, m, 100.0 * float(n) / m)
 
 
-DUMP_INTERMEDIATES = False
+DUMP_INTERMEDIATES = True
 
 CORR_CHECK_LEVEL = 0.8
 
@@ -224,7 +224,7 @@ def alloc_workers(args, workers_df):
 
 
 @timer
-def get_schools(fname):
+def load_schools(fname):
     print("Loading schools from", fname)
     schools_df = pd.read_csv(fname, low_memory=False, dtype={"geoid": str})
     print("Loaded", len(schools_df), "entries:", schools_df.students.sum(), "students,", schools_df.teachers.sum(), "teachers")
@@ -340,7 +340,7 @@ def alloc_students_level(schools_df, students_df, level):
 @timer
 def alloc_students(args, students_df):
     print(Fore.GREEN + "Allocating students" + Fore.RESET)
-    schools_df = get_schools(args.schools_file)
+    schools_df = load_schools(args.schools_file)
     # convert grades to ages
     grade_categs_found = list(students_df["pr_grade"].unique())
     grade_categs_expected = list(grade_categs.categories)
@@ -473,11 +473,10 @@ def alloc_teachers_region(teachers_df, schools_df, geoid_scaling):
 
 
 @timer
-def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df):
+def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df, schools_df):
     print(Fore.GREEN + "Allocating teachers" + Fore.RESET)
     # The number of students at each school will not exactly match the original schools data, so we use the actual number
     # of students we have allocated, and the original student/teacher ratio to set the desired teacher counts for each school
-    schools_df = get_schools(args.schools_file)
     if DUMP_INTERMEDIATES:
         schools_df.to_csv("schools.csv", sep="\t", index=False)
     alloc_schools_df = (
@@ -533,6 +532,38 @@ def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df):
     return workers_nt_dt_df
 
 
+def get_level_from_age(min_age, max_age):
+    if min_age >= 18:
+        return "U"
+    if max_age == 3:
+        return "C"
+    return get_schools.get_level_from_age(min_age, max_age)
+
+
+def get_from_up_nt_dt(args):
+    df = pd.read_csv(args.up_nt_dt_file)[["p_id", "role", "orig_geoid", "dest_geoid", "naics", "grade", "school_id"]].astype(
+        {"orig_geoid": "str", "dest_geoid": "str"}
+    )
+    workers_df = df[df.role == "worker"].reset_index(drop=True)
+    students_df = df[df.role == "student"].reset_index(drop=True)
+    idx = students_df["grade"].isin(["childcare", "undergrad_male", "undergrad_female", "grad_male", "grad_female"])
+    students_df.loc[idx, "grade"] = students_df.loc[idx, "grade"].str.split("_", n=1, expand=True).iloc[:, 0]
+    students_df.loc[~idx, "grade"] = students_df.loc[~idx, "grade"].str.split("_", n=1, expand=True).iloc[:, 1]
+    students_df.loc[:, "grade"] = students_df["grade"].astype(grade_categs).cat.codes + 3
+    students_df.to_csv("students_from_up.csv", index=False)
+    # FIXME: determine schools from students
+    schools_df = students_df.groupby(["school_id", "dest_geoid"]).size().reset_index(name="students")
+    schools_df.rename(columns={"school_id": "id", "dest_geoid": "geoid"}, inplace=True)
+    # we don't have information for these schools, so we just use an average student:teacher ratio of 12:1
+    schools_df["teachers"] = np.ceil(schools_df.students / 12).astype(int)
+    schools_df["min_age"] = students_df.groupby(["school_id", "dest_geoid"], as_index=False)["grade"].min()["grade"]
+    schools_df["max_age"] = students_df.groupby(["school_id", "dest_geoid"], as_index=False)["grade"].max()["grade"]
+    schools_df["level"] = list(map(get_level_from_age, schools_df["min_age"], schools_df["max_age"]))
+    schools_df = schools_df[["id", "students", "teachers", "level", "geoid"]]
+    schools_df.to_csv("up_schools.csv", index=False)
+    return workers_df, students_df, schools_df
+
+
 def main():
     t = time.time()
     cfg_parser = argparse.ArgumentParser(
@@ -540,27 +571,25 @@ def main():
     )
     cfg_parser.add_argument("-c", "--config", help="Config file", metavar="FILE")
     args, remaining_argv = cfg_parser.parse_known_args()
-    main_args = {"urbanpop_files": "", "lodes_files": "", "schools_file": "", "output_file": "", "rseed": 11}
+    main_args = {"urbanpop_files": "", "lodes_files": "", "schools_file": "", "output_file": "", "up_nt_dt_file": "", "rseed": 11}
     if args.config:
         cfg = configparser.ConfigParser()
         cfg.read([args.config])
         main_args.update(dict(cfg.items("main")))
-        up_files = main_args["urbanpop_files"].split()
-        up_file_list = []
-        for f in up_files:
-            up_file_list.extend(glob.glob(f))
-        main_args["urbanpop_files"] = up_file_list
-        lodes_files = main_args["lodes_files"].split()
-        lodes_files_list = []
-        for f in lodes_files:
-            lodes_files_list.extend(glob.glob(f))
-        main_args["lodes_files"] = lodes_files_list
+        for files_label in ["urbanpop_files", "lodes_files"]:
+            file_list = []
+            for f in main_args[files_label].split():
+                file_list.extend(glob.glob(f))
+            main_args[files_label] = file_list
     parser = argparse.ArgumentParser(parents=[cfg_parser])
     parser.set_defaults(**main_args)
     parser.add_argument("--urbanpop_files", "-f", nargs="+", help="UrbanPop feather files")
     parser.add_argument("--lodes_files", "-l", nargs="+", help="LODES7 origin-destination (OD) files in csv format")
     parser.add_argument("--output_file", "-o", help="Output file (will be written in feather format)")
     parser.add_argument("--schools_file", "-s", help="File containing schools data in CSV")
+    parser.add_argument(
+        "--up_nt_dt_file", "-n", help="File containing nighttime/daytime data from UrbanPop. " + "Used instead of LODES files"
+    )
     parser.add_argument("--rseed", "-r", help="Random seed", default=29, type=int)
     args = parser.parse_args(remaining_argv)
     print(Fore.CYAN, "Options:", sep="")
@@ -588,10 +617,15 @@ def main():
     if tot != len(upop_df):
         print("ERROR: total agents mismatch, allocated", tot, "but found", len(upop_df), "in UrbanPop feather files")
 
-    workers_nt_dt_df = alloc_workers(args, workers_df)
-    students_nt_dt_df = alloc_students(args, students_df)
-    workers_nt_dt_df = alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df)
-    unemp_df = get_unemp(unemp_df)
+    if args.up_nt_dt_file:
+        workers_nt_dt_df, students_nt_dt_df, schools_df = get_from_up_nt_dt(args)
+        unemp_df = pd.DataFrame()
+    else:
+        workers_nt_dt_df = alloc_workers(args, workers_df)
+        students_nt_dt_df = alloc_students(args, students_df)
+        schools_df = load_schools(args.schools_file)
+        unemp_df = get_unemp(unemp_df)
+    workers_nt_dt_df = alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df, schools_df)
 
     nt_dt_df = pd.concat([workers_nt_dt_df, unemp_df, students_nt_dt_df], ignore_index=True)
     nt_dt_df.grade = nt_dt_df.grade.astype(str)
