@@ -203,6 +203,114 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
     }
 }
 
+void readCheckpointFile (const std::string restart_chkfile, /*!< checkpoint filename */
+                         AgentContainer& pc,                /*!< Agent (particle) container */
+                         MFPtrVec& a_disease_stats,         /*!< Disease stats tracker */
+                         iMultiFab* unit_mf_ptr,            /*!< MultiFabs to write out */
+                         iMultiFab* FIPS_mf_ptr,            /*!< MultiFabs to write out */
+                         iMultiFab* comm_mf_ptr,            /*!< MultiFabs to write out */
+                         Real& cur_time,                    /*!< current time */
+                         int& step /*!< Current step */) {
+    amrex::Print() << "Restarting from " << restart_chkfile << "\n";
+    const std::string level_prefix{"Level_"};
+    const int lev = 0;
+
+    // Header
+    {
+        const std::string File(restart_chkfile + "/ExaEpiHeader");
+
+        const VisMF::IO_Buffer io_buffer(VisMF::GetIOBufferSize());
+
+        Vector<char> fileCharPtr;
+        ParallelDescriptor::ReadAndBcastFile(File, fileCharPtr);
+        const std::string fileCharPtrString(fileCharPtr.dataPtr());
+        std::istringstream is(fileCharPtrString, std::istringstream::in);
+        is.exceptions(std::ios_base::failbit | std::ios_base::badbit);
+
+        std::string line, word;
+
+        std::getline(is, line);
+
+        is >> cur_time;
+        is >> step;
+    }
+
+    auto unit = amrex::cast<MultiFab>(*unit_mf_ptr);
+    VisMF::Read(unit, amrex::MultiFabFileFullPrefix(lev, restart_chkfile, level_prefix, "unit"));
+    *unit_mf_ptr = amrex::cast<iMultiFab>(unit);
+
+    auto fips = amrex::cast<MultiFab>(*FIPS_mf_ptr);
+    VisMF::Read(fips, amrex::MultiFabFileFullPrefix(lev, restart_chkfile, level_prefix, "FIPS"));
+    *FIPS_mf_ptr = amrex::cast<iMultiFab>(fips);
+
+    auto comm = amrex::cast<MultiFab>(*comm_mf_ptr);
+    VisMF::Read(comm, amrex::MultiFabFileFullPrefix(lev, restart_chkfile, level_prefix, "comm"));
+    *comm_mf_ptr = amrex::cast<iMultiFab>(comm);
+
+    for (std::size_t i = 0; i < a_disease_stats.size(); ++i) {
+        VisMF::Read(*a_disease_stats[i],
+                    amrex::MultiFabFileFullPrefix(lev, restart_chkfile, level_prefix, "disease_stats_" + std::to_string(i)));
+    }
+
+    pc.Restart(restart_chkfile, "agents");
+
+    pc.comm_mf.define(comm_mf_ptr->boxArray(), comm_mf_ptr->DistributionMap(), 1, 0);
+    iMultiFab::Copy(pc.comm_mf, *comm_mf_ptr, 0, 0, 1, 0);
+}
+
+void writeCheckpointFile (const AgentContainer& pc,                      /*!< Agent (particle) container */
+                          const MFPtrVec& a_disease_stats,               /*!< Disease stats tracker */
+                          const iMultiFab* unit_mf_ptr,                  /*!< MultiFabs to write out */
+                          const iMultiFab* FIPS_mf_ptr,                  /*!< MultiFabs to write out */
+                          const iMultiFab* comm_mf_ptr,                  /*!< MultiFabs to write out */
+                          const int num_diseases,                        /*!< Number of diseases */
+                          const std::vector<std::string>& disease_names, /*!< Names of diseases */
+                          const Real cur_time,                           /*!< current time */
+                          const int step /*!< Current step */) {
+
+    amrex::Print() << "Writing checkfile \n";
+
+    const int nlev = 1;
+    const int lev = 0;
+    const std::string& checkpointname = amrex::Concatenate("chk", step, 5);
+    const std::string default_level_prefix{"Level_"};
+
+    amrex::PreBuildDirectorHierarchy(checkpointname, default_level_prefix, nlev, true);
+
+    if (ParallelDescriptor::IOProcessor()) {
+        VisMF::IO_Buffer io_buffer(VisMF::IO_Buffer_Size);
+        std::ofstream HeaderFile;
+        HeaderFile.rdbuf()->pubsetbuf(io_buffer.dataPtr(), io_buffer.size());
+        const std::string HeaderFileName(checkpointname + "/ExaEpiHeader");
+        HeaderFile.open(HeaderFileName.c_str(), std::ofstream::out | std::ofstream::trunc | std::ofstream::binary);
+        if (!HeaderFile.good()) { amrex::FileOpenFailed(HeaderFileName); }
+
+        HeaderFile.precision(17);
+
+        HeaderFile << "Checkpoint version: 1\n";
+
+        HeaderFile << cur_time << "\n";
+
+        HeaderFile << step << "\n";
+    }
+
+    // write the mesh data
+    {
+        auto fips = amrex::cast<MultiFab>(*FIPS_mf_ptr);
+        VisMF::Write(fips, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "FIPS"));
+        auto comm = amrex::cast<MultiFab>(*comm_mf_ptr);
+        VisMF::Write(comm, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "comm"));
+        auto unit = amrex::cast<MultiFab>(*unit_mf_ptr);
+        VisMF::Write(unit, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "unit"));
+        for (std::size_t i = 0; i < a_disease_stats.size(); ++i) {
+            VisMF::Write(*a_disease_stats[i], amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix,
+                                                                            "disease_stats_" + std::to_string(i)));
+        }
+    }
+
+    pc.Checkpoint(checkpointname, "agents");
+}
+
 /*! \brief Writes diagnostic data by FIPS code
 
     Writes a file with the total number of infected agents for each unit;

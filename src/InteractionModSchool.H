@@ -39,26 +39,30 @@ struct BinaryInteractionSchool {
         // infect *= j_mask;
         //  Elementary/middle/high school in common
         if (school_id > 0 && school_id < 5) {
-            if (age_group_ptr[infectious_i] <= 1) {                           // Transmitter i is a child
-                if (age_group_ptr[susceptible_i] <= 1) {                      // Receiver j is a child
+            if (age_group_ptr[infectious_i] <= 1) {      // Transmitter i is a child
+                if (age_group_ptr[susceptible_i] <= 1) { // Receiver j is a child
                     return a_lparm->xmit_school[school_id] * a_social_scale;
-                } else {                                                      // Child student -> adult teacher/staff transmission
-                    return a_lparm->xmit_sch_c2a[school_id] * a_social_scale; // * 0.5; // hack for testing
+                } else {                                 // Child student -> adult teacher/staff transmission
+                    return a_lparm->xmit_school_c2a[school_id] * a_social_scale; // * 0.5; // hack for testing
                 }
-            } else {                                                          // transmitter is an adult
-                if (age_group_ptr[susceptible_i] <= 1) {                      // Adult teacher/staff -> child student
-                    return a_lparm->xmit_sch_a2c[school_id] * a_social_scale; // * 0.25; // hack for testing
-                } else {                                                      // adult to adult
-                    return a_lparm->xmit_school[school_id] * a_social_scale;
+            } else {                                                             // transmitter is an adult
+                if (age_group_ptr[susceptible_i] <= 1) {                         // Adult teacher/staff -> child student
+                    return a_lparm->xmit_school_a2c[school_id] * a_social_scale; // * 0.25; // hack for testing
+                } else {                                                         // adult to adult
+                    return 0.0_prt; // a_lparm->xmit_school[school_id] * a_social_scale;  //adults-adults interaction accounted
+                                    // for in InteractionModWork.H
                 }
             }
 
         } else {
             if (nborhood_ptr[infectious_i] == nborhood_ptr[susceptible_i]) {
-                if (school_id > 5) {         // Playgroup - currently not implemented in the initialization
-                    return a_lparm->xmit_school[6] * a_social_scale;
-                } else if (school_id == 5) { // Day care
-                    return a_lparm->xmit_school[5] * a_social_scale;
+                if (age_group_ptr[infectious_i] <= 1 ||
+                    age_group_ptr[susceptible_i] <= 1) { // Account only for adult -- child interactions
+                    if (school_id > 5) {                 // Playgroup - currently not implemented in the initialization
+                        return 0.; // return a_lparm->xmit_school[6] * a_social_scale; // xmit_school[6] not defined yet!
+                    } else if (school_id == 5) { // Day care
+                        return a_lparm->xmit_school[5] * a_social_scale;
+                    }
                 }
             }
         }
@@ -172,19 +176,26 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                             auto community = getCommunityIndex(ptd, i);
                             int pos = (community * max_school_id + school_id_ptr[i]) * max_school_grade + school_grade_ptr[i];
                             if (getSchoolType(school_grade_ptr[i]) == SchoolType::daycare) {
-                                int num_infected_daycare = infected_daycare_d_ptr[pos];
-                                Real daycare_prob = 1.0_rt - infect * lparm->xmit_school[SchoolType::daycare] * scale;
-                                prob_ptr[i] *= static_cast<ParticleReal>(std::pow(daycare_prob, num_infected_daycare));
+                                if (adults && age_group_ptr[i] > AgeGroups::a5to17) { // adults-adults interaction accounted for
+                                                                                      // in InteractionModWork.H
+                                    // do nothing!
+                                } else {
+                                    int num_infected_daycare = infected_daycare_d_ptr[pos];
+                                    Real daycare_prob = 1.0_rt - infect * lparm->xmit_school[SchoolType::daycare] * scale;
+                                    prob_ptr[i] *= static_cast<ParticleReal>(std::pow(daycare_prob, num_infected_daycare));
+                                }
                             } else {
                                 int num_infected_school = infected_school_d_ptr[pos];
                                 Real xmit = 0.0_rt;
                                 if (adults) {                                    // transmitters are adults
                                     if (age_group_ptr[i] <= AgeGroups::a5to17) { // Adult teacher/staff -> child student
                                         xmit = lparm->xmit_school_a2c[getSchoolType(school_grade_ptr[i])];
-                                    } else { // adult to adult - teachers also have grades (the grade they teach)
-                                        xmit = lparm->xmit_school[getSchoolType(school_grade_ptr[i])];
+                                    } else { //  adults-adults interaction accounted for in InteractionModWork.H // adult to adult
+                                             //  - teachers also have grades (the grade they teach)
+                                        // do nothing!
+                                        // xmit = lparm->xmit_school[getSchoolType(school_grade_ptr[i])];
                                     }
-                                } else {     // transmitters are children
+                                } else {                                         // transmitters are children
                                     if (age_group_ptr[i] <= AgeGroups::a5to17) { // Receiver j is a child
                                         xmit = lparm->xmit_school[getSchoolType(school_grade_ptr[i])];
                                     } else { // Child student -> adult teacher/staff transmission

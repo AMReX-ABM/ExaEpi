@@ -3,6 +3,7 @@
 */
 
 #include <chrono>
+#include <filesystem>
 
 #include <AMReX.H>
 #include <AMReX_MultiFab.H>
@@ -146,31 +147,33 @@ void runAgent () {
     ParmParse pp("diag");
     pp.queryarr("output_filename", output_filename, 0, params.num_diseases);
 
-    for (int d = 0; d < params.num_diseases; d++) {
-        if (ParallelDescriptor::IOProcessor()) {
-            std::ofstream File;
-            File.open(output_filename[d].c_str(), std::ios::out | std::ios::trunc);
+    if (params.restart_chkfile == "") {
+        for (int d = 0; d < params.num_diseases; d++) {
+            if (ParallelDescriptor::IOProcessor()) {
+                std::ofstream File;
+                File.open(output_filename[d].c_str(), std::ios::out | std::ios::trunc);
 
-            if (!File.good()) { amrex::FileOpenFailed(output_filename[d]); }
+                if (!File.good()) { amrex::FileOpenFailed(output_filename[d]); }
 
-            File << std::setw(5) << "Day";
-            File << std::setw(12) << "Susceptible";
-            File << std::setw(12) << "Infected";
-            File << std::setw(12) << "Recovered";
-            File << std::setw(12) << "Deaths";
-            File << std::setw(15) << "Hospitalized";
-            File << std::setw(15) << "ICU";
-            File << std::setw(12) << "Ventilated";
-            File << std::setw(12) << "Exposed";
-            File << std::setw(15) << "Asymptomatic";
-            File << std::setw(15) << "Presymptomatic";
-            File << std::setw(15) << "Symptomatic\n";
+                File << std::setw(5) << "Day";
+                File << std::setw(12) << "Susceptible";
+                File << std::setw(12) << "Infected";
+                File << std::setw(12) << "Recovered";
+                File << std::setw(12) << "Deaths";
+                File << std::setw(15) << "Hospitalized";
+                File << std::setw(15) << "ICU";
+                File << std::setw(12) << "Ventilated";
+                File << std::setw(12) << "Exposed";
+                File << std::setw(15) << "Asymptomatic";
+                File << std::setw(15) << "Presymptomatic";
+                File << std::setw(15) << "Symptomatic\n";
 
-            File.flush();
+                File.flush();
 
-            File.close();
+                File.close();
 
-            if (!File.good()) { amrex::Abort("problem writing output file"); }
+                if (!File.good()) { amrex::Abort("problem writing output file"); }
+            }
         }
     }
 
@@ -189,43 +192,93 @@ void runAgent () {
     pc.setStableRedistribute(stable_redistribute);
     pc.setTileSize(censusData.unit_mf.mfiter_tile_size);
 
+    amrex::Real cur_time = 0;
+    int start_day = 0;
     {
         BL_PROFILE_REGION("Initialization");
-        if (params.ic_type == ICType::Census) {
-            censusData.initAgents(pc, params.nborhood_size);
-            censusData.readWorkerflow(pc, params.workerflow_filename, params.workgroup_size);
-        } else if (params.ic_type == ICType::UrbanPop) {
-            urbanPopData.initAgents(pc, params);
-        } else {
-            Abort("Unimplemented ic_type");
-        }
-
-        for (int d = 0; d < params.num_diseases; d++) {
-            auto disease_params = pc.getDiseaseParameters_h(d);
-            if (disease_params->initial_case_type == CaseTypes::file) {
-                CaseData cases;
-                cases.initFromFile(disease_params->disease_name, std::string(disease_params->case_filename));
-                setInitialCasesFromFile(pc, cases, disease_params->disease_name, d,
-                                        (params.ic_type == ICType::Census ? censusData.demo.FIPS : urbanPopData.FIPS_codes),
-                                        (params.ic_type == ICType::Census ? censusData.demo.Start
-                                                                          : urbanPopData.fips_community_start),
-                                        (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.community_mf),
-                                        params.fast);
+        if (params.restart_chkfile.empty()) {
+            if (params.ic_type == ICType::Census) {
+                censusData.initAgents(pc, params.nborhood_size);
+                censusData.readWorkerflow(pc, params.workerflow_filename, params.workgroup_size);
+            } else if (params.ic_type == ICType::UrbanPop) {
+                urbanPopData.initAgents(pc, params);
             } else {
-                setInitialCasesRandom(pc, disease_params->num_initial_cases, disease_params->disease_name, d,
-                                      (params.ic_type == ICType::Census ? censusData.demo.Start
-                                                                        : urbanPopData.fips_community_start),
-                                      (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.community_mf),
-                                      params.fast);
+                Abort("Unimplemented ic_type");
             }
+
+            for (int d = 0; d < params.num_diseases; d++) {
+                auto disease_params = pc.getDiseaseParameters_h(d);
+                if (disease_params->initial_case_type == CaseTypes::file) {
+                    CaseData cases;
+                    cases.initFromFile(disease_params->disease_name, std::string(disease_params->case_filename));
+                    setInitialCasesFromFile(pc, cases, disease_params->disease_name, d,
+                                            (params.ic_type == ICType::Census ? censusData.demo.FIPS : urbanPopData.FIPS_codes),
+                                            (params.ic_type == ICType::Census ? censusData.demo.Start
+                                                                              : urbanPopData.fips_community_start),
+                                            (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.community_mf),
+                                            params.fast);
+                } else {
+                    setInitialCasesRandom(pc, disease_params->num_initial_cases, disease_params->disease_name, d,
+                                          (params.ic_type == ICType::Census ? censusData.demo.Start
+                                                                            : urbanPopData.fips_community_start),
+                                          (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.community_mf),
+                                          params.fast);
+                }
+            }
+
+            pc.printStudentTeacherCounts();
+            pc.printMedicalWorkerCounts();
+            pc.printAgeGroupCounts();
+
+            if (params.ic_type == ICType::Census && params.air_travel_int > 0) {
+                pc.setAirTravel(censusData.unit_mf, air, censusData.demo);
+            }
+        } else {
+            IO::readCheckpointFile(params.restart_chkfile, pc, disease_stats, &(censusData.unit_mf), &(censusData.FIPS_mf),
+                                   &(censusData.comm_mf), cur_time, start_day);
         }
+    }
 
-        pc.printStudentTeacherCounts();
-        pc.printMedicalWorkerCounts();
-        pc.printAgeGroupCounts();
+    // if we are doing a restart, we need to fix up the output_file
+    if (params.restart_chkfile != "") {
+        for (int d = 0; d < params.num_diseases; d++) {
+            if (ParallelDescriptor::IOProcessor()) {
 
-        if (params.ic_type == ICType::Census && params.air_travel_int > 0) {
-            pc.setAirTravel(censusData.unit_mf, air, censusData.demo);
+                if (amrex::FileExists(output_filename[d])) {
+                    std::string newoldname(output_filename[d] + ".old." + amrex::UniqueString());
+                    amrex::Print() << output_filename[d] << " exists.  Renaming to:  " << newoldname << '\n';
+                    std::filesystem::copy(output_filename[d], newoldname);
+                }
+
+                std::ifstream inFile;
+                inFile.open(output_filename[d].c_str(), std::ios::in);
+
+                if (!inFile.good()) { amrex::FileOpenFailed(output_filename[d]); }
+
+                std::vector<std::string> lines;
+                std::string line;
+                while (std::getline(inFile, line)) {
+                    lines.push_back(line);
+                }
+                inFile.close();
+
+                AMREX_ALWAYS_ASSERT(std::size_t(start_day + 1) <= lines.size());
+                lines.erase(lines.begin() + start_day + 1, lines.end());
+
+                std::ofstream outFile;
+                outFile.open(output_filename[d].c_str(), std::ios::out | std::ios::trunc);
+
+                if (!outFile.good()) { amrex::FileOpenFailed(output_filename[d]); }
+                for (auto li : lines) {
+                    outFile << li << "\n";
+                }
+
+                outFile.flush();
+
+                outFile.close();
+
+                if (!outFile.good()) { amrex::Abort("problem writing output file"); }
+            }
         }
     }
 
@@ -255,15 +308,13 @@ void runAgent () {
         cumulative_deaths[d] = counts[4];
     }
 
-    amrex::Real cur_time = 0;
-
     Vector<Long> num_infected(params.num_diseases, 0);
 
     amrex::ParmParse::QueryUnusedInputs();
 
     {
         BL_PROFILE_REGION("Evolution");
-        for (int i = 0; i < params.nsteps; ++i) {
+        for (int i = start_day; i < params.nsteps; ++i) {
             auto start_time = std::chrono::high_resolution_clock::now();
 
             if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
@@ -273,6 +324,17 @@ void runAgent () {
                 } else {
                     ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
                                               params.num_diseases, params.disease_names, cur_time, i);
+                }
+            }
+
+            if ((params.check_int > 0) && (i % params.check_int == 0) && ((params.restart_chkfile == "") || (i != start_day))) {
+                if (params.ic_type == ICType::Census) {
+                    ExaEpi::IO::writeCheckpointFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf,
+                                                    &censusData.comm_mf, params.num_diseases, params.disease_names, cur_time, i);
+                } else {
+                    ExaEpi::IO::writeCheckpointFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf,
+                                                    &urbanPopData.community_mf, params.num_diseases, params.disease_names,
+                                                    cur_time, i);
                 }
             }
 
@@ -437,6 +499,16 @@ void runAgent () {
         } else {
             ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
                                       params.num_diseases, params.disease_names, cur_time, params.nsteps);
+        }
+    }
+
+    if (params.check_int > 0) {
+        if (params.ic_type == ICType::Census) {
+            ExaEpi::IO::writeCheckpointFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf,
+                                            params.num_diseases, params.disease_names, cur_time, params.nsteps);
+        } else {
+            ExaEpi::IO::writeCheckpointFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
+                                            params.num_diseases, params.disease_names, cur_time, params.nsteps);
         }
     }
 
