@@ -11,6 +11,7 @@
 #include <string>
 
 #include "AgentContainer.H"
+#include "NAICS.H"
 #include "CaseData.H"
 #include "DemographicData.H"
 #include "Utils.H"
@@ -44,6 +45,6 @@ struct CensusData {
     void assignTeachersAndWorkgroup(AgentContainer& pc);
     void assignMedicalWorkers(AgentContainer& pc);
 
-    int countWorkersByComm(AgentContainer& pc, Gpu::HostVector<int>& a_array);
+    int countWorkersByComm(AgentContainer& pc, Gpu::HostVector<int>& a_array, const int a_naics = -1);
     int setAsMedicalWorkers(AgentContainer& pc, Gpu::HostVector<int>& a_array, bool a_local);
 };

@@ -4,7 +4,6 @@
 #include <AMReX_ParticleUtil.H>
 
 #include "CensusData.H"
-#include "NAICS.H"
 
 using namespace amrex;
 using namespace ExaEpi;
@@ -883,7 +882,7 @@ void CensusData::assignMedicalWorkers (AgentContainer& a_pc) {
             << "\n";
 }
 
-int CensusData::countWorkersByComm (AgentContainer& a_pc, Gpu::HostVector<int>& a_workers_array) {
+int CensusData::countWorkersByComm (AgentContainer& a_pc, Gpu::HostVector<int>& a_workers_array, const int a_naics) {
     const Box& domain = a_pc.Geom(0).Domain();
     auto Ncommunity = demo.Ncommunity;
     AMREX_ASSERT(a_workers_array.size() == size_t(Ncommunity));
@@ -909,6 +908,7 @@ int CensusData::countWorkersByComm (AgentContainer& a_pc, Gpu::HostVector<int>& 
 
         for (int ip = 0; ip < np; ++ip) {
             if (naics_ptr[ip] < 0) { continue; }
+            if ((a_naics >= 0) && (naics_ptr[ip] != a_naics)) { continue; }
             auto iv_work = IntVect(AMREX_D_DECL(work_i_ptr[ip], work_j_ptr[ip], 0));
             int comm = (int)domain.index(iv_work);
             if (comm >= Ncommunity || comm < 0) { continue; }

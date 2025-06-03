@@ -82,7 +82,10 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
         m_interactions[InteractionNames::home_nborhood] = new InteractionModHomeNborhood<PCType, PTDType, PType>(fast);
         m_interactions[InteractionNames::work_nborhood] = new InteractionModWorkNborhood<PCType, PTDType, PType>(fast);
 
-        m_hospital = std::make_unique<HospitalModel<PCType, PTDType, PType>>(fast);
+        m_hospital = std::make_unique<HospitalModel<PCType, PTDType, PType>>(fast, "hospital_model");
+        m_hospital->initHospitalScoreMF(a_ba, a_dmap);
+        // number of medical workers in each community: component 0 - total, component 1 - active
+        m_num_medworkers = std::make_unique<MultiFab>(a_ba, a_dmap, 2, 0);
     }
 
     m_h_parm.resize(m_num_diseases);
@@ -531,7 +534,6 @@ void AgentContainer::updateStatus (MFPtrVec& a_disease_stats /*!< Community-wise
     BL_PROFILE("AgentContainer::updateStatus");
 
     m_disease_status.updateAgents(*this, a_disease_stats);
-    m_hospital->treatAgents(*this, a_disease_stats);
 
     // move hospitalized agents to their hospital location
     for (int lev = 0; lev <= finestLevel(); ++lev) {
@@ -573,6 +575,10 @@ void AgentContainer::updateStatus (MFPtrVec& a_disease_stats /*!< Community-wise
             });
         }
     }
+    Redistribute();
+    AMREX_ASSERT(OK());
+
+    m_hospital->treatAgents(*this, a_disease_stats);
 }
 
 /*! \brief Start shelter-in-place */
@@ -820,6 +826,46 @@ int AgentContainer::getMaxGroup (const int group_idx) {
     return max_attribute_values[group_idx];
 }
 
+/*! Updates the MultiFab that contains the number of total and active medical workers in each
+ *  community and sends this the HospitalModel object to compute the patient capacities and hospital
+ *  quality scores.
+ *
+ *  **NOTE** this function must be called when the agents are at work; consequently, the medical
+ *  workers are at their work locations. */
+void AgentContainer::updateHospitalCapacities() {
+    BL_PROFILE("AgentContainer::updateHospitalCapacities");
+    const int lev = 0;
+    AMREX_ASSERT(OK());
+    AMREX_ASSERT(numParticlesOutOfRange(*this, 0) == 0);
+
+    const auto& geom = Geom(lev);
+    const auto plo = geom.ProbLoArray();
+    const auto dxi = geom.InvCellSizeArray();
+    const auto domain = geom.Domain();
+    auto& mf = *m_num_medworkers;
+
+    mf.setVal(0.0);
+    ParticleToMesh(
+        *this, mf, lev,
+        [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd, int i,
+                              Array4<Real> const& mf_arr) {
+            auto p = ptd.m_aos[i];
+            auto iv = getParticleCell(p, plo, dxi, domain);
+
+            if (ptd.m_idata[IntIdx::naics][i] == NAICSCodes::NAICS::med_sca) {
+                Gpu::Atomic::AddNoRet(&mf_arr(iv,0), 1.0_rt);
+                if (    (!ptd.m_idata[IntIdx::withdrawn][i])
+                     && (!inHospital(i, ptd))
+                     && (ptd.m_runtime_idata[i0(0)+IntIdxDisease::status][i] != Status::dead) ) {
+                    Gpu::Atomic::AddNoRet(&mf_arr(iv,1), 1.0_rt);
+                }
+            }
+        },
+        false);
+
+    m_hospital->updateCapacities(m_num_medworkers);
+}
+
 /*! \brief Interaction and movement of agents during morning commute
  *
  * + Move agents to work
@@ -853,6 +899,7 @@ void AgentContainer::eveningCommute (MultiFab& /*a_mask_behavior*/ /*!< Masking 
 /*! \brief Interaction of agents during day time - work and school */
 void AgentContainer::interactDay (MultiFab& a_mask_behavior /*!< Masking behavior */) {
     BL_PROFILE("AgentContainer::interactDay");
+    updateHospitalCapacities();
     if (haveInteractionModel(ExaEpi::InteractionNames::work)) {
         m_interactions[ExaEpi::InteractionNames::work]->interactAgents(*this, a_mask_behavior);
     }

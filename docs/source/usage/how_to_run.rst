@@ -238,8 +238,15 @@ can be specified as follows:
 where ``[disease name]`` is any of the names specified in ``agent.disease_names`` (or the
 default value), and ``[key]`` is any of the parameters listed above.
 
+The following inputs specify parameters for the hospital model.
+
+* ``hospital_model.num_patients_per_doctor`` (`float`, default ``50``)
+    The number of patients a doctor can see per day.
+* ``hospital_model.score_minimum`` (`float`, default ``0.1``)
+    The minimum hospital score (quality of treatment) when a hospital is overloaded (i.e., number of patients with
+    respect to its capacity) to a very high degree.
+* ``hospital_model.halfscore_load`` (`float`, default ``5``)
+    The load (number of patients divided by the capacity) at which the hospital's score drops to ``0.5``.
+
 In addition to the ExaEpi inputs, there are also a number of runtime options that can be configured for AMReX itself.
 Please see <https://amrex-codes.github.io/amrex/docs_html/GPU.html#inputs-parameters>`__ for more information on these options.
-
-
-
