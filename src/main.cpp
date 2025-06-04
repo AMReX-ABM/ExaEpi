@@ -349,7 +349,7 @@ void runAgent () {
             }
 
             // Update agents' disease status
-            pc.updateStatus(disease_stats);
+            pc.updateStatus(disease_stats, i);
 
             for (int d = 0; d < params.num_diseases; d++) {
                 auto counts = pc.getTotals(d);

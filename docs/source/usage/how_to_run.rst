@@ -247,6 +247,8 @@ The following inputs specify parameters for the hospital model.
     respect to its capacity) to a very high degree.
 * ``hospital_model.halfscore_load`` (`float`, default ``5``)
     The load (number of patients divided by the capacity) at which the hospital's score drops to ``0.5``.
+* ``hospital_model.write_pltfiles`` (`bool`, default ``false``)
+    Write hospital scores and capacities to `plt` files
 
 In addition to the ExaEpi inputs, there are also a number of runtime options that can be configured for AMReX itself.
 Please see <https://amrex-codes.github.io/amrex/docs_html/GPU.html#inputs-parameters>`__ for more information on these options.

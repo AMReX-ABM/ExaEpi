@@ -116,7 +116,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void returnAirTravel();
 
-    void updateStatus(MFPtrVec&);
+    void updateStatus(MFPtrVec&, int);
 
     void infectAgents(MFPtrVec&);
 

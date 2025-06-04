@@ -530,7 +530,8 @@ void AgentContainer::returnAirTravel () {
 }
 
 /*! \brief Updates disease status of each agent */
-void AgentContainer::updateStatus (MFPtrVec& a_disease_stats /*!< Community-wise disease stats tracker */) {
+void AgentContainer::updateStatus (MFPtrVec& a_disease_stats, /*!< Community-wise disease stats tracker */
+                                   const int a_iter /*!< iteration/day */ ) {
     BL_PROFILE("AgentContainer::updateStatus");
 
     m_disease_status.updateAgents(*this, a_disease_stats);
@@ -578,7 +579,7 @@ void AgentContainer::updateStatus (MFPtrVec& a_disease_stats /*!< Community-wise
     Redistribute();
     AMREX_ASSERT(OK());
 
-    m_hospital->treatAgents(*this, a_disease_stats);
+    m_hospital->treatAgents(*this, a_disease_stats, a_iter);
 }
 
 /*! \brief Start shelter-in-place */
