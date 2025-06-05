@@ -12,6 +12,7 @@ import numpy as np
 from pandas.api.types import CategoricalDtype
 from colorama import Fore
 import get_schools
+from get_schools import timer
 
 grade_categs = CategoricalDtype(
     categories=[
@@ -91,19 +92,6 @@ age_levels = {
 }
 
 
-def timer(func):
-    # @functools.wraps(func)
-    def wrapper_timer(*args, **kwargs):
-        tic = time.perf_counter()
-        value = func(*args, **kwargs)
-        toc = time.perf_counter()
-        elapsed_time = toc - tic
-        print(f"{Fore.BLUE}Elapsed time for {func.__name__}: {elapsed_time:0.2f} seconds {Fore.RESET}")
-        return value
-
-    return wrapper_timer
-
-
 def perc_str(n, m):
     return "%d out of %d (%.2f%%)" % (n, m, 100.0 * float(n) / m)
 
@@ -121,7 +109,6 @@ def load_urbanpop_files(fnames):
     # hh_nb_adult_wrks,hh_nb_adult_non_wrks,hh_dwg,hh_tenure,hh_vehicles,pr_age,pr_sex,pr_race,pr_hsplat,pr_ipr,pr_naics,
     # pr_emp_stat,pr_travel,pr_veh_occ,pr_commute,pr_grade
     upop_df = pd.DataFrame()
-    start_t = time.time()
     for fname in fnames:
         # print("Reading data from", fname, end=": ")
         t = time.time()
@@ -131,7 +118,7 @@ def load_urbanpop_files(fnames):
 
     upop_df.geoid = upop_df.geoid.astype(str)
     upop_df.sort_values(by=["p_id"], inplace=True)
-    print("Processed", len(upop_df.index), "records in %.3f s" % (time.time() - start_t))
+    print(f"Processed {len(upop_df.index)} records from {len(fnames)} files")
     return upop_df
 
 
@@ -541,10 +528,16 @@ def get_level_from_age(min_age, max_age):
     return get_schools.get_level_from_age(min_age, max_age)
 
 
-def get_from_up_nt_dt(args):
-    df = pd.read_csv(args.up_nt_dt_file)[["p_id", "role", "orig_geoid", "dest_geoid", "naics", "grade", "school_id"]].astype(
-        {"orig_geoid": "str", "dest_geoid": "str", "grade": "str"}
-    )
+@timer
+def get_from_up_nt_dt(args, upop_df):
+    df = pd.DataFrame()
+    print(f"{Fore.GREEN}Loading UrbanPop nighttime/daytime files{Fore.RESET}")
+    for fname in args.up_nt_dt_files:
+        region_df = pd.read_feather(fname)[["p_id", "role", "orig_geoid", "dest_geoid", "naics", "grade", "school_id"]].astype(
+            {"orig_geoid": "str", "dest_geoid": "str", "grade": "str"}
+        )
+        df = pd.concat([df, region_df], ignore_index=True)
+    print(f"Loaded {len(df)} entries from {len(args.up_nt_dt_files)} files")
     workers_df = df[df.role == "worker"].reset_index(drop=True)
     workers_df["grade"] = ""
     unemp_df = df[df.role == "nope"].reset_index(drop=True)
@@ -555,7 +548,6 @@ def get_from_up_nt_dt(args):
     students_df.loc[~idx, "grade"] = students_df.loc[~idx, "grade"].str.split("_", n=1, expand=True).iloc[:, 1]
     students_df.loc[:, "grade"] = students_df["grade"].astype(grade_categs).cat.codes + 3
     students_df.to_csv("students_from_up.csv", index=False)
-    # FIXME: determine schools from students
     schools_df = students_df.groupby(["school_id", "dest_geoid"]).size().reset_index(name="students")
     schools_df.rename(columns={"school_id": "id", "dest_geoid": "geoid"}, inplace=True)
     # we don't have information for these schools, so we just use an average student:teacher ratio of 12:1
@@ -568,6 +560,7 @@ def get_from_up_nt_dt(args):
     return workers_df, students_df, schools_df, unemp_df
 
 
+@timer
 def main():
     t = time.time()
     cfg_parser = argparse.ArgumentParser(
@@ -575,12 +568,20 @@ def main():
     )
     cfg_parser.add_argument("-c", "--config", help="Config file", metavar="FILE")
     args, remaining_argv = cfg_parser.parse_known_args()
-    main_args = {"urbanpop_files": "", "lodes_files": "", "schools_file": "", "output_file": "", "up_nt_dt_file": "", "rseed": 11}
+    # set defaults
+    main_args = {
+        "urbanpop_files": "",
+        "lodes_files": "",
+        "schools_file": "",
+        "output_file": "",
+        "up_nt_dt_files": "",
+        "rseed": 11,
+    }
     if args.config:
         cfg = configparser.ConfigParser()
         cfg.read([args.config])
         main_args.update(dict(cfg.items("main")))
-        for files_label in ["urbanpop_files", "lodes_files"]:
+        for files_label in ["urbanpop_files", "lodes_files", "up_nt_dt_files"]:
             file_list = []
             for f in main_args[files_label].split():
                 file_list.extend(glob.glob(f))
@@ -588,11 +589,23 @@ def main():
     parser = argparse.ArgumentParser(parents=[cfg_parser])
     parser.set_defaults(**main_args)
     parser.add_argument("--urbanpop_files", "-f", nargs="+", help="UrbanPop feather files")
-    parser.add_argument("--lodes_files", "-l", nargs="+", help="LODES7 origin-destination (OD) files in csv format")
-    parser.add_argument("--output_file", "-o", help="Output file (will be written in feather format)")
-    parser.add_argument("--schools_file", "-s", help="File containing schools data in CSV")
     parser.add_argument(
-        "--up_nt_dt_file", "-n", help="File containing nighttime/daytime data from UrbanPop. " + "Used instead of LODES files"
+        "--lodes_files",
+        "-l",
+        nargs="+",
+        help="LODES7 origin-destination (OD) files in CSV format. Not needed if UrbanPop nighttime/daytime files are used",
+    )
+    parser.add_argument("--output_file", "-o", help="Output file prefix (will be written in feather format)")
+    parser.add_argument(
+        "--schools_file",
+        "-s",
+        help="File containing schools data in CSV format. Not needed if UrbanPop nighttime/daytime files are used",
+    )
+    parser.add_argument(
+        "--up_nt_dt_files",
+        "-n",
+        nargs="+",
+        help="Files containing nighttime/daytime data from UrbanPop in feather format. Used instead of LODES files",
     )
     parser.add_argument("--rseed", "-r", help="Random seed", default=29, type=int)
     args = parser.parse_args(remaining_argv)
@@ -621,8 +634,8 @@ def main():
     if tot != len(upop_df):
         print("ERROR: total agents mismatch, allocated", tot, "but found", len(upop_df), "in UrbanPop feather files")
 
-    if args.up_nt_dt_file:
-        workers_nt_dt_df, students_nt_dt_df, schools_df, unemp_df = get_from_up_nt_dt(args)
+    if args.up_nt_dt_files:
+        workers_nt_dt_df, students_nt_dt_df, schools_df, unemp_df = get_from_up_nt_dt(args, upop_df)
     else:
         workers_nt_dt_df = alloc_workers(args, workers_df)
         students_nt_dt_df = alloc_students(args, students_df)

@@ -16,6 +16,7 @@ import configparser
 import glob
 import geopandas
 from colorama import Fore
+from get_schools import timer
 
 # only include these fields in the output csv and c++ structure
 
@@ -177,7 +178,7 @@ categ_types = {
 NAICS_EDU = 14
 NAICS_WFH = 20
 
-DUMP_INTERMEDIATES = True
+DUMP_INTERMEDIATES = False
 
 
 def print_header(df):
@@ -316,6 +317,7 @@ static std::vector<string> splitString(const string &s, char delim) {
     print("Wrote", len(df.columns), "fields to", hdr_fname)
 
 
+@timer
 def process_census_bg_shape_file(fnames):
     geoid_locs_map = {}
     for shape_fname in fnames:
@@ -336,17 +338,17 @@ def process_census_bg_shape_file(fnames):
     return geoid_locs_map
 
 
+@timer
 def process_nt_dt_feather_files(fnames, out_fname):
     start_t = time.time()
     dfs = []
+    print(f"Reading data from {len(fnames)} files")
     for i, fname in enumerate(fnames):
-        print("Reading data from", fname, end=": ")
-        t = time.time()
         df_metro = pd.read_feather(fname)
         dfs.append(df_metro)
-        print(len(dfs[-1].index), "records in %.3f s" % (time.time() - t))
 
     df = pd.concat(dfs, ignore_index=True)
+    print(f"Read {len(df.index)} records")
     df.sort_values(by=["p_id"], inplace=True, ignore_index=True)
     df.orig_geoid = df.orig_geoid.astype("int64")
     df.dest_geoid = df.dest_geoid.astype("int64")
@@ -366,46 +368,48 @@ def process_nt_dt_feather_files(fnames, out_fname):
     df["grade"] = df["grade"].replace(["grad_female"], "grad", regex=True)
     df["grade"] = df["grade"].replace(["grad_male"], "grad", regex=True)
 
-    print("Processed", len(df.index), "records in %.3f s" % (time.time() - start_t))
-
-    t = time.time()
     if DUMP_INTERMEDIATES:
         df.to_csv(out_fname + ".work.csv", sep=",", index=False)
-    print("Wrote", out_fname + ".work.csv in %.3f s" % (time.time() - t))
 
     return df
 
 
+@timer
 def process_pop_feather_files(fnames):
     dfs = []
-    start_t = time.time()
+    print(f"Reading UrbanPop data from {len(fnames)} files")
     for fname in fnames:
-        print("Reading data from", fname, end=": ")
-        t = time.time()
         df_read = pd.read_feather(fname)
         if DUMP_INTERMEDIATES:
             df_read.to_csv(fname + ".csv")
         dfs.append(df_read)
-        print(len(dfs[-1].index), "records in %.3f s" % (time.time() - t))
 
     df = pd.concat(dfs, ignore_index=True)
+    print(f"Read {len(df.index)} records")
     df.geoid = df.geoid.astype("int64")
     # need to sort to ensure the order is the same between the population files and the daytime/nighttime files
     df.sort_values(by=["p_id"], inplace=True)
     # remove all not found in include list
     cols_to_purge = set(list(df.columns.values)) - set(include_fields)
     df.drop(columns=cols_to_purge, inplace=True)
-    print("Processed", len(df.index), "records in %.3f s" % (time.time() - start_t))
     return df
 
 
+@timer
 def merge_dt_nt(df, df_dt_nt):
     if not np.array_equal(df.p_id.values, df_dt_nt.p_id.values):
-        print("Mismatched p_ids for population vs daytime/nightime")
-        sys.exit(0)
+        # now drop the rows that occur in the UrbanPop files but not the nighttime/daytime flows
+        merged_df = df.merge(df_dt_nt.drop_duplicates(), on=["p_id"], how="left", indicator=True)
+        upop_only_df = merged_df[merged_df["_merge"] == "left_only"][["p_id"]]
+        df.drop(df.loc[df.p_id.isin(upop_only_df.p_id)].index, inplace=True)
+        print(f"Dropped {len(upop_only_df)} rows not found in nighttime/daytime data")
+    if not np.array_equal(df.p_id.values, df_dt_nt.p_id.values):
+        df.to_csv("err-df.csv", index=False)
+        df_dt_nt.to_csv("err-df-dt-nt.csv", index=False)
+        raise RuntimeError(f"{Fore.RED}Mismatched p_ids for population vs daytime/nightime{Fore.RESET}")
     if not np.array_equal(df.geoid.values, df_dt_nt.orig_geoid.values):
-        print("Mismatched geoids for population vs daytime/nightime")
-        sys.exit(0)
+        print(f"lengths: {len(df.geoid.values)} {len(df_dt_nt.orig_geoid.values)}")
+        raise RuntimeError(f"{Fore.RED}Mismatched geoids for population vs daytime/nightime{Fore.RESET}")
 
     df.insert(df.columns.get_loc("geoid") + 1, "work_geoid", int(0))
     # get values from worker data
@@ -413,16 +417,14 @@ def merge_dt_nt(df, df_dt_nt):
     for col in ["role", "naics", "grade", "school_id"]:
         df[col] = df_dt_nt[col].values
         if not np.array_equal(df[col].values, df_dt_nt[col].values):
-            print("Mismatched", col, "for population vs daytime/nightime")
-            sys.exit(0)
-
+            raise RuntimeError(f"{Fore.RED}Mismatched {col} for population vs daytime/nightime{Fore.RESET}")
     if not np.array_equal(df.work_geoid.values, df_dt_nt.dest_geoid.values):
-        print("Mismatched work geoids for population vs daytime/nightime")
-        sys.exit(0)
+        raise RuntimeError(f"{Fore.RED}Mismatched work geoids for population vs daytime/nightime{Fore.RESET}")
     if DUMP_INTERMEDIATES:
         df.to_csv("merged.csv")
 
 
+@timer
 def set_types(df):
     if "hh_income" in include_fields:
         # pack structure by moving int32_t value to before all int8_t values
@@ -468,12 +470,12 @@ def set_types(df):
                     df[field_type] = df[field_type].astype("int64")
 
 
+@timer
 def print_agents(df, work_geoids_map, out_fname, geoid_locs_map):
     num_rows = len(df.index)
     # start with a distinct marker so that the file can be read in parallel more easily
     df.index = ["*"] * num_rows
     # print each geoid in turn so we can track the file offsets
-    t = time.time()
     naics_types = list(categ_types["naics"].categories)
     out_fname_idx = out_fname + ".idx"
     out_fname_csv = out_fname + ".csv"
@@ -505,12 +507,12 @@ def print_agents(df, work_geoids_map, out_fname, geoid_locs_map):
                 " ".join(map(str, work_pops)),
                 file=f,
             )
-    print("Wrote", len(df.index), "records in %.3f s" % (time.time() - t))
+    print("Wrote", len(df.index), "records")
 
 
+@timer
 def compute_worker_populations(df):
     # compute worker populations
-    t = time.time()
     naics_types = list(categ_types["naics"].categories)
     num_naics = len(naics_types)
     work_geoids_map = {}
@@ -524,19 +526,14 @@ def compute_worker_populations(df):
             naics_counts.append(len(subset_df.loc[subset_df["naics"] == naics_i]))
         work_pops = [len(subset_df.index)]
         if work_pops[0] != sum(naics_counts):
-            print(f"{Fore.RED}ERROR: NAICS codes != sum work pop, geoid {geoid} {work_pops[0]} {sum(naics_counts)}{Fore.RESET}")
-            raise RuntimeError
+            raise RuntimeError(
+                f"{Fore.RED}NAICS codes != sum work pop, geoid {geoid} {work_pops[0]} {sum(naics_counts)}{Fore.RESET}"
+            )
         num_workers += work_pops[0]
         work_pops.extend(naics_counts)
         work_geoids_map[geoid] = work_pops
     print("workers population", num_workers)
-    print(
-        "Found",
-        len(df.home_geoid.unique()),
-        "home locations and",
-        len(work_geoids_map),
-        "work locations in %.3f s" % (time.time() - t),
-    )
+    print("Found", len(df.home_geoid.unique()), "home locations and", len(work_geoids_map), "work locations")
     return work_geoids_map
 
 
@@ -555,9 +552,9 @@ def rename_fields(df):
             df.rename(columns={col: "household_" + col[3:]}, inplace=True)
 
 
+@timer
 def set_lnglat(df, geoid_locs_map):
-    t = time.time()
-    print("Setting lat/long for data", end=" ", flush=True)
+    print("Setting lat/long for data")
     # add lat/long locations from geoids
     df.insert(df.columns.get_loc("home_geoid") + 1, "home_lat", float(0))
     df.insert(df.columns.get_loc("home_lat") + 1, "home_lng", float(0))
@@ -588,9 +585,10 @@ def set_lnglat(df, geoid_locs_map):
     if DUMP_INTERMEDIATES:
         df.to_csv("latlng.csv")
 
-    print("\nSet lat/long for", len(df.index), "agents in %.3f s" % (time.time() - t))
+    print("Set lat/long for", len(df.index), "agents")
 
 
+@timer
 def adjust_school_ids(df):
     # set school ids to be unique only to work geoid
     work_geoids = df.work_geoid.unique()
@@ -606,8 +604,8 @@ def adjust_school_ids(df):
     df["school_id"] = df["school_id"].map(school_id_map).apply(lambda x: x).fillna(0).astype("int32")
 
 
+@timer
 def main():
-    t = time.time()
     np.random.seed(29)
 
     cfg_parser = argparse.ArgumentParser(description="Convert UrbanPop feather files to C++ struct binary file", add_help=False)
@@ -659,8 +657,6 @@ def main():
     print_agents(df, work_geoids_map, args.output, geoid_locs_map)
     # fips_codes = sorted(set([int(str(geoid)[:5]) for geoid in df.work_geoid.unique()]))
     # print("FIPS codes:", fips_codes)
-
-    print("Processed", len(args.files), "files in %.2f s" % (time.time() - t))
 
 
 if __name__ == "__main__":

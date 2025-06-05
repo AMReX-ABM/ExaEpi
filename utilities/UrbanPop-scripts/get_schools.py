@@ -13,6 +13,20 @@ import shapely.geometry
 from colorama import Fore
 
 
+def timer(func):
+    # @functools.wraps(func)
+    def wrapper_timer(*args, **kwargs):
+        tic = time.perf_counter()
+        value = func(*args, **kwargs)
+        toc = time.perf_counter()
+        elapsed_time = toc - tic
+        print(f"{Fore.BLUE}Elapsed time for {func.__name__}: {elapsed_time:0.2f} seconds {Fore.RESET}")
+        return value
+
+    return wrapper_timer
+
+
+@timer
 def fetch_census_geographies(school_df):
     start_t = time.time()
     # fetch census geographies corresponding to addresses - unfortunately, about 15% of address don't get a match
@@ -51,6 +65,7 @@ def fetch_census_geographies(school_df):
     print("Processed", len(schools_geoids_df.index), "records in %.3f s" % (time.time() - start_t))
 
 
+@timer
 def get_census_bgs(args):
     print("Reading Census bg files")
     t = time.time()
@@ -125,6 +140,7 @@ def get_complete(schools_with_geoids):
     return schools_with_geoids
 
 
+@timer
 def get_hifld_public_schools(args, census_bgs_df):
     school_df = pd.DataFrame()
     cols_to_read = ["NCES ID", "Latitude", "Longitude", "Enrollment", "Start Grade", "End Grade", "Full Time Teachers"]
@@ -155,6 +171,7 @@ def get_hifld_public_schools(args, census_bgs_df):
     return schools_with_geoids
 
 
+@timer
 def get_hifld_private_schools(args, census_bgs_df):
     school_df = pd.DataFrame()
     cols_to_read = ["NCES ID", "Latitude", "Longitude", "Enrollment", "Start Grade", "End Grade", "Full Time Teachers"]
@@ -184,6 +201,7 @@ def get_hifld_private_schools(args, census_bgs_df):
     return schools_with_geoids
 
 
+@timer
 def get_hifld_childcare(args, census_bgs_df):
     childcare_df = pd.DataFrame()
     for fname in args.childcare_files:
@@ -224,6 +242,7 @@ def get_hifld_childcare(args, census_bgs_df):
     return childcare_with_geoids
 
 
+@timer
 def get_hifld_colleges(args):
     start_t = time.time()
     # we don't have lng/lat for colleges so we have to fetch with addresses
@@ -286,6 +305,7 @@ def get_hifld_colleges(args):
     return colleges_with_geoids
 
 
+@timer
 def get_nces_public_schools(args, census_bgs_df):
     print(f"Reading from {args.public_nces_school_file}: ", end="")
     t = time.time()
@@ -330,6 +350,7 @@ def get_nces_public_schools(args, census_bgs_df):
     return geoids_df
 
 
+@timer
 def main():
     cfg_parser = argparse.ArgumentParser(
         description="Generate school list with Census Block Group GEOID, using Census bg shapefiles and HIFLD data",
