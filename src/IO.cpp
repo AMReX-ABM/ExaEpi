@@ -154,6 +154,8 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
         if (num_diseases == 1) {
             real_varnames.push_back("treatment_timer");
             write_real_comp.push_back(1);
+            real_varnames.push_back("treatment_quality");
+            write_real_comp.push_back(1);
             real_varnames.push_back("disease_counter");
             write_real_comp.push_back(1);
             real_varnames.push_back("infection_prob");

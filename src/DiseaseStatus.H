@@ -121,6 +121,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                 auto symptomatic_ptr = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::symptomatic).data();
 
                 auto timer_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::treatment_timer).data();
+                auto tq_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::treatment_quality).data();
                 auto counter_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::disease_counter).data();
                 auto prob_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::prob).data();
                 auto latent_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::latent_period).data();
@@ -167,7 +168,10 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                                     disease_parm_d->checkHospitalization(&(timer_ptr[i]), &(marked_for_ICU_ptr[i]),
                                                                          &(marked_for_vent_ptr[i]), age_group_ptr[i], engine);
                                 }
-                                if ((timer_ptr[i] > 0) && (!inHospital(i, ptd))) { marked_for_hosp_ptr[i] = 1; }
+                                if (timer_ptr[i] > 0) {
+                                    tq_ptr[i] = 1.0_prt; // initialize treatment quality to 1.0
+                                    if (!inHospital(i, ptd)) { marked_for_hosp_ptr[i] = 1; }
+                                }
                             }
                         } else if ((Math::floor(hospital_delay_ptr[i]) > 0) &&
                                    (Math::floor(counter_ptr[i]) ==
@@ -175,7 +179,10 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                             if (symptomatic_ptr[i] == SymptomStatus::symptomatic) {
                                 disease_parm_d->checkHospitalization(&(timer_ptr[i]), &(marked_for_ICU_ptr[i]),
                                                                      &(marked_for_vent_ptr[i]), age_group_ptr[i], engine);
-                                if ((timer_ptr[i] > 0) && (!inHospital(i, ptd))) { marked_for_hosp_ptr[i] = 1; }
+                                if (timer_ptr[i] > 0) {
+                                    tq_ptr[i] = 1.0_prt; // initialize treatment quality to 1.0
+                                    if (!inHospital(i, ptd)) { marked_for_hosp_ptr[i] = 1; }
+                                }
                             }
                         } else if (!inHospital(i, ptd)) {
                             if (counter_ptr[i] >= (latent_period_ptr[i] + infectious_period_ptr[i])) {
@@ -192,6 +199,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                 Gpu::synchronize();
             }
 
+            // assign hospital
             ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                 if (marked_for_hosp_ptr[i] == 1) { assignHospital(i, hosp_i_ptr, hosp_j_ptr, ptd); }
             });

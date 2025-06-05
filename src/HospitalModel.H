@@ -159,8 +159,12 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
     computeHospitalScores(a_agents, a_iter);
 
     for (int lev = 0; lev < a_agents.numLevels(); ++lev) {
-        const auto dx = a_agents.Geom(lev).CellSizeArray();
         auto& plev = a_agents.GetParticles(lev);
+        const auto& geom = a_agents.Geom(lev);
+        const auto dx = geom.CellSizeArray();
+        const auto plo = geom.ProbLoArray();
+        const auto dxi = geom.InvCellSizeArray();
+        const auto domain = geom.Domain();
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -175,6 +179,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
             PType* pstruct = &(aos[0]);
             const auto np = ptile.numParticles();
             if (np == 0) { continue; }
+            auto hosp_data_arr = m_data->const_array(mfi);
 
             auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
             auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
@@ -187,12 +192,13 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
             int r_RT = RealIdx::nattribs;
 
             GpuArray<int*, ExaEpi::max_num_diseases> status_ptrs, symptomatic_ptrs;
-            GpuArray<ParticleReal*, ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs, incubation_per_ptrs;
+            GpuArray<ParticleReal*, ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs, incubation_per_ptrs, treat_q_ptrs;
             for (int d = 0; d < n_disease; d++) {
                 status_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
                 symptomatic_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::symptomatic).data();
                 counter_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::disease_counter).data();
                 timer_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::treatment_timer).data();
+                treat_q_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::treatment_quality).data();
                 incubation_per_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).data();
             }
 
@@ -245,8 +251,14 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                     }
 
                     AMREX_ALWAYS_ASSERT(status_ptrs[d][i] == Status::infected);
+
                     // decrement days in hospital
                     timer_ptrs[d][i] -= 1.0_prt;
+                    // accumulate treatement quality
+                    PType& p = pstruct[i];
+                    auto iv = getParticleCell(p, plo, dxi, domain);
+                    treat_q_ptrs[d][i] *= hosp_data_arr(iv, HospMod::score);
+
                     if (timer_ptrs[d][i] == 0) {
                         // finished hospitalization period
                         flag_status_ptr[i] = DiseaseStats::hospitalization + 1;
@@ -259,7 +271,10 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                     }
                     if (flag_status_ptr[i] > 0) {
                         // Check if hospitalized patient recovers or dies
-                        if (Random(engine) < disease_parm_d->m_hospToDeath[flag_status_ptr[i] - 1][age_group_ptr[i]]) {
+                        auto p_survive = 1.0 - disease_parm_d->m_hospToDeath[flag_status_ptr[i] - 1][age_group_ptr[i]];
+                        p_survive *= treat_q_ptrs[d][i];
+                        if (Random(engine) >= p_survive) {
+                            // patient dies
                             is_alive_ptr[i] = 0;
                             flag_status_ptr[i] *= -1;
                             status_ptrs[d][i] = Status::dead;

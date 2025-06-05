@@ -24,6 +24,7 @@ struct RealIdxDisease {
     enum {
         /* Disease counter starts after infection. */
         treatment_timer = 0, /*!< Timer since hospital admission */
+        treatment_quality,   /*!< Treatment quality at hospital */
         disease_counter,     /*!< Counter since start of infection */
         prob,                /*!< Probability of infection */
         latent_period,       /*!< Time until infectious, which could be before symptoms appear */
