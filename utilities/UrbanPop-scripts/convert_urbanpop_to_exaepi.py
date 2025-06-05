@@ -326,11 +326,13 @@ def process_census_bg_shape_file(fnames):
         # df = df.to_crs(crs=4326)
         # df["centroid"] = df.centroid
         print("Reading shape files at", shape_fname)
-        df = geopandas.read_file(shape_fname, columns=["GEOID10", "INTPTLAT10", "INTPTLON10"])
+        df = geopandas.read_file(shape_fname, columns=["GEOID10", "INTPTLAT10", "INTPTLON10"])[
+            ["GEOID10", "INTPTLAT10", "INTPTLON10"]
+        ]
         df.GEOID10 = df.GEOID10.astype("int64")
         df.INTPTLAT10 = df.INTPTLAT10.astype("float32")
         df.INTPTLON10 = df.INTPTLON10.astype("float32")
-        df.to_csv(shape_fname + ".csv")
+        df.to_csv(shape_fname + ".csv", index=False)
         print("Wrote", len(df.index), "GEOID locations to", shape_fname + ".csv")
         # print(df.dtypes)
         geoid_locs_map.update(df.set_index("GEOID10").T.to_dict("list"))
@@ -340,7 +342,6 @@ def process_census_bg_shape_file(fnames):
 
 @timer
 def process_nt_dt_feather_files(fnames, out_fname):
-    start_t = time.time()
     dfs = []
     print(f"Reading data from {len(fnames)} files")
     for i, fname in enumerate(fnames):
