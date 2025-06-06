@@ -176,6 +176,8 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
             for (int d = 0; d < num_diseases; d++) {
                 real_varnames.push_back(disease_names[d] + "treatment_timer");
                 write_real_comp.push_back(1);
+                real_varnames.push_back(disease_names[d] + "treatment_quality");
+                write_real_comp.push_back(1);
                 real_varnames.push_back(disease_names[d] + "_disease_counter");
                 write_real_comp.push_back(1);
                 real_varnames.push_back(disease_names[d] + "_infection_prob");
