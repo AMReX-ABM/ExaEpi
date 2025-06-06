@@ -124,16 +124,16 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
     MFPtr m_data;
 
     /*! Number of patients that a doctor can see in a day */
-    Real m_num_patients_per_doctor = 50;
+    Real m_num_patients_per_doctor = 50.0_rt;
 
     /*! Minimum hospital score even at very high loading */
-    Real m_sc_floor = 0.1;
+    Real m_sc_floor = 0.1_rt;
 
     /*! Load at which hospital score falls to 0.5 */
-    Real m_sc_half_load = 5.0;
+    Real m_sc_half_load = 5.0_rt;
 
     /*! Number of hospitals operating beyond capacity */
-    Long m_num_overloaded_hospitals = 0;
+    Long m_num_overloaded_hospitals = Long(0);
 
     /*! Write out hospital data to AMReX plot files */
     bool m_write_pltfiles = false;
@@ -271,7 +271,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                     }
                     if (flag_status_ptr[i] > 0) {
                         // Check if hospitalized patient recovers or dies
-                        auto p_survive = 1.0 - disease_parm_d->m_hospToDeath[flag_status_ptr[i] - 1][age_group_ptr[i]];
+                        auto p_survive = 1.0_rt - disease_parm_d->m_hospToDeath[flag_status_ptr[i] - 1][age_group_ptr[i]];
                         p_survive *= treat_q_ptrs[d][i];
                         if (Random(engine) >= p_survive) {
                             // patient dies
