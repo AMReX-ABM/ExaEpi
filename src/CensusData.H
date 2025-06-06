@@ -11,9 +11,9 @@
 #include <string>
 
 #include "AgentContainer.H"
-#include "NAICS.H"
 #include "CaseData.H"
 #include "DemographicData.H"
+#include "NAICS.H"
 #include "Utils.H"
 
 /*! \brief A class encapsulating all data relevant to the ICType Census */

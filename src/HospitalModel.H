@@ -5,15 +5,15 @@
 #ifndef _HOSPITAL_MODEL_H_
 #define _HOSPITAL_MODEL_H_
 
-#include <AMReX_PlotFileUtil.H>
 #include <AMReX_MultiFab.H>
+#include <AMReX_PlotFileUtil.H>
 #include <AMReX_REAL.H>
 
 #include "AgentDefinitions.H"
 #include "DiseaseParm.H"
 #include "InteractionModel.H"
-#include "Utils.H"
 #include "NAICS.H"
+#include "Utils.H"
 
 using namespace amrex;
 
@@ -67,8 +67,7 @@ template <typename PCType, typename PTDType, typename PType>
 class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
   public:
     /*! \brief Constructor - reads in inputs */
-    HospitalModel (bool _fast_bin, const std::string& a_prefix) : InteractionModel<PCType, PTDType, PType>(_fast_bin)
-    {
+    HospitalModel (bool _fast_bin, const std::string& a_prefix) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {
         ParmParse pp(a_prefix);
         pp.query("num_patients_per_doctor", m_num_patients_per_doctor);
         pp.query("score_minimum", m_sc_floor);
@@ -79,7 +78,7 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
         Print() << "  Number of patients per doctor: " << m_num_patients_per_doctor << "\n";
         Print() << "  Minimum score for overloaded hospitals: " << m_sc_floor << "\n";
         Print() << "  Load for score=0.5: " << m_sc_half_load << "\n";
-        Print() << "  Write hospital data plotfiles: " << (m_write_pltfiles?"yes":"no") << "\n";
+        Print() << "  Write hospital data plotfiles: " << (m_write_pltfiles ? "yes" : "no") << "\n";
     }
 
     /*! \brief default destructor */
@@ -105,21 +104,19 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
     void fastInteractHospWorkers(PCType&);
 
     /*! \brief Allocate hospital score multifab */
-    void initHospitalScoreMF(const BoxArray& a_ba, const DistributionMapping& a_dm)
-    {
+    void initHospitalScoreMF (const BoxArray& a_ba, const DistributionMapping& a_dm) {
         m_data = std::make_unique<MultiFab>(a_ba, a_dm, HospMod::ncomps, 0);
         m_data->setVal(1.0, 0, 1);
-        m_data->setVal(0.0, 1, m_data->nComp()-1);
+        m_data->setVal(0.0, 1, m_data->nComp() - 1);
     }
 
     /*! \brief Update patient capacity of hospitals in each community */
-    void updateCapacities( const MFPtr& );
+    void updateCapacities(const MFPtr&);
 
     /*! \brief Compute hospital scores (treatment quality) in each community */
-    void computeHospitalScores (const PCType&, int);
+    void computeHospitalScores(const PCType&, int);
 
   protected:
-
     /*! MultiFab with hospital data - see HospMod for components */
     MFPtr m_data;
 
@@ -150,9 +147,9 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
               discharge once treatment is complete
 */
 template <typename PCType, typename PTDType, typename PType>
-void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< Agent container */
+void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!< Agent container */
                                                          MFPtrVec& a_dstats, /*!< disease stats */
-                                                         const int a_iter ) {
+                                                         const int a_iter) {
     BL_PROFILE("HospitalModel::interactAgents");
     int n_disease = a_agents.numDiseases();
 
@@ -423,7 +420,7 @@ void HospitalModel<PCType, PTDType, PType>::fastInteractHospWorkers (PCType& a_a
  *  hospital capacities for each community. The input argument is a MultiFab with two components
  *  - the total number of medical workers and the currently-active number of medical workers. */
 template <typename PCType, typename PTDType, typename PType>
-void HospitalModel<PCType, PTDType, PType>::updateCapacities( const MFPtr& a_num_medworkers /*!< Number of medical workers */) {
+void HospitalModel<PCType, PTDType, PType>::updateCapacities (const MFPtr& a_num_medworkers /*!< Number of medical workers */) {
     BL_PROFILE("HospitalModel::updateCapacities");
 
     for (MFIter mfi(*m_data); mfi.isValid(); ++mfi) {
@@ -432,17 +429,16 @@ void HospitalModel<PCType, PTDType, PType>::updateCapacities( const MFPtr& a_num
         auto data_arr = m_data->array(mfi);
         auto p_per_d = m_num_patients_per_doctor;
 
-        ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k)
-        {
-            data_arr(i,j,k,HospMod::n_t_mw) = n_mw_arr(i,j,k,0);
-            data_arr(i,j,k,HospMod::n_a_mw) = n_mw_arr(i,j,k,1);
-            data_arr(i,j,k,HospMod::capacity) = n_mw_arr(i,j,k,1) * p_per_d;
+        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+            data_arr(i, j, k, HospMod::n_t_mw) = n_mw_arr(i, j, k, 0);
+            data_arr(i, j, k, HospMod::n_a_mw) = n_mw_arr(i, j, k, 1);
+            data_arr(i, j, k, HospMod::capacity) = n_mw_arr(i, j, k, 1) * p_per_d;
 
-            if (n_mw_arr(i,j,k,0) == 0) {
-                AMREX_ALWAYS_ASSERT(n_mw_arr(i,j,k,1) == 0);
-                data_arr(i,j,k,HospMod::r_a2t_mw) = 0;
+            if (n_mw_arr(i, j, k, 0) == 0) {
+                AMREX_ALWAYS_ASSERT(n_mw_arr(i, j, k, 1) == 0);
+                data_arr(i, j, k, HospMod::r_a2t_mw) = 0;
             } else {
-                data_arr(i,j,k,HospMod::r_a2t_mw) = n_mw_arr(i,j,k,1) / n_mw_arr(i,j,k,0);
+                data_arr(i, j, k, HospMod::r_a2t_mw) = n_mw_arr(i, j, k, 1) / n_mw_arr(i, j, k, 0);
             }
         });
     }
@@ -454,8 +450,8 @@ void HospitalModel<PCType, PTDType, PType>::updateCapacities( const MFPtr& a_num
  *  and the capacity. For load < 1, the hospital score is 1.0. For loads > 1, the hospital score
  *  deteriorates. */
 template <typename PCType, typename PTDType, typename PType>
-void HospitalModel<PCType, PTDType, PType>::computeHospitalScores( const PCType& a_agents, /*!< Agent container */
-                                                                   const int a_iter        /*!< Day/iteration */ ) {
+void HospitalModel<PCType, PTDType, PType>::computeHospitalScores (const PCType& a_agents, /*!< Agent container */
+                                                                   const int a_iter /*!< Day/iteration */) {
     BL_PROFILE("HospitalModel::computeHospitalScores");
 
     const int lev = 0;
@@ -471,18 +467,17 @@ void HospitalModel<PCType, PTDType, PType>::computeHospitalScores( const PCType&
     // Compute the number of patients in a hospital for each community
     mf.setVal(0.0, HospMod::n_patients, 1);
     ParticleToMesh(
-        a_agents, mf, lev,
-        [=] AMREX_GPU_DEVICE (const typename PCType::ParticleTileType::ConstParticleTileDataType& ptd, int i,
-                              Array4<Real> const& mf_arr) {
-            auto p = ptd.m_aos[i];
-            auto iv = getParticleCell(p, plo, dxi, domain);
-            if (inHospital(i, ptd)) {
-                AMREX_ALWAYS_ASSERT( (iv[0] == ptd.m_idata[IntIdx::hosp_i][i]) &&
-                                     (iv[1] == ptd.m_idata[IntIdx::hosp_j][i]) );
-                Gpu::Atomic::AddNoRet(&mf_arr(iv,HospMod::n_patients), 1.0_rt);
-            }
-        },
-        false);
+            a_agents, mf, lev,
+            [=] AMREX_GPU_DEVICE (const typename PCType::ParticleTileType::ConstParticleTileDataType& ptd, int i,
+                                 Array4<Real> const& mf_arr) {
+                auto p = ptd.m_aos[i];
+                auto iv = getParticleCell(p, plo, dxi, domain);
+                if (inHospital(i, ptd)) {
+                    AMREX_ALWAYS_ASSERT((iv[0] == ptd.m_idata[IntIdx::hosp_i][i]) && (iv[1] == ptd.m_idata[IntIdx::hosp_j][i]));
+                    Gpu::Atomic::AddNoRet(&mf_arr(iv, HospMod::n_patients), 1.0_rt);
+                }
+            },
+            false);
 
     // Compute hospital loads and scores
     Gpu::Buffer<Long> overloaded_hospitals({0});
@@ -494,19 +489,19 @@ void HospitalModel<PCType, PTDType, PType>::computeHospitalScores( const PCType&
         const auto sc_floor = m_sc_floor;
         const auto sc_half_load = m_sc_half_load;
 
-        ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k)
-        {
-            if (data_arr(i,j,k,HospMod::capacity) == 0) {
-                data_arr(i,j,k,HospMod::score) = 0.0;
-                data_arr(i,j,k,HospMod::load) = 0.0;
+        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+            if (data_arr(i, j, k, HospMod::capacity) == 0) {
+                data_arr(i, j, k, HospMod::score) = 0.0;
+                data_arr(i, j, k, HospMod::load) = 0.0;
             } else {
                 // hospital load = number of patients / capacity
-                data_arr(i,j,k,HospMod::load) = data_arr(i,j,k,HospMod::n_patients) / data_arr(i,j,k,HospMod::capacity);
-                if (data_arr(i,j,k,HospMod::load) <= 1.0) {
-                    data_arr(i,j,k,HospMod::score) = 1.0;
+                data_arr(i, j, k, HospMod::load) = data_arr(i, j, k, HospMod::n_patients) / data_arr(i, j, k, HospMod::capacity);
+                if (data_arr(i, j, k, HospMod::load) <= 1.0) {
+                    data_arr(i, j, k, HospMod::score) = 1.0;
                 } else {
-                    auto x = data_arr(i,j,k,HospMod::load) - 1.0;
-                    data_arr(i,j,k,HospMod::score) = 1.0 - (1.0-sc_floor)*std::exp(x)/(std::exp(sc_half_load)+std::exp(x));
+                    auto x = data_arr(i, j, k, HospMod::load) - 1.0;
+                    data_arr(i, j, k, HospMod::score) =
+                            1.0 - (1.0 - sc_floor) * std::exp(x) / (std::exp(sc_half_load) + std::exp(x));
                     Gpu::Atomic::Add(overloaded_hosp_ptr, Long(1));
                 }
             }
@@ -515,29 +510,21 @@ void HospitalModel<PCType, PTDType, PType>::computeHospitalScores( const PCType&
     Gpu::synchronize();
 
     m_num_overloaded_hospitals = *(overloaded_hospitals.copyToHost());
-    ParallelDescriptor::ReduceLongSum( &m_num_overloaded_hospitals, 1 );
+    ParallelDescriptor::ReduceLongSum(&m_num_overloaded_hospitals, 1);
     if (m_num_overloaded_hospitals > 0) {
         amrex::Print() << "Number of hospitals operating beyond capacity: " << m_num_overloaded_hospitals << "\n";
     }
 
     if (m_write_pltfiles) {
-        char iter_str[12]; sprintf(iter_str, "%05d", a_iter);
+        char iter_str[12];
+        sprintf(iter_str, "%05d", a_iter);
         {
             std::string op_fname = "hospital_data_" + std::string(iter_str);
             Print() << "Writing " << op_fname << "\n";
-            Vector<std::string> varnames= { "hospital_score",
-                                            "patient_capacity",
-                                            "active_to_total_medworkers",
-                                            "hospital_load",
-                                            "num_patients",
-                                            "num_active_medical_workers",
-                                            "num_total_medical_workets" };
-            WriteSingleLevelPlotfile ( op_fname,
-                                       *m_data,
-                                       varnames,
-                                       geom,
-                                       a_iter,
-                                       a_iter );
+            Vector<std::string> varnames =
+                    {"hospital_score", "patient_capacity",           "active_to_total_medworkers", "hospital_load",
+                     "num_patients",   "num_active_medical_workers", "num_total_medical_workets"};
+            WriteSingleLevelPlotfile(op_fname, *m_data, varnames, geom, a_iter, a_iter);
         }
     }
 }

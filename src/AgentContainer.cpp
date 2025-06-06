@@ -531,7 +531,7 @@ void AgentContainer::returnAirTravel () {
 
 /*! \brief Updates disease status of each agent */
 void AgentContainer::updateStatus (MFPtrVec& a_disease_stats, /*!< Community-wise disease stats tracker */
-                                   const int a_iter /*!< iteration/day */ ) {
+                                   const int a_iter /*!< iteration/day */) {
     BL_PROFILE("AgentContainer::updateStatus");
 
     m_disease_status.updateAgents(*this, a_disease_stats);
@@ -833,7 +833,7 @@ int AgentContainer::getMaxGroup (const int group_idx) {
  *
  *  **NOTE** this function must be called when the agents are at work; consequently, the medical
  *  workers are at their work locations. */
-void AgentContainer::updateHospitalCapacities() {
+void AgentContainer::updateHospitalCapacities () {
     BL_PROFILE("AgentContainer::updateHospitalCapacities");
     const int lev = 0;
     AMREX_ASSERT(OK());
@@ -847,22 +847,21 @@ void AgentContainer::updateHospitalCapacities() {
 
     mf.setVal(0.0);
     ParticleToMesh(
-        *this, mf, lev,
-        [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd, int i,
-                              Array4<Real> const& mf_arr) {
-            auto p = ptd.m_aos[i];
-            auto iv = getParticleCell(p, plo, dxi, domain);
+            *this, mf, lev,
+            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd, int i,
+                                 Array4<Real> const& mf_arr) {
+                auto p = ptd.m_aos[i];
+                auto iv = getParticleCell(p, plo, dxi, domain);
 
-            if (ptd.m_idata[IntIdx::naics][i] == NAICSCodes::NAICS::med_sca) {
-                Gpu::Atomic::AddNoRet(&mf_arr(iv,0), 1.0_rt);
-                if (    (!ptd.m_idata[IntIdx::withdrawn][i])
-                     && (!inHospital(i, ptd))
-                     && (ptd.m_runtime_idata[i0(0)+IntIdxDisease::status][i] != Status::dead) ) {
-                    Gpu::Atomic::AddNoRet(&mf_arr(iv,1), 1.0_rt);
+                if (ptd.m_idata[IntIdx::naics][i] == NAICSCodes::NAICS::med_sca) {
+                    Gpu::Atomic::AddNoRet(&mf_arr(iv, 0), 1.0_rt);
+                    if ((!ptd.m_idata[IntIdx::withdrawn][i]) && (!inHospital(i, ptd)) &&
+                        (ptd.m_runtime_idata[i0(0) + IntIdxDisease::status][i] != Status::dead)) {
+                        Gpu::Atomic::AddNoRet(&mf_arr(iv, 1), 1.0_rt);
+                    }
                 }
-            }
-        },
-        false);
+            },
+            false);
 
     m_hospital->updateCapacities(m_num_medworkers);
 }
