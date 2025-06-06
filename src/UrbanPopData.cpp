@@ -123,7 +123,7 @@ bool BlockGroup::read (istringstream& iss) {
         AMREX_ASSERT(work_populations.size() == NAICS_COUNT + 1);
     } catch (const std::exception& ex) {
         std::ostringstream os;
-        os << "Error reading UrbanPop input file: " << ex.what() << ", line read: " << "'" << buf << "'";
+        os << "<" << __LINE__ << ">: Error reading UrbanPop input file: " << ex.what() << ", line read: " << "'" << buf << "'";
         Abort(os.str());
     }
     return true;

@@ -52,49 +52,6 @@ struct NAICS {
         wfh
     };
 };
-const int GRADE_COUNT = 31;
-static string grade_descriptions[GRADE_COUNT] = {"childcare",     "k12pub_preschl", "k12pub_kind", "k12pub_1st",  "k12pub_2nd",
-                                                 "k12pub_3rd",    "k12pub_4th",     "k12pub_5th",  "k12pub_6th",  "k12pub_7th",
-                                                 "k12pub_8th",    "k12pub_9th",     "k12pub_10th", "k12pub_11th", "k12pub_12th",
-                                                 "k12pv_preschl", "k12pv_kind",     "k12pv_1st",   "k12pv_2nd",   "k12pv_3rd",
-                                                 "k12pv_4th",     "k12pv_5th",      "k12pv_6th",   "k12pv_7th",   "k12pv_8th",
-                                                 "k12pv_9th",     "k12pv_10th",     "k12pv_11th",  "k12pv_12th",  "undergrad",
-                                                 "grad"};
-struct GRADE {
-    enum {
-        childcare,
-        k12pub_preschl,
-        k12pub_kind,
-        k12pub_1st,
-        k12pub_2nd,
-        k12pub_3rd,
-        k12pub_4th,
-        k12pub_5th,
-        k12pub_6th,
-        k12pub_7th,
-        k12pub_8th,
-        k12pub_9th,
-        k12pub_10th,
-        k12pub_11th,
-        k12pub_12th,
-        k12pv_preschl,
-        k12pv_kind,
-        k12pv_1st,
-        k12pv_2nd,
-        k12pv_3rd,
-        k12pv_4th,
-        k12pv_5th,
-        k12pv_6th,
-        k12pv_7th,
-        k12pv_8th,
-        k12pv_9th,
-        k12pv_10th,
-        k12pv_11th,
-        k12pv_12th,
-        undergrad,
-        grad
-    };
-};
 
 static std::vector<string> splitString (const string& s, char delim) {
     std::vector<string> elems;
@@ -158,7 +115,8 @@ struct UrbanPopAgent {
 
         } catch (const std::exception& ex) {
             std::ostringstream os;
-            os << "Error reading UrbanPop input file: " << ex.what() << ", line read: " << "'" << buf << "'";
+            os << "<" << __LINE__ << ">: Error reading UrbanPop input file: " << ex.what() << ", line read: " << "'" << buf
+               << "'";
             amrex::Abort(os.str());
         }
         return true;
@@ -181,7 +139,7 @@ struct UrbanPopAgent {
         os << (int)agent.veh_occ << ",";
         os << (int)agent.role << (agent.role != -1 ? ":" + role_descriptions[agent.role] : "") << ",";
         os << (int)agent.naics << (agent.naics != -1 ? ":" + naics_descriptions[agent.naics] : "") << ",";
-        os << (int)agent.grade << (agent.grade != -1 ? ":" + grade_descriptions[agent.grade] : "") << ",";
+        os << (int)agent.grade << ",";
         os << agent.school_id;
         return os;
     }

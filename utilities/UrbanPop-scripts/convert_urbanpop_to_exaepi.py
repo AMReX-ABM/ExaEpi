@@ -269,7 +269,7 @@ static std::vector<string> splitString(const string &s, char delim) {
     hdr += """
         } catch (const std::exception &ex) {
             std::ostringstream os;
-            os << "Error reading UrbanPop input file: " << ex.what() << ", line read: " << "'" << buf << "'";
+            os << "<" << __LINE__ << ">: Error reading UrbanPop input file: " << ex.what() << ", line read: " << "'" << buf << "'";
             amrex::Abort(os.str());
         }
         return true;
@@ -421,6 +421,12 @@ def merge_dt_nt(df, df_dt_nt):
             raise RuntimeError(f"{Fore.RED}Mismatched {col} for population vs daytime/nightime{Fore.RESET}")
     if not np.array_equal(df.work_geoid.values, df_dt_nt.dest_geoid.values):
         raise RuntimeError(f"{Fore.RED}Mismatched work geoids for population vs daytime/nightime{Fore.RESET}")
+
+    # now ensure all empty grades and school ids are set to -1
+    df.loc[df.grade == "", "grade"] = -1
+    df.loc[df.school_id == "", "school_id"] = -1
+    df.grade = df.grade.astype("int")
+
     if DUMP_INTERMEDIATES:
         df.to_csv("merged.csv")
 
@@ -612,7 +618,7 @@ def main():
     cfg_parser = argparse.ArgumentParser(description="Convert UrbanPop feather files to C++ struct binary file", add_help=False)
     cfg_parser.add_argument("-c", "--config", help="Config file", metavar="FILE")
     args, remaining_argv = cfg_parser.parse_known_args()
-    main_args = {"output": "", "files": "", "shape_files": "", "day_night_files": "", "long_ids": ""}
+    main_args = {"output": "out", "files": "", "shape_files": "", "day_night_files": ""}
     if args.config:
         cfg = configparser.ConfigParser()
         cfg.read([args.config])
@@ -634,7 +640,6 @@ def main():
         + "https://www.census.gov/cgi-bin/geo/shapefiles/index.php?year=2010&layergroup=Block+Groups",
     )
     parser.add_argument("--day_night_files", "-d", nargs="+", help="Feather files containing daytime and nighttime locations")
-    parser.add_argument("--long_ids", "-l", action="store_true", help="Use original long UrbanPop ids for agents")
     args = parser.parse_args(remaining_argv)
     print(Fore.CYAN, "Options:", sep="")
     for arg, value in args.__dict__.items():
@@ -648,9 +653,12 @@ def main():
     set_types(df)
     rename_fields(df)
     set_lnglat(df, geoid_locs_map)
+    orig_ids_df = pd.DataFrame()
+    orig_ids_df["orig_id"] = df.id
     # make sure all the ids are globally unique and just integers
-    if not args.long_ids:
-        df["id"] = np.arange(0, len(df.index))
+    df["id"] = np.arange(0, len(df.index))
+    orig_ids_df["new_id"] = df.id
+    orig_ids_df.to_csv(args.output + ".idmap.csv", index=False)
     print("Fields are:\n", df.dtypes, sep="")
     print_header(df)
     work_geoids_map = compute_worker_populations(df)
