@@ -436,7 +436,7 @@ void HospitalModel<PCType, PTDType, PType>::updateCapacities (const MFPtr& a_num
 
             if (n_mw_arr(i, j, k, 0) == 0) {
                 AMREX_ALWAYS_ASSERT(n_mw_arr(i, j, k, 1) == 0);
-                data_arr(i, j, k, HospMod::r_a2t_mw) = 0;
+                data_arr(i, j, k, HospMod::r_a2t_mw) = 0.0_rt;
             } else {
                 data_arr(i, j, k, HospMod::r_a2t_mw) = n_mw_arr(i, j, k, 1) / n_mw_arr(i, j, k, 0);
             }
@@ -491,17 +491,17 @@ void HospitalModel<PCType, PTDType, PType>::computeHospitalScores (const PCType&
 
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             if (data_arr(i, j, k, HospMod::capacity) == 0) {
-                data_arr(i, j, k, HospMod::score) = 0.0;
-                data_arr(i, j, k, HospMod::load) = 0.0;
+                data_arr(i, j, k, HospMod::score) = 0.0_rt;
+                data_arr(i, j, k, HospMod::load) = 0.0_rt;
             } else {
                 // hospital load = number of patients / capacity
                 data_arr(i, j, k, HospMod::load) = data_arr(i, j, k, HospMod::n_patients) / data_arr(i, j, k, HospMod::capacity);
                 if (data_arr(i, j, k, HospMod::load) <= 1.0) {
-                    data_arr(i, j, k, HospMod::score) = 1.0;
+                    data_arr(i, j, k, HospMod::score) = 1.0_rt;
                 } else {
-                    auto x = data_arr(i, j, k, HospMod::load) - 1.0;
+                    auto x = data_arr(i, j, k, HospMod::load) - 1.0_rt;
                     data_arr(i, j, k, HospMod::score) =
-                            1.0 - (1.0 - sc_floor) * std::exp(x) / (std::exp(sc_half_load) + std::exp(x));
+                            1.0_rt - (1.0_rt - sc_floor) * std::exp(x) / (std::exp(sc_half_load) + std::exp(x));
                     Gpu::Atomic::Add(overloaded_hosp_ptr, Long(1));
                 }
             }
