@@ -17,6 +17,7 @@ import glob
 import geopandas
 from colorama import Fore
 from get_schools import timer
+import gen_nt_dt
 
 # only include these fields in the output csv and c++ structure
 
@@ -390,37 +391,70 @@ def process_pop_feather_files(fnames):
     df.geoid = df.geoid.astype("int64")
     # need to sort to ensure the order is the same between the population files and the daytime/nighttime files
     df.sort_values(by=["p_id"], inplace=True)
-    # remove all not found in include list
-    cols_to_purge = set(list(df.columns.values)) - set(include_fields)
-    df.drop(columns=cols_to_purge, inplace=True)
     return df
 
 
 @timer
 def merge_dt_nt(df, df_dt_nt):
     if not np.array_equal(df.p_id.values, df_dt_nt.p_id.values):
-        # now drop the rows that occur in the UrbanPop files but not the nighttime/daytime flows
+        # add rows from UrbanPop data that are missing in the daytime/nighttime data
         merged_df = df.merge(df_dt_nt.drop_duplicates(), on=["p_id"], how="left", indicator=True)
-        upop_only_df = merged_df[merged_df["_merge"] == "left_only"][["p_id"]]
-        df.drop(df.loc[df.p_id.isin(upop_only_df.p_id)].index, inplace=True)
-        print(f"Dropped {len(upop_only_df)} rows not found in nighttime/daytime data")
+        merged_df.to_csv("merged_df.csv")
+        upop_only_df = merged_df[merged_df["_merge"] == "left_only"][
+            [
+                "p_id",
+                "role",
+                "geoid",
+                "orig_geoid",
+                "dest_geoid",
+                "naics",
+                "grade",
+                "school_id",
+                "pr_naics",
+                "pr_grade",
+                "pr_emp_stat",
+            ]
+        ]
+        upop_only_df.orig_geoid = upop_only_df.geoid
+        upop_only_df.dest_geoid = upop_only_df.geoid
+        upop_only_df.loc[upop_only_df.pr_grade != "", "role"] = "student"
+        upop_only_df.loc[(upop_only_df.pr_emp_stat == "employed") & (upop_only_df.role != "student"), "role"] = "worker"
+        upop_only_df.loc[(upop_only_df.role != "student") & (upop_only_df.role != "worker"), "role"] = "nope"
+        # convert NAICS to work categories
+        upop_only_df["naics"] = upop_only_df.pr_naics.str[:2].replace(gen_nt_dt.naics_to_description)
+        # convert grade to numeric
+        upop_only_df["grade"] = upop_only_df.pr_grade.astype(gen_nt_dt.grade_categs).cat.codes + 3
+
+        upop_only_df.drop(columns=["geoid", "pr_naics", "pr_grade", "pr_emp_stat"], inplace=True)
+        print(f"Found {len(upop_only_df)} records in UrbanPop data that are not in the daytime/nighttime data")
+        df_dt_nt = pd.concat([df_dt_nt, upop_only_df], ignore_index=True)
+        df_dt_nt.sort_values(by=["p_id"], inplace=True)
+        df.sort_values(by=["p_id"], inplace=True)
+        upop_only_df.to_csv("upop_only_df.csv")
+        # df.drop(df.loc[df.p_id.isin(upop_only_df.p_id)].index, inplace=True)
+        # print(f"Dropped {len(upop_only_df)} rows not found in nighttime/daytime data")
     if not np.array_equal(df.p_id.values, df_dt_nt.p_id.values):
-        df.to_csv("err-df.csv", index=False)
-        df_dt_nt.to_csv("err-df-dt-nt.csv", index=False)
         raise RuntimeError(f"{Fore.RED}Mismatched p_ids for population vs daytime/nightime{Fore.RESET}")
     if not np.array_equal(df.geoid.values, df_dt_nt.orig_geoid.values):
         print(f"lengths: {len(df.geoid.values)} {len(df_dt_nt.orig_geoid.values)}")
         raise RuntimeError(f"{Fore.RED}Mismatched geoids for population vs daytime/nightime{Fore.RESET}")
 
+    # remove all columns not found in include list
+    cols_to_purge = set(list(df.columns.values)) - set(include_fields)
+    df.drop(columns=cols_to_purge, inplace=True)
     df.insert(df.columns.get_loc("geoid") + 1, "work_geoid", int(0))
     # get values from worker data
     df["work_geoid"] = df_dt_nt["dest_geoid"].values
+    if not np.array_equal(df.work_geoid.values, df_dt_nt.dest_geoid.values):
+        raise RuntimeError(f"{Fore.RED}Mismatched work geoids for population vs daytime/nightime{Fore.RESET}")
+    df_dt_nt.school_id = df_dt_nt.school_id.fillna(-1).astype("int")
     for col in ["role", "naics", "grade", "school_id"]:
         df[col] = df_dt_nt[col].values
         if not np.array_equal(df[col].values, df_dt_nt[col].values):
+            print(df[col].dtype, df_dt_nt[col].dtype)
+            df.to_csv("err-df.csv", index=False)
+            df_dt_nt.to_csv("err-df-dt-nt.csv", index=False)
             raise RuntimeError(f"{Fore.RED}Mismatched {col} for population vs daytime/nightime{Fore.RESET}")
-    if not np.array_equal(df.work_geoid.values, df_dt_nt.dest_geoid.values):
-        raise RuntimeError(f"{Fore.RED}Mismatched work geoids for population vs daytime/nightime{Fore.RESET}")
 
     # now ensure all empty grades and school ids are set to -1
     df.loc[df.grade == "", "grade"] = -1
