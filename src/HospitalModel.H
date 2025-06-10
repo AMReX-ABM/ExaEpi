@@ -74,6 +74,10 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
         pp.query("halfscore_load", m_sc_half_load);
         pp.query("write_pltfiles", m_write_pltfiles);
 
+        ParmParse pp_agent("agent");
+        pp_agent.query("plot_int", m_plot_int);
+        if (m_plot_int < 0) { m_write_pltfiles = false; }
+
         Print() << "Initialized hospital model...\n";
         Print() << "  Number of patients per doctor: " << m_num_patients_per_doctor << "\n";
         Print() << "  Minimum score for overloaded hospitals: " << m_sc_floor << "\n";
@@ -135,6 +139,12 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
     /*! Write out hospital data to AMReX plot files */
     bool m_write_pltfiles = false;
 
+    /*! Number of underserved patients */
+    int m_num_underserved_patients;
+
+    /*! Plotting interval */
+    int m_plot_int = 1;
+
   private:
 };
 
@@ -154,6 +164,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
     int n_disease = a_agents.numDiseases();
 
     computeHospitalScores(a_agents, a_iter);
+    m_num_underserved_patients = 0;
 
     for (int lev = 0; lev < a_agents.numLevels(); ++lev) {
         auto& plev = a_agents.GetParticles(lev);
@@ -222,6 +233,9 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
             });
             Gpu::synchronize();
 
+            Gpu::Buffer<int> underserved_agents({0});
+            auto* underserved_agents_ptr = underserved_agents.data();
+
             for (int d = 0; d < n_disease; d++) {
 
                 auto* disease_parm_h = a_agents.getDiseaseParameters_h(d);
@@ -255,6 +269,9 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                     PType& p = pstruct[i];
                     auto iv = getParticleCell(p, plo, dxi, domain);
                     treat_q_ptrs[d][i] *= hosp_data_arr(iv, HospMod::score);
+                    if ((d == 0) && (treat_q_ptrs[d][i] < 1.0_prt)) {
+                        Gpu::Atomic::Add(underserved_agents_ptr, 1);
+                    }
 
                     if (timer_ptrs[d][i] == 0) {
                         // finished hospitalization period
@@ -287,6 +304,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                     }
                 });
                 Gpu::synchronize();
+                m_num_underserved_patients += *(underserved_agents.copyToHost());
             }
 
             bool is_census = (a_agents.ic_type == ExaEpi::ICType::Census);
@@ -349,6 +367,10 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
             }
         }
     }
+
+    ParallelDescriptor::ReduceIntSum( &m_num_underserved_patients, 1 );
+    amrex::Print() << "Day: " << a_iter << ", Number of underserved hospitalized agents: " << m_num_underserved_patients << "\n";
+
 }
 
 /*! Interaction between medical workers at a hospital */
@@ -511,11 +533,9 @@ void HospitalModel<PCType, PTDType, PType>::computeHospitalScores (const PCType&
 
     m_num_overloaded_hospitals = *(overloaded_hospitals.copyToHost());
     ParallelDescriptor::ReduceLongSum(&m_num_overloaded_hospitals, 1);
-    if (m_num_overloaded_hospitals > 0) {
-        amrex::Print() << "Number of hospitals operating beyond capacity: " << m_num_overloaded_hospitals << "\n";
-    }
+    amrex::Print() << "Day: " << a_iter << ", Number of hospitals operating beyond capacity: " << m_num_overloaded_hospitals << "\n";
 
-    if (m_write_pltfiles) {
+    if (m_write_pltfiles && (a_iter%m_plot_int == 0)) {
         char iter_str[12];
         sprintf(iter_str, "%05d", a_iter);
         {
