@@ -74,6 +74,8 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
         pp.query("halfscore_load", m_sc_half_load);
         pp.query("write_pltfiles", m_write_pltfiles);
 
+        m_very_large_number = 4.0_rt * m_sc_half_load;
+
         ParmParse pp_agent("agent");
         pp_agent.query("plot_int", m_plot_int);
         if (m_plot_int < 0) { m_write_pltfiles = false; }
@@ -144,6 +146,9 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
 
     /*! Plotting interval */
     int m_plot_int = 1;
+
+    /*! "Very large" finite number to set hospital load to when zero active medical workers */
+    Real m_very_large_number = 4.0_rt * m_sc_half_load;
 
   private:
 };
@@ -268,6 +273,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                     // accumulate treatement quality
                     PType& p = pstruct[i];
                     auto iv = getParticleCell(p, plo, dxi, domain);
+                    AMREX_ALWAYS_ASSERT((iv[0] == ptd.m_idata[IntIdx::hosp_i][i]) && (iv[1] == ptd.m_idata[IntIdx::hosp_j][i]));
                     treat_q_ptrs[d][i] *= hosp_data_arr(iv, HospMod::score);
                     if ((d == 0) && (treat_q_ptrs[d][i] < 1.0_prt)) {
                         Gpu::Atomic::Add(underserved_agents_ptr, 1);
@@ -303,9 +309,10 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                         }
                     }
                 });
-                Gpu::synchronize();
-                m_num_underserved_patients += *(underserved_agents.copyToHost());
             }
+
+            Gpu::synchronize();
+            m_num_underserved_patients += *(underserved_agents.copyToHost());
 
             bool is_census = (a_agents.ic_type == ExaEpi::ICType::Census);
             auto grid_to_lnglat_ptr = &a_agents.grid_to_lnglat;
@@ -369,7 +376,8 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
     }
 
     ParallelDescriptor::ReduceIntSum( &m_num_underserved_patients, 1 );
-    amrex::Print() << "Day: " << a_iter << ", Number of underserved hospitalized agents: " << m_num_underserved_patients << "\n";
+
+    amrex::Print() << "Day " << a_iter << ": " << m_num_overloaded_hospitals << " hospitals over capacity, " << m_num_underserved_patients << " underserved hospitalized agents\n";
 
 }
 
@@ -485,6 +493,7 @@ void HospitalModel<PCType, PTDType, PType>::computeHospitalScores (const PCType&
     const auto dxi = geom.InvCellSizeArray();
     const auto domain = geom.Domain();
     auto& mf = *m_data;
+    const auto very_large_number = m_very_large_number;
 
     // Compute the number of patients in a hospital for each community
     mf.setVal(0.0, HospMod::n_patients, 1);
@@ -512,20 +521,26 @@ void HospitalModel<PCType, PTDType, PType>::computeHospitalScores (const PCType&
         const auto sc_half_load = m_sc_half_load;
 
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-            if (data_arr(i, j, k, HospMod::capacity) == 0) {
-                data_arr(i, j, k, HospMod::score) = 0.0_rt;
-                data_arr(i, j, k, HospMod::load) = 0.0_rt;
-            } else {
-                // hospital load = number of patients / capacity
-                data_arr(i, j, k, HospMod::load) = data_arr(i, j, k, HospMod::n_patients) / data_arr(i, j, k, HospMod::capacity);
-                if (data_arr(i, j, k, HospMod::load) <= 1.0) {
-                    data_arr(i, j, k, HospMod::score) = 1.0_rt;
+            // Compute load
+            if (data_arr(i, j, k, HospMod::n_t_mw) == 0) {
+                data_arr(i, j, k, HospMod::load) = 0.0_prt; // exclude from hospital score modeling
+            } else  if (data_arr(i, j, k, HospMod::capacity) == 0) {
+                if (data_arr(i, j, k, HospMod::n_patients) == 0) {
+                    data_arr(i, j, k, HospMod::load) = 0.0_prt;
                 } else {
-                    auto x = data_arr(i, j, k, HospMod::load) - 1.0_rt;
-                    data_arr(i, j, k, HospMod::score) =
-                            1.0_rt - (1.0_rt - sc_floor) * std::exp(x) / (std::exp(sc_half_load) + std::exp(x));
-                    Gpu::Atomic::Add(overloaded_hosp_ptr, Long(1));
+                    data_arr(i, j, k, HospMod::load) = very_large_number;
                 }
+            } else {
+                data_arr(i, j, k, HospMod::load) = data_arr(i, j, k, HospMod::n_patients) / data_arr(i, j, k, HospMod::capacity);
+            }
+            // Compute score
+            if (data_arr(i, j, k, HospMod::load) <= 1.0) {
+                data_arr(i, j, k, HospMod::score) = 1.0_rt;
+            } else {
+                auto x = data_arr(i, j, k, HospMod::load) - 1.0_rt;
+                data_arr(i, j, k, HospMod::score) =
+                        1.0_rt - (1.0_rt - sc_floor) * std::exp(x) / (std::exp(sc_half_load) + std::exp(x));
+                Gpu::Atomic::Add(overloaded_hosp_ptr, Long(1));
             }
         });
     }
@@ -533,7 +548,6 @@ void HospitalModel<PCType, PTDType, PType>::computeHospitalScores (const PCType&
 
     m_num_overloaded_hospitals = *(overloaded_hospitals.copyToHost());
     ParallelDescriptor::ReduceLongSum(&m_num_overloaded_hospitals, 1);
-    amrex::Print() << "Day: " << a_iter << ", Number of hospitals operating beyond capacity: " << m_num_overloaded_hospitals << "\n";
 
     if (m_write_pltfiles && (a_iter%m_plot_int == 0)) {
         char iter_str[12];
