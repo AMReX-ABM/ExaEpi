@@ -187,10 +187,10 @@ def alloc_workers(args, workers_df):
     nt_dt_df["grade"] = ""
     # reorder the columns
     nt_dt_df = nt_dt_df[["p_id", "role", "orig_geoid", "dest_geoid", "naics", "grade"]]
-    nt_dt_df.naics = nt_dt_df.naics.str[:2].replace(naics_to_description)
-    # FIXME: there is no single NAICS code for military - so we just use "srv". We should split these up according to the various
-    # military roles
-    nt_dt_df.loc[nt_dt_df["naics"] == "", "naics"] = "srv"
+    # nt_dt_df.naics = nt_dt_df.naics.str[:2].replace(naics_to_description)
+    num_without_naics = len(nt_dt_df.loc[nt_dt_df["naics"] == "", "naics"])
+    if num_without_naics > 0:
+        print(f"{Fore.RED}WARNING: There are {num_without_naics} workers without NAICS classification{Fore.RESET}")
     print("Added destinations for", len(nt_dt_df), "workers")
     if DUMP_INTERMEDIATES:
         nt_dt_df.to_csv("workers_nt_dt.csv", index=False)
@@ -479,7 +479,9 @@ def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df, schools_df):
         schools_df.to_csv("selected_schools.csv", sep="\t", float_format="%.2f", index=False)
     schools_df["alloc_teachers"] = schools_df.adj_teachers
 
-    teachers_df = workers_nt_dt_df[(workers_nt_dt_df.naics == "edu")].copy()
+    # FIXME: elementary and secondary schools are actually NAICS 6111, and childcare is NAICS 6244. College/uni should then be
+    # NAICS 61M
+    teachers_df = workers_nt_dt_df[(workers_nt_dt_df.naics.str.startswith("61"))].copy()
     teachers_df["school_id"] = None
     teachers_df["grade"] = ""
     num_reqd_teachers = schools_df.adj_teachers.sum()
@@ -540,6 +542,8 @@ def get_from_up_nt_dt(args, upop_df):
     print(f"Loaded {len(df)} entries from {len(args.up_nt_dt_files)} files")
     workers_df = df[df.role == "worker"].reset_index(drop=True)
     workers_df["grade"] = ""
+    workers_df["naics"] = workers_df.merge(upop_df, on="p_id", how="left")["pr_naics"]
+
     unemp_df = df[df.role == "nope"].reset_index(drop=True)
     unemp_df["grade"] = ""
     students_df = df[df.role == "student"].reset_index(drop=True)
@@ -619,8 +623,9 @@ def main():
     upop_df = load_urbanpop_files(args.urbanpop_files)
     # randomly allocate some young agents to childcare
     upop_df = set_childcare(upop_df)
-    # now split into students, workers and unemployed
-    is_employed = (upop_df.pr_emp_stat == "employed") | (upop_df.pr_emp_stat == "mil")
+    # now split into students, workers and unemployed.
+    # Note that the UrbanPop nt/dt data classifies mil as unemployed (nope); because they don't commute?
+    is_employed = upop_df.pr_emp_stat == "employed"  # | (upop_df.pr_emp_stat == "mil")
     in_school = (upop_df.pr_grade != "") & ~is_employed
     students_df = upop_df[in_school].copy()
     workers_df = upop_df[is_employed]
