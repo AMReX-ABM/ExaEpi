@@ -17,7 +17,7 @@ void AgentContainer::addAttributes () {
             AddRealComp(communicate_this_comp);
             count++;
         }
-        Print() << "Added " << count << " real-type run-time SoA attibute(s).\n";
+        // Print() << "Added " << count << " real-type run-time SoA attibute(s).\n";
     }
     {
         int count(0);
@@ -25,7 +25,7 @@ void AgentContainer::addAttributes () {
             AddIntComp(communicate_this_comp);
             count++;
         }
-        Print() << "Added " << count << " integer-type run-time SoA attibute(s).\n";
+        // Print() << "Added " << count << " integer-type run-time SoA attibute(s).\n";
     }
 }
 
