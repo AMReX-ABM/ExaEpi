@@ -93,91 +93,32 @@ categ_types = {
         ]
     ),
     "role": CategoricalDtype(categories=["nope", "worker", "student"]),
-    "naics_2010": CategoricalDtype(
-        categories=[
-            "edu_med_sca",  # 0 Educational services, and health care and social assistance
-            "con",  # 1 Construction
-            "prf",  # 2 Professional, scientific, and management, and administrative, and waste management services
-            "agr_ext",  # 3 Agriculture, forestry, fishing and hunting, and mining
-            "mfg",  # 4 Manufacturing
-            "wfh",  # 5 Work from home
-            "ent",  # 6 Arts, entertainment, and recreation, and accommodation and food services
-            "fin",  # 7 Finance and insurance, and real estate, and rental and leasing
-            "ret",  # 8 Retail trade
-            "srv",  # 9 Other services, except public administration
-            "adm",  # 10 Public administration
-            "utl_trn",  # 11 Transportation and warehousing, and utilities
-            "whl",  # 12 Wholesale trade
-            "inf",  # 13 Information
-        ]
-    ),
-    "naics": CategoricalDtype(  # 2017 - latest
-        categories=[
-            "agr_ffh",  # 0 Agriculture, forestry, fishing and hunting
-            "ext",  # 1 Mining, quarrying, and oil and gas extraction
-            "utl",  # 2 Utilities
-            "con",  # 3 Construction
-            "mfg",  # 4 Manufacturing
-            "whl",  # 5 Wholesale trade
-            "ret",  # 6 Retail trade
-            "trn_whs",  # 7 Transportation and warehousing
-            "inf",  # 8 Information
-            "fin_ins",  # 9 Finance and insurance
-            "rrl",  # 10 Real estate rental and leasing
-            "prf",  # 11 Professional, scientific and technical services
-            "mgt",  # 12 Management of companies and enterprises
-            "adm_wmr",  # 13 Administrative and support and waste management and remediating services
-            "edu",  # 14 Educational services
-            "med_sca",  # 15 Health care and social services
-            "ent",  # 16 Arts, entertainment and recreation
-            "afs",  # 17 Accomodation and food services
-            "srv",  # 18 Other services (except public administration)
-            "pad",  # 19 Public administration
-            "wfh",  # 20 Work from home
-        ]
-    ),
-    "grade-UP": CategoricalDtype(
-        categories=[
-            "childcare",
-            "k12pub_preschl",
-            "k12pub_kind",
-            "k12pub_1st",
-            "k12pub_2nd",
-            "k12pub_3rd",
-            "k12pub_4th",
-            "k12pub_5th",
-            "k12pub_6th",
-            "k12pub_7th",
-            "k12pub_8th",
-            "k12pub_9th",
-            "k12pub_10th",
-            "k12pub_11th",
-            "k12pub_12th",
-            "k12pv_preschl",
-            "k12pv_kind",
-            "k12pv_1st",
-            "k12pv_2nd",
-            "k12pv_3rd",
-            "k12pv_4th",
-            "k12pv_5th",
-            "k12pv_6th",
-            "k12pv_7th",
-            "k12pv_8th",
-            "k12pv_9th",
-            "k12pv_10th",
-            "k12pv_11th",
-            "k12pv_12th",
-            "undergrad",
-            "grad",
-        ]
-    ),
-    # public elementary 2-7, middle 8-10, high 11-14
-    # private elementary 16-21, middle 22-24, high 25-28
-    # college 29-30 (original data has 29-32, undergrade_female, undergrad_male, grad_female, grad_male
+    # "naics": CategoricalDtype(  # 2017 - latest
+    #    categories=[
+    #        "agr_ffh",  # 0 Agriculture, forestry, fishing and hunting
+    #        "ext",  # 1 Mining, quarrying, and oil and gas extraction
+    #        "utl",  # 2 Utilities
+    #        "con",  # 3 Construction
+    #        "mfg",  # 4 Manufacturing
+    #        "whl",  # 5 Wholesale trade
+    #        "ret",  # 6 Retail trade
+    #        "trn_whs",  # 7 Transportation and warehousing
+    #        "inf",  # 8 Information
+    #        "fin_ins",  # 9 Finance and insurance
+    #        "rrl",  # 10 Real estate rental and leasing
+    #        "prf",  # 11 Professional, scientific and technical services
+    #        "mgt",  # 12 Management of companies and enterprises
+    #        "adm_wmr",  # 13 Administrative and support and waste management and remediating services
+    #        "edu",  # 14 Educational services
+    #        "med_sca",  # 15 Health care and social services
+    #        "ent",  # 16 Arts, entertainment and recreation
+    #        "afs",  # 17 Accomodation and food services
+    #        "srv",  # 18 Other services (except public administration)
+    #        "pad",  # 19 Public administration
+    #        "wfh",  # 20 Work from home
+    #    ]
+    # ),
 }
-
-NAICS_EDU = 14
-NAICS_WFH = 20
 
 DUMP_INTERMEDIATES = False
 
@@ -421,7 +362,7 @@ def merge_dt_nt(df, df_dt_nt):
         upop_only_df.loc[(upop_only_df.pr_emp_stat == "employed") & (upop_only_df.role != "student"), "role"] = "worker"
         upop_only_df.loc[(upop_only_df.role != "student") & (upop_only_df.role != "worker"), "role"] = "nope"
         # convert NAICS to work categories
-        upop_only_df["naics"] = upop_only_df.pr_naics.str[:2].replace(gen_nt_dt.naics_to_description)
+        # upop_only_df["naics"] = upop_only_df.pr_naics.str[:2].replace(gen_nt_dt.naics_to_description)
         # convert grade to numeric
         upop_only_df["grade"] = upop_only_df.pr_grade.astype(gen_nt_dt.grade_categs).cat.codes + 3
 
@@ -512,70 +453,67 @@ def set_types(df):
 
 
 @timer
-def print_agents(df, work_geoids_map, out_fname, geoid_locs_map):
+def compute_worker_populations(df):
+    class Fake(object):
+        def __init__(self, list_obj):
+            self.obj = list_obj
+
+    # compute worker populations for each NAICS code
+    work_geoids = df.work_geoid.unique()
+    naics_types = sorted(list(filter(None, df.naics.unique())))
+    print(f"Found {len(work_geoids)} unique work GEOIDS and {len(naics_types)} unique NAICS codes")
+    work_geoids_df = df.loc[df["role"] == 1].groupby(["work_geoid", "naics"])["naics"].count().reset_index(name="num")
+    # ensure every GEOID has entries for all the NAICS codes, even ones for count 0
+    full_naics_df = pd.DataFrame()
+    full_naics_df["work_geoid"] = work_geoids
+    full_naics_df["naics"] = Fake(naics_types)
+    full_naics_df["num"] = 0
+    full_naics_df.naics = full_naics_df.naics.apply(lambda x: x.obj)
+    full_naics_df = full_naics_df.explode("naics")
+    work_geoids_pops_df = work_geoids_df.merge(full_naics_df, on=["work_geoid", "naics"], how="outer").rename(
+        columns={"num_x": "num"}
+    )
+    work_geoids_pops_df.drop(columns="num_y", inplace=True)
+    work_geoids_pops_df["num"] = work_geoids_pops_df["num"].fillna(0).astype("int")
+    return work_geoids_pops_df, naics_types
+
+
+@timer
+def print_agents(df, out_fname, geoid_locs_map):
+    work_geoids_pops_df, naics_types = compute_worker_populations(df)
     num_rows = len(df.index)
     # start with a distinct marker so that the file can be read in parallel more easily
     df.index = ["*"] * num_rows
     # print each geoid in turn so we can track the file offsets
-    naics_types = list(categ_types["naics"].categories)
     out_fname_idx = out_fname + ".idx"
     out_fname_csv = out_fname + ".csv"
     print("Writing CSV text data to", out_fname_csv, "and block group indexes to", out_fname_idx)
     with open(out_fname_idx, mode="w") as f:
         print("geoid lat lng foff h_pop w_pop", " ".join(naics_types), file=f)
-        geoids = df.home_geoid.unique()
+        home_geoids = df.home_geoid.unique()
         work_geoids = df.work_geoid.unique()
-        if len(work_geoids) > len(geoids):
-            only_work_geoids = list(set(work_geoids) - set(geoids))
+        # print work-only GEOIDs
+        if len(work_geoids) > len(home_geoids):
+            only_work_geoids = list(set(work_geoids) - set(home_geoids))
             print(f"Found {len(only_work_geoids)} work-only geoids")
-            for i, geoid in enumerate(only_work_geoids):
-                work_pops = work_geoids_map[geoid] if geoid in work_geoids_map else []
-                print(geoid, " ".join(map(str, geoid_locs_map[geoid])), 0, 0, " ".join(map(str, work_pops)), file=f)
-
-        for i, geoid in enumerate(geoids):
+            for geoid in only_work_geoids:
+                work_pops = work_geoids_pops_df.loc[work_geoids_pops_df.work_geoid == geoid].num.to_list()
+                tot_work_pop = np.sum(work_pops)
+                latlng = " ".join(map(str, geoid_locs_map[geoid]))
+                print(geoid, latlng, 0, 0, tot_work_pop, " ".join(map(str, work_pops)), file=f)
+        # print all other GEOIDs
+        for i, geoid in enumerate(home_geoids):
             foffset = os.stat(out_fname_csv).st_size if i > 0 else 0
             subset_df = df.loc[df["home_geoid"] == geoid]
             min_hh_id = subset_df["household_id"].min()
             # set household id to be unique only to home geoid
             subset_df.loc[:, "household_id"] -= min_hh_id
             subset_df.to_csv(out_fname_csv, index=True, header=(i == 0), mode="w" if i == 0 else "a", float_format="%.6f")
-            work_pops = work_geoids_map[geoid] if geoid in work_geoids_map else []
-            print(
-                geoid,
-                " ".join(map(str, geoid_locs_map[geoid])),
-                foffset,
-                len(subset_df.index),
-                " ".join(map(str, work_pops)),
-                file=f,
-            )
+            work_pops = work_geoids_pops_df.loc[work_geoids_pops_df.work_geoid == geoid].num.to_list()
+            tot_work_pop = np.sum(work_pops)
+            latlng = " ".join(map(str, geoid_locs_map[geoid]))
+            print(geoid, latlng, foffset, len(subset_df.index), tot_work_pop, " ".join(map(str, work_pops)), file=f)
     print("Wrote", len(df.index), "records")
-
-
-@timer
-def compute_worker_populations(df):
-    # compute worker populations
-    naics_types = list(categ_types["naics"].categories)
-    num_naics = len(naics_types)
-    work_geoids_map = {}
-    work_geoids = df.work_geoid.unique()
-    num_workers = 0
-    for i, geoid in enumerate(work_geoids):
-        # don't include wfh
-        subset_df = df.loc[(df["work_geoid"] == geoid) & (df["role"] == 1) & (df["naics"] != NAICS_WFH)]
-        naics_counts = []
-        for naics_i in range(num_naics):
-            naics_counts.append(len(subset_df.loc[subset_df["naics"] == naics_i]))
-        work_pops = [len(subset_df.index)]
-        if work_pops[0] != sum(naics_counts):
-            raise RuntimeError(
-                f"{Fore.RED}NAICS codes != sum work pop, geoid {geoid} {work_pops[0]} {sum(naics_counts)}{Fore.RESET}"
-            )
-        num_workers += work_pops[0]
-        work_pops.extend(naics_counts)
-        work_geoids_map[geoid] = work_pops
-    print("workers population", num_workers)
-    print("Found", len(df.home_geoid.unique()), "home locations and", len(work_geoids_map), "work locations")
-    return work_geoids_map
 
 
 def rename_fields(df):
@@ -695,9 +633,8 @@ def main():
     orig_ids_df.to_csv(args.output + ".idmap.csv", index=False)
     print("Fields are:\n", df.dtypes, sep="")
     print_header(df)
-    work_geoids_map = compute_worker_populations(df)
     adjust_school_ids(df)
-    print_agents(df, work_geoids_map, args.output, geoid_locs_map)
+    print_agents(df, args.output, geoid_locs_map)
     # fips_codes = sorted(set([int(str(geoid)[:5]) for geoid in df.work_geoid.unique()]))
     # print("FIPS codes:", fips_codes)
 
