@@ -68,7 +68,7 @@ print(
 ed_schools_df = pd.read_csv(args.schools_file, dtype={"id": "str"})
 ed_school_geoids_df = ed_schools_df.groupby(["geoid"]).students.sum().reset_index(name="count")
 ed_school_geoids_df["key"] = ed_school_geoids_df["geoid"].astype(str)
-print("Correlations with school populations for GEOIDS:")
+print(f'Correlations with school populations for GEOIDS using "{args.schools_file}":')
 for compare_df in [(gen_school_geoids_df, "generated"), (up_school_geoids_df, "UrbanPop")]:
     merged_df = compare_df[0].merge(ed_school_geoids_df, on="key", how="inner", suffixes=["_gen", "_ed"])[
         ["key", "count_gen", "count_ed"]

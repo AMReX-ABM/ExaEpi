@@ -51,8 +51,8 @@ UrbanPop nighttime/daytime flows. It computes correlations. An example config fi
 
 ```
 [main]
-generated_nt_dt_file=nm_nt_dt.csv
-urbanpop_nt_dt_file=up_nm_nt_dt.csv
+generated_nt_dt_file=nm_gen_nt_dt.csv
+urbanpop_nt_dt_file=nm_up_nt_dt.csv
 schools_file=../../EducationData/schools_with_geoids.csv
 ```
 

@@ -12,18 +12,18 @@ using namespace ExaEpi::Utils;
 void AgentContainer::addAttributes () {
     const bool communicate_this_comp = true;
     {
-        int count(0);
+        // int count(0);
         for (int i = 0; i < m_num_diseases * RealIdxDisease::nattribs; i++) {
             AddRealComp(communicate_this_comp);
-            count++;
+            // count++;
         }
         // Print() << "Added " << count << " real-type run-time SoA attibute(s).\n";
     }
     {
-        int count(0);
+        // int count(0);
         for (int i = 0; i < m_num_diseases * IntIdxDisease::nattribs; i++) {
             AddIntComp(communicate_this_comp);
-            count++;
+            // count++;
         }
         // Print() << "Added " << count << " integer-type run-time SoA attibute(s).\n";
     }

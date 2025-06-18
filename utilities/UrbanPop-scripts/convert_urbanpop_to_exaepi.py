@@ -36,9 +36,6 @@ include_fields = [
     "school_id",
 ]
 
-PUMS_ID_LEN = 14
-NAICS_LEN = 9
-
 # note: missing category indexes are written as -1
 # we could extract these from the dataset, but then they will not be in a suitable order, even with sorting
 # so we predefine and check for values in the data that are not listed here
@@ -124,7 +121,6 @@ DUMP_INTERMEDIATES = False
 
 
 def print_header(df):
-    string_fields = {"pums_id": "PUMS_ID_LEN", "pr_naics": "NAICS_LEN"}
     hdr_fname = "UrbanPopAgentStruct.H"
     print("Writing C++ header file at", hdr_fname)
 
@@ -149,8 +145,6 @@ namespace UrbanPop {{
 const size_t NUM_COLS = {len(df.columns)};
 
 """
-    # const size_t PUMS_ID_LEN = {PUMS_ID_LEN};
-    # const size_t NAICS_LEN = {NAICS_LEN};
     # """
 
     # print out string arrays with category names
@@ -176,10 +170,7 @@ static std::vector<string> splitString(const string &s, char delim) {
 
     hdr += "struct UrbanPopAgent {\n"
     for i, col in enumerate(df.columns):
-        if col in string_fields:
-            hdr += f"""    char {col}[{string_fields[col]}];\n"""
-        else:
-            hdr += f"""    {df.dtypes.iloc[i]}_t {col};\n"""
+        hdr += f"""    {df.dtypes.iloc[i]}_t {col};\n"""
 
     hdr += """
     bool readCsv(std::ifstream &f) {
@@ -196,18 +187,14 @@ static std::vector<string> splitString(const string &s, char delim) {
                                          " got " + std::to_string(tokens.size()));\n"""
 
     for i, col in enumerate(df.columns):
-        if col in string_fields:
-            hdr += f"""            AMREX_ALWAYS_ASSERT(!tokens[{i}].empty());\n"""
-            hdr += f"""            strncpy({col}, tokens[{i}].c_str(), {string_fields[col]});\n"""
+        if df.dtypes.iloc[i] == "float32":
+            hdr += f"""            {col} = stof(tokens[{i}]);\n"""
+        elif df.dtypes.iloc[i] == "int64":
+            hdr += f"""            {col} = stol(tokens[{i}]);\n"""
+        elif df.dtypes.iloc[i] == "string":
+            hdr += f"""            {col} = tokens[{i});\n"""
         else:
-            if df.dtypes.iloc[i] == "float32":
-                hdr += f"""            {col} = stof(tokens[{i}]);\n"""
-            elif df.dtypes.iloc[i] == "int64":
-                hdr += f"""            {col} = stol(tokens[{i}]);\n"""
-            elif df.dtypes.iloc[i] == "string":
-                hdr += f"""            {col} = tokens[{i});\n"""
-            else:
-                hdr += f"""            {col} = stoi(tokens[{i}]);\n"""
+            hdr += f"""            {col} = stoi(tokens[{i}]);\n"""
     hdr += """
         } catch (const std::exception &ex) {
             std::ostringstream os;
@@ -223,9 +210,7 @@ static std::vector<string> splitString(const string &s, char delim) {
 
     for i, col in enumerate(df.columns):
         c_type = str(df.dtypes.iloc[i]) + "_t"
-        if col in string_fields:
-            hdr += "        os << string(agent." + col + ", " + string_fields[col] + ")"
-        elif col in categ_types:
+        if col in categ_types:
             hdr += (
                 "        os << (int)agent."
                 + col
@@ -295,6 +280,7 @@ def process_nt_dt_feather_files(fnames, out_fname):
     df.sort_values(by=["p_id"], inplace=True, ignore_index=True)
     df.orig_geoid = df.orig_geoid.astype("int64")
     df.dest_geoid = df.dest_geoid.astype("int64")
+    df.naics = df.naics.astype("int32")
 
     # convert school ids to unique 64 bit ints
     unique_school_ids = sorted(df.school_id.unique(), key=lambda x: (x is None, x))
@@ -336,66 +322,73 @@ def process_pop_feather_files(fnames):
 
 
 @timer
-def merge_dt_nt(df, df_dt_nt):
-    if not np.array_equal(df.p_id.values, df_dt_nt.p_id.values):
-        # add rows from UrbanPop data that are missing in the daytime/nighttime data
-        merged_df = df.merge(df_dt_nt.drop_duplicates(), on=["p_id"], how="left", indicator=True)
+def get_upop_only(df, nt_dt_df):
+    # add rows from UrbanPop data that are missing in the daytime/nighttime data
+    merged_df = df.merge(nt_dt_df.drop_duplicates(), on=["p_id"], how="left", indicator=True)
+    if DUMP_INTERMEDIATES:
         merged_df.to_csv("merged_df.csv")
-        upop_only_df = merged_df[merged_df["_merge"] == "left_only"][
-            [
-                "p_id",
-                "role",
-                "geoid",
-                "orig_geoid",
-                "dest_geoid",
-                "naics",
-                "grade",
-                "school_id",
-                "pr_naics",
-                "pr_grade",
-                "pr_emp_stat",
-            ]
+    upop_only_df = merged_df[merged_df["_merge"] == "left_only"][
+        [
+            "p_id",
+            "role",
+            "geoid",
+            "orig_geoid",
+            "dest_geoid",
+            "naics",
+            "grade",
+            "school_id",
+            "pr_naics",
+            "pr_grade",
+            "pr_emp_stat",
         ]
-        upop_only_df.orig_geoid = upop_only_df.geoid
-        upop_only_df.dest_geoid = upop_only_df.geoid
-        upop_only_df.loc[upop_only_df.pr_grade != "", "role"] = "student"
-        upop_only_df.loc[(upop_only_df.pr_emp_stat == "employed") & (upop_only_df.role != "student"), "role"] = "worker"
-        upop_only_df.loc[(upop_only_df.role != "student") & (upop_only_df.role != "worker"), "role"] = "nope"
-        # convert NAICS to work categories
-        # upop_only_df["naics"] = upop_only_df.pr_naics.str[:2].replace(gen_nt_dt.naics_to_description)
-        # convert grade to numeric
-        upop_only_df["grade"] = upop_only_df.pr_grade.astype(gen_nt_dt.grade_categs).cat.codes + 3
+    ]
+    upop_only_df.orig_geoid = upop_only_df.geoid
+    upop_only_df.dest_geoid = upop_only_df.geoid
+    upop_only_df.loc[upop_only_df.pr_grade != "", "role"] = "student"
+    upop_only_df.loc[(upop_only_df.pr_emp_stat == "employed") & (upop_only_df.role != "student"), "role"] = "worker"
+    upop_only_df.loc[(upop_only_df.role != "student") & (upop_only_df.role != "worker"), "role"] = "nope"
+    # convert grade to numeric
+    upop_only_df["grade"] = upop_only_df.pr_grade.astype(gen_nt_dt.grade_categs).cat.codes + 3
+    upop_only_df.drop(columns=["geoid", "pr_naics", "pr_grade", "pr_emp_stat"], inplace=True)
+    print(f"Found {len(upop_only_df)} records in UrbanPop data that are not in the daytime/nighttime data")
+    nt_dt_df = pd.concat([nt_dt_df, upop_only_df], ignore_index=True)
+    nt_dt_df.sort_values(by=["p_id"], inplace=True)
+    df.sort_values(by=["p_id"], inplace=True)
+    if DUMP_INTERMEDIATES:
+        upop_only_df.to_csv("upop_only.csv")
+    return df, nt_dt_df
 
-        upop_only_df.drop(columns=["geoid", "pr_naics", "pr_grade", "pr_emp_stat"], inplace=True)
-        print(f"Found {len(upop_only_df)} records in UrbanPop data that are not in the daytime/nighttime data")
-        df_dt_nt = pd.concat([df_dt_nt, upop_only_df], ignore_index=True)
-        df_dt_nt.sort_values(by=["p_id"], inplace=True)
-        df.sort_values(by=["p_id"], inplace=True)
-        upop_only_df.to_csv("upop_only_df.csv")
-        # df.drop(df.loc[df.p_id.isin(upop_only_df.p_id)].index, inplace=True)
-        # print(f"Dropped {len(upop_only_df)} rows not found in nighttime/daytime data")
-    if not np.array_equal(df.p_id.values, df_dt_nt.p_id.values):
-        raise RuntimeError(f"{Fore.RED}Mismatched p_ids for population vs daytime/nightime{Fore.RESET}")
-    if not np.array_equal(df.geoid.values, df_dt_nt.orig_geoid.values):
-        print(f"lengths: {len(df.geoid.values)} {len(df_dt_nt.orig_geoid.values)}")
-        raise RuntimeError(f"{Fore.RED}Mismatched geoids for population vs daytime/nightime{Fore.RESET}")
+
+@timer
+def merge_nt_dt(df, nt_dt_df):
+    if not np.array_equal(df.p_id.values, nt_dt_df.p_id.values):
+        df, nt_dt_df = get_upop_only(df, nt_dt_df)
+    if not np.array_equal(df.p_id.values, nt_dt_df.p_id.values):
+        err_str = f"{Fore.RED}Mismatched p_ids for population vs daytime/nightime{Fore.RESET}"
+        raise RuntimeError(err_str)
+    if not np.array_equal(df.geoid.values, nt_dt_df.orig_geoid.values):
+        print(f"lengths: {len(df.geoid.values)} {len(nt_dt_df.orig_geoid.values)}")
+        err_str = f"{Fore.RED}Mismatched geoids for population vs daytime/nightime{Fore.RESET}"
+        raise RuntimeError(err_str)
 
     # remove all columns not found in include list
     cols_to_purge = set(list(df.columns.values)) - set(include_fields)
     df.drop(columns=cols_to_purge, inplace=True)
     df.insert(df.columns.get_loc("geoid") + 1, "work_geoid", int(0))
     # get values from worker data
-    df["work_geoid"] = df_dt_nt["dest_geoid"].values
-    if not np.array_equal(df.work_geoid.values, df_dt_nt.dest_geoid.values):
-        raise RuntimeError(f"{Fore.RED}Mismatched work geoids for population vs daytime/nightime{Fore.RESET}")
-    df_dt_nt.school_id = df_dt_nt.school_id.fillna(-1).astype("int")
+    df["work_geoid"] = nt_dt_df["dest_geoid"].values
+    if not np.array_equal(df.work_geoid.values, nt_dt_df.dest_geoid.values):
+        err_str = f"{Fore.RED}Mismatched work geoids for population vs daytime/nightime{Fore.RESET}"
+        raise RuntimeError(err_str)
+    nt_dt_df.school_id = nt_dt_df.school_id.fillna(-1).astype("int")
+    nt_dt_df.naics = nt_dt_df.naics.fillna(-1).astype("int")
     for col in ["role", "naics", "grade", "school_id"]:
-        df[col] = df_dt_nt[col].values
-        if not np.array_equal(df[col].values, df_dt_nt[col].values):
-            print(df[col].dtype, df_dt_nt[col].dtype)
+        df[col] = nt_dt_df[col].values
+        if not np.array_equal(df[col].values, nt_dt_df[col].values):
             df.to_csv("err-df.csv", index=False)
-            df_dt_nt.to_csv("err-df-dt-nt.csv", index=False)
-            raise RuntimeError(f"{Fore.RED}Mismatched {col} for population vs daytime/nightime{Fore.RESET}")
+            nt_dt_df.to_csv("err-df-dt-nt.csv", index=False)
+            err_str = f"{Fore.RED}Mismatched {col} for population vs daytime/nightime{Fore.RESET}"
+            raise RuntimeError(err_str)
 
     # now ensure all empty grades and school ids are set to -1
     df.loc[df.grade == "", "grade"] = -1
@@ -411,25 +404,11 @@ def set_types(df):
     if "hh_income" in include_fields:
         # pack structure by moving int32_t value to before all int8_t values
         df.insert(4, "hh_income", df.pop("hh_income"))
-    if "pums_id" in include_fields:
-        # set specific ID types
-        PUMS_ID_LEN = df.pums_id.map(len).max()
-        print("Unique PUMS", len(df.pums_id.unique()), "max length", PUMS_ID_LEN)
-        # move char arrays to end of struct
-        df.insert(len(df.columns) - 1, "pums_id", df.pop("pums_id"))
-    if "pr_naics" in include_fields:
-        NAICS_LEN = df.pr_naics.map(len).max()
-        print("Unique NAICS", len(df.pr_naics.unique()), "max length", NAICS_LEN)
-        df.insert(len(df.columns) - 1, "pr_naics", df.pop("pr_naics"))
-        # ensure the NAICS fields don't contain an empty string, which can muddle parsing down the line
-        # df['pr_naics'] = df['pr_naics'].replace(["^\s*$"], 'NA', regex=True)
-        df["pr_naics"] = df["pr_naics"].replace([""], "NA", regex=True)
-
     df.h_id = df.h_id.str.split("-").str[-1].astype("int32")
 
     for field_type in df:
         if field_type in categ_types:
-            # compare the list with the unique to make sure we haven't fonud anything not in our predefined list
+            # compare the list with the unique to make sure we haven't found anything not in our predefined list
             categs_found = list(df[field_type].unique())
             categs_expected = list(categ_types[field_type].categories)
             missing = [x for x in categs_found if x not in categs_expected and x != "" and x is not None]
@@ -460,7 +439,10 @@ def compute_worker_populations(df):
 
     # compute worker populations for each NAICS code
     work_geoids = df.work_geoid.unique()
-    naics_types = sorted(list(filter(None, df.naics.unique())))
+    # treat the NAICS types as strings for sorting
+    df.naics = df.naics.astype("str")
+    # get the NAICS types excluding the first entry which should be -1 for no NAICS code
+    naics_types = sorted(list(filter(None, df.naics.unique())))[1:]
     print(f"Found {len(work_geoids)} unique work GEOIDS and {len(naics_types)} unique NAICS codes")
     work_geoids_df = df.loc[df["role"] == 1].groupby(["work_geoid", "naics"])["naics"].count().reset_index(name="num")
     # ensure every GEOID has entries for all the NAICS codes, even ones for count 0
@@ -521,7 +503,7 @@ def rename_fields(df):
     df.rename(columns={"h_id": "household_id"}, inplace=True)
     df.rename(columns={"p_id": "id"}, inplace=True)
     for col in df.columns:
-        if col.startswith("pr_") and col != "pr_naics":
+        if col.startswith("pr_"):
             df.rename(columns={col: col[3:]}, inplace=True)
         elif col.startswith("h_"):
             df.rename(columns={col: "home_" + col[2:]}, inplace=True)
@@ -619,9 +601,9 @@ def main():
     print(Fore.RESET, end="")
 
     geoid_locs_map = process_census_bg_shape_file(args.shape_files)
-    df_dt_nt = process_nt_dt_feather_files(args.day_night_files, args.output)
+    nt_dt_df = process_nt_dt_feather_files(args.day_night_files, args.output)
     df = process_pop_feather_files(args.files)
-    merge_dt_nt(df, df_dt_nt)
+    merge_nt_dt(df, nt_dt_df)
     set_types(df)
     rename_fields(df)
     set_lnglat(df, geoid_locs_map)

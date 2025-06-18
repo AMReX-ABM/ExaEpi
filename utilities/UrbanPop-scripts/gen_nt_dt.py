@@ -36,36 +36,6 @@ grade_categs = CategoricalDtype(
     ]
 )
 
-naics_to_description = {
-    "11": "agr_ffh",  # Agriculture, forestry, fishing and hunting
-    "21": "ext",  # Mining, quarrying, and oil and gas extraction
-    "22": "utl",  # Utilities
-    "23": "con",  # Construction
-    "31": "mfg",  # Manufacturing
-    "32": "mfg",  # Manufacturing
-    "33": "mfg",  # Manufacturing
-    "3M": "mfg",  # Manufacturing, not specified
-    "42": "whl",  # Wholesale trade
-    "44": "ret",  # Retail trade
-    "45": "ret",  # Retail trade
-    "4M": "ret",  # Retail trade
-    "48": "trn_whs",  # Transportation and warehousing
-    "49": "trn_whs",  # Transportation and warehousing
-    "51": "inf",  # Information
-    "52": "fin_ins",  # Finance and insurance
-    "53": "rrl",  # Real estate rental and leasing
-    "54": "prf",  # Professional, scientific and technical services
-    "55": "mgt",  # Management of companies and enterprises
-    "56": "adm_wmr",  # Administrative and support and waste management and remediating services
-    "61": "edu",  # Educational services
-    "62": "med_sca",  # Health care and social services
-    "71": "ent",  # Arts, entertainment and recreation
-    "72": "afs",  # Accomodation and food services
-    "81": "srv",  # Other services (except public administration)
-    "92": "pad",  # Public administration
-    "10": "wfh",  # Work from home
-}
-
 
 region_scales = {12: "blockgroup", 11: "tract", 10: "county_subdiv", 7: "census_places", 5: "county", 2: "state"}
 
@@ -110,12 +80,10 @@ def load_urbanpop_files(fnames):
     # pr_emp_stat,pr_travel,pr_veh_occ,pr_commute,pr_grade
     upop_df = pd.DataFrame()
     for fname in fnames:
-        # print("Reading data from", fname, end=": ")
-        t = time.time()
         df_read = pd.read_feather(fname)[["p_id", "geoid", "pr_age", "pr_naics", "pr_emp_stat", "pr_grade"]]
+        # strip letters from NAICS code
+        df_read.pr_naics = df_read.pr_naics.str.extract(r"(\d+)").astype("float").fillna(-1).astype("int")
         upop_df = pd.concat([upop_df, df_read], ignore_index=True)
-        # print(len(df_read.index), "records in %.3f s" % (time.time() - t))
-
     upop_df.geoid = upop_df.geoid.astype(str)
     upop_df.sort_values(by=["p_id"], inplace=True)
     print(f"Processed {len(upop_df.index)} records from {len(fnames)} files")
@@ -187,7 +155,6 @@ def alloc_workers(args, workers_df):
     nt_dt_df["grade"] = ""
     # reorder the columns
     nt_dt_df = nt_dt_df[["p_id", "role", "orig_geoid", "dest_geoid", "naics", "grade"]]
-    # nt_dt_df.naics = nt_dt_df.naics.str[:2].replace(naics_to_description)
     num_without_naics = len(nt_dt_df.loc[nt_dt_df["naics"] == "", "naics"])
     if num_without_naics > 0:
         print(f"{Fore.RED}WARNING: There are {num_without_naics} workers without NAICS classification{Fore.RESET}")
@@ -480,8 +447,10 @@ def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df, schools_df):
     schools_df["alloc_teachers"] = schools_df.adj_teachers
 
     # FIXME: elementary and secondary schools are actually NAICS 6111, and childcare is NAICS 6244. College/uni should then be
-    # NAICS 61M
-    teachers_df = workers_nt_dt_df[(workers_nt_dt_df.naics.str.startswith("61"))].copy()
+    # NAICS 611. Here we use all three indiscriminately
+    teachers_df = workers_nt_dt_df[
+        (workers_nt_dt_df.naics == 611) | (workers_nt_dt_df.naics == 6111) | (workers_nt_dt_df.naics == 6244)
+    ].copy()
     teachers_df["school_id"] = None
     teachers_df["grade"] = ""
     num_reqd_teachers = schools_df.adj_teachers.sum()
@@ -649,7 +618,10 @@ def main():
 
     workers_nt_dt_df = alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df, schools_df)
     nt_dt_df = pd.concat([workers_nt_dt_df, unemp_df, students_nt_dt_df], ignore_index=True)
+    # these astype calls are needed to satisfy the to_feather call
     nt_dt_df.grade = nt_dt_df.grade.astype(str)
+    nt_dt_df.naics = nt_dt_df.naics.astype(str)
+    nt_dt_df.loc[(nt_dt_df.naics == "") | (nt_dt_df.naics == "None"), "naics"] = "-1"
     # ensure dest_geoid is set to origin if blank
     nt_dt_df.loc[nt_dt_df.dest_geoid == "", "dest_geoid"] = nt_dt_df.orig_geoid
     nt_dt_df.sort_values(by=["p_id"], inplace=True, ignore_index=True)

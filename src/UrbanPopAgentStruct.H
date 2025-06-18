@@ -23,35 +23,6 @@ static string role_descriptions[ROLE_COUNT] = {"nope", "worker", "student"};
 struct ROLE {
     enum { nope, worker, student };
 };
-const int NAICS_COUNT = 21;
-static string naics_descriptions[NAICS_COUNT] = {"agr_ffh", "ext",     "utl",     "con", "mfg", "whl", "ret",
-                                                 "trn_whs", "inf",     "fin_ins", "rrl", "prf", "mgt", "adm_wmr",
-                                                 "edu",     "med_sca", "ent",     "afs", "srv", "pad", "wfh"};
-struct NAICS {
-    enum {
-        agr_ffh,
-        ext,
-        utl,
-        con,
-        mfg,
-        whl,
-        ret,
-        trn_whs,
-        inf,
-        fin_ins,
-        rrl,
-        prf,
-        mgt,
-        adm_wmr,
-        edu,
-        med_sca,
-        ent,
-        afs,
-        srv,
-        pad,
-        wfh
-    };
-};
 
 static std::vector<string> splitString (const string& s, char delim) {
     std::vector<string> elems;
@@ -78,7 +49,7 @@ struct UrbanPopAgent {
     int8_t travel;
     int8_t veh_occ;
     int8_t role;
-    int8_t naics;
+    int32_t naics;
     int8_t grade;
     int16_t school_id;
 
@@ -138,7 +109,7 @@ struct UrbanPopAgent {
         os << (int)agent.travel << ",";
         os << (int)agent.veh_occ << ",";
         os << (int)agent.role << (agent.role != -1 ? ":" + role_descriptions[agent.role] : "") << ",";
-        os << (int)agent.naics << (agent.naics != -1 ? ":" + naics_descriptions[agent.naics] : "") << ",";
+        os << agent.naics << ",";
         os << (int)agent.grade << ",";
         os << agent.school_id;
         return os;
