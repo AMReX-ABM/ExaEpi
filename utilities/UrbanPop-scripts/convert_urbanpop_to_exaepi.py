@@ -154,6 +154,8 @@ const size_t NUM_COLS = {len(df.columns)};
             num_categs = len(categs_expected)
             hdr += f"""const int {field_type.upper()}_COUNT = {num_categs};\n"""
             hdr += f"""static string {field_type}_descriptions[{field_type.upper()}_COUNT] = {{"{'", "'.join(categs_expected)}"}};\n"""
+            # ensure it works even for numbers in the categories
+            categs_expected = ["_" + categ for categ in categs_expected]
             hdr += f"""struct {field_type.upper()} {{ enum {{{', '.join(categs_expected)}}}; }};\n"""
     hdr += "\n"
 
@@ -261,7 +263,6 @@ def process_census_bg_shape_file(fnames):
         df.INTPTLON10 = df.INTPTLON10.astype("float32")
         df.to_csv(shape_fname + ".csv", index=False)
         print("Wrote", len(df.index), "GEOID locations to", shape_fname + ".csv")
-        # print(df.dtypes)
         geoid_locs_map.update(df.set_index("GEOID10").T.to_dict("list"))
     print("GEOID to locations map contains", len(geoid_locs_map), "entries")
     return geoid_locs_map
@@ -347,8 +348,12 @@ def get_upop_only(df, nt_dt_df):
     upop_only_df.loc[upop_only_df.pr_grade != "", "role"] = "student"
     upop_only_df.loc[(upop_only_df.pr_emp_stat == "employed") & (upop_only_df.role != "student"), "role"] = "worker"
     upop_only_df.loc[(upop_only_df.role != "student") & (upop_only_df.role != "worker"), "role"] = "nope"
-    # convert grade to numeric
-    upop_only_df["grade"] = upop_only_df.pr_grade.astype(gen_nt_dt.grade_categs).cat.codes + 3
+    upop_only_df.naics = upop_only_df.pr_naics.str.extract(r"(\d+)").astype("float").fillna(-1).astype("int")
+    upop_only_df.grade = upop_only_df.pr_grade.astype(gen_nt_dt.grade_categs).cat.codes + 3
+    # schools have not been allocated for these students, so set all students to role nope
+    num_students = len(upop_only_df[upop_only_df.role == "student"])
+    upop_only_df.loc[upop_only_df.role == "student", "role"] = "nope"
+    print(f"Set {num_students} students not found in NT/DT flows to role 'nope'")
     upop_only_df.drop(columns=["geoid", "pr_naics", "pr_grade", "pr_emp_stat"], inplace=True)
     print(f"Found {len(upop_only_df)} records in UrbanPop data that are not in the daytime/nighttime data")
     nt_dt_df = pd.concat([nt_dt_df, upop_only_df], ignore_index=True)
@@ -401,6 +406,13 @@ def merge_nt_dt(df, nt_dt_df):
 
 @timer
 def set_types(df):
+    # set up the categ_types for NAICS
+    # treat the NAICS types as strings for sorting
+    df.naics = df.naics.astype("str")
+    # get the NAICS types excluding the first entry which should be -1 for no NAICS code
+    naics_types = sorted(list(filter(None, df.naics.unique())))[1:]
+    categ_types["naics"] = CategoricalDtype(categories=naics_types)
+
     if "hh_income" in include_fields:
         # pack structure by moving int32_t value to before all int8_t values
         df.insert(4, "hh_income", df.pop("hh_income"))
@@ -439,12 +451,10 @@ def compute_worker_populations(df):
 
     # compute worker populations for each NAICS code
     work_geoids = df.work_geoid.unique()
-    # treat the NAICS types as strings for sorting
-    df.naics = df.naics.astype("str")
-    # get the NAICS types excluding the first entry which should be -1 for no NAICS code
-    naics_types = sorted(list(filter(None, df.naics.unique())))[1:]
+    naics_types = list(range(len(categ_types["naics"].categories)))
     print(f"Found {len(work_geoids)} unique work GEOIDS and {len(naics_types)} unique NAICS codes")
     work_geoids_df = df.loc[df["role"] == 1].groupby(["work_geoid", "naics"])["naics"].count().reset_index(name="num")
+    # work_geoids_df.to_csv("work_geoids.csv")
     # ensure every GEOID has entries for all the NAICS codes, even ones for count 0
     full_naics_df = pd.DataFrame()
     full_naics_df["work_geoid"] = work_geoids
@@ -457,6 +467,13 @@ def compute_worker_populations(df):
     )
     work_geoids_pops_df.drop(columns="num_y", inplace=True)
     work_geoids_pops_df["num"] = work_geoids_pops_df["num"].fillna(0).astype("int")
+    work_geoids_pops_df["naics"] = work_geoids_pops_df["naics"].astype("int")
+    # There should be no -1 NAICS - every worker should have a NAICS code
+    num_unset_naics = len(work_geoids_pops_df[work_geoids_pops_df.naics == -1])
+    if num_unset_naics > 0:
+        err_str = f"{Fore.RED}ERROR: found {num_unset_naics} unset NAICS{Fore.RESET}"
+        raise RuntimeError(err_str)
+    work_geoids_pops_df.drop(work_geoids_pops_df[work_geoids_pops_df.naics == -1].index, inplace=True)
     return work_geoids_pops_df, naics_types
 
 
@@ -471,7 +488,8 @@ def print_agents(df, out_fname, geoid_locs_map):
     out_fname_csv = out_fname + ".csv"
     print("Writing CSV text data to", out_fname_csv, "and block group indexes to", out_fname_idx)
     with open(out_fname_idx, mode="w") as f:
-        print("geoid lat lng foff h_pop w_pop", " ".join(naics_types), file=f)
+        naics_descrs = list(categ_types["naics"].categories)
+        print("geoid lat lng foff h_pop w_pop", " ".join(naics_descrs), file=f)
         home_geoids = df.home_geoid.unique()
         work_geoids = df.work_geoid.unique()
         # print work-only GEOIDs
@@ -491,9 +509,23 @@ def print_agents(df, out_fname, geoid_locs_map):
             # set household id to be unique only to home geoid
             subset_df.loc[:, "household_id"] -= min_hh_id
             subset_df.to_csv(out_fname_csv, index=True, header=(i == 0), mode="w" if i == 0 else "a", float_format="%.6f")
-            work_pops = work_geoids_pops_df.loc[work_geoids_pops_df.work_geoid == geoid].num.to_list()
+            work_pops = work_geoids_pops_df.loc[
+                (work_geoids_pops_df.work_geoid == geoid) & (work_geoids_pops_df.naics != "")
+            ].num.to_list()
             tot_work_pop = np.sum(work_pops)
             latlng = " ".join(map(str, geoid_locs_map[geoid]))
+            if len(work_pops) != len(naics_types):
+                err_str = (
+                    f"{Fore.RED}ERROR: For geoid {geoid}, work pops != NAICS types, "
+                    + f"{len(work_pops)} != {len(naics_types)}{Fore.RESET}"
+                )
+                for i, p in enumerate(work_pops):
+                    if p > 0:
+                        print(i, p, naics_descrs[i])
+                print("")
+                print(f"Total work pop: {sum(work_pops)}")
+                # print(naics_types)
+                raise RuntimeError(err_str)
             print(geoid, latlng, foffset, len(subset_df.index), tot_work_pop, " ".join(map(str, work_pops)), file=f)
     print("Wrote", len(df.index), "records")
 

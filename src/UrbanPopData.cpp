@@ -81,17 +81,17 @@ bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, Vector<
         grid_to_lnglat(work_x, work_y, work_lng, work_lat);
         agent.work_lng = static_cast<ParticleReal>(work_lng);
         agent.work_lat = static_cast<ParticleReal>(work_lat);
-        if (agent.role == ROLE::worker && agent.naics != NAICS::wfh) {
+        if (agent.role == ROLE::_worker) {
             num_employed++;
             auto it = xy_to_block_groups.find(IntVect(work_x, work_y));
             if (it == xy_to_block_groups.end()) { Abort("Cannot find block group for work location"); }
             group_work_populations[i] = it->second.work_populations[agent.naics + 1];
-            if (agent.naics != NAICS::wfh) { AMREX_ASSERT(group_work_populations[i] > 0 && group_work_populations[i] < 100000); }
+            AMREX_ASSERT(group_work_populations[i] > 0 && group_work_populations[i] < 100000);
             if (agent.school_id != 0) { num_educators++; }
         } else {
             group_work_populations[i] = 0;
-            if (agent.role == ROLE::nope) { AMREX_ASSERT(agent.work_lat == agent.home_lat && agent.work_lng == agent.home_lng); }
-            if (agent.role == ROLE::student) { num_students++; }
+            if (agent.role == ROLE::_nope) { AMREX_ASSERT(agent.work_lat == agent.home_lat && agent.work_lng == agent.home_lng); }
+            if (agent.role == ROLE::_student) { num_students++; }
         }
         group_home_populations[i] = home_population;
     }
@@ -492,8 +492,8 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             school_id_ptr[i] = agent.school_id;
             school_closed_ptr[i] = 0;
             naics_ptr[i] = agent.naics;
-            // set up workers, excluding wfh
-            if (agent.role == ROLE::worker && agent.naics != NAICS::wfh) {
+            // set up workers
+            if (agent.role == ROLE::_worker) {
                 if (agent.school_id == 0) {
                     // the group work population for this agent is for the NAICS category for the agent
                     int max_workgroup = group_work_populations_ptr[i] / workgroup_size + 1;
