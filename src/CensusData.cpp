@@ -783,31 +783,31 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
             if (total_teachers > 0) {
                 int choice = Random_int(total_teachers);
                 if (choice < high_teachers) {
-                    school_grade_ptr[ip] = 12; // 10th grade - generic for high school
+                    school_grade_ptr[ip] = 14; // generic for high school
                     school_id_ptr[ip] = SchoolCensusIDType::high_1;
                     work_nborhood_ptr[ip] = 3; // assuming the high school is located in Neighbordhood 3
                     workgroup_ptr[ip] = 1;
                     high_teachers_ptr[comm]--;
                 } else if (choice < high_teachers + middle_teachers) {
-                    school_grade_ptr[ip] = 9;  // 7th grade - generic for middle
+                    school_grade_ptr[ip] = 11; // generic for middle
                     school_id_ptr[ip] = SchoolCensusIDType::middle_2;
                     work_nborhood_ptr[ip] = 1; // assuming the middle school is located in Neighbordhood 2
                     workgroup_ptr[ip] = 2;
                     middle_teachers_ptr[comm]--;
                 } else if (choice < high_teachers + middle_teachers + elem3_teachers) {
-                    school_grade_ptr[ip] = 5;  // 3rd grade - generic for elementary
+                    school_grade_ptr[ip] = 5;  // generic for elementary
                     school_id_ptr[ip] = SchoolCensusIDType::elem_3;
                     work_nborhood_ptr[ip] = 0; // assuming the first elementary school is located in Neighbordhood 1
                     workgroup_ptr[ip] = 3;
                     elem3_teachers_ptr[comm]--;
                 } else if (choice < high_teachers + middle_teachers + elem3_teachers + elem4_teachers) {
-                    school_grade_ptr[ip] = 5;  // 3rd grade - generic for elementary
+                    school_grade_ptr[ip] = 5;  // generic for elementary
                     school_id_ptr[ip] = SchoolCensusIDType::elem_4;
                     work_nborhood_ptr[ip] = 2; // assuming the first elementary school is located in Neighbordhood 3
                     workgroup_ptr[ip] = 4;
                     elem4_teachers_ptr[comm]--;
                 } else {
-                    school_grade_ptr[ip] = 0;              // generic for daycare
+                    school_grade_ptr[ip] = 3;              // generic for daycare
                     work_nborhood_ptr[ip] = Random_int(4); // randomly select nborhood
                     school_id_ptr[ip] = SchoolCensusIDType::daycare_5 + work_nborhood_ptr[ip];
                     workgroup_ptr[ip] = 5;
