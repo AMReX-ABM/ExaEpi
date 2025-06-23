@@ -72,7 +72,7 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
 
     amrex::Copy(output_mf, *FIPS_mf_ptr, 0, ncomp_d * num_diseases + num_diseases, 2, 0);
     amrex::Copy(output_mf, *comm_mf_ptr, 0, ncomp_d * num_diseases + num_diseases + 2, 1, 0);
-    if (unit_mf_ptr != nullptr) { amrex::Copy(output_mf, *unit_mf_ptr, 0, ncomp_d * num_diseases + 3, 1, 0); }
+    if (unit_mf_ptr != nullptr) { amrex::Copy(output_mf, *unit_mf_ptr, 0, ncomp_d * num_diseases + num_diseases + 3, 1, 0); }
 
     {
         Vector<std::string> plt_varnames = {};
