@@ -233,19 +233,8 @@ static int getSchoolType (const int grade) {
     return SchoolType::none;
 }
 
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 static int schoolTypeToGrade (const int school_type) {
-    switch (school_type) {
-    case SchoolType::daycare: return 3;
-    case SchoolType::elem: return 5;
-    case SchoolType::middle: return 11;
-    case SchoolType::high: return 15;
-    case SchoolType::college: return 18;
-    default: return -1;
-    }
-}
-
-static int schoolTypeToGradeHost (const int school_type) {
     switch (school_type) {
     case SchoolType::daycare: return 3;
     case SchoolType::elem: return 5;
