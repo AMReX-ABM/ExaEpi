@@ -891,7 +891,12 @@ void AgentContainer::printStudentTeacherCounts () const {
                 if (ptd.m_idata[IntIdx::school_id][i] > 0) {
                     int pos = (ptd.m_idata[IntIdx::workgroup][i] > 0 ? 0 : 5);
                     int grade = ptd.m_idata[IntIdx::school_grade][i];
-                    counts[pos + getSchoolType(grade) - SchoolType::college] = 1;
+                    int school_type = getSchoolType(grade);
+                    // always should have an allocated grade if we have a school
+                    AMREX_ASSERT(school_type != SchoolType::none);
+                    pos = pos + school_type - SchoolType::college;
+                    AMREX_ASSERT(pos >= 0 && pos < 10);
+                    counts[pos] = 1;
                 }
                 return {counts[0], counts[1], counts[2], counts[3], counts[4],
                         counts[5], counts[6], counts[7], counts[8], counts[9]};

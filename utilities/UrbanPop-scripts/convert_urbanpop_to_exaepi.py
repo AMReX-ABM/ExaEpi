@@ -349,7 +349,11 @@ def get_upop_only(df, nt_dt_df):
     upop_only_df.loc[(upop_only_df.pr_emp_stat == "employed") & (upop_only_df.role != "student"), "role"] = "worker"
     upop_only_df.loc[(upop_only_df.role != "student") & (upop_only_df.role != "worker"), "role"] = "nope"
     upop_only_df.naics = upop_only_df.pr_naics.str.extract(r"(\d+)").astype("float").fillna(-1).astype("int")
-    upop_only_df.grade = upop_only_df.pr_grade.astype(gen_nt_dt.grade_categs).cat.codes + 3
+    # upop_only_df.grade = upop_only_df.pr_grade.astype(gen_nt_dt.grade_categs).cat.codes + 3
+    # upop_only_df.loc[upop_only_df.grade == 2, "grade"] = -1
+    # since none of these have been assigned to schools, the grades should all be -1
+    upop_only_df.grade = -1
+    upop_only_df.school_id = 0
     # schools have not been allocated for these students, so set all students to role nope
     num_students = len(upop_only_df[upop_only_df.role == "student"])
     upop_only_df.loc[upop_only_df.role == "student", "role"] = "nope"
@@ -385,7 +389,7 @@ def merge_nt_dt(df, nt_dt_df):
     if not np.array_equal(df.work_geoid.values, nt_dt_df.dest_geoid.values):
         err_str = f"{Fore.RED}Mismatched work geoids for population vs daytime/nightime{Fore.RESET}"
         raise RuntimeError(err_str)
-    nt_dt_df.school_id = nt_dt_df.school_id.fillna(-1).astype("int")
+    nt_dt_df.school_id = nt_dt_df.school_id.fillna(0).astype("int")
     nt_dt_df.naics = nt_dt_df.naics.fillna(-1).astype("int")
     for col in ["role", "naics", "grade", "school_id"]:
         df[col] = nt_dt_df[col].values
@@ -395,9 +399,9 @@ def merge_nt_dt(df, nt_dt_df):
             err_str = f"{Fore.RED}Mismatched {col} for population vs daytime/nightime{Fore.RESET}"
             raise RuntimeError(err_str)
 
-    # now ensure all empty grades and school ids are set to -1
-    df.loc[df.grade == "", "grade"] = -1
-    df.loc[df.school_id == "", "school_id"] = -1
+    # now ensure all empty grades and school ids are set to 0
+    df.loc[(df.grade == "") | (df.school_id == ""), "grade"] = "-1"
+    df.loc[(df.grade == "-1") | (df.school_id == ""), "school_id"] = 0
     df.grade = df.grade.astype("int")
 
     if DUMP_INTERMEDIATES:
@@ -587,7 +591,7 @@ def adjust_school_ids(df):
     work_geoids = df.work_geoid.unique()
     school_id_map = {}
     for geoid in work_geoids:
-        subset_df = df.loc[(df["work_geoid"] == geoid) & (df["school_id"] != 0)]
+        subset_df = df.loc[(df["work_geoid"] == geoid) & (df["school_id"] > 0)]
         if len(subset_df) == 0:
             continue
 
