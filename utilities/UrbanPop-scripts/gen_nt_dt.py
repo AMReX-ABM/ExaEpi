@@ -255,6 +255,7 @@ def alloc_students_level(schools_df, students_df, level):
     start_age = age_levels[level][0]
     end_age = age_levels[level][1]
     students_df = students_df[(students_df.pr_grade >= start_age) & (students_df.pr_grade <= end_age)].copy()
+    print(f"Allocating {len(students_df)} students for level {level}")
     students_df.sort_values(by=["p_id"], inplace=True, ignore_index=True)
     if DUMP_INTERMEDIATES:
         students_df[["p_id", "pr_grade"]].to_csv("students-" + level + ".csv", sep="\t", index=False)
@@ -307,7 +308,6 @@ def alloc_students(args, students_df):
     # allocate students from each level
     students_nt_dt_df = pd.DataFrame()
     for level in ["C", "P", "E", "M", "H", "U"]:
-        print("Allocating students for level", level)
         df = alloc_students_level(schools_df, students_df, level=level)
         students_nt_dt_df = pd.concat([students_nt_dt_df, df], ignore_index=True)
 
@@ -427,12 +427,42 @@ def alloc_teachers_region(teachers_df, schools_df, geoid_scaling):
 
 
 @timer
-def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df, schools_df):
-    print(Fore.GREEN + "Allocating teachers" + Fore.RESET)
+def alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, school_type):
+    print(f"{Fore.GREEN}Allocating teachers for {school_type}{Fore.RESET}")
     # The number of students at each school will not exactly match the original schools data, so we use the actual number
     # of students we have allocated, and the original student/teacher ratio to set the desired teacher counts for each school
     if DUMP_INTERMEDIATES:
         schools_df.to_csv("schools.csv", sep="\t", index=False)
+
+    if school_type == "childcare":
+        naics_code = 6244
+        schools_df = schools_df[schools_df.level == "C"]
+        students_nt_dt_df = students_nt_dt_df[students_nt_dt_df.grade <= 3]
+    elif school_type == "secondary":
+        naics_code = 6111
+        schools_df = schools_df[
+            (schools_df.level == "E")
+            | (schools_df.level == "EM")
+            | (schools_df.level == "EMH")
+            | (schools_df.level == "M")
+            | (schools_df.level == "MH")
+            | (schools_df.level == "H")
+            | (schools_df.level == "P")
+            | (schools_df.level == "PE")
+            | (schools_df.level == "PEM")
+            | (schools_df.level == "PEMH")
+        ]
+        students_nt_dt_df = students_nt_dt_df[(students_nt_dt_df.grade > 3) & (students_nt_dt_df.grade <= 17)]
+    elif school_type == "university":
+        naics_code = 611
+        schools_df = schools_df[schools_df.level == "U"]
+        students_nt_dt_df = students_nt_dt_df[(students_nt_dt_df.grade >= 18) & (students_nt_dt_df.grade <= 19)]
+    else:
+        err_str = f"{Fore.RED}ERROR: school_type {school_type} not valid{Fore.RESET}"
+        raise RuntimeError(err_str)
+
+    print(f"Number of schools to use {len(schools_df)}, number of students {len(students_nt_dt_df)}")
+
     alloc_schools_df = (
         students_nt_dt_df.groupby(["school_id"])["p_id"]
         .count()
@@ -448,9 +478,10 @@ def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df, schools_df):
 
     # FIXME: elementary and secondary schools are actually NAICS 6111, and childcare is NAICS 6244. College/uni should then be
     # NAICS 611. Here we use all three indiscriminately
-    teachers_df = workers_nt_dt_df[
-        (workers_nt_dt_df.naics == 611) | (workers_nt_dt_df.naics == 6111) | (workers_nt_dt_df.naics == 6244)
-    ].copy()
+    # teachers_df = workers_nt_dt_df[
+    #    (workers_nt_dt_df.naics == 611) | (workers_nt_dt_df.naics == 6111) | (workers_nt_dt_df.naics == 6244)
+    # ].copy()
+    teachers_df = workers_nt_dt_df[workers_nt_dt_df.naics == naics_code].copy()
     teachers_df["school_id"] = None
     teachers_df["grade"] = ""
     num_reqd_teachers = schools_df.adj_teachers.sum()
@@ -458,7 +489,7 @@ def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df, schools_df):
     scales = list(region_scales.keys())
     # pick schools for teachers from decreasing resolution; the goal is to allocate teachers as close to home as possible
     for scale in scales:
-        # print("  Region", region_scales[scale])
+        # print(f"  Region {region_scales[scale]}")
         teachers_df = alloc_teachers_region(teachers_df, schools_df, scale)
         workers_nt_dt_df.loc[teachers_df.index, "school_id"] = teachers_df.school_id
         workers_nt_dt_df.loc[teachers_df.index, "dest_geoid"] = teachers_df.dest_geoid
@@ -466,6 +497,10 @@ def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df, schools_df):
         if DUMP_INTERMEDIATES:
             teachers_df.to_csv("teachers-" + region_scales[scale] + ".csv", sep="\t", index=False)
 
+    return workers_nt_dt_df
+
+
+def check_teacher_corr(workers_nt_dt_df, schools_df):
     gen_schools_df = (
         workers_nt_dt_df.loc[workers_nt_dt_df["school_id"] != ""].groupby(["school_id"]).size().reset_index(name="teachers")
     )
@@ -487,8 +522,6 @@ def alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df, schools_df):
     )
     if corr < CORR_CHECK_LEVEL:
         print(f"{Fore.RED}WARNING: low correlation!{Fore.RESET}")
-
-    return workers_nt_dt_df
 
 
 def get_level_from_age(min_age, max_age):
@@ -620,7 +653,11 @@ def main():
         schools_df = load_schools(args.schools_file)
         unemp_df = get_unemp(unemp_df)
 
-    workers_nt_dt_df = alloc_teachers(args, workers_nt_dt_df, students_nt_dt_df, schools_df)
+    workers_nt_dt_df = alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, "childcare")
+    workers_nt_dt_df = alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, "secondary")
+    workers_nt_dt_df = alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, "university")
+    check_teacher_corr(workers_nt_dt_df, schools_df)
+
     nt_dt_df = pd.concat([workers_nt_dt_df, unemp_df, students_nt_dt_df], ignore_index=True)
     # these astype calls are needed to satisfy the to_feather call
     nt_dt_df.grade = nt_dt_df.grade.astype(str)
