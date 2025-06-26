@@ -207,6 +207,7 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
     for group_name, student_group in student_groups:
         num_students_reqd = len(student_group)
         if num_students_reqd == 0:
+            print(f"{Fore.RED}WARNING: no students requested for group {group_name}")
             continue
         # defaults to empty in case we can't find a key
         try:
@@ -240,10 +241,16 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
         schools_df.loc[schools_df.remaining_student_places < 1, "remaining_student_places"] = 1
 
     # print("    Found", len(student_groups), "student regions,", missing_regions, "without schools")
-    nt_dt_df.rename(columns={"geoid": "orig_geoid", "pr_naics": "naics", "pr_grade": "grade"}, inplace=True)
-    nt_dt_df["role"] = "student"
-    # reorder the columns
-    nt_dt_df = nt_dt_df[["p_id", "role", "orig_geoid", "dest_geoid", "naics", "grade", "school_id"]]
+    if len(nt_dt_df) > 0:
+        nt_dt_df.rename(columns={"geoid": "orig_geoid", "pr_naics": "naics", "pr_grade": "grade"}, inplace=True)
+        nt_dt_df["role"] = "student"
+        # reorder the columns
+        nt_dt_df = nt_dt_df[["p_id", "role", "orig_geoid", "dest_geoid", "naics", "grade", "school_id"]]
+    else:
+        nt_dt_df[["p_id", "role", "orig_geoid", "dest_geoid", "naics", "grade", "school_id"]] = pd.DataFrame(
+            [["", "", "", "", 0, 0, ""]], index=nt_dt_df.index
+        )
+
     nt_dt_df.naics = ""
     nt_dt_df.sort_values(by=["p_id"], inplace=True, ignore_index=True)
 
