@@ -73,13 +73,14 @@ CORR_CHECK_LEVEL = 0.8
 
 @timer
 def load_urbanpop_files(fnames):
-    print(Fore.GREEN + "Loading UrbanPop files" + Fore.RESET)
+    print(f"{Fore.GREEN}Loading {len(fnames)} UrbanPop files{Fore.RESET}")
     # each urbanpop file contains the following:
     # p_id,pums_id,h_id,geoid,hh_size,hh_type,hh_living_arrangement,hh_age,hh_has_kids,hh_income,hh_nb_wrks,hh_nb_non_wrks,
     # hh_nb_adult_wrks,hh_nb_adult_non_wrks,hh_dwg,hh_tenure,hh_vehicles,pr_age,pr_sex,pr_race,pr_hsplat,pr_ipr,pr_naics,
     # pr_emp_stat,pr_travel,pr_veh_occ,pr_commute,pr_grade
     upop_df = pd.DataFrame()
-    for fname in fnames:
+    for i, fname in enumerate(fnames):
+        print(f"  {i} {fname}")
         df_read = pd.read_feather(fname)[["p_id", "geoid", "pr_age", "pr_naics", "pr_emp_stat", "pr_grade"]]
         # strip letters from NAICS code
         df_read.pr_naics = df_read.pr_naics.str.extract(r"(\d+)").astype("float").fillna(-1).astype("int")
@@ -140,8 +141,14 @@ def alloc_workers(args, workers_df):
         try:
             lodes_group = lodes_groups.get_group(name)
         except KeyError as err:
-            print(f"{Fore.RED}ERROR: Could not find GEOID {name} in LODES data{Fore.RESET}")
-            raise err
+            # the home geoid derived from the upop workers is not found in the home (origin) geoid in the LODES data, so we have
+            # no flows from that geoid
+            print(f"{Fore.RED}WARNING: Could not find origin GEOID {name} in LODES data for {num_workers} workers{Fore.RESET}")
+            lodes_group = pd.DataFrame()
+            lodes_group["w_geocode"] = name
+            lodes_group["h_geocode"] = name
+            lodes_group["S000"] = num_workers
+            # raise err
         sum_flows = lodes_group["S000"].sum()
         flow_probs = lodes_group["S000"] / sum_flows
         rnd_sample = lodes_group.sample(n=num_workers, weights=flow_probs, replace=True)

@@ -71,14 +71,14 @@ The LODES data can be obtained from:
 
 `https://lehd.ces.census.gov/data/lodes/LODES7`
 
-For compatibility, use the 2011 files (UrbanPop uses the 2010 Census data). For each state, there are several files,
+For compatibility, use the 2019 files (UrbanPop uses the 2010 Census data). For each state, there are several files,
 of the form (e.g. for New Mexico):
 
-`nm_od_main_JT0?_2011.csv.gz`
+`nm_od_main_JT0?_2019.csv.gz`
 
 These are the main flows within the state. Then there are also files of the form:
 
-`nm_od_aux_JT0?_2011.csv.gz`
+`nm_od_aux_JT0?_2019.csv.gz`
 
 These are for flows to/from the state to other states.
 
