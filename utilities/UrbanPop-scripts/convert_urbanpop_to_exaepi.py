@@ -261,8 +261,8 @@ def process_census_bg_shape_file(fnames):
         df.GEOID10 = df.GEOID10.astype("int64")
         df.INTPTLAT10 = df.INTPTLAT10.astype("float32")
         df.INTPTLON10 = df.INTPTLON10.astype("float32")
-        df.to_csv(shape_fname + ".csv", index=False)
-        print("Wrote", len(df.index), "GEOID locations to", shape_fname + ".csv")
+        # df.to_csv(shape_fname + ".csv", index=False)
+        # print("Wrote", len(df.index), "GEOID locations to", shape_fname + ".csv")
         geoid_locs_map.update(df.set_index("GEOID10").T.to_dict("list"))
     print("GEOID to locations map contains", len(geoid_locs_map), "entries")
     return geoid_locs_map
