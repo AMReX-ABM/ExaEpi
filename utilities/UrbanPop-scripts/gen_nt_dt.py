@@ -114,7 +114,7 @@ def get_lodes_groups(lodes_fnames):
         lodes_df = pd.read_csv(lodes_fname, dtype={"w_geocode": str, "h_geocode": str, "S000": int})[
             ["w_geocode", "h_geocode", "S000"]
         ]
-        print("Loaded", len(lodes_df), "entries")
+        # print("Loaded", len(lodes_df), "entries")
         # truncate geoids to first 12, i.e. just census block groups
         lodes_df.h_geocode = lodes_df.h_geocode.str[:12]
         lodes_df.w_geocode = lodes_df.w_geocode.str[:12]
@@ -136,7 +136,12 @@ def alloc_workers(args, workers_df):
     lodes_df = get_lodes_groups(args.lodes_files)
     lodes_groups = lodes_df.groupby(["h_geocode"])
     nt_dt_df = pd.DataFrame()
+    print(f"Assigning workers in {len(worker_groups)} GEOIDS")
+    i = 0
     for name, worker_group in worker_groups:
+        i += 1
+        if i % 100 == 0:
+            print(f"  {i} {name[0]}")
         num_workers = len(worker_group)
         try:
             lodes_group = lodes_groups.get_group(name)
