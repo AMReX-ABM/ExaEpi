@@ -32,7 +32,7 @@ struct BlockGroup {
     bool read(std::istringstream& iss);
     bool readAgents(std::ifstream& f, amrex::Vector<UrbanPop::UrbanPopAgent>& agents, amrex::Vector<int>& group_work_population,
                     amrex::Vector<int>& group_home_population, const std::map<IntVect, BlockGroup>& xy_to_block_groups,
-                    const LngLatToGrid& lnglat_to_grid, const GridToLngLat& grid_to_lnglat);
+                    const GridLngLatCoords& grid_lnglat_coords);
 };
 
 struct UrbanPopData {

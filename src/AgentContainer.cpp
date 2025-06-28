@@ -152,7 +152,6 @@ void AgentContainer::moveAgentsToWork () {
         auto& plev = GetParticles(lev);
 
         bool is_census = (ic_type == ExaEpi::ICType::Census);
-        auto grid_to_lnglat_ptr = &grid_to_lnglat;
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -169,6 +168,10 @@ void AgentContainer::moveAgentsToWork () {
             auto& soa = ptile.GetStructOfArrays();
             auto work_i_ptr = soa.GetIntData(IntIdx::work_i).data();
             auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
+            Real min_lng = grid_lnglat_coords.min_lng;
+            Real min_lat = grid_lnglat_coords.min_lat;
+            Real gspacing_x = grid_lnglat_coords.gspacing_x;
+            Real gspacing_y = grid_lnglat_coords.gspacing_y;
 
             amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
                 if (!inHospital(ip, ptd)) {
@@ -178,7 +181,7 @@ void AgentContainer::moveAgentsToWork () {
                         p.pos(1) = static_cast<ParticleReal>((work_j_ptr[ip] + 0.5_rt) * dx[1]);
                     } else {
                         Real lng, lat;
-                        (*grid_to_lnglat_ptr)(work_i_ptr[ip], work_j_ptr[ip], lng, lat);
+                        grid_to_lnglat(min_lng, min_lat, gspacing_x, gspacing_y, work_i_ptr[ip], work_j_ptr[ip], lng, lat);
                         p.pos(0) = static_cast<ParticleReal>(lng);
                         p.pos(1) = static_cast<ParticleReal>(lat);
                     }
@@ -205,7 +208,10 @@ void AgentContainer::moveAgentsToHome () {
         auto& plev = GetParticles(lev);
 
         bool is_census = (ic_type == ExaEpi::ICType::Census);
-        auto grid_to_lnglat_ptr = &grid_to_lnglat;
+        Real min_lng = grid_lnglat_coords.min_lng;
+        Real min_lat = grid_lnglat_coords.min_lat;
+        Real gspacing_x = grid_lnglat_coords.gspacing_x;
+        Real gspacing_y = grid_lnglat_coords.gspacing_y;
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -231,7 +237,7 @@ void AgentContainer::moveAgentsToHome () {
                         p.pos(1) = static_cast<ParticleReal>((home_j_ptr[ip] + 0.5_rt) * dx[1]);
                     } else {
                         Real lng, lat;
-                        (*grid_to_lnglat_ptr)(home_i_ptr[ip], home_j_ptr[ip], lng, lat);
+                        grid_to_lnglat(min_lng, min_lat, gspacing_x, gspacing_y, home_i_ptr[ip], home_j_ptr[ip], lng, lat);
                         p.pos(0) = static_cast<ParticleReal>(lng);
                         p.pos(1) = static_cast<ParticleReal>(lat);
                     }
@@ -442,7 +448,10 @@ void AgentContainer::returnRandomTravel () {
         const auto dx = Geom(lev).CellSizeArray();
 
         bool is_census = (ic_type == ExaEpi::ICType::Census);
-        auto grid_to_lnglat_ptr = &grid_to_lnglat;
+        Real min_lng = grid_lnglat_coords.min_lng;
+        Real min_lat = grid_lnglat_coords.min_lat;
+        Real gspacing_x = grid_lnglat_coords.gspacing_x;
+        Real gspacing_y = grid_lnglat_coords.gspacing_y;
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -466,7 +475,7 @@ void AgentContainer::returnRandomTravel () {
                         p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
                     } else {
                         Real lng, lat;
-                        (*grid_to_lnglat_ptr)(home_i_ptr[i], home_j_ptr[i], lng, lat);
+                        grid_to_lnglat(min_lng, min_lat, gspacing_x, gspacing_y, home_i_ptr[i], home_j_ptr[i], lng, lat);
                         p.pos(0) = static_cast<ParticleReal>(lng);
                         p.pos(1) = static_cast<ParticleReal>(lat);
                     }
@@ -488,7 +497,10 @@ void AgentContainer::returnAirTravel () {
         const auto dx = Geom(lev).CellSizeArray();
 
         bool is_census = (ic_type == ExaEpi::ICType::Census);
-        auto grid_to_lnglat_ptr = &grid_to_lnglat;
+        Real min_lng = grid_lnglat_coords.min_lng;
+        Real min_lat = grid_lnglat_coords.min_lat;
+        Real gspacing_x = grid_lnglat_coords.gspacing_x;
+        Real gspacing_y = grid_lnglat_coords.gspacing_y;
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -512,7 +524,7 @@ void AgentContainer::returnAirTravel () {
                         p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
                     } else {
                         Real lng, lat;
-                        (*grid_to_lnglat_ptr)(home_i_ptr[i], home_j_ptr[i], lng, lat);
+                        grid_to_lnglat(min_lng, min_lat, gspacing_x, gspacing_y, home_i_ptr[i], home_j_ptr[i], lng, lat);
                         p.pos(0) = static_cast<ParticleReal>(lng);
                         p.pos(1) = static_cast<ParticleReal>(lat);
                     }
@@ -537,7 +549,10 @@ void AgentContainer::updateStatus (MFPtrVec& a_disease_stats /*!< Community-wise
         auto& plev = GetParticles(lev);
 
         bool is_census = (ic_type == ExaEpi::ICType::Census);
-        auto grid_to_lnglat_ptr = &grid_to_lnglat;
+        Real min_lng = grid_lnglat_coords.min_lng;
+        Real min_lat = grid_lnglat_coords.min_lat;
+        Real gspacing_x = grid_lnglat_coords.gspacing_x;
+        Real gspacing_y = grid_lnglat_coords.gspacing_y;
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -563,7 +578,7 @@ void AgentContainer::updateStatus (MFPtrVec& a_disease_stats /*!< Community-wise
                         p.pos(1) = static_cast<ParticleReal>((hosp_j_ptr[ip] + 0.5_prt) * dx[1]);
                     } else {
                         Real lng, lat;
-                        (*grid_to_lnglat_ptr)(hosp_i_ptr[ip], hosp_j_ptr[ip], lng, lat);
+                        grid_to_lnglat(min_lng, min_lat, gspacing_x, gspacing_y, hosp_i_ptr[ip], hosp_j_ptr[ip], lng, lat);
                         p.pos(0) = static_cast<ParticleReal>(lng);
                         p.pos(1) = static_cast<ParticleReal>(lat);
                     }

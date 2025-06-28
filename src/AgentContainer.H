@@ -52,31 +52,6 @@ struct LngLatToGrid {
     }
 };
 
-/*! Convert grid coordinates to latitude and longitude for UrbanPop data */
-struct GridToLngLat {
-    Real min_lng, min_lat;
-    Real gspacing_x, gspacing_y;
-
-    GridToLngLat (Real _min_lng, Real _min_lat, Real _gspacing_x, Real _gspacing_y) {
-        init(_min_lng, _min_lat, _gspacing_x, _gspacing_y);
-    }
-
-    GridToLngLat () {}
-
-    void init (Real _min_lng, Real _min_lat, Real _gspacing_x, Real _gspacing_y) {
-        min_lng = _min_lng;
-        min_lat = _min_lat;
-        gspacing_x = _gspacing_x;
-        gspacing_y = _gspacing_y;
-    }
-
-    AMREX_GPU_HOST_DEVICE
-    void operator()(int x, int y, Real& lng, Real& lat) const {
-        lng = (Real)x * gspacing_x + min_lng + 0.001_rt;
-        lat = (Real)y * gspacing_y + min_lat + 0.001_rt;
-    }
-};
-
 /*! \brief Derived class from ParticleContainer that defines agents and their functions */
 class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs> {
 
@@ -163,8 +138,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     amrex::iMultiFab comm_mf;
 
-    LngLatToGrid lnglat_to_grid;
-    GridToLngLat grid_to_lnglat;
+    GridLngLatCoords grid_lnglat_coords;
 
     short ic_type;
 

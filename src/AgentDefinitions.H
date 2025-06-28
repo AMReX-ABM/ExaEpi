@@ -245,4 +245,34 @@ static int schoolTypeToGrade (const int school_type) {
     }
 }
 
+struct GridLngLatCoords {
+    amrex::Real min_lng, min_lat;
+    amrex::Real gspacing_x, gspacing_y;
+
+    GridLngLatCoords () {}
+
+    GridLngLatCoords (amrex::Real mlng, amrex::Real mlat, amrex::Real gx, amrex::Real gy) {
+        min_lng = mlng;
+        min_lat = mlat;
+        gspacing_x = gx;
+        gspacing_y = gy;
+    }
+};
+
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+static void grid_to_lnglat (const amrex::Real min_lng, const amrex::Real min_lat, const amrex::Real gspacing_x,
+                            const amrex::Real gspacing_y, const int x, const int y, amrex::Real& lng, amrex::Real& lat) {
+    lng = (amrex::Real)x * gspacing_x + min_lng + (amrex::Real)0.001;
+    lat = (amrex::Real)y * gspacing_y + min_lat + (amrex::Real)0.001;
+}
+
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+static void lnglat_to_grid (const amrex::Real min_lng, const amrex::Real min_lat, const amrex::Real gspacing_x,
+                            const amrex::Real gspacing_y, amrex::Real lng, amrex::Real lat, int& x, int& y) {
+    amrex::Real rx = (lng - min_lng) / gspacing_x;
+    amrex::Real ry = (lat - min_lat) / gspacing_y;
+    x = static_cast<int>(rx + (amrex::Real)0.001);
+    y = static_cast<int>(ry + (amrex::Real)0.001);
+}
+
 #endif

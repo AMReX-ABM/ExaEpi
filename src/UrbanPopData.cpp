@@ -37,9 +37,16 @@ using std::unordered_set;
 using ParallelDescriptor::MyProc;
 using ParallelDescriptor::NProcs;
 
+template <typename T>
+void copyToDeviceAsync (const Vector<T>& h_vec, Gpu::DeviceVector<T>& d_vec) {
+    d_vec.resize(0);
+    d_vec.resize(h_vec.size());
+    Gpu::copyAsync(Gpu::hostToDevice, h_vec.begin(), h_vec.end(), d_vec.begin());
+}
+
 bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, Vector<int>& group_work_populations,
                              Vector<int>& group_home_populations, const std::map<IntVect, BlockGroup>& xy_to_block_groups,
-                             const LngLatToGrid& lnglat_to_grid, const GridToLngLat& grid_to_lnglat) {
+                             const GridLngLatCoords& grid_lnglat_coords) {
     BL_PROFILE("BlockGroup::readAgents");
     string buf;
     num_households = 0;
@@ -66,9 +73,11 @@ bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, Vector<
             Abort("File is corrupted: wrong geoid, read " + to_string(agent.home_geoid) + " expected " + to_string(geoid) + "\n");
         }
         int home_x, home_y;
-        lnglat_to_grid(agent.home_lng, agent.home_lat, home_x, home_y);
+        lnglat_to_grid(grid_lnglat_coords.min_lng, grid_lnglat_coords.min_lat, grid_lnglat_coords.gspacing_x,
+                       grid_lnglat_coords.gspacing_y, agent.home_lng, agent.home_lat, home_x, home_y);
         Real home_lng, home_lat;
-        grid_to_lnglat(home_x, home_y, home_lng, home_lat);
+        grid_to_lnglat(grid_lnglat_coords.min_lng, grid_lnglat_coords.min_lat, grid_lnglat_coords.gspacing_x,
+                       grid_lnglat_coords.gspacing_y, home_x, home_y, home_lng, home_lat);
         agent.home_lng = static_cast<ParticleReal>(home_lng);
         agent.home_lat = static_cast<ParticleReal>(home_lat);
         AMREX_ASSERT(home_x == x && home_y == y);
@@ -76,9 +85,11 @@ bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, Vector<
         AMREX_ASSERT(agent.work_lat != -1 && agent.work_lng != -1);
         households.insert(agent.household_id);
         int work_x, work_y;
-        lnglat_to_grid(agent.work_lng, agent.work_lat, work_x, work_y);
+        lnglat_to_grid(grid_lnglat_coords.min_lng, grid_lnglat_coords.min_lat, grid_lnglat_coords.gspacing_x,
+                       grid_lnglat_coords.gspacing_y, agent.work_lng, agent.work_lat, work_x, work_y);
         Real work_lng, work_lat;
-        grid_to_lnglat(work_x, work_y, work_lng, work_lat);
+        grid_to_lnglat(grid_lnglat_coords.min_lng, grid_lnglat_coords.min_lat, grid_lnglat_coords.gspacing_x,
+                       grid_lnglat_coords.gspacing_y, work_x, work_y, work_lng, work_lat);
         agent.work_lng = static_cast<ParticleReal>(work_lng);
         agent.work_lat = static_cast<ParticleReal>(work_lat);
         if (agent.role == ROLE::_worker) {
@@ -236,8 +247,7 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
     Print() << "Actual grid spacing: " << gspacing_x << ", " << gspacing_y << "\n";
     Print() << "Max box size is: " << params.max_box_size << "\n";
 
-    LngLatToGrid lnglat_to_grid(min_lng, min_lat, gspacing_x, gspacing_y);
-    GridToLngLat grid_to_lnglat(min_lng, min_lat, gspacing_x, gspacing_y);
+    GridLngLatCoords grid_lnglat_coords(min_lng, min_lat, gspacing_x, gspacing_y);
 
     // create a box array with a single box representing the domain. Every process does this.
     ba.define(geom.Domain());
@@ -258,9 +268,11 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
     // every process computes the same result - needed before distributing the boxes
     Vector<Long> weights(ba.size(), 0);
     for (auto& block_group : all_block_groups) {
-        lnglat_to_grid(block_group.lng, block_group.lat, block_group.x, block_group.y);
+        lnglat_to_grid(grid_lnglat_coords.min_lng, grid_lnglat_coords.min_lat, grid_lnglat_coords.gspacing_x,
+                       grid_lnglat_coords.gspacing_y, block_group.lng, block_group.lat, block_group.x, block_group.y);
         // reset lng/lat coords to account for int conversion
-        grid_to_lnglat(block_group.x, block_group.y, block_group.lng, block_group.lat);
+        grid_to_lnglat(grid_lnglat_coords.min_lng, grid_lnglat_coords.min_lat, grid_lnglat_coords.gspacing_x,
+                       grid_lnglat_coords.gspacing_y, block_group.x, block_group.y, block_group.lng, block_group.lat);
         if (ParallelDescriptor::IOProcessor()) {
             geoid_coords_ofs << block_group.geoid << "," << block_group.lng << "," << block_group.lat << "\n";
         }
@@ -274,7 +286,8 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
 
         // check that conversions don't scramble grid coords
         int x, y;
-        lnglat_to_grid(block_group.lng, block_group.lat, x, y);
+        lnglat_to_grid(grid_lnglat_coords.min_lng, grid_lnglat_coords.min_lat, grid_lnglat_coords.gspacing_x,
+                       grid_lnglat_coords.gspacing_y, block_group.lng, block_group.lat, x, y);
         if (x != block_group.x || y != block_group.y) {
             Print() << "Conversion error " << x << "," << y << " " << block_group.x << "," << block_group.y << " "
                     << block_group.lng << "," << block_group.lat << "\n";
@@ -308,11 +321,10 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
 void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& params) {
     BL_PROFILE("UrbanPopData::initAgents");
 
-    pc.lnglat_to_grid.init(min_lng, min_lat, gspacing_x, gspacing_y);
-    pc.grid_to_lnglat.init(min_lng, min_lat, gspacing_x, gspacing_y);
-
-    const auto& lnglat_to_grid = pc.lnglat_to_grid;
-    const auto& grid_to_lnglat = pc.grid_to_lnglat;
+    pc.grid_lnglat_coords.min_lng = min_lng;
+    pc.grid_lnglat_coords.min_lat = min_lat;
+    pc.grid_lnglat_coords.gspacing_x = gspacing_x;
+    pc.grid_lnglat_coords.gspacing_y = gspacing_y;
 
     int home_population = 0;
     int work_population = 0;
@@ -361,7 +373,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     work_population += block_group.work_populations[0];
                     // now read in the agents for this block group
                     block_group.readAgents(f, agents, group_work_populations, group_home_populations, xy_to_block_groups,
-                                           lnglat_to_grid, grid_to_lnglat);
+                                           pc.grid_lnglat_coords);
                     num_households += block_group.num_households;
                     num_employed += block_group.num_employed;
                     num_students += block_group.num_students;
@@ -379,10 +391,20 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             }
         }
 
-        auto xys_ptr = xys.data();
-        auto fips_codes_ptr = fips_codes.data();
-        auto block_group_codes_ptr = block_group_codes.data();
-        auto block_group_indices_ptr = block_group_indices.data();
+        Gpu::DeviceVector<IntVect> xys_d;
+        Gpu::DeviceVector<int> fips_codes_d;
+        Gpu::DeviceVector<int> block_group_codes_d;
+        Gpu::DeviceVector<int> block_group_indices_d;
+        copyToDeviceAsync(xys, xys_d);
+        copyToDeviceAsync(fips_codes, fips_codes_d);
+        copyToDeviceAsync(block_group_codes, block_group_codes_d);
+        copyToDeviceAsync(block_group_indices, block_group_indices_d);
+        Gpu::streamSynchronize();
+
+        auto xys_ptr = xys_d.data();
+        auto fips_codes_ptr = fips_codes_d.data();
+        auto block_group_codes_ptr = block_group_codes_d.data();
+        auto block_group_indices_ptr = block_group_indices_d.data();
         int num_blocks = xys.size();
         ParallelFor(num_blocks, [=] AMREX_GPU_DEVICE (int i) noexcept {
             int x = xys_ptr[i][0];
@@ -399,9 +421,18 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         auto& ptile = pc.DefineAndReturnParticleTile(0, mfi);
         ptile.resize(agents.size());
         auto aos = &ptile.GetArrayOfStructs()[0];
-        auto agents_ptr = agents.data();
-        auto group_work_populations_ptr = group_work_populations.data();
-        auto group_home_populations_ptr = group_home_populations.data();
+
+        Gpu::DeviceVector<UrbanPopAgent> agents_d;
+        Gpu::DeviceVector<int> group_work_populations_d;
+        Gpu::DeviceVector<int> group_home_populations_d;
+        copyToDeviceAsync(agents, agents_d);
+        copyToDeviceAsync(group_work_populations, group_work_populations_d);
+        copyToDeviceAsync(group_home_populations, group_home_populations_d);
+        Gpu::streamSynchronize();
+
+        auto agents_ptr = agents_d.data();
+        auto group_work_populations_ptr = group_work_populations_d.data();
+        auto group_home_populations_ptr = group_home_populations_d.data();
 
         auto& soa = ptile.GetStructOfArrays();
         auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
@@ -450,6 +481,11 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         const auto dxi = geom.InvCellSizeArray();
 #endif
 
+        Real min_lng = pc.grid_lnglat_coords.min_lng;
+        Real min_lat = pc.grid_lnglat_coords.min_lat;
+        Real gspacing_x = pc.grid_lnglat_coords.gspacing_x;
+        Real gspacing_y = pc.grid_lnglat_coords.gspacing_y;
+
         ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
             auto& p = aos[i];
             auto& agent = agents_ptr[i];
@@ -458,7 +494,8 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             p.cpu() = myproc;
             p.pos(0) = agent.home_lng;
             p.pos(1) = agent.home_lat;
-            lnglat_to_grid(agent.home_lng, agent.home_lat, home_i_ptr[i], home_j_ptr[i]);
+            lnglat_to_grid(min_lng, min_lat, gspacing_x, gspacing_y, agent.home_lng, agent.home_lat, home_i_ptr[i],
+                           home_j_ptr[i]);
             AMREX_ASSERT(tilebox.contains(IntVect(home_i_ptr[i], home_j_ptr[i])));
 #ifdef CHECK_PARTICLE_LOCATIONS
             // this is the code for checking particle locations within boxes that is called by Ok()
@@ -481,9 +518,10 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                 age_group_ptr[i] = AgeGroups::o65;
             }
             family_ptr[i] = agent.household_id;
-            lnglat_to_grid(agent.work_lng, agent.work_lat, work_i_ptr[i], work_j_ptr[i]);
+            lnglat_to_grid(min_lng, min_lat, gspacing_x, gspacing_y, agent.work_lng, agent.work_lat, work_i_ptr[i],
+                           work_j_ptr[i]);
             Real work_lng, work_lat;
-            grid_to_lnglat(work_i_ptr[i], work_j_ptr[i], work_lng, work_lat);
+            grid_to_lnglat(min_lng, min_lat, gspacing_x, gspacing_y, work_i_ptr[i], work_j_ptr[i], work_lng, work_lat);
             agent.work_lng = static_cast<ParticleReal>(work_lng);
             agent.work_lat = static_cast<ParticleReal>(work_lat);
             int max_nborhood = group_home_populations_ptr[i] / nborhood_size + 1;
