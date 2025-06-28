@@ -481,12 +481,8 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         const auto dxi = geom.InvCellSizeArray();
 #endif
 
-        Real min_lng = pc.grid_lnglat_coords.min_lng;
-        Real min_lat = pc.grid_lnglat_coords.min_lat;
-        Real gspacing_x = pc.grid_lnglat_coords.gspacing_x;
-        Real gspacing_y = pc.grid_lnglat_coords.gspacing_y;
-
-        ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
+        ParallelForRNG(np, [=, min_lng = this->min_lng, min_lat = this->min_lat, gspacing_x = this->gspacing_x,
+                            gspacing_y = this->gspacing_y] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
             auto& p = aos[i];
             auto& agent = agents_ptr[i];
             // agent ID in amrex must be > 0
