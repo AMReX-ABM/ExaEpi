@@ -481,8 +481,8 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         const auto dxi = geom.InvCellSizeArray();
 #endif
 
-        ParallelForRNG(np, [=, min_lng = this->min_lng, min_lat = this->min_lat, gspacing_x = this->gspacing_x,
-                            gspacing_y = this->gspacing_y] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
+        ParallelForRNG(np, [=, mlng = this->min_lng, mlat = this->min_lat, gx = this->gspacing_x,
+                            gy = this->gspacing_y] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
             auto& p = aos[i];
             auto& agent = agents_ptr[i];
             // agent ID in amrex must be > 0
@@ -490,8 +490,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             p.cpu() = myproc;
             p.pos(0) = agent.home_lng;
             p.pos(1) = agent.home_lat;
-            lnglat_to_grid(min_lng, min_lat, gspacing_x, gspacing_y, agent.home_lng, agent.home_lat, home_i_ptr[i],
-                           home_j_ptr[i]);
+            lnglat_to_grid(mlng, mlat, gx, gy, agent.home_lng, agent.home_lat, home_i_ptr[i], home_j_ptr[i]);
             AMREX_ASSERT(tilebox.contains(IntVect(home_i_ptr[i], home_j_ptr[i])));
 #ifdef CHECK_PARTICLE_LOCATIONS
             // this is the code for checking particle locations within boxes that is called by Ok()
@@ -514,10 +513,9 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                 age_group_ptr[i] = AgeGroups::o65;
             }
             family_ptr[i] = agent.household_id;
-            lnglat_to_grid(min_lng, min_lat, gspacing_x, gspacing_y, agent.work_lng, agent.work_lat, work_i_ptr[i],
-                           work_j_ptr[i]);
+            lnglat_to_grid(mlng, mlat, gx, gy, agent.work_lng, agent.work_lat, work_i_ptr[i], work_j_ptr[i]);
             Real work_lng, work_lat;
-            grid_to_lnglat(min_lng, min_lat, gspacing_x, gspacing_y, work_i_ptr[i], work_j_ptr[i], work_lng, work_lat);
+            grid_to_lnglat(mlng, mlat, gx, gy, work_i_ptr[i], work_j_ptr[i], work_lng, work_lat);
             agent.work_lng = static_cast<ParticleReal>(work_lng);
             agent.work_lat = static_cast<ParticleReal>(work_lat);
             int max_nborhood = group_home_populations_ptr[i] / nborhood_size + 1;
