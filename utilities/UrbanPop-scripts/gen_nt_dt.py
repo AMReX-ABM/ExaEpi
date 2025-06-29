@@ -79,12 +79,14 @@ def load_urbanpop_files(fnames):
     # hh_nb_adult_wrks,hh_nb_adult_non_wrks,hh_dwg,hh_tenure,hh_vehicles,pr_age,pr_sex,pr_race,pr_hsplat,pr_ipr,pr_naics,
     # pr_emp_stat,pr_travel,pr_veh_occ,pr_commute,pr_grade
     upop_df = pd.DataFrame()
+    upop_dfs = []
     for i, fname in enumerate(fnames):
         print(f"  {i} {fname}")
         df_read = pd.read_feather(fname)[["p_id", "geoid", "pr_age", "pr_naics", "pr_emp_stat", "pr_grade"]]
         # strip letters from NAICS code
         df_read.pr_naics = df_read.pr_naics.str.extract(r"(\d+)").astype("float").fillna(-1).astype("int")
-        upop_df = pd.concat([upop_df, df_read], ignore_index=True)
+        upop_dfs.append(df_read)
+    upop_df = pd.concat(upop_dfs, ignore_index=True)
     upop_df.geoid = upop_df.geoid.astype(str)
     upop_df.sort_values(by=["p_id"], inplace=True)
     print(f"Processed {len(upop_df.index)} records from {len(fnames)} files")
@@ -138,6 +140,7 @@ def alloc_workers(args, workers_df):
     nt_dt_df = pd.DataFrame()
     print(f"Assigning workers in {len(worker_groups)} GEOIDS")
     i = 0
+    nt_dts = [nt_dt_df]
     for name, worker_group in worker_groups:
         i += 1
         if i % 100 == 0:
@@ -159,7 +162,9 @@ def alloc_workers(args, workers_df):
         rnd_sample = lodes_group.sample(n=num_workers, weights=flow_probs, replace=True)
         nt_dt_group = worker_group[["p_id", "geoid", "pr_naics", "pr_grade"]]
         nt_dt_group = nt_dt_group.assign(dest_geoid=rnd_sample["w_geocode"].tolist())
-        nt_dt_df = pd.concat([nt_dt_df, nt_dt_group], ignore_index=True)
+        nt_dts.append(nt_dt_group)
+
+    nt_dt_df = pd.concat(nt_dts, ignore_index=True)
 
     nt_dt_df.rename(columns={"geoid": "orig_geoid", "pr_naics": "naics", "pr_grade": "grade"}, inplace=True)
     nt_dt_df["role"] = "worker"
@@ -208,6 +213,7 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
     student_groups = students_df.groupby(["region"])
     school_groups = schools_df.groupby(["region"])
     nt_dt_df = pd.DataFrame()
+    nt_dt_dfs = []
     missing_regions = 0
     for group_name, student_group in student_groups:
         num_students_reqd = len(student_group)
@@ -233,7 +239,7 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
 
         nt_dt_group = student_group[["p_id", "geoid", "pr_naics", "pr_grade"]]
         nt_dt_group = nt_dt_group.assign(dest_geoid=schools_selected.geoid.tolist(), school_id=schools_selected.id.tolist())
-        nt_dt_df = pd.concat([nt_dt_df, nt_dt_group], ignore_index=True)
+        nt_dt_dfs.append(nt_dt_group)
         # clear out dummy schools
         schools_selected = schools_selected[(schools_selected.id != "")]
         # reduce the available students at schools count according to how many have been allocated
@@ -245,6 +251,7 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
         # always set to 1 to enable a slight chance of allocating to this school
         schools_df.loc[schools_df.remaining_student_places < 1, "remaining_student_places"] = 1
 
+    nt_dt_df = pd.concat(nt_dt_dfs, ignore_index=True)
     # print("    Found", len(student_groups), "student regions,", missing_regions, "without schools")
     if len(nt_dt_df) > 0:
         nt_dt_df.rename(columns={"geoid": "orig_geoid", "pr_naics": "naics", "pr_grade": "grade"}, inplace=True)
@@ -289,6 +296,7 @@ def alloc_students_level(schools_df, students_df, level):
     nt_dt_df = pd.DataFrame()
     # for childcare, we assume that it is all close to home
     scales = list(region_scales.keys()) if level != "C" else list(region_scales.keys())[:3]
+    nt_dt_dfs = []
     # pick schools for students from decreasing resolution; the goal is to allocate students as close to home as possible
     for scale in scales:
         # print("  Region", region_scales[scale])
@@ -297,16 +305,18 @@ def alloc_students_level(schools_df, students_df, level):
         students_nt_dt_df, students_df = alloc_students_region(students_df, schools_df, scale, alloc_all)
         num_unalloc_students = len(students_df[(students_df.school_id == "")])
         # print("    Set destinations for", len(students_nt_dt_df), "students,", num_unalloc_students, "unallocated")
-        nt_dt_df = pd.concat([nt_dt_df, students_nt_dt_df], ignore_index=True)
+        nt_dt_dfs.append(students_nt_dt_df)
         if alloc_all:
             unalloc_students_df = students_df[(students_df.school_id == "")].copy()
             unalloc_students_df.rename(columns={"geoid": "orig_geoid", "pr_naics": "naics", "pr_grade": "grade"}, inplace=True)
             unalloc_students_df["role"] = "student"
             unalloc_students_df["dest_geoid"] = unalloc_students_df["orig_geoid"]
             unalloc_students_df = unalloc_students_df[["p_id", "role", "orig_geoid", "dest_geoid", "naics", "grade", "school_id"]]
-            nt_dt_df = pd.concat([nt_dt_df, unalloc_students_df], ignore_index=True)
+            nt_dt_dfs.append(unalloc_students_df)
         if num_unalloc_students == 0:
             break
+
+    nt_dt_df = pd.concat(nt_dt_dfs, ignore_index=True)
 
     return nt_dt_df
 
@@ -326,9 +336,12 @@ def alloc_students(args, students_df):
 
     # allocate students from each level
     students_nt_dt_df = pd.DataFrame()
+    students_nt_dt_dfs = []
     for level in ["C", "P", "E", "M", "H", "U"]:
         df = alloc_students_level(schools_df, students_df, level=level)
-        students_nt_dt_df = pd.concat([students_nt_dt_df, df], ignore_index=True)
+        students_nt_dt_dfs.append(df)
+
+    students_nt_dt_df = pd.concat(students_nt_dt_dfs, ignore_index=True)
 
     # set all unallocated students
     unalloc = students_nt_dt_df.school_id == ""
