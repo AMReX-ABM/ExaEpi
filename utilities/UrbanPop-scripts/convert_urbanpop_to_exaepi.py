@@ -507,8 +507,11 @@ def print_agents(df, out_fname, geoid_locs_map):
                 tot_work_pop = np.sum(work_pops)
                 latlng = " ".join(map(str, geoid_locs_map[geoid]))
                 print(geoid, latlng, 0, 0, tot_work_pop, " ".join(map(str, work_pops)), file=f)
+        step = int(len(work_geoids) / 10)
         # print all other GEOIDs
         for i, geoid in enumerate(home_geoids):
+            if i % step == 0:
+                print(f"  GEOID {geoid} {i}", flush=True)
             foffset = os.stat(out_fname_csv).st_size if i > 0 else 0
             subset_df = df.loc[df["home_geoid"] == geoid]
             min_hh_id = subset_df["household_id"].min()
@@ -602,7 +605,12 @@ def adjust_school_ids(df):
     # set school ids to be unique only to work geoid
     work_geoids = df.work_geoid.unique()
     school_id_map = {}
-    for geoid in work_geoids:
+    num_work_geoids = len(work_geoids)
+    print(f"Adjusting school ids in {num_work_geoids} geoids")
+    step = int(num_work_geoids / 10)
+    for i, geoid in enumerate(work_geoids):
+        if i % step == 0:
+            print(f"  GEOID {geoid} {i}", flush=True)
         subset_df = df.loc[(df["work_geoid"] == geoid) & (df["school_id"] > 0)]
         if len(subset_df) == 0:
             continue
