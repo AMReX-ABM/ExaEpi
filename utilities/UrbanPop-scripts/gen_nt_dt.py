@@ -87,7 +87,7 @@ def load_urbanpop_files(fnames):
         df_read.pr_naics = df_read.pr_naics.str.extract(r"(\d+)").astype("float").fillna(-1).astype("int")
         upop_dfs.append(df_read)
     upop_df = pd.concat(upop_dfs, ignore_index=True)
-    upop_df.geoid = upop_df.geoid.astype(str)
+    # upop_df.geoid = upop_df.geoid.astype(str)
     upop_df.sort_values(by=["p_id"], inplace=True)
     print(f"Processed {len(upop_df.index)} records from {len(fnames)} files")
     return upop_df
@@ -250,6 +250,9 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
         schools_df.loc[indexes, "remaining_student_places"] -= np.int32(selected_school_counts)
         # always set to 1 to enable a slight chance of allocating to this school
         schools_df.loc[schools_df.remaining_student_places < 1, "remaining_student_places"] = 1
+
+    if len(nt_dt_dfs) == 0:
+        return nt_dt_df, students_df[(students_df.school_id == "")]
 
     nt_dt_df = pd.concat(nt_dt_dfs, ignore_index=True)
     # print("    Found", len(student_groups), "student regions,", missing_regions, "without schools")
@@ -414,7 +417,7 @@ def set_childcare(upop_df):
 def alloc_teachers_region(teachers_df, schools_df, geoid_scaling):
     schools_df["region"] = schools_df.geoid.str[:geoid_scaling]
     teachers_df = teachers_df[teachers_df.grade == ""].copy()
-    teachers_df.loc[:, "region"] = teachers_df.orig_geoid.str[:geoid_scaling]
+    teachers_df["region"] = teachers_df.orig_geoid.str[:geoid_scaling]
     teacher_groups = teachers_df.groupby(["region"])
     school_groups = schools_df.groupby(["region"])
     missing_regions = 0
@@ -453,8 +456,8 @@ def alloc_teachers_region(teachers_df, schools_df, geoid_scaling):
         schools_df.loc[schools_df.index.isin(selected_school_indexes), "alloc_teachers"] -= np.int32(selected_school_counts)
 
     teachers_df.drop("region", axis=1, inplace=True)
-    # print("    Found", len(school_groups), "school regions,", missing_regions, "without teachers")
-    # print("    Allocated", len(teachers_df[(teachers_df.grade != "")]), "teachers out of", tot_reqd_teachers)
+    num_allocated = len(teachers_df[(teachers_df.grade != "")])
+    print(f"  For {region_scales[geoid_scaling]}, allocated {num_allocated} teachers out of {tot_reqd_teachers}")
     return teachers_df
 
 
@@ -507,12 +510,6 @@ def alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, school_type)
     if DUMP_INTERMEDIATES:
         schools_df.to_csv("selected_schools.csv", sep="\t", float_format="%.2f", index=False)
     schools_df["alloc_teachers"] = schools_df.adj_teachers
-
-    # FIXME: elementary and secondary schools are actually NAICS 6111, and childcare is NAICS 6244. College/uni should then be
-    # NAICS 611. Here we use all three indiscriminately
-    # teachers_df = workers_nt_dt_df[
-    #    (workers_nt_dt_df.naics == 611) | (workers_nt_dt_df.naics == 6111) | (workers_nt_dt_df.naics == 6244)
-    # ].copy()
     teachers_df = workers_nt_dt_df[workers_nt_dt_df.naics == naics_code].copy()
     teachers_df["school_id"] = None
     teachers_df["grade"] = ""
@@ -584,7 +581,7 @@ def get_from_up_nt_dt(args, upop_df):
     idx = students_df["grade"].isin(["childcare", "undergrad_male", "undergrad_female", "grad_male", "grad_female"])
     students_df.loc[idx, "grade"] = students_df.loc[idx, "grade"].str.split("_", n=1, expand=True).iloc[:, 0]
     students_df.loc[~idx, "grade"] = students_df.loc[~idx, "grade"].str.split("_", n=1, expand=True).iloc[:, 1]
-    students_df.loc[:, "grade"] = students_df["grade"].astype(grade_categs).cat.codes + 3
+    students_df["grade"] = students_df["grade"].astype(grade_categs).cat.codes + 3
     students_df.to_csv("students_from_up.csv", index=False)
     schools_df = students_df.groupby(["school_id", "dest_geoid"]).size().reset_index(name="students")
     schools_df.rename(columns={"school_id": "id", "dest_geoid": "geoid"}, inplace=True)

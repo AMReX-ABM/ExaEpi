@@ -261,6 +261,7 @@ def process_census_bg_shape_file(fnames):
         df.GEOID10 = df.GEOID10.astype("int64")
         df.INTPTLAT10 = df.INTPTLAT10.astype("float32")
         df.INTPTLON10 = df.INTPTLON10.astype("float32")
+        # df = df[df.GEOID10 != 350130017061]
         # df.to_csv(shape_fname + ".csv", index=False)
         # print("Wrote", len(df.index), "GEOID locations to", shape_fname + ".csv")
         geoid_locs_map.update(df.set_index("GEOID10").T.to_dict("list"))
@@ -289,7 +290,7 @@ def process_nt_dt_feather_files(fnames, out_fname):
     school_id_map[None] = -1
 
     df["school_name"] = df["school_id"]
-    df["school_id"] = df["school_id"].map(school_id_map).apply(lambda x: x).astype("int64")
+    df["school_id"] = df["school_id"].map(school_id_map).astype("int64")
     # make the valid school ids start at 1, 0 means no school
     df["school_id"] += 1
     # correct students to have only undergrad and grad, not split by male/female
@@ -496,6 +497,7 @@ def print_agents(df, out_fname, geoid_locs_map):
         print("geoid lat lng foff h_pop w_pop", " ".join(naics_descrs), file=f)
         home_geoids = df.home_geoid.unique()
         work_geoids = df.work_geoid.unique()
+        print(f"Number of home geoids {len(home_geoids)}, number of work geoids {len(work_geoids)}")
         # print work-only GEOIDs
         if len(work_geoids) > len(home_geoids):
             only_work_geoids = list(set(work_geoids) - set(home_geoids))
@@ -517,6 +519,8 @@ def print_agents(df, out_fname, geoid_locs_map):
                 (work_geoids_pops_df.work_geoid == geoid) & (work_geoids_pops_df.naics != "")
             ].num.to_list()
             tot_work_pop = np.sum(work_pops)
+            if tot_work_pop == 0:
+                work_pops = [0] * len(naics_types)
             latlng = " ".join(map(str, geoid_locs_map[geoid]))
             if len(work_pops) != len(naics_types):
                 err_str = (
@@ -528,7 +532,6 @@ def print_agents(df, out_fname, geoid_locs_map):
                         print(i, p, naics_descrs[i])
                 print("")
                 print(f"Total work pop: {sum(work_pops)}")
-                # print(naics_types)
                 raise RuntimeError(err_str)
             print(geoid, latlng, foffset, len(subset_df.index), tot_work_pop, " ".join(map(str, work_pops)), file=f)
     print("Wrote", len(df.index), "records")
@@ -566,17 +569,26 @@ def set_lnglat(df, geoid_locs_map):
     df.home_geoid = df.home_geoid.astype("int")
 
     # find lat/long for each row entry
-    df["home_lat"] = df["home_geoid"].map(geoid_locs_map).apply(lambda x: x[0]).astype("float32")
-    df["home_lng"] = df["home_geoid"].map(geoid_locs_map).apply(lambda x: x[1]).astype("float32")
+    home_locs = df["home_geoid"].map(geoid_locs_map).dropna()
+    num_na = len(df) - len(home_locs)
+    if num_na > 0:
+        print(f"{Fore.RED}WARNING: found {num_na} rows for home locations that were not found in the block groups{Fore.RESET}")
+    df["home_lat"] = home_locs.apply(lambda x: x[0]).astype("float32")
+    df["home_lng"] = home_locs.apply(lambda x: x[1]).astype("float32")
 
-    # df["work_lat"] = df["work_geoid"].map(geoid_locs_map).apply(lambda x: x[0] if type(x) is list else x).astype("float32")
-    # df["work_lng"] = df["work_geoid"].map(geoid_locs_map).apply(lambda x: x[1] if type(x) is list else x).astype("float32")
-    try:
-        df["work_lat"] = df["work_geoid"].map(geoid_locs_map).apply(lambda x: x[0]).astype("float32")
-        df["work_lng"] = df["work_geoid"].map(geoid_locs_map).apply(lambda x: x[1]).astype("float32")
-    except TypeError as err:
-        print(f"\n{Fore.RED}ERROR: Found work GEOID that is not in the shape files{Fore.RESET}")
-        raise err
+    work_locs = df["work_geoid"].map(geoid_locs_map).dropna()
+    num_na = len(df) - len(work_locs)
+    if num_na > 0:
+        print(f"{Fore.RED}WARNING: found {num_na} rows for work locations that were not found in the block groups{Fore.RESET}")
+    df["work_lat"] = work_locs.apply(lambda x: x[0]).astype("float32")
+    df["work_lng"] = work_locs.apply(lambda x: x[1]).astype("float32")
+
+    num_rows = len(df)
+    # drop all agents that have no lng/lat values
+    df.dropna(subset=["home_lat", "work_lat"], inplace=True)
+    num_na = num_rows - len(df)
+    if num_na > 0:
+        print(f"{Fore.RED}WARNING: dropped {num_na} agents with missing lat/lng coords{Fore.RESET}")
 
     df.sort_values(by=["home_lat", "home_lng"], inplace=True)
     if DUMP_INTERMEDIATES:
@@ -598,7 +610,7 @@ def adjust_school_ids(df):
         subset_school_ids = subset_df.school_id.unique()
         subset_school_id_map = {key: i + 1 for i, key in enumerate(subset_school_ids)}
         school_id_map.update(subset_school_id_map)
-    df["school_id"] = df["school_id"].map(school_id_map).apply(lambda x: x).fillna(0).astype("int32")
+    df["school_id"] = df["school_id"].map(school_id_map).fillna(0).astype("int32")
 
 
 @timer
