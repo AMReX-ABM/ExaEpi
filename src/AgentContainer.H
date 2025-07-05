@@ -26,32 +26,6 @@
 #include "InteractionModelLibrary.H"
 #include "Utils.H"
 
-struct LngLatToGrid {
-    Real min_lng, min_lat;
-    Real gspacing_x, gspacing_y;
-
-    LngLatToGrid (Real _min_lng, Real _min_lat, Real _gspacing_x, Real _gspacing_y) {
-        init(_min_lng, _min_lat, _gspacing_x, _gspacing_y);
-    }
-
-    LngLatToGrid () {}
-
-    void init (Real _min_lng, Real _min_lat, Real _gspacing_x, Real _gspacing_y) {
-        min_lng = _min_lng;
-        min_lat = _min_lat;
-        gspacing_x = _gspacing_x;
-        gspacing_y = _gspacing_y;
-    }
-
-    AMREX_GPU_HOST_DEVICE
-    void operator()(Real lng, Real lat, int& x, int& y) const {
-        Real rx = (lng - min_lng) / gspacing_x;
-        Real ry = (lat - min_lat) / gspacing_y;
-        x = static_cast<int>(rx + 0.001_rt);
-        y = static_cast<int>(ry + 0.001_rt);
-    }
-};
-
 /*! \brief Derived class from ParticleContainer that defines agents and their functions */
 class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs> {
 
@@ -137,8 +111,6 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     int m_num_diseases; /*!< Number of diseases */
 
     amrex::iMultiFab comm_mf;
-
-    GridLngLatCoords grid_lnglat_coords;
 
     short ic_type;
 

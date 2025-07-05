@@ -170,12 +170,6 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                 Gpu::synchronize();
             }
 
-            bool is_census = (a_agents.ic_type == ExaEpi::ICType::Census);
-            Real min_lng = a_agents.grid_lnglat_coords.min_lng;
-            Real min_lat = a_agents.grid_lnglat_coords.min_lat;
-            Real gspacing_x = a_agents.grid_lnglat_coords.gspacing_x;
-            Real gspacing_y = a_agents.grid_lnglat_coords.gspacing_y;
-
             ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                 if (!inHospital(i, ptd)) { return; }
 
@@ -199,15 +193,8 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                         hosp_j_ptr[i] = -1;
                         withdrawn_ptr[i] = 0;
                         PType& p = pstruct[i];
-                        if (is_census) {
-                            p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
-                            p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
-                        } else {
-                            Real lng, lat;
-                            grid_to_lnglat(min_lng, min_lat, gspacing_x, gspacing_y, home_i_ptr[i], home_j_ptr[i], lng, lat);
-                            p.pos(0) = static_cast<ParticleReal>(lng);
-                            p.pos(1) = static_cast<ParticleReal>(lat);
-                        }
+                        p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
+                        p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
                     }
                 }
             });

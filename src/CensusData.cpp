@@ -8,47 +8,11 @@
 using namespace amrex;
 using namespace ExaEpi;
 
-/*! \brief Set computational domain, i.e., number of cells in each direction, from the
-    demographic data (number of communities).
- *
- *  If the initialization type (ExaEpi::TestParams::ic_type) is ExaEpi::ICType::Census, then
- *  + The domain is a 2D square, where the total number of cells is the lowest square of an
- *    integer that is greater than #DemographicData::Ncommunity
- *  + The physical size is 1.0 in each dimension.
- *
- *  A periodic Cartesian grid is defined.
-*/
-Geometry getGeometry (const DemographicData& demo /*!< demographic data */) {
-    int is_per[BL_SPACEDIM];
-    for (int i = 0; i < BL_SPACEDIM; i++) {
-        is_per[i] = true;
-    }
-
-    RealBox real_box;
-    Box base_domain;
-    Geometry geom;
-
-    IntVect iv;
-    iv[0] = iv[1] = (int)std::floor(std::sqrt((double)demo.Ncommunity));
-    while (iv[0] * iv[1] <= demo.Ncommunity) {
-        ++iv[0];
-    }
-    base_domain = Box(IntVect(AMREX_D_DECL(0, 0, 0)), iv - 1);
-
-    for (int n = 0; n < BL_SPACEDIM; n++) {
-        real_box.setLo(n, 0.0);
-        real_box.setHi(n, 1.0);
-    }
-
-    geom.define(base_domain, &real_box, CoordSys::cartesian, is_per);
-    return geom;
-}
-
 void CensusData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& ba, DistributionMapping& dm) {
 
     demo.initFromFile(params.census_filename, params.workgroup_size);
 
-    geom = getGeometry(demo);
+    geom = getGeometry(demo.Ncommunity);
 
     ba.define(geom.Domain());
     ba.maxSize(params.max_box_size);

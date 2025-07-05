@@ -14,39 +14,41 @@
 #include "UrbanPopAgentStruct.H"
 #include "Utils.H"
 
+struct AgentExtras {
+    amrex::IntVect home_xy;
+    amrex::IntVect work_xy;
+    int naics_population;
+    int home_population;
+};
+
 struct BlockGroup {
     int64_t geoid;
     amrex::Real lng;
     amrex::Real lat;
     size_t file_offset;
     int block_i;
-    int x;
-    int y;
+    int x = -1;
+    int y = -1;
     int home_population;
     amrex::Vector<int> work_populations;
-    int num_households;
-    int num_employed;
-    int num_students;
-    int num_educators;
+    int num_households = 0;
+    int num_employed = 0;
+    int num_students = 0;
+    int num_educators = 0;
 
     bool read(std::istringstream& iss);
-    bool readAgents(std::ifstream& f, amrex::Vector<UrbanPop::UrbanPopAgent>& agents, amrex::Vector<int>& group_work_population,
-                    amrex::Vector<int>& group_home_population, const std::map<IntVect, BlockGroup>& xy_to_block_groups,
-                    const GridLngLatCoords& grid_lnglat_coords);
+    bool readAgents(std::ifstream& f, amrex::Vector<UrbanPop::UrbanPopAgent>& agents, amrex::Vector<AgentExtras>& agents_extras,
+                    const std::map<int64_t, int>& geoid_to_block_groups, const amrex::Vector<BlockGroup>& block_groups);
 };
 
 struct UrbanPopData {
-    amrex::Real min_lng, min_lat, max_lng, max_lat;
-    amrex::Real gspacing_x, gspacing_y;
-
     // these three data structures are used for setting the initial cases
     amrex::Vector<int> FIPS_codes;
     amrex::Vector<int> fips_community_start;
+    amrex::Vector<BlockGroup> block_groups;
 
     amrex::iMultiFab geoid_mf;     /*!< FIPS code (component 0) and census block group number (component 1) of each block group */
     amrex::iMultiFab community_mf; /*!< Index for community == block group */
-
-    int num_communities;
 
     UrbanPopData () {}
 
@@ -55,5 +57,6 @@ struct UrbanPopData {
     void initAgents(AgentContainer& pc, const ExaEpi::TestParams& params);
 
   private:
-    std::map<IntVect, BlockGroup> xy_to_block_groups;
+    std::map<int64_t, int> geoid_to_block_groups;
+    std::map<amrex::IntVect, int> xy_to_block_groups;
 };

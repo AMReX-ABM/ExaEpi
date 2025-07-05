@@ -16,7 +16,7 @@ using float32_t = amrex::ParticleReal;
 
 namespace UrbanPop {
 
-const size_t NUM_COLS = 17;
+const size_t NUM_COLS = 13;
 
 const int ROLE_COUNT = 3;
 static string role_descriptions[ROLE_COUNT] = {"nope", "worker", "student"};
@@ -316,11 +316,7 @@ struct UrbanPopAgent {
     int64_t id;
     int32_t household_id;
     int64_t home_geoid;
-    float32_t home_lat;
-    float32_t home_lng;
     int64_t work_geoid;
-    float32_t work_lat;
-    float32_t work_lng;
     int8_t age;
     int8_t sex;
     int8_t race;
@@ -347,20 +343,16 @@ struct UrbanPopAgent {
             id = stol(tokens[0]);
             household_id = stoi(tokens[1]);
             home_geoid = stol(tokens[2]);
-            home_lat = stof(tokens[3]);
-            home_lng = stof(tokens[4]);
-            work_geoid = stol(tokens[5]);
-            work_lat = stof(tokens[6]);
-            work_lng = stof(tokens[7]);
-            age = stoi(tokens[8]);
-            sex = stoi(tokens[9]);
-            race = stoi(tokens[10]);
-            travel = stoi(tokens[11]);
-            veh_occ = stoi(tokens[12]);
-            role = stoi(tokens[13]);
-            naics = stoi(tokens[14]);
-            grade = stoi(tokens[15]);
-            school_id = stoi(tokens[16]);
+            work_geoid = stol(tokens[3]);
+            age = stoi(tokens[4]);
+            sex = stoi(tokens[5]);
+            race = stoi(tokens[6]);
+            travel = stoi(tokens[7]);
+            veh_occ = stoi(tokens[8]);
+            role = stoi(tokens[9]);
+            naics = stoi(tokens[10]);
+            grade = stoi(tokens[11]);
+            school_id = stoi(tokens[12]);
 
         } catch (const std::exception& ex) {
             std::ostringstream os;
@@ -376,11 +368,7 @@ struct UrbanPopAgent {
         os << agent.id << ",";
         os << agent.household_id << ",";
         os << agent.home_geoid << ",";
-        os << agent.home_lat << ",";
-        os << agent.home_lng << ",";
         os << agent.work_geoid << ",";
-        os << agent.work_lat << ",";
-        os << agent.work_lng << ",";
         os << (int)agent.age << ",";
         os << (int)agent.sex << ",";
         os << (int)agent.race << ",";

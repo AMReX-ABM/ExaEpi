@@ -422,7 +422,7 @@ void writeAggregatedData (const AgentContainer& agents,                  /*!< Ag
 
     for (int d = 0; d < num_diseases; d++) {
         amrex::Print() << "Generating diagnostic data by census block group " << "for " << disease_names[d] << "\n";
-        std::vector<amrex::Real> data(urbanpopData.num_communities, 0.0);
+        std::vector<amrex::Real> data(urbanpopData.block_groups.size(), 0.0);
         amrex::Gpu::DeviceVector<amrex::Real> d_data(data.size(), 0.0);
         amrex::Real* const AMREX_RESTRICT data_ptr = d_data.dataPtr();
 

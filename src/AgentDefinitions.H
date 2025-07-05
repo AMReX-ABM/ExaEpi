@@ -245,34 +245,38 @@ static int schoolTypeToGrade (const int school_type) {
     }
 }
 
-struct GridLngLatCoords {
-    amrex::Real min_lng, min_lat;
-    amrex::Real gspacing_x, gspacing_y;
-
-    GridLngLatCoords () {}
-
-    GridLngLatCoords (amrex::Real mlng, amrex::Real mlat, amrex::Real gx, amrex::Real gy) {
-        min_lng = mlng;
-        min_lat = mlat;
-        gspacing_x = gx;
-        gspacing_y = gy;
+/*! \brief Set computational domain, i.e., number of cells in each direction, from the number of communities.
+ *
+ *  + The domain is a 2D square, where the total number of cells is the lowest square of an
+ *    integer that is greater than #DemographicData::Ncommunity
+ *  + The physical size is 1.0 in each dimension.
+ *
+ *  A periodic Cartesian grid is defined.
+ */
+inline amrex::Geometry getGeometry (const int ncommunity) {
+    int is_per[BL_SPACEDIM];
+    for (int i = 0; i < BL_SPACEDIM; i++) {
+        is_per[i] = true;
     }
-};
 
-AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-static void grid_to_lnglat (const amrex::Real min_lng, const amrex::Real min_lat, const amrex::Real gspacing_x,
-                            const amrex::Real gspacing_y, const int x, const int y, amrex::Real& lng, amrex::Real& lat) {
-    lng = (amrex::Real)x * gspacing_x + min_lng + (amrex::Real)0.001;
-    lat = (amrex::Real)y * gspacing_y + min_lat + (amrex::Real)0.001;
-}
+    amrex::RealBox real_box;
+    amrex::Box base_domain;
+    amrex::Geometry geom;
 
-AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-static void lnglat_to_grid (const amrex::Real min_lng, const amrex::Real min_lat, const amrex::Real gspacing_x,
-                            const amrex::Real gspacing_y, amrex::Real lng, amrex::Real lat, int& x, int& y) {
-    amrex::Real rx = (lng - min_lng) / gspacing_x;
-    amrex::Real ry = (lat - min_lat) / gspacing_y;
-    x = static_cast<int>(rx + (amrex::Real)0.001);
-    y = static_cast<int>(ry + (amrex::Real)0.001);
+    amrex::IntVect iv;
+    iv[0] = iv[1] = (int)std::floor(std::sqrt((double)ncommunity));
+    while (iv[0] * iv[1] <= ncommunity) {
+        ++iv[0];
+    }
+    base_domain = amrex::Box(amrex::IntVect(AMREX_D_DECL(0, 0, 0)), iv - 1);
+
+    for (int n = 0; n < BL_SPACEDIM; n++) {
+        real_box.setLo(n, 0.0);
+        real_box.setHi(n, 1.0);
+    }
+
+    geom.define(base_domain, &real_box, amrex::CoordSys::cartesian, is_per);
+    return geom;
 }
 
 #endif
