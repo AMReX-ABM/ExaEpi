@@ -18,6 +18,7 @@ struct AgentExtras {
     amrex::IntVect home_xy;
     amrex::IntVect work_xy;
     int naics_population;
+    int work_population;
     int home_population;
 };
 

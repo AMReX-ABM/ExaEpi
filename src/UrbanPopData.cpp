@@ -80,9 +80,12 @@ bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, amrex::
             num_employed++;
             agents_extras[i].naics_population = work_block_group.work_populations[agent.naics + 1];
             AMREX_ASSERT(agents_extras[i].naics_population > 0 && agents_extras[i].naics_population < 100000);
+            agents_extras[i].work_population = work_populations[0];
+            AMREX_ASSERT(agents_extras[i].work_population > 0 && agents_extras[i].work_population < 100000);
             if (agent.school_id != 0) { num_educators++; }
         } else {
             agents_extras[i].naics_population = 0;
+            agents_extras[i].work_population = 0;
             if (agent.role == ROLE::_nope) { AMREX_ASSERT(agent.home_geoid == agent.work_geoid); }
             if (agent.role == ROLE::_student) { num_students++; }
         }
@@ -257,15 +260,6 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
     int num_communities = 0;
     ifstream f(params.urbanpop_filename + ".csv");
     if (!f) { Abort("Could not open file " + params.urbanpop_filename + ".csv" + "\n"); }
-
-    int num_tileboxes = 0;
-    for (MFIter mfi = pc.MakeMFIter(0); mfi.isValid(); ++mfi) {
-        num_tileboxes++;
-    }
-    ParallelDescriptor::ReduceIntSum(num_tileboxes);
-    Print() << "Number of tileboxes " << num_tileboxes << "\n";
-    int block_groups_per_tilebox = (int)ceil((Real)block_groups.size() / num_tileboxes);
-    Print() << "Block groups per tilebox " << block_groups_per_tilebox << "\n";
     for (MFIter mfi = pc.MakeMFIter(0); mfi.isValid(); ++mfi) {
         Vector<UrbanPopAgent> agents;
         Vector<AgentExtras> agents_extras;
@@ -418,7 +412,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     int max_workgroup = agents_extras_ptr[i].naics_population / workgroup_size + 1;
                     workgroup_ptr[i] = Random_int(max_workgroup, engine) + 1;
                     AMREX_ASSERT(workgroup_ptr[i] > 0 && workgroup_ptr[i] < max_workgroup * (NAICS_COUNT + 1));
-                    int max_work_nborhood = agents_extras_ptr[i].naics_population / nborhood_size + 1;
+                    int max_work_nborhood = agents_extras_ptr[i].work_population / nborhood_size + 1;
                     work_nborhood_ptr[i] = Random_int(max_work_nborhood, engine) + 1;
                     AMREX_ASSERT(work_nborhood_ptr[i] > 0 && work_nborhood_ptr[i] < 5000);
                 } else {
