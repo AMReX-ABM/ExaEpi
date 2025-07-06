@@ -792,7 +792,7 @@ def print_agents(df, out_fname, geoid_locs_map):
                 print(f"Total work pop: {sum(work_pops)}")
                 raise RuntimeError(err_str)
             print(geoid, latlng, foffset, len(subset_df.index), tot_work_pop, " ".join(map(str, work_pops)), file=f)
-    print("Wrote", len(df.index), "records")
+    print(f"Wrote {len(df)} records")
 
 
 def rename_fields(df):
@@ -848,7 +848,7 @@ def set_lnglat(df, geoid_locs_map):
     if num_na > 0:
         print(f"{Fore.RED}WARNING: dropped {num_na} agents with missing lat/lng coords{Fore.RESET}")
 
-    df.sort_values(by=["home_lat", "home_lng"], inplace=True)
+    # df.sort_values(by=["home_lat", "home_lng"], inplace=True)
     if DUMP_INTERMEDIATES:
         df.to_csv("latlng.csv")
 
@@ -917,7 +917,10 @@ def main():
     merge_nt_dt(df, nt_dt_df)
     set_types(df)
     rename_fields(df)
-    # set_lnglat(df, geoid_locs_map)
+    # this call will drop all agents without GEOIDs in the block group shape files
+    set_lnglat(df, geoid_locs_map)
+    # don't save the lng/lat columns
+    df.drop(columns=["home_lng", "home_lat", "work_lng", "work_lat"], inplace=True)
     orig_ids_df = pd.DataFrame()
     orig_ids_df["orig_id"] = df.id
     # make sure all the ids are globally unique and just integers
