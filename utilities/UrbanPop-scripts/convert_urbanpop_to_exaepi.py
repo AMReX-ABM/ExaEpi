@@ -581,7 +581,7 @@ def process_pop_feather_files(fnames):
             gc.collect()
             mem_used = float(psutil.Process(os.getpid()).memory_info().rss) / 1024 / 1024 / 1024
             mem_of_df = float(df.memory_usage().sum()) / 1024 / 1024 / 1024
-            print(f"  read {fname}, memory RSS {mem_used:0.2f} G, memory of df {mem_of_df:0.2f} G")
+            print(f"  {int(i / chunk_size)}: read {fname}, memory RSS {mem_used:0.2f} G, memory of df {mem_of_df:0.2f} G")
     print(f"Read {len(df.index)} records")
     df.geoid = df.geoid.astype("int64")
     # need to sort to ensure the order is the same between the population files and the daytime/nighttime files
