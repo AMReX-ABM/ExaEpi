@@ -533,6 +533,8 @@ def process_nt_dt_feather_files(fnames, out_fname):
         dfs.append(df_metro)
 
     df = pd.concat(dfs, ignore_index=True)
+    del dfs
+    dfs = []
     print(f"Read {len(df.index)} records")
     df.sort_values(by=["p_id"], inplace=True, ignore_index=True)
     df.orig_geoid = df.orig_geoid.astype("int64")
@@ -549,10 +551,10 @@ def process_nt_dt_feather_files(fnames, out_fname):
     # make the valid school ids start at 1, 0 means no school
     df["school_id"] += 1
     # correct students to have only undergrad and grad, not split by male/female
-    df["grade"] = df["grade"].replace(["undergrad_female"], "undergrad", regex=True)
-    df["grade"] = df["grade"].replace(["undergrad_male"], "undergrad", regex=True)
-    df["grade"] = df["grade"].replace(["grad_female"], "grad", regex=True)
-    df["grade"] = df["grade"].replace(["grad_male"], "grad", regex=True)
+    df.loc[df.grade == "undergrad_female", "grade"] = "undergrad"
+    df.loc[df.grade == "undergrad_male", "grade"] = "undergrad"
+    df.loc[df.grade == "grad_female", "grade"] = "grad"
+    df.loc[df.grade == "grad_male", "grade"] = "grad"
 
     if DUMP_INTERMEDIATES:
         df.to_csv(out_fname + ".work.csv", sep=",", index=False)
