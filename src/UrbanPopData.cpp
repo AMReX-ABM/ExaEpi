@@ -81,10 +81,10 @@ bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, amrex::
             agents_extras[i].naics_population = work_block_group.work_populations[agent.naics + 1];
             AMREX_ASSERT(agents_extras[i].naics_population > 0 && agents_extras[i].naics_population < 100000);
             agents_extras[i].work_population = work_block_group.work_populations[0];
-            if (agents_extras[i].work_population <= 0 || agents_extras[i].work_population >= 100000) {
+            if (agents_extras[i].work_population <= 0 || agents_extras[i].work_population >= 120000) {
                 Print() << "work pop " << agents_extras[i].work_population << "\n";
             }
-            AMREX_ASSERT(agents_extras[i].work_population > 0 && agents_extras[i].work_population < 100000);
+            AMREX_ASSERT(agents_extras[i].work_population > 0 && agents_extras[i].work_population < 120000);
             if (agent.school_id != 0) { num_educators++; }
         } else {
             agents_extras[i].naics_population = 0;

@@ -7,17 +7,17 @@
 
 import sys
 import os
+import gc
+import psutil
 import pandas as pd
 from pandas.api.types import CategoricalDtype
 import numpy as np
-import time
 import argparse
 import configparser
 import glob
 import geopandas
 from colorama import Fore
 from get_schools import timer
-import gen_nt_dt
 
 # only include these fields in the output csv and c++ structure
 
@@ -527,7 +527,7 @@ def process_census_bg_shape_file(fnames):
 @timer
 def process_nt_dt_feather_files(fnames, out_fname):
     dfs = []
-    print(f"Reading data from {len(fnames)} files")
+    print(f"Reading nt/dt data from {len(fnames)} files")
     for i, fname in enumerate(fnames):
         df_metro = pd.read_feather(fname)
         dfs.append(df_metro)
@@ -562,15 +562,24 @@ def process_nt_dt_feather_files(fnames, out_fname):
 
 @timer
 def process_pop_feather_files(fnames):
-    dfs = []
     print(f"Reading UrbanPop data from {len(fnames)} files")
-    for fname in fnames:
+    dfs = []
+    df = pd.DataFrame()
+    chunk_size = int(len(fnames) / 10)
+    for i, fname in enumerate(fnames):
         df_read = pd.read_feather(fname)
         if DUMP_INTERMEDIATES:
             df_read.to_csv(fname + ".csv")
         dfs.append(df_read)
-
-    df = pd.concat(dfs, ignore_index=True)
+        if i % chunk_size == 0 or i == len(fnames) - 1:
+            dfs.append(df)
+            df = pd.concat(dfs, ignore_index=True)
+            del dfs
+            dfs = []
+            gc.collect()
+            mem_used = float(psutil.Process(os.getpid()).memory_info().rss) / 1024 / 1024 / 1024
+            mem_of_df = float(df.memory_usage().sum()) / 1024 / 1024 / 1024
+            print(f"  read {fname}, memory RSS {mem_used:0.2f} G, memory of df {mem_of_df:0.2f} G")
     print(f"Read {len(df.index)} records")
     df.geoid = df.geoid.astype("int64")
     # need to sort to ensure the order is the same between the population files and the daytime/nighttime files

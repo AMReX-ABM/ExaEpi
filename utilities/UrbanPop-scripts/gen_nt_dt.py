@@ -691,6 +691,7 @@ def main():
     # these astype calls are needed to satisfy the to_feather call
     nt_dt_df.grade = nt_dt_df.grade.astype(str)
     nt_dt_df.loc[nt_dt_df.grade == "-1", "grade"] = ""
+    nt_dt_df.naics = nt_dt_df.naics.fillna(-1).astype(int)
     nt_dt_df.naics = nt_dt_df.naics.astype(str)
     nt_dt_df.loc[(nt_dt_df.naics == "") | (nt_dt_df.naics == "None"), "naics"] = "-1"
     # ensure dest_geoid is set to origin if blank

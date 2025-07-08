@@ -7,6 +7,8 @@ import argparse
 import configparser
 import glob
 import time
+import psutil
+import os
 import censusgeocode as cg
 import sys
 import shapely.geometry
@@ -16,11 +18,15 @@ from colorama import Fore
 def timer(func):
     # @functools.wraps(func)
     def wrapper_timer(*args, **kwargs):
+        process = psutil.Process(os.getpid())
+        mem_before = process.memory_info().rss
         tic = time.perf_counter()
         value = func(*args, **kwargs)
         toc = time.perf_counter()
         elapsed_time = toc - tic
-        print(f"{Fore.BLUE}Elapsed time for {func.__name__}: {elapsed_time:0.2f} seconds {Fore.RESET}")
+        mem_after = process.memory_info().rss
+        mem_used = float(mem_after - mem_before) / 1024 / 1024 / 1024
+        print(f"{Fore.BLUE}Elapsed time for {func.__name__}: {elapsed_time:0.2f} seconds, memory {mem_used:0.2f} G{Fore.RESET}")
         return value
 
     return wrapper_timer
