@@ -24,12 +24,6 @@ def main():
         + "https://www.census.gov/cgi-bin/geo/shapefiles/index.php?year=2010&layergroup=Block+Groups",
     )
     parser.add_argument(
-        "--geoid_file",
-        "-g",
-        required=True,
-        help="File containing GEOIDs and lng/lat. This is produced by an ExaEpi run and has extension .geoids.csv",
-    )
-    parser.add_argument(
         "--output",
         "-o",
         default="geo.pdf",
@@ -90,7 +84,7 @@ def main():
     df[["GEOID10", "pop", "never_infected", "infected", "immune", "dead"]].to_csv("merged.csv")
     for i, status in status_list.items():
         ax = status[1]
-        # df.boundary.plot(ax=ax, lw=0.5)
+        # df.boundary.plot(ax=ax, lw=0.01)
         # Some decent colormaps: RdPu OrRd Greys
         df.plot(ax=ax, column=status[0], cmap=status[2], legend=True, norm=mp.colors.LogNorm(vmin=1.0, vmax=max_count))
         # ax.set_xlim([ds.domain_left_edge[0], ds.domain_right_edge[0]])

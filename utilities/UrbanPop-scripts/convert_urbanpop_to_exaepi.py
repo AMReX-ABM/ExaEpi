@@ -868,23 +868,10 @@ def set_lnglat(df, geoid_locs_map):
 
 @timer
 def adjust_school_ids(df):
+    df.loc[df.school_id == 0, "school_id"] = np.nan
     # set school ids to be unique only to work geoid
-    work_geoids = df.work_geoid.unique()
-    school_id_map = {}
-    num_work_geoids = len(work_geoids)
-    print(f"Adjusting school ids in {num_work_geoids} geoids")
-    step = int(num_work_geoids / 10)
-    for i, geoid in enumerate(work_geoids):
-        if i % step == 0:
-            print(f"  GEOID {geoid} {i}", flush=True)
-        subset_df = df.loc[(df["work_geoid"] == geoid) & (df["school_id"] > 0)]
-        if len(subset_df) == 0:
-            continue
-
-        subset_school_ids = subset_df.school_id.unique()
-        subset_school_id_map = {key: i + 1 for i, key in enumerate(subset_school_ids)}
-        school_id_map.update(subset_school_id_map)
-    df["school_id"] = df["school_id"].map(school_id_map).fillna(0).astype("int32")
+    df_adjusted = df.groupby(["work_geoid"])["school_id"].transform(lambda x: pd.factorize(x)[0]).astype("int16") + 1
+    df["school_id"] = df_adjusted
 
 
 @timer
