@@ -677,7 +677,7 @@ void AgentContainer::generateCellData (MultiFab& mf, /*!< MultiFab with at least
 
     AMREX_ASSERT(OK());
     AMREX_ASSERT(numParticlesOutOfRange(*this, 0) == 0);
-    AMREX_ASSERT(a_ncomp == (Status::dead + 1));
+    AMREX_ASSERT(a_ncomp == (Status::dead + 2));
 
     const auto& geom = Geom(lev);
     const auto plo = geom.ProbLoArray();
@@ -695,7 +695,8 @@ void AgentContainer::generateCellData (MultiFab& mf, /*!< MultiFab with at least
                 for (int d = 0; d < n_disease; d++) {
                     int status = ptd.m_runtime_idata[i0(d) + IntIdxDisease::status][i];
                     Gpu::Atomic::AddNoRet(&count(iv, a_ncomp * d + 0), 1.0_rt);
-                    if (status != Status::dead) { Gpu::Atomic::AddNoRet(&count(iv, a_ncomp * d + status + 1), 1.0_rt); }
+                    // if (status != Status::dead) { Gpu::Atomic::AddNoRet(&count(iv, a_ncomp * d + status + 1), 1.0_rt); }
+                    Gpu::Atomic::AddNoRet(&count(iv, a_ncomp * d + status + 1), 1.0_rt);
                 }
             },
             false);

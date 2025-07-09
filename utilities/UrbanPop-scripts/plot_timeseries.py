@@ -15,6 +15,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Plot time series")
     parser.add_argument("--files", "-f", required=True, nargs="+", help="Time series csv files")
     parser.add_argument("--labels", "-l", nargs="+", help="Labels for each file")
+    parser.add_argument(
+        "--output",
+        "-o",
+        default="timeseries.pdf",
+        help="Output file for timeseries plots (choose extension for format, e.g. pdf, png, etc",
+    )
     args = parser.parse_args()
 
     plt.rc("font", size=16)
@@ -75,6 +81,5 @@ if __name__ == "__main__":
     ax5.grid()
     ax6.grid()
     plt.tight_layout()
-    plt.savefig("infections-deaths.pdf")
-    plt.savefig("infections-deaths.png")
-    print("Saved plot to 'infections-deaths.pdf'")
+    plt.savefig(args.output)
+    print(f"Saved plot to '{args.output}'")

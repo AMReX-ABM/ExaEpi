@@ -57,7 +57,7 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
     amrex::Print() << "Writing plotfile \n";
 
     // make sure status_names are in the same order as the struct Status in AgentDefinitions.H (do not include "dead")
-    static const Vector<std::string> status_names = {"total", "never_infected", "infected", "immune", "susceptible"};
+    static const Vector<std::string> status_names = {"total", "never_infected", "infected", "immune", "susceptible", "dead"};
 
     static const int ncomp_d = status_names.size();
     static const int ncomp = ncomp_d * num_diseases + num_diseases + (unit_mf_ptr != nullptr ? 4 : 3);
