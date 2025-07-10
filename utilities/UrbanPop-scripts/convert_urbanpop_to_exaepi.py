@@ -16,6 +16,7 @@ import argparse
 import configparser
 import glob
 import geopandas
+import io
 from colorama import Fore
 from get_schools import timer
 
@@ -749,21 +750,44 @@ def compute_worker_populations(df):
 
 
 @timer
-def print_agents(df, out_fname, geoid_locs_map):
-    work_geoids_pops_df, naics_types = compute_worker_populations(df)
+def print_agents(df, out_fname):
     num_rows = len(df.index)
     # start with a distinct marker so that the file can be read in parallel more easily
     df.index = ["*"] * num_rows
     # print each geoid in turn so we can track the file offsets
-    out_fname_idx = out_fname + ".idx"
+    buff = io.StringIO()
+    foffsets = []
+    home_pops = []
+    home_geoids = []
+    num_geoids = df.home_geoid.unique()
+    step = int(len(num_geoids) / 10)
     out_fname_csv = out_fname + ".csv"
-    print("Writing CSV text data to", out_fname_csv, "and block group indexes to", out_fname_idx)
+    print("Writing CSV text data to", out_fname_csv)
+    for i, (geoid, subset_df) in enumerate(df.groupby("home_geoid")):
+        home_geoids.append(geoid)
+        if i % step == 0:
+            print(f"  GEOID {geoid} {i}", flush=True)
+        foffsets.append(buff.tell())
+        home_pops.append(len(subset_df))
+        subset_df.to_csv(buff, index=True, header=(i == 0))
+    out_fname_csv = out_fname + ".csv"
+    with open(out_fname_csv, "w") as f:
+        print(buff.getvalue(), end="", file=f)
+        print(f"Wrote {len(df)} records in {buff.tell()} bytes")
+    buff.close()
+    return foffsets, home_pops, home_geoids
+
+
+@timer
+def print_index(df, out_fname, foffsets, home_pops, home_geoids):
+    work_geoids_pops_df, naics_types = compute_worker_populations(df)
+    work_geoids = df.work_geoid.unique()
+    step = int(len(work_geoids) / 10)
+    out_fname_idx = out_fname + ".idx"
+    print("Writing block group indexes to", out_fname_idx)
     with open(out_fname_idx, mode="w") as f:
         naics_descrs = list(categ_types["naics"].categories)
-        print("geoid lat lng foff h_pop w_pop", " ".join(naics_descrs), file=f)
-        home_geoids = df.home_geoid.unique()
-        work_geoids = df.work_geoid.unique()
-        print(f"Number of home geoids {len(home_geoids)}, number of work geoids {len(work_geoids)}")
+        print("geoid foff h_pop w_pop", " ".join(naics_descrs), file=f)
         # print work-only GEOIDs
         if len(work_geoids) > len(home_geoids):
             only_work_geoids = list(set(work_geoids) - set(home_geoids))
@@ -771,26 +795,16 @@ def print_agents(df, out_fname, geoid_locs_map):
             for geoid in only_work_geoids:
                 work_pops = work_geoids_pops_df.loc[work_geoids_pops_df.work_geoid == geoid].num.to_list()
                 tot_work_pop = np.sum(work_pops)
-                latlng = " ".join(map(str, geoid_locs_map[geoid]))
-                print(geoid, latlng, 0, 0, tot_work_pop, " ".join(map(str, work_pops)), file=f)
-        step = int(len(work_geoids) / 10)
-        # print all other GEOIDs
+                print(geoid, 0, 0, tot_work_pop, " ".join(map(str, work_pops)), file=f)
         for i, geoid in enumerate(home_geoids):
             if i % step == 0:
                 print(f"  GEOID {geoid} {i}", flush=True)
-            foffset = os.stat(out_fname_csv).st_size if i > 0 else 0
-            subset_df = df.loc[df["home_geoid"] == geoid]
-            min_hh_id = subset_df["household_id"].min()
-            # set household id to be unique only to home geoid
-            subset_df.loc[:, "household_id"] -= min_hh_id
-            subset_df.to_csv(out_fname_csv, index=True, header=(i == 0), mode="w" if i == 0 else "a", float_format="%.6f")
             work_pops = work_geoids_pops_df.loc[
                 (work_geoids_pops_df.work_geoid == geoid) & (work_geoids_pops_df.naics != "")
             ].num.to_list()
             tot_work_pop = np.sum(work_pops)
             if tot_work_pop == 0:
                 work_pops = [0] * len(naics_types)
-            latlng = " ".join(map(str, geoid_locs_map[geoid]))
             if len(work_pops) != len(naics_types):
                 err_str = (
                     f"{Fore.RED}ERROR: For geoid {geoid}, work pops != NAICS types, "
@@ -802,8 +816,7 @@ def print_agents(df, out_fname, geoid_locs_map):
                 print("")
                 print(f"Total work pop: {sum(work_pops)}")
                 raise RuntimeError(err_str)
-            print(geoid, latlng, foffset, len(subset_df.index), tot_work_pop, " ".join(map(str, work_pops)), file=f)
-    print(f"Wrote {len(df)} records")
+            print(geoid, foffsets[i], home_pops[i], tot_work_pop, " ".join(map(str, work_pops)), file=f)
 
 
 def rename_fields(df):
@@ -875,6 +888,13 @@ def adjust_school_ids(df):
 
 
 @timer
+def adjust_household_ids(df):
+    # set household ids to be unique only to home geoid
+    df_adjusted = df.groupby(["home_geoid"])["household_id"].transform(lambda x: pd.factorize(x)[0]).astype("int16")
+    df["household_id"] = df_adjusted
+
+
+@timer
 def main():
     np.random.seed(29)
 
@@ -928,9 +948,9 @@ def main():
     print("Fields are:\n", df.dtypes, sep="")
     print_header(df)
     adjust_school_ids(df)
-    print_agents(df, args.output, geoid_locs_map)
-    # fips_codes = sorted(set([int(str(geoid)[:5]) for geoid in df.work_geoid.unique()]))
-    # print("FIPS codes:", fips_codes)
+    adjust_household_ids(df)
+    foffsets, home_pops, home_geoids = print_agents(df, args.output)
+    print_index(df, args.output, foffsets, home_pops, home_geoids)
 
 
 if __name__ == "__main__":
