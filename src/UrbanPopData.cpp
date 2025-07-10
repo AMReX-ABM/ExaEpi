@@ -68,7 +68,8 @@ bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, amrex::
         }
         if (agent.id == -1) { Abort("File is corrupted: couldn't read agent p_id at offset " + to_string(file_offset) + "\n"); }
         if (agent.home_geoid != geoid) {
-            Abort("File is corrupted: wrong geoid, read " + to_string(agent.home_geoid) + " expected " + to_string(geoid) + "\n");
+            Abort("File is corrupted: wrong geoid, read " + to_string(agent.home_geoid) + " expected " + to_string(geoid) +
+                  " file offset " + to_string(file_offset) + " home pop " + to_string(home_population) + "\n");
         }
         households.insert(agent.household_id);
         agents_extras[i].home_xy = IntVect(x, y);
@@ -102,7 +103,7 @@ bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, amrex::
 
 bool BlockGroup::read (istringstream& iss) {
     BL_PROFILE("BlockGroup::read");
-    const int NTOKS = 6 + NAICS_COUNT;
+    const int NTOKS = 4 + NAICS_COUNT;
 
     string buf;
     if (!getline(iss, buf)) { return false; }
@@ -112,12 +113,10 @@ bool BlockGroup::read (istringstream& iss) {
             throw runtime_error("Incorrect number of tokens, expected " + to_string(NTOKS) + " got " + to_string(tokens.size()));
         }
         geoid = stol(tokens[0]);
-        lat = stof(tokens[1]);
-        lng = stof(tokens[2]);
-        file_offset = stol(tokens[3]);
-        home_population = stoi(tokens[4]);
+        file_offset = stol(tokens[1]);
+        home_population = stoi(tokens[2]);
         for (int i = 0; i < NAICS_COUNT + 1; i++) {
-            work_populations.push_back(stoi(tokens[5 + i]));
+            work_populations.push_back(stoi(tokens[3 + i]));
         }
         AMREX_ASSERT(home_population > 0 || work_populations[0] > 0);
         AMREX_ASSERT(work_populations.size() == NAICS_COUNT + 1);
@@ -215,13 +214,13 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
     community_mf.setVal(-1);
 
     std::ofstream geoid_coords_ofs;
-    if (ParallelDescriptor::IOProcessor()) {
-        // write out the x, y coords and lng,lat
-        geoid_coords_ofs.open(params.urbanpop_filename + ".geoids.csv");
-        geoid_coords_ofs << "GEOID,x,y,lng,lat\n";
-        geoid_coords_ofs << std::fixed << std::setprecision(std::numeric_limits<amrex::Real>::digits10);
-    }
-    // allocate block groups to x,y grid locations and use a map to keep track of them for later processing
+    // if (ParallelDescriptor::IOProcessor()) {
+    //     // write out the x, y coords and lng,lat
+    //     geoid_coords_ofs.open(params.urbanpop_filename + ".geoids.csv");
+    //     geoid_coords_ofs << "GEOID,x,y\n";
+    //     geoid_coords_ofs << std::fixed << std::setprecision(std::numeric_limits<amrex::Real>::digits10);
+    // }
+    //  allocate block groups to x,y grid locations and use a map to keep track of them for later processing
     int max_x = geom.Domain().bigEnd()[0];
     int max_y = geom.Domain().bigEnd()[1];
     Print() << " max " << max_x << "," << max_y << "\n";
@@ -231,10 +230,9 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
         auto& block_group = block_groups[bi];
         block_group.x = x;
         block_group.y = y;
-        if (ParallelDescriptor::IOProcessor()) {
-            geoid_coords_ofs << block_group.geoid << "," << block_group.x << "," << block_group.y << "," << block_group.lng << ","
-                             << block_group.lat << "\n";
-        }
+        // if (ParallelDescriptor::IOProcessor()) {
+        //     geoid_coords_ofs << block_group.geoid << "," << block_group.x << "," << block_group.y << "\n";
+        // }
         auto xy = IntVect(x, y);
         if (xy_to_block_groups.insert({xy, bi}).second == false) { Abort("Duplicate xy location found for block groups"); }
         x++;
@@ -245,7 +243,7 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
         }
         num_communities++;
     }
-    if (ParallelDescriptor::IOProcessor()) { geoid_coords_ofs.close(); }
+    // if (ParallelDescriptor::IOProcessor()) { geoid_coords_ofs.close(); }
 }
 
 void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& params) {
