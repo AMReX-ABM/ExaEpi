@@ -66,7 +66,7 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
         auto binner = GetParticleBin{plo, dxi, domain, bin_size, box};
 
 #ifdef AMREX_USE_SYCL
-            bins.build(BinPolicy::GPU, np, pstruct_ptr, ntiles, binner);
+        bins.build(BinPolicy::GPU, np, pstruct_ptr, ntiles, binner);
 #else
         if (bins.numBins() < 0) {
             if (fast_bin) {
