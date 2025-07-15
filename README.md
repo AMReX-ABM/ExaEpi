@@ -13,7 +13,8 @@ This demo uses CMake version 3.14 or higher. To build it:
      cmake ..
      make -j8
 
-To build with GPU support, use the `-DAMReX_GPU_BACKEND=CUDA` CMake option.
+To build with GPU support, use the CMake option `-DAMReX_GPU_BACKEND=CUDA` on NVIDIA GPU, 
+`-DAMReX_GPU_BACKEND=SYCL` on Intel GPU, and `-DAMReX_GPU_BACKEND=HIP` on AMD GPU.
 
 To write output as (compressed) HDF5, use the `-DAMReX_HDF5=TRUE` CMake option.
 Parallel HDF5 installation is required. On perlmutter, a conda environment is
