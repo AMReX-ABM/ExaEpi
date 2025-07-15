@@ -64,6 +64,8 @@ The following are inputs for the overall simulation:
     The number of days to simulate.
 * ``agent.plot_int`` (`integer`, default ``-1``)
     The number of time steps between successive plot file writes. Set to -1 to disable writing.
+* ``agent.check_int`` (`integer`, default ``-1``)
+    The number of time steps between successive checkfile writes. Set to -1 to disable writing.
 * ``agent.random_travel_int`` (`integer`, default ``-1``)
     The number of time steps between random long distance travel events. Set to -1 to disable all random travel.
 * ``agent.random_travel_prob`` (`float`, default ``0.0001``)
@@ -76,6 +78,8 @@ The following are inputs for the overall simulation:
 * ``agent.aggregated_diag_prefix`` (`string`, default ``cases``)
     Prefix to use when writing aggregated data. For example, if this is set to `cases`, the
     aggregated data files will be named `cases000010`, etc.
+* ``agent.restart`` (`string`)
+    Name of the checkpoint file to restart from. If not present, the simulation will run from the beginning.
 * ``agent.seed`` (`long integer`, default ``0``)
     Use this to specify the random seed to use for the run.
 * ``agent.shelter_start`` (`integer`, default ``-1``)
@@ -210,6 +214,18 @@ The following inputs specify the disease parameters:
     Probability of death when in hospital, in the ICU, for age groups: 0-4, 5-17, 18-29, 30-49, 50-64, 65 and over.
 * ``disease.ventCVF`` (`list of float`, default ``0.20 0.20 0.20 0.45 0.45 1.0``)
     Probability of death when in hospital, on ventilator, for age groups: 0-4, 5-17, 18-29, 30-49, 50-64, 65 and over.
+
+The following inputs specify the disease-coupling parameters. They are valid only when simulating more than one disease
+(i.e., ``agent.number_of_diseases > 1``.
+
+* ``disease_coupling.coimmunity_matrix`` (matrix of `float`, default identity matrix)
+    Co-immunity matrix: co-immunity is the immunity that an agent has against a disease due to past infection with other
+    disease(s). The number of rows and columns of this matrix must be the same as the number of diseases
+    (``agent.number_of_diseases``).
+* ``disease_coupling.cosusceptibility_matrix`` (matrix of `float`, default full matrix of ``1.0``)
+    Co-susceptibility matrix: co-susceptibility is the factor why which an agent is more susceptible to a disease due to
+    current infection with other disease(s). The number of rows and columns of this matrix must be the same as the number
+    of diseases (``agent.number_of_diseases``).
 
 `Note`: for ``agent.number_of_diseases > 1``, the disease parameters that are common
 to all the diseases can be specified as above. Any parameter that is `different for a specific disease`

@@ -4,10 +4,11 @@ set(_sources
     AgentDefinitions.H
     AgentContainer.H
     AgentContainer.cpp
-    CaseData.H
-    CaseData.cpp
     AirTravelFlow.H
     AirTravelFlow.cpp
+    CaseData.H
+    CaseData.cpp
+    DiseaseCoupling.H
     CensusData.H
     CensusData.cpp
     DiseaseParm.H

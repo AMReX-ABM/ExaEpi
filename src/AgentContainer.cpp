@@ -3,6 +3,7 @@
 */
 
 #include "AgentContainer.H"
+#include "AgentDefinitions.H"
 
 using namespace amrex;
 using namespace ExaEpi::Utils;
@@ -101,6 +102,9 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
         std::memcpy(m_d_parm[d], m_h_parm[d], sizeof(DiseaseParm));
 #endif
     }
+
+    m_disease_coupling = std::make_unique<DiseaseCouplingParm<PTDType>>(m_num_diseases);
+    m_disease_coupling->ReadInputs("disease_coupling");
 
     max_attribute_values.fill(-1);
 }
@@ -631,7 +635,7 @@ void AgentContainer::shelterStop () {
 /*! \brief Infect agents based on their current status and the computed probability of infection.
     The infection probability is computed in AgentContainer::interactAgentsHomeWork() or
     AgentContainer::interactAgents() */
-void AgentContainer::infectAgents () {
+void AgentContainer::infectAgents (MFPtrVec& a_disease_stats /*!< Community-wise disease stats tracker */) {
     BL_PROFILE("AgentContainer::infectAgents");
 
     for (int lev = 0; lev <= finestLevel(); ++lev) {
@@ -644,6 +648,7 @@ void AgentContainer::infectAgents () {
             int gid = mfi.index();
             int tid = mfi.LocalTileIndex();
             auto& ptile = plev[std::make_pair(gid, tid)];
+            const auto& ptd = ptile.getParticleTileData();
             auto& soa = ptile.GetStructOfArrays();
             const auto np = ptile.numParticles();
             if (np == 0) { continue; }
@@ -653,6 +658,8 @@ void AgentContainer::infectAgents () {
             int n_disease = m_num_diseases;
 
             for (int d = 0; d < n_disease; d++) {
+                (*a_disease_stats[d])[mfi].setVal<RunOn::Gpu>(0, mfi.tilebox(), DiseaseStats::new_cases, 1);
+                auto ds_arr = (*a_disease_stats[d])[mfi].array();
 
                 auto status_ptr = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
 
@@ -662,15 +669,34 @@ void AgentContainer::infectAgents () {
                 auto infectious_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::infectious_period).data();
                 auto incubation_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).data();
                 auto hospital_delay_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_delay).data();
+                auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
+                auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
 
                 const auto lparm = m_d_parm[d];
 
+                Gpu::DeviceVector<ParticleReal> coimmunity, cosusceptibility;
+                coimmunity.resize(np);
+                cosusceptibility.resize(np);
+
+                m_disease_coupling->getCoimmunity(coimmunity, d, ptd);
+                m_disease_coupling->getCosusceptibility(cosusceptibility, d, ptd);
+
+                auto ci_arr = coimmunity.data();
+                auto cs_arr = cosusceptibility.data();
+
                 amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, amrex::RandomEngine const& engine) noexcept {
-                    prob_ptr[i] = 1.0_prt - prob_ptr[i];
+                    if (prob_ptr[i] == 1.0_prt) {
+                        prob_ptr[i] = 0.0_prt;
+                    } else {
+                        prob_ptr[i] = 1.0_prt - prob_ptr[i] / cs_arr[i];
+                    }
+                    prob_ptr[i] *= (1.0_prt - ci_arr[i]);
                     if (status_ptr[i] == Status::never || status_ptr[i] == Status::susceptible) {
                         if (amrex::Random(engine) < prob_ptr[i]) {
                             setInfected(&(status_ptr[i]), &(counter_ptr[i]), &(latent_period_ptr[i]), &(infectious_period_ptr[i]),
                                         &(incubation_period_ptr[i]), &(hospital_delay_ptr[i]), engine, lparm);
+                            Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::new_cases), 1.0_rt);
+
                             return;
                         }
                     }
@@ -693,13 +719,15 @@ void AgentContainer::infectAgents () {
     + component 5*d+3: number of agents that are immune (#Status::immune)
     + component 5*d+4: number of agents that are susceptible infected (#Status::susceptible)
 */
-void AgentContainer::generateCellData (MultiFab& mf /*!< MultiFab with at least 5*m_num_diseases components */) const {
+void AgentContainer::generateCellData (MultiFab& mf, /*!< MultiFab with at least a_ncomp*m_num_diseases components */
+                                       const int a_ncomp /*!< Number of components per disease */) const {
     BL_PROFILE("AgentContainer::generateCellData");
 
     const int lev = 0;
 
     AMREX_ASSERT(OK());
     AMREX_ASSERT(numParticlesOutOfRange(*this, 0) == 0);
+    AMREX_ASSERT(a_ncomp == (Status::dead + 1));
 
     const auto& geom = Geom(lev);
     const auto plo = geom.ProbLoArray();
@@ -716,8 +744,8 @@ void AgentContainer::generateCellData (MultiFab& mf /*!< MultiFab with at least 
 
                 for (int d = 0; d < n_disease; d++) {
                     int status = ptd.m_runtime_idata[i0(d) + IntIdxDisease::status][i];
-                    Gpu::Atomic::AddNoRet(&count(iv, 5 * d + 0), 1.0_rt);
-                    if (status != Status::dead) { Gpu::Atomic::AddNoRet(&count(iv, 5 * d + status + 1), 1.0_rt); }
+                    Gpu::Atomic::AddNoRet(&count(iv, a_ncomp * d + 0), 1.0_rt);
+                    if (status != Status::dead) { Gpu::Atomic::AddNoRet(&count(iv, a_ncomp * d + status + 1), 1.0_rt); }
                 }
             },
             false);

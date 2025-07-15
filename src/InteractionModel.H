@@ -186,7 +186,7 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                 auto lparm = agents.getDiseaseParameters_d(d);
                 auto lparm_h = agents.getDiseaseParameters_h(d);
                 Real scale = 1.0_prt; // TODO this should vary based on cell
-                Real infect = lparm_h->infect * (1.0_rt - lparm_h->vac_eff);
+                Real infect = (1.0_rt - lparm_h->vac_eff);
 
                 ParallelFor(bins_ptr->numItems(), [=] AMREX_GPU_DEVICE (int ii) noexcept {
                     auto infectious_i = inds[ii];
@@ -222,7 +222,7 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 Real infectProb (const PTDType& ptd, int infectious_i, int susceptible_i, const Real* xmit_SC, const Real* xmit) {
-    // school < 0 means a child normally attends school, but not today
+    //  ptd.m_idata[IntIdx::school_closed][infectious_i] == 1 means a child/teacher normally attends school, but not today
     if (ptd.m_idata[IntIdx::school_closed][infectious_i] == 1) { // school closed, use _SC contacts
         return xmit_SC[ptd.m_idata[IntIdx::age_group][susceptible_i]];
     } else {

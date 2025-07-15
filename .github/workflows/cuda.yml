@@ -7,15 +7,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Build ExaEpi with CUDA 11.0.2 (minimum supported)
-  build-cuda11:
-    name: CUDA@11.2 GNU@9.3.0 C++17 Release
-    runs-on: ubuntu-20.04
+  # Build ExaEpi with CUDA 12.6 (minimum supported)
+  build-cuda12:
+    name: CUDA@12.6 C++17 Release
+    runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-fno-operator-names -Werror -Wall -Wextra -Wpedantic -Wnull-dereference -Wfloat-conversion -Wshadow -Woverloaded-virtual -Wextra-semi -Wunreachable-code -Wnon-virtual-dtor -Wlogical-op -Wmisleading-indentation -Wduplicated-cond -Wduplicated-branches"}
     steps:
     - uses: actions/checkout@v3
     - name: Dependencies
-      run: .github/workflows/dependencies/dependencies_nvcc11.sh
+      run: .github/workflows/dependencies/dependencies_nvcc12.sh
     - name: Build & Install
       run: |
         export PATH=/usr/local/nvidia/bin:/usr/local/cuda/bin:${PATH}
@@ -37,18 +37,29 @@ jobs:
         cmake --build build -j 2
 
   # Build ExaEpi with NVHPC (recent supported)
-  build-nvhpc21-11-nvcc:
-    name: NVHPC@21.11 NVCC/NVC++ C++17 Release
-    runs-on: ubuntu-20.04
+  build-nvhpc-nvcc:
+    name: NVHPC NVCC/NVC++ C++17 Release
+    runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-Werror -Wall -Wextra -Wpedantic -Wshadow"}
     steps:
     - uses: actions/checkout@v3
     - name: Dependencies
-      run: .github/workflows/dependencies/dependencies_nvhpc21-11.sh
+      run: .github/workflows/dependencies/dependencies_nvhpc.sh
     - name: Build & Install
       run: |
         source /etc/profile.d/modules.sh
-        module load /opt/nvidia/hpc_sdk/modulefiles/nvhpc/21.11
+        nvhpc_version=`ls -v /opt/nvidia/hpc_sdk/modulefiles/nvhpc/ | tail -n 1`
+        module load /opt/nvidia/hpc_sdk/modulefiles/nvhpc/${nvhpc_version}
+
+        which nvcc || echo "nvcc not in PATH!"
+        which nvc++ || echo "nvc++ not in PATH!"
+        which nvc || echo "nvc not in PATH!"
+        which nvfortran || echo "nvfortran not in PATH!"
+        nvcc --version
+        nvc++ --version
+        nvc --version
+        nvfortran --version
+        cmake --version
 
         export HDF5_ROOT=/usr/lib/x86_64-linux-gnu/hdf5/openmpi
 
