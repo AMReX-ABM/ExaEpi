@@ -13,9 +13,9 @@ import matplotlib as mp
 
 
 def main():
-    plt.rcParams["xtick.labelsize"] = 24
-    plt.rcParams["ytick.labelsize"] = 24
-    plt.rcParams["font.size"] = 32
+    plt.rcParams["xtick.labelsize"] = 16
+    plt.rcParams["ytick.labelsize"] = 16
+    plt.rcParams["font.size"] = 24
 
     parser = argparse.ArgumentParser(description="Plot UrbanPop ExaEpi outputs")
     # parser.add_argument("--output", "-o", required=True, help="Output file")
@@ -40,6 +40,8 @@ def main():
         default="geo.pdf",
         help="Output file name for plot",
     )
+    parser.add_argument("--coord_bounds", "-b", default=[-170, -66.6, 18.5, 71.5], nargs="+", help="Range for longitude: min,max")
+
     args = parser.parse_args()
 
     print("Reading ExaEpi data from directory", args.plot_dir)
@@ -85,8 +87,22 @@ def main():
     states = states[states.STATE.isin(state_codes)]
     max_count = 30000  # never_infected_agents["count"].max()
 
+    df = pd.merge(shp_data, grid_stats_df, on=["GEOID10"], how="inner")
+    df.to_csv("merged.csv")
+    df[["GEOID10", "pop", "never_infected", "infected", "immune", "dead"]].to_csv("merged.csv")
+    xmin = max(float(args.coord_bounds[0]), float(df.INTPTLON10.astype("float").min()) - 0.5)
+    xmax = min(float(args.coord_bounds[1]), float(df.INTPTLON10.astype("float").max()) + 0.5)
+    xrange = xmax - xmin
+    ymin = max(float(args.coord_bounds[2]), float(df.INTPTLAT10.astype("float").min()) - 0.5)
+    ymax = min(float(args.coord_bounds[3]), float(df.INTPTLAT10.astype("float").max()) + 0.5)
+    yrange = ymax - ymin
+
+    fig_x = 32.0
+    fig_y = float(fig_x) * yrange / 1.8 / xrange
+    print(f"Plot dimensions: lng/lat {xmin}, {xmax}, {ymin}, {ymax}, figure size: {fig_x}, {fig_y}")
+
     # _, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(32, 32))
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(32, 17))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(fig_x, fig_y))
 
     status_list = {
         # 0: ["never_infected", ax1, "Blues"],
@@ -96,11 +112,6 @@ def main():
         4: ["dead", ax2, "OrRd"],
     }
 
-    df = pd.merge(shp_data, grid_stats_df, on=["GEOID10"], how="inner")
-    df.to_csv("merged.csv")
-    df[["GEOID10", "pop", "never_infected", "infected", "immune", "dead"]].to_csv("merged.csv")
-    xmin = float(df.INTPTLON10.min()) + 1
-    xmax = float(df.INTPTLON10.max()) - 1
     for _, status in status_list.items():
         ax = status[1]
         states.boundary.plot(ax=ax, lw=1, color="black")
@@ -111,14 +122,16 @@ def main():
         ax.set_title(status[0].upper())
         ax.tick_params(left=False, bottom=False, labelbottom=False, labelleft=False)
         ax.set_frame_on(False)
-        ax.set_xlim([max(-170.0, xmin), min(-57.0, xmax)])
+        # ax.set_xlim([max(-170.0, xmin), min(-57.0, xmax)])
+        ax.set_xlim([xmin, xmax])
+        ax.set_ylim([ymin, ymax])
 
     axes = fig.get_axes()
     for cb in axes[len(status_list) : -1]:
         cb.remove()
     cb = axes[-1]
-    cb.set_aspect(30)
-    cb.set_frame_on(False)
+    cb.set_box_aspect(50)
+    # cb.set_frame_on(False)
     plt.tight_layout()
     print("Plotting results to", args.output)
     plt.savefig(args.output)
