@@ -2,6 +2,7 @@
 
 import pylab as plt
 import sys
+import os
 import numpy as np
 import pandas as pd
 import argparse
@@ -12,6 +13,10 @@ import matplotlib as mp
 
 
 def main():
+    plt.rcParams["xtick.labelsize"] = 24
+    plt.rcParams["ytick.labelsize"] = 24
+    plt.rcParams["font.size"] = 32
+
     parser = argparse.ArgumentParser(description="Plot UrbanPop ExaEpi outputs")
     # parser.add_argument("--output", "-o", required=True, help="Output file")
     parser.add_argument("--plot_dir", "-p", required=True, help="Plot directory")
@@ -22,6 +27,12 @@ def main():
         nargs="+",
         help="Shape files census block group shape files (.shp). Available from\n"
         + "https://www.census.gov/cgi-bin/geo/shapefiles/index.php?year=2010&layergroup=Block+Groups",
+    )
+    parser.add_argument(
+        "--states_file",
+        "-e",
+        required=True,
+        help="Shape file for US states",
     )
     parser.add_argument(
         "--output",
@@ -56,45 +67,58 @@ def main():
     grid_stats_df.to_csv("grid_stats.csv")
 
     shp_dfs = []
+    state_codes = []
     for fname in args.shape_files:
         if not fname.endswith(".shp"):
             print("WARNING: file", fname, "passed with --shape_files does not appear to be a shapefile with .shp extension")
             continue
         print("Reading data from", fname)
         shp_dfs.append(gp.read_file(fname))
+        state_code = os.path.basename(fname).split("_")[2]
+        state_codes.append(state_code)
 
     shp_data = pd.concat(shp_dfs)
     shp_data.GEOID10 = shp_data.GEOID10.astype("int64")
     print("Read in", len(shp_data), "Census block groups")
 
+    states = gp.read_file(args.states_file)
+    states = states[states.STATE.isin(state_codes)]
     max_count = 30000  # never_infected_agents["count"].max()
 
-    _, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(8, 8))
+    # _, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(32, 32))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(32, 17))
 
     status_list = {
-        0: ["never_infected", ax1, "Blues"],
-        1: ["infected", ax2, "OrRd"],
-        2: ["immune", ax3, "Greens"],
+        # 0: ["never_infected", ax1, "Blues"],
+        1: ["infected", ax1, "OrRd"],
+        # 2: ["immune", ax3, "Greens"],
         # 3: ["susceptible", ax4, "OrRd"],
-        4: ["dead", ax4, "OrRd"],
+        4: ["dead", ax2, "OrRd"],
     }
 
     df = pd.merge(shp_data, grid_stats_df, on=["GEOID10"], how="inner")
     df.to_csv("merged.csv")
     df[["GEOID10", "pop", "never_infected", "infected", "immune", "dead"]].to_csv("merged.csv")
-    for i, status in status_list.items():
+    xmin = float(df.INTPTLON10.min()) + 1
+    xmax = float(df.INTPTLON10.max()) - 1
+    for _, status in status_list.items():
         ax = status[1]
-        # df.boundary.plot(ax=ax, lw=0.01)
+        states.boundary.plot(ax=ax, lw=1, color="black")
         # Some decent colormaps: RdPu OrRd Greys
         df.plot(ax=ax, column=status[0], cmap=status[2], legend=True, norm=mp.colors.LogNorm(vmin=1.0, vmax=max_count))
         # ax.set_xlim([ds.domain_left_edge[0], ds.domain_right_edge[0]])
         # ax.set_ylim([ds.domain_left_edge[1], ds.domain_right_edge[1]])
-        ax.set_title(status[0])
+        ax.set_title(status[0].upper())
         ax.tick_params(left=False, bottom=False, labelbottom=False, labelleft=False)
+        ax.set_frame_on(False)
+        ax.set_xlim([max(-170.0, xmin), min(-57.0, xmax)])
 
-    plt.rcParams["xtick.labelsize"] = 12
-    plt.rcParams["ytick.labelsize"] = 12
-    plt.rcParams["font.size"] = 16
+    axes = fig.get_axes()
+    for cb in axes[len(status_list) : -1]:
+        cb.remove()
+    cb = axes[-1]
+    cb.set_aspect(30)
+    cb.set_frame_on(False)
     plt.tight_layout()
     print("Plotting results to", args.output)
     plt.savefig(args.output)
