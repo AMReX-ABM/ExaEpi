@@ -24,6 +24,7 @@ struct TestParams {
     int max_box_size;                                     /*!< box size */
     int nsteps = 1;                                       /*!< number of simulation steps */
     int plot_int = -1;                                    /*!< plot interval (see ExaEpi::IO::writePlotFile) */
+    int check_int = -1;                                   /*!< checkpoint interval (see ExaEpi::IO::writeCheckpointFile) */
     int random_travel_int = -1;                           /*!< steps between random travel events
                                                                (see AgentContainer::moveRandomTravel) */
     amrex::Real random_travel_prob = amrex::Real(0.0001); /*!< probability of an agent going on random travel */
@@ -66,6 +67,8 @@ struct TestParams {
                                              (see: ExaEpi::IO::writeFIPSData) */
     std::string aggregated_diag_prefix; /*!< filename prefix for diagnostic data
                                              (see: ExaEpi::IO::writeFIPSData) */
+
+    std::string restart_chkfile = "";   /*!< the name of the checkpoint to restart from */
 
     int shelter_start = -1;
     int shelter_length = 0;
