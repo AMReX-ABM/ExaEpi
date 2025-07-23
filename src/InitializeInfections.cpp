@@ -29,7 +29,7 @@ typedef std::map<std::pair<int, int>, DenseBins<AgentContainer::ParticleType>> B
 */
 static int infectRandomCommunity (AgentContainer& pc,                      /*!< Agent container (particle container)*/
 #ifdef AMREX_USE_GPU
-                                  AgentContainer& pc_h,
+                                  AgentContainer* pc_h,
 #endif
                                   const Vector<int>& unit_community_start, /*!< Start community number for each unit */
                                   iMultiFab& comm_mf,                      /*!< Community numbers */
@@ -56,7 +56,7 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
     for (MFIter mfi = pc.MakeMFIter(0); mfi.isValid(); ++mfi) {
         DenseBins<AgentContainer::ParticleType>& bins = bin_map[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
 #ifdef AMREX_USE_GPU
-        auto& agents_tile = pc_h.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
+        auto& agents_tile = pc_h->GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
         if (fast_bin) { agents_tile = pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())]; }
 #else
         auto& agents_tile = pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
