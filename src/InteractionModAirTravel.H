@@ -21,7 +21,7 @@ static void binaryInteractionAirTravel (const int a_i,                    /*!< I
                                         const int a_j,                    /*!< Index of susceptible agent */
                                         const PTDType& a_ptd_i,           /*!< Particle tile data for infectious agent */
                                         const PTDType& a_ptd_j,           /*!< Particle tile data for susceptible agent*/
-                                        const DiseaseParm* const a_lparm, /*!< disease paramters */
+                                        const DiseaseParm* const a_lparm, /*!< disease parameters */
                                         const Real a_social_scale,        /*!< Social scale */
                                         ParticleReal* const a_prob_ptr /*!< infection probability */) {
     Real infect = a_lparm->infect;

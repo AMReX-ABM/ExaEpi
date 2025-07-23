@@ -23,7 +23,7 @@ struct BinaryInteractionHomeNborhood {
     ParticleReal operator()(const int infectious_i,           /*!< Index of infectious agent */
                             const int susceptible_i,          /*!< Index of susceptible agent */
                             const PTDType& a_ptd,             /*!< Particle tile data */
-                            const DiseaseParm* const a_lparm, /*!< disease paramters */
+                            const DiseaseParm* const a_lparm, /*!< disease parameters */
                             const Real a_social_scale /*!< Social scale */) const noexcept {
         auto nborhood_ptr = a_ptd.m_idata[IntIdx::nborhood];
 

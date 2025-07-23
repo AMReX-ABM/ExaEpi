@@ -21,7 +21,7 @@ struct BinaryInteractionSchool {
     ParticleReal operator()(const int infectious_i,           /*!< Index of infectious agent */
                             const int susceptible_i,          /*!< Index of susceptible agent */
                             const PTDType& a_ptd,             /*!< Particle tile data */
-                            const DiseaseParm* const a_lparm, /*!< disease paramters */
+                            const DiseaseParm* const a_lparm, /*!< disease parameters */
                             const Real a_social_scale /*!< Social scale */) const noexcept {
         AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::school_id][infectious_i] == a_ptd.m_idata[IntIdx::school_id][susceptible_i]);
         AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::school_grade][infectious_i] ==
