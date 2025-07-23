@@ -776,19 +776,21 @@ std::array<Long, 9> AgentContainer::getTotals (const int a_d /*!< disease index 
 
                 s[status] = 1;
 
-                if (status == Status::infected) { // exposed
-                    if (notInfectiousButInfected(i, ptd, a_d)) {
-                        s[5] = 1;                 // exposed, but not infectious
-                    } else {                      // infectious
-                        if (ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][i] == SymptomStatus::asymptomatic) {
-                            s[6] = 1;             // asymptomatic and will remain so
-                        } else if (ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][i] ==
-                                   SymptomStatus::presymptomatic) {
-                            s[7] = 1;             // asymptomatic but will develop symptoms
-                        } else if (ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][i] == SymptomStatus::symptomatic) {
-                            s[8] = 1;             // Infectious and symptomatic
-                        } else {
-                            amrex::Abort("how did I get here?");
+                if (!inHospital(i, ptd)) { // do not include hospitalized agents in these counts
+                    if (status == Status::infected) { // exposed
+                        if (notInfectiousButInfected(i, ptd, a_d)) {
+                            s[5] = 1;                 // exposed, but not infectious
+                        } else {                      // infectious
+                            if (ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][i] == SymptomStatus::asymptomatic) {
+                                s[6] = 1;             // asymptomatic and will remain so
+                            } else if (ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][i] ==
+                                       SymptomStatus::presymptomatic) {
+                                s[7] = 1;             // asymptomatic but will develop symptoms
+                            } else if (ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][i] == SymptomStatus::symptomatic) {
+                                s[8] = 1;             // Infectious and symptomatic
+                            } else {
+                                amrex::Abort("how did I get here?");
+                            }
                         }
                     }
                 }

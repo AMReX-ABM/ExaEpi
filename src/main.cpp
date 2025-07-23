@@ -401,11 +401,12 @@ void runAgent () {
                     AMREX_ALWAYS_ASSERT(mmc[3] == counts[4]);
 
                     // the total number of infected should equal the sum of
+		    //     those that are hospitalized
                     //     exposed but not infectious
                     //     infectious and asymptomatic
                     //     infectious and pre-symptomatic
                     //     infectious and symptomatic
-                    AMREX_ALWAYS_ASSERT(counts[1] == counts[5] + counts[6] + counts[7] + counts[8]);
+                    AMREX_ALWAYS_ASSERT(counts[1] == mmc[0] + counts[5] + counts[6] + counts[7] + counts[8]);
 
                     std::ofstream File;
                     File.open(output_filename[d].c_str(), std::ios::out | std::ios::app);
