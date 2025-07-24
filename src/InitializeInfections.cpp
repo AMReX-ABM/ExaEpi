@@ -29,7 +29,7 @@ typedef std::map<std::pair<int, int>, DenseBins<AgentContainer::ParticleType>> B
 */
 static int infectRandomCommunity (AgentContainer& pc,                      /*!< Agent container (particle container)*/
 #ifdef AMREX_USE_GPU
-                                  AgentContainer* pc_h,
+                                  AgentContainer& pc_h,                    /*!< A copy of Agent container on the host*/
 #endif
                                   const Vector<int>& unit_community_start, /*!< Start community number for each unit */
                                   iMultiFab& comm_mf,                      /*!< Community numbers */
@@ -56,7 +56,7 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
     for (MFIter mfi = pc.MakeMFIter(0); mfi.isValid(); ++mfi) {
         DenseBins<AgentContainer::ParticleType>& bins = bin_map[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
 #ifdef AMREX_USE_GPU
-        auto& agents_tile = pc_h->GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
+        auto& agents_tile = pc_h.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
         if (fast_bin) { agents_tile = pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())]; }
 #else
         auto& agents_tile = pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
@@ -167,8 +167,8 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
 
     std::map<std::pair<int, int>, amrex::DenseBins<AgentContainer::ParticleType>> bin_map;
 #ifdef AMREX_USE_GPU
-        AgentContainer* pc_h= new AgentContainer;
-        Gpu::copy(Gpu::deviceToHost, pc_h, pc_h+1, &pc);
+    AgentContainer pc_h;
+    dtoh_memcpy(&pc_h, &pc, sizeof(ParticleContainer));
 #endif
 
     Print() << "Initializing infections for " << d_name << "\n";
@@ -193,9 +193,9 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
                     int nSuccesses =
                             infectRandomCommunity(pc,
 #ifdef AMREX_USE_GPU
-                                                  pc_h,
+                            pc_h,
 #endif
-                                                  unit_community_start, comm_mf, bin_map, units[u], d_idx, ntry, fast_bin);
+                            unit_community_start, comm_mf, bin_map, units[u], d_idx, ntry, fast_bin);
                     ninf += nSuccesses;
                     i += nSuccesses;
                     u = (u + 1) % units.size(); // sometimes we infect fewer than ntry, but switch to next unit anyway
@@ -204,9 +204,6 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
             }
         }
     }
-#ifdef AMREX_USE_GPU
-        delete pc_h;
-#endif
     amrex::ignore_unused(ninf);
 }
 
@@ -220,8 +217,8 @@ void setInitialCasesRandom (AgentContainer& pc,                      /*!< Agent 
 
     std::map<std::pair<int, int>, amrex::DenseBins<AgentContainer::ParticleType>> bin_map;
 #ifdef AMREX_USE_GPU
-        AgentContainer* pc_h= new AgentContainer;
-        Gpu::copy(Gpu::deviceToHost, pc_h, pc_h+1, &pc);
+    AgentContainer pc_h;
+    dtoh_memcpy(&pc_h, &pc, sizeof(ParticleContainer));
 #endif
 
     Print() << "Initializing infections for " << d_name << "\n";
@@ -242,8 +239,5 @@ void setInitialCasesRandom (AgentContainer& pc,                      /*!< Agent 
             i += nSuccesses;
         }
     }
-#ifdef AMREX_USE_GPU
-        delete pc_h;
-#endif
     amrex::ignore_unused(ninf);
 }
