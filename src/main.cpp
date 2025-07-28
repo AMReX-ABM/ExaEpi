@@ -407,7 +407,7 @@ void runAgent () {
                     AMREX_ALWAYS_ASSERT(mmc[3] == counts[OutputStatus::D]);
 
                     // the total number of infected should equal the sum of
-		    //     those that are hospitalized
+            //     those that are hospitalized
                     //     exposed but not infectious
                     //     infectious and asymptomatic
                     //     infectious and pre-symptomatic
