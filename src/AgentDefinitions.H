@@ -287,8 +287,8 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 bool isNewlyHospitalized (const int a_idx,      /*!< Agent index */
                     const PTDType& a_ptd, /*!< Particle tile data */
                     const int a_d /*!< Disease index */) {
-    int delay = amrex::Math::floor(a_ptd.rdata(r0(a_d) + RealIdxDisease::hospital_delay)[a_idx]);
-    int incub = amrex::Math::floor(a_ptd.rdata(r0(a_d) + RealIdxDisease::incubation_period)[a_idx]);
+    amrex::Real delay = amrex::Math::floor(a_ptd.rdata(r0(a_d) + RealIdxDisease::hospital_delay)[a_idx]);
+    amrex::Real incub = amrex::Math::floor(a_ptd.rdata(r0(a_d) + RealIdxDisease::incubation_period)[a_idx]);
     if (isNewlySymptomatic(a_idx, a_ptd, a_d) && (delay == 0) && inHospital(a_idx, a_ptd)) {
         return true;
     } else if ((a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx] == Status::infected) &&
