@@ -155,7 +155,7 @@ void runAgent () {
 
                 if (!File.good()) { amrex::FileOpenFailed(output_filename[d]); }
 
-                File << std::setw(5)  << "Day";
+                File << std::setw(5) << "Day";
                 File << std::setw(12) << "Su";
                 File << std::setw(12) << "PS/PI";
                 File << std::setw(12) << "S/PI";
@@ -368,10 +368,10 @@ void runAgent () {
                 if (Gpu::inLaunchRegion()) {
                     auto const& ma = disease_stats[d]->const_arrays();
                     GpuTuple<Real, Real, Real, Real, Real> mm =
-                        ParReduce(TypeList<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum>{},
-                                  TypeList<Real, Real, Real, Real, Real>{}, *(disease_stats[d]), IntVect(0, 0),
+                            ParReduce(TypeList<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum>{},
+                                      TypeList<Real, Real, Real, Real, Real>{}, *(disease_stats[d]), IntVect(0, 0),
                                       [=] AMREX_GPU_DEVICE (int box_no, int ii, int jj,
-                                                            int kk) noexcept -> GpuTuple<Real, Real, Real, Real, Real> {
+                                                           int kk) noexcept -> GpuTuple<Real, Real, Real, Real, Real> {
                                           return {ma[box_no](ii, jj, kk, 0), ma[box_no](ii, jj, kk, 1), ma[box_no](ii, jj, kk, 2),
                                                   ma[box_no](ii, jj, kk, 3), ma[box_no](ii, jj, kk, 4)};
                                       });
@@ -395,7 +395,7 @@ void runAgent () {
                             mmc[2] += dfab(ii, jj, kk, 2);
                             mmc[3] += dfab(ii, jj, kk, 3);
                             mmc[4] += dfab(ii, jj, kk, 4);
-                            });
+                        });
                     }
                 }
 
@@ -407,7 +407,7 @@ void runAgent () {
                     AMREX_ALWAYS_ASSERT(mmc[3] == counts[OutputStatus::D]);
 
                     // the total number of infected should equal the sum of
-            //     those that are hospitalized
+                    //     those that are hospitalized
                     //     exposed but not infectious
                     //     infectious and asymptomatic
                     //     infectious and pre-symptomatic
@@ -428,7 +428,7 @@ void runAgent () {
                     for (int j = OutputStatus::R; j < OutputStatus::NewS; ++j) {
                         File << std::setw(12) << counts[j];
                     }
-                    //File << std::setw(12) << mmc[4];
+                    // File << std::setw(12) << mmc[4];
                     File << "\n";
 
                     File.flush();

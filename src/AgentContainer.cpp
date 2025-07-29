@@ -763,28 +763,22 @@ std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_
             reduce_ops;
     auto r = amrex::ParticleReduce<ReduceData<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int>>(
             *this,
-            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
-                                  const int i) noexcept -> amrex::GpuTuple<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int> {
+            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd, const int i) noexcept
+                    -> amrex::GpuTuple<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int> {
                 int s[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
                 auto status = ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][i];
 
                 AMREX_ALWAYS_ASSERT(status >= 0);
                 AMREX_ALWAYS_ASSERT(status <= 4);
 
-                if (status == Status::never || status == Status::susceptible) {
-                    s[OutputStatus::Su] = 1;
-                }
+                if (status == Status::never || status == Status::susceptible) { s[OutputStatus::Su] = 1; }
 
-                if (status == Status::immune) {
-                    s[OutputStatus::R] = 1;
-                }
+                if (status == Status::immune) { s[OutputStatus::R] = 1; }
 
-                if (status == Status::dead) {
-                    s[OutputStatus::D] = 1;
-                }
+                if (status == Status::dead) { s[OutputStatus::D] = 1; }
 
-                if (!inHospital(i, ptd)) { // do not include hospitalized agents in these counts
-                    if (status == Status::infected) { // exposed
+                if (!inHospital(i, ptd)) {                           // do not include hospitalized agents in these counts
+                    if (status == Status::infected) {                // exposed
                         if (notInfectiousButInfected(i, ptd, a_d)) { // exposed, but not infectious
                             if (isAsymptomatic(i, ptd, a_d)) {
                                 s[OutputStatus::A_PI] = 1;
@@ -818,9 +812,10 @@ std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_
             },
             reduce_ops);
 
-    std::array<Long, OutputStatus::nattribs> counts = {amrex::get<0>(r), amrex::get<1>(r), amrex::get<2>(r), amrex::get<3>(r), amrex::get<4>(r),
-                                                       amrex::get<5>(r), amrex::get<6>(r), amrex::get<7>(r), amrex::get<8>(r), amrex::get<9>(r),
-                                                       amrex::get<10>(r), amrex::get<11>(r), amrex::get<12>(r), amrex::get<13>(r), amrex::get<14>(r)};
+    std::array<Long, OutputStatus::nattribs> counts = {amrex::get<0>(r),  amrex::get<1>(r),  amrex::get<2>(r),  amrex::get<3>(r),
+                                                       amrex::get<4>(r),  amrex::get<5>(r),  amrex::get<6>(r),  amrex::get<7>(r),
+                                                       amrex::get<8>(r),  amrex::get<9>(r),  amrex::get<10>(r), amrex::get<11>(r),
+                                                       amrex::get<12>(r), amrex::get<13>(r), amrex::get<14>(r)};
     ParallelDescriptor::ReduceLongSum(&counts[0], OutputStatus::nattribs, ParallelDescriptor::IOProcessorNumber());
     return counts;
 }

@@ -176,7 +176,7 @@ struct OutputStatus {
         H_I,    /*!< Hostitalized/Infectious */
         ICU,    /*!< In the ICU */
         V,      /*!< On ventilator */
-    R,      /*!< Recovered */
+        R,      /*!< Recovered */
         D,      /*!< Dead */
         NewS,   /*!< Became symptomatic this step */
         NewH,   /*!< Became hospitalized this step */
@@ -188,7 +188,7 @@ struct OutputStatus {
 AMREX_FORCE_INLINE
 amrex::Long totalExposed (const std::array<amrex::Long, OutputStatus::nattribs> counts) {
     return counts[OutputStatus::PS_PI] + counts[OutputStatus::S_PI] + counts[OutputStatus::S_I] + counts[OutputStatus::PS_I] +
-    counts[OutputStatus::A_PI] + counts[OutputStatus::A_I] + counts[OutputStatus::H_NI] + counts[OutputStatus::H_I];
+           counts[OutputStatus::A_PI] + counts[OutputStatus::A_I] + counts[OutputStatus::H_NI] + counts[OutputStatus::H_I];
 }
 
 /*! \brief Is an agent symptomatic? */
@@ -204,8 +204,8 @@ bool isSymptomatic (const int a_idx,      /*!< Agent index */
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 bool isAsymptomatic (const int a_idx,      /*!< Agent index */
-             const PTDType& a_ptd, /*!< Particle tile data */
-             const int a_d /*!< Disease index */) {
+                     const PTDType& a_ptd, /*!< Particle tile data */
+                     const int a_d /*!< Disease index */) {
     return a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx] == SymptomStatus::asymptomatic;
 }
 
@@ -213,8 +213,8 @@ bool isAsymptomatic (const int a_idx,      /*!< Agent index */
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 bool isPresymptomatic (const int a_idx,      /*!< Agent index */
-             const PTDType& a_ptd, /*!< Particle tile data */
-             const int a_d /*!< Disease index */) {
+                       const PTDType& a_ptd, /*!< Particle tile data */
+                       const int a_d /*!< Disease index */) {
     return a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx] == SymptomStatus::presymptomatic;
 }
 
