@@ -281,6 +281,25 @@ bool inHospital (const int a_idx, /*!< Agent index */
     return ((a_ptd.m_idata[IntIdx::hosp_i][a_idx] >= 0) && (a_ptd.m_idata[IntIdx::hosp_j][a_idx] >= 0));
 }
 
+/*! \brief Did the agent just become hospitalized this step? */
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+bool isNewlyHospitalized (const int a_idx,      /*!< Agent index */
+                    const PTDType& a_ptd, /*!< Particle tile data */
+                    const int a_d /*!< Disease index */) {
+    int delay = amrex::Math::floor(a_ptd.rdata(r0(a_d) + RealIdxDisease::hospital_delay)[a_idx]);
+    int incub = amrex::Math::floor(a_ptd.rdata(r0(a_d) + RealIdxDisease::incubation_period)[a_idx]);
+    if (isNewlySymptomatic(a_idx, a_ptd, a_d) && (delay == 0) && inHospital(a_idx, a_ptd)) {
+        return true;
+    } else if ((a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx] == Status::infected) &&
+               (a_ptd.rdata(r0(a_d) + RealIdxDisease::disease_counter)[a_idx] == incub + delay) &&
+               inHospital(a_idx, a_ptd)) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
 /*! \brief Is agent an adult? */
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE

@@ -759,7 +759,7 @@ void AgentContainer::generateCellData (MultiFab& mf, /*!< MultiFab with at least
 std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_d /*!< disease index */) {
     BL_PROFILE("getTotals");
     amrex::ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum,
-                     ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum>
+                     ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum>
             reduce_ops;
     auto r = amrex::ParticleReduce<ReduceData<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int>>(
             *this,
@@ -779,6 +779,10 @@ std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_
 
 		if (isNewlySymptomatic(i, ptd, a_d)) {
 		    s[OutputStatus::NewS] = 1;
+		}
+
+		if (isNewlyHospitalized(i, ptd, a_d)) {
+		    s[OutputStatus::NewH] = 1;
 		}
 
                 if (!inHospital(i, ptd)) {                           // do not include hospitalized agents in these counts
