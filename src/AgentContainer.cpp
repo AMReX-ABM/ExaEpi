@@ -777,13 +777,9 @@ std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_
 
                 if (status == Status::dead) { s[OutputStatus::D] = 1; }
 
-        if (isNewlySymptomatic(i, ptd, a_d)) {
-            s[OutputStatus::NewS] = 1;
-        }
+                if (isNewlySymptomatic(i, ptd, a_d)) { s[OutputStatus::NewS] = 1; }
 
-        if (isNewlyHospitalized(i, ptd, a_d)) {
-            s[OutputStatus::NewH] = 1;
-        }
+                if (isNewlyHospitalized(i, ptd, a_d)) { s[OutputStatus::NewH] = 1; }
 
                 if (!inHospital(i, ptd)) {                           // do not include hospitalized agents in these counts
                     if (status == Status::infected) {                // exposed

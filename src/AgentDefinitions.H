@@ -204,11 +204,12 @@ bool isSymptomatic (const int a_idx,      /*!< Agent index */
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 bool isNewlySymptomatic (const int a_idx,      /*!< Agent index */
-                    const PTDType& a_ptd, /*!< Particle tile data */
-                    const int a_d /*!< Disease index */) {
+                         const PTDType& a_ptd, /*!< Particle tile data */
+                         const int a_d /*!< Disease index */) {
     return (a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx] == Status::infected) &&
-    (a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx] == amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx])) &&
-    (a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx] == SymptomStatus::symptomatic);
+           (a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx] ==
+            amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx])) &&
+           (a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx] == SymptomStatus::symptomatic);
 }
 
 /*! \brief Is an agent asymptomatic (does not currently have symptoms and will not develop them)? */
@@ -285,8 +286,8 @@ bool inHospital (const int a_idx, /*!< Agent index */
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 bool isNewlyHospitalized (const int a_idx,      /*!< Agent index */
-                    const PTDType& a_ptd, /*!< Particle tile data */
-                    const int a_d /*!< Disease index */) {
+                          const PTDType& a_ptd, /*!< Particle tile data */
+                          const int a_d /*!< Disease index */) {
     amrex::Real delay = amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::hospital_delay][a_idx]);
     amrex::Real incub = amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
     if (isNewlySymptomatic(a_idx, a_ptd, a_d) && (delay == 0) && inHospital(a_idx, a_ptd)) {
