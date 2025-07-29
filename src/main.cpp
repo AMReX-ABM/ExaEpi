@@ -425,7 +425,7 @@ void runAgent () {
                     }
                     File << std::setw(12) << mmc[1];
                     File << std::setw(12) << mmc[2];
-                    for (int j = OutputStatus::R; j < OutputStatus::NewS; ++j) {
+                    for (int j = OutputStatus::R; j < OutputStatus::nattribs; ++j) {
                         File << std::setw(12) << counts[j];
                     }
                     // File << std::setw(12) << mmc[4];
