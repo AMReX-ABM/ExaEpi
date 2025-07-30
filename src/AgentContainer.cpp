@@ -751,54 +751,76 @@ void AgentContainer::generateCellData (MultiFab& mf, /*!< MultiFab with at least
             false);
 }
 
-/*! \brief Computes the total number of agents with each #Status
+/*! \brief Computes the total number of agents with each #OutputStatus
 
-    Returns a vector with 5 components corresponding to each value of #Status; each element is
-    the total number of agents at a step with the corresponding #Status (in that order).
-
-    Status list: 0 - never, 1 - infected, 2 - immune, 3 - susceptible, 4 - dead, 5 - exposed, 6 - asymptomatic,
-                 7 - presymptomatic, 8 - symptomatic
+    Returns a vector with 15 components corresponding to each value of #OutputStatus; each element is
+    the total number of agents at a step with the corresponding #OutputStatus (in that order).
 */
-std::array<Long, 9> AgentContainer::getTotals (const int a_d /*!< disease index */) {
+std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_d /*!< disease index */) {
     BL_PROFILE("getTotals");
     amrex::ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum,
-                     ReduceOpSum>
+                     ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum>
             reduce_ops;
-    auto r = amrex::ParticleReduce<ReduceData<int, int, int, int, int, int, int, int, int>>(
+    auto r = amrex::ParticleReduce<ReduceData<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int>>(
             *this,
-            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
-                                 const int i) noexcept -> amrex::GpuTuple<int, int, int, int, int, int, int, int, int> {
-                int s[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd, const int i) noexcept
+                    -> amrex::GpuTuple<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int> {
+                int s[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
                 auto status = ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][i];
 
                 AMREX_ALWAYS_ASSERT(status >= 0);
                 AMREX_ALWAYS_ASSERT(status <= 4);
 
-                s[status] = 1;
+                if (status == Status::never || status == Status::susceptible) { s[OutputStatus::Su] = 1; }
 
-                if (status == Status::infected) { // exposed
-                    if (notInfectiousButInfected(i, ptd, a_d)) {
-                        s[5] = 1;                 // exposed, but not infectious
-                    } else {                      // infectious
-                        if (ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][i] == SymptomStatus::asymptomatic) {
-                            s[6] = 1;             // asymptomatic and will remain so
-                        } else if (ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][i] ==
-                                   SymptomStatus::presymptomatic) {
-                            s[7] = 1;             // asymptomatic but will develop symptoms
-                        } else if (ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][i] == SymptomStatus::symptomatic) {
-                            s[8] = 1;             // Infectious and symptomatic
-                        } else {
-                            amrex::Abort("how did I get here?");
+                if (status == Status::immune) { s[OutputStatus::R] = 1; }
+
+                if (status == Status::dead) { s[OutputStatus::D] = 1; }
+
+                if (isNewlySymptomatic(i, ptd, a_d)) { s[OutputStatus::NewS] = 1; }
+
+                if (isNewlyHospitalized(i, ptd, a_d)) { s[OutputStatus::NewH] = 1; }
+
+                if (!inHospital(i, ptd)) {                           // do not include hospitalized agents in these counts
+                    if (status == Status::infected) {                // exposed
+                        if (notInfectiousButInfected(i, ptd, a_d)) { // exposed, but not infectious
+                            if (isAsymptomatic(i, ptd, a_d)) {
+                                s[OutputStatus::A_PI] = 1;
+                            } else if (isPresymptomatic(i, ptd, a_d)) {
+                                s[OutputStatus::PS_PI] = 1;
+                            } else if (isSymptomatic(i, ptd, a_d)) {
+                                s[OutputStatus::S_PI] = 1;
+                            } else {
+                                amrex::Abort("how did I get here?");
+                            }
+                        } else { // currently infectious
+                            if (isAsymptomatic(i, ptd, a_d)) {
+                                s[OutputStatus::A_I] = 1;
+                            } else if (isPresymptomatic(i, ptd, a_d)) {
+                                s[OutputStatus::PS_I] = 1;
+                            } else if (isSymptomatic(i, ptd, a_d)) {
+                                s[OutputStatus::S_I] = 1;
+                            } else {
+                                amrex::Abort("how did I get here?");
+                            }
                         }
                     }
+                } else { // now the hospitalized categories
+                    if (notInfectiousButInfected(i, ptd, a_d)) {
+                        s[OutputStatus::H_NI] = 1;
+                    } else {
+                        s[OutputStatus::H_I] = 1;
+                    }
                 }
-                return {s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8]};
+                return {s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8], s[9], s[10], s[11], s[12], s[13], s[14]};
             },
             reduce_ops);
 
-    std::array<Long, 9> counts = {amrex::get<0>(r), amrex::get<1>(r), amrex::get<2>(r), amrex::get<3>(r), amrex::get<4>(r),
-                                  amrex::get<5>(r), amrex::get<6>(r), amrex::get<7>(r), amrex::get<8>(r)};
-    ParallelDescriptor::ReduceLongSum(&counts[0], 9, ParallelDescriptor::IOProcessorNumber());
+    std::array<Long, OutputStatus::nattribs> counts = {amrex::get<0>(r),  amrex::get<1>(r),  amrex::get<2>(r),  amrex::get<3>(r),
+                                                       amrex::get<4>(r),  amrex::get<5>(r),  amrex::get<6>(r),  amrex::get<7>(r),
+                                                       amrex::get<8>(r),  amrex::get<9>(r),  amrex::get<10>(r), amrex::get<11>(r),
+                                                       amrex::get<12>(r), amrex::get<13>(r), amrex::get<14>(r)};
+    ParallelDescriptor::ReduceLongSum(&counts[0], OutputStatus::nattribs, ParallelDescriptor::IOProcessorNumber());
     return counts;
 }
 
