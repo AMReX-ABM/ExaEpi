@@ -186,7 +186,7 @@ struct OutputStatus {
 
 /*! \brief Get the total number of exposed agents (in or out of hospital) */
 AMREX_FORCE_INLINE
-amrex::Long totalExposed (const std::array<amrex::Long, OutputStatus::nattribs> counts) {
+amrex::Long totalInfected (const std::array<amrex::Long, OutputStatus::nattribs> counts) {
     return counts[OutputStatus::PS_PI] + counts[OutputStatus::S_PI] + counts[OutputStatus::S_I] + counts[OutputStatus::PS_I] +
            counts[OutputStatus::A_PI] + counts[OutputStatus::A_I] + counts[OutputStatus::H_NI] + counts[OutputStatus::H_I];
 }

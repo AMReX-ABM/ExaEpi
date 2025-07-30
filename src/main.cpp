@@ -304,8 +304,8 @@ void runAgent () {
     std::vector<Long> cumulative_deaths(params.num_diseases, 0);
     for (int d = 0; d < params.num_diseases; d++) {
         auto counts = pc.getTotals(d);
-        if (totalExposed(counts) > num_infected_peak[d]) {
-            num_infected_peak[d] = totalExposed(counts);
+        if (totalInfected(counts) > num_infected_peak[d]) {
+            num_infected_peak[d] = totalInfected(counts);
             step_of_peak[d] = 0;
         }
         cumulative_deaths[d] = counts[OutputStatus::D];
@@ -356,12 +356,12 @@ void runAgent () {
 
             for (int d = 0; d < params.num_diseases; d++) {
                 auto counts = pc.getTotals(d);
-                if (totalExposed(counts) > num_infected_peak[d]) {
-                    num_infected_peak[d] = totalExposed(counts);
+                if (totalInfected(counts) > num_infected_peak[d]) {
+                    num_infected_peak[d] = totalInfected(counts);
                     step_of_peak[d] = i;
                 }
                 cumulative_deaths[d] = counts[OutputStatus::D];
-                num_infected[d] = totalExposed(counts);
+                num_infected[d] = totalInfected(counts);
 
                 Real mmc[5] = {0, 0, 0, 0, 0};
 #ifdef AMREX_USE_GPU
