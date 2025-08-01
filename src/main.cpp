@@ -156,17 +156,21 @@ void runAgent () {
                 if (!File.good()) { amrex::FileOpenFailed(output_filename[d]); }
 
                 File << std::setw(5) << "Day";
-                File << std::setw(12) << "Susceptible";
-                File << std::setw(12) << "Infected";
-                File << std::setw(12) << "Recovered";
-                File << std::setw(12) << "Deaths";
-                File << std::setw(15) << "Hospitalized";
-                File << std::setw(15) << "ICU";
-                File << std::setw(12) << "Ventilated";
-                File << std::setw(12) << "Exposed";
-                File << std::setw(15) << "Asymptomatic";
-                File << std::setw(15) << "Presymptomatic";
-                File << std::setw(15) << "Symptomatic\n";
+                File << std::setw(12) << "Su";
+                File << std::setw(12) << "PS/PI";
+                File << std::setw(12) << "S/PI";
+                File << std::setw(12) << "PS/I";
+                File << std::setw(12) << "S/I";
+                File << std::setw(12) << "A/PI";
+                File << std::setw(12) << "A/I";
+                File << std::setw(12) << "H/NI";
+                File << std::setw(12) << "H/I";
+                File << std::setw(12) << "ICU";
+                File << std::setw(12) << "V";
+                File << std::setw(12) << "R";
+                File << std::setw(12) << "D";
+                File << std::setw(12) << "NewS";
+                File << std::setw(12) << "NewH\n";
 
                 File.flush();
 
@@ -300,11 +304,11 @@ void runAgent () {
     std::vector<Long> cumulative_deaths(params.num_diseases, 0);
     for (int d = 0; d < params.num_diseases; d++) {
         auto counts = pc.getTotals(d);
-        if (counts[1] > num_infected_peak[d]) {
-            num_infected_peak[d] = counts[1];
+        if (totalInfected(counts) > num_infected_peak[d]) {
+            num_infected_peak[d] = totalInfected(counts);
             step_of_peak[d] = 0;
         }
-        cumulative_deaths[d] = counts[4];
+        cumulative_deaths[d] = counts[OutputStatus::D];
     }
 
     Vector<Long> num_infected(params.num_diseases, 0);
@@ -352,34 +356,35 @@ void runAgent () {
 
             for (int d = 0; d < params.num_diseases; d++) {
                 auto counts = pc.getTotals(d);
-                if (counts[1] > num_infected_peak[d]) {
-                    num_infected_peak[d] = counts[1];
+                if (totalInfected(counts) > num_infected_peak[d]) {
+                    num_infected_peak[d] = totalInfected(counts);
                     step_of_peak[d] = i;
                 }
-                cumulative_deaths[d] = counts[4];
-                num_infected[d] = counts[1];
+                cumulative_deaths[d] = counts[OutputStatus::D];
+                num_infected[d] = totalInfected(counts);
 
-                Real mmc[4] = {0, 0, 0, 0};
+                Real mmc[5] = {0, 0, 0, 0, 0};
 #ifdef AMREX_USE_GPU
                 if (Gpu::inLaunchRegion()) {
                     auto const& ma = disease_stats[d]->const_arrays();
-                    GpuTuple<Real, Real, Real, Real> mm =
-                            ParReduce(TypeList<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum>{},
-                                      TypeList<Real, Real, Real, Real>{}, *(disease_stats[d]), IntVect(0, 0),
+                    GpuTuple<Real, Real, Real, Real, Real> mm =
+                            ParReduce(TypeList<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum>{},
+                                      TypeList<Real, Real, Real, Real, Real>{}, *(disease_stats[d]), IntVect(0, 0),
                                       [=] AMREX_GPU_DEVICE (int box_no, int ii, int jj,
-                                                           int kk) noexcept -> GpuTuple<Real, Real, Real, Real> {
+                                                           int kk) noexcept -> GpuTuple<Real, Real, Real, Real, Real> {
                                           return {ma[box_no](ii, jj, kk, 0), ma[box_no](ii, jj, kk, 1), ma[box_no](ii, jj, kk, 2),
-                                                  ma[box_no](ii, jj, kk, 3)};
+                                                  ma[box_no](ii, jj, kk, 3), ma[box_no](ii, jj, kk, 4)};
                                       });
                     mmc[0] = amrex::get<0>(mm);
                     mmc[1] = amrex::get<1>(mm);
                     mmc[2] = amrex::get<2>(mm);
                     mmc[3] = amrex::get<3>(mm);
+                    mmc[4] = amrex::get<4>(mm);
                 } else
 #endif
                 {
 #ifdef AMREX_USE_OMP
-#pragma omp parallel if (!system::regtest_reduction) reduction(+ : mmc[ : 4])
+#pragma omp parallel if (!system::regtest_reduction) reduction(+ : mmc[ : 5])
 #endif
                     for (MFIter mfi(*(disease_stats[d])); mfi.isValid(); ++mfi) {
                         Box const& bx = mfi.tilebox();
@@ -389,23 +394,25 @@ void runAgent () {
                             mmc[1] += dfab(ii, jj, kk, 1);
                             mmc[2] += dfab(ii, jj, kk, 2);
                             mmc[3] += dfab(ii, jj, kk, 3);
+                            mmc[4] += dfab(ii, jj, kk, 4);
                         });
                     }
                 }
 
-                ParallelDescriptor::ReduceRealSum(&mmc[0], 4, ParallelDescriptor::IOProcessorNumber());
+                ParallelDescriptor::ReduceRealSum(&mmc[0], 5, ParallelDescriptor::IOProcessorNumber());
 
                 if (ParallelDescriptor::IOProcessor()) {
                     // total number of deaths computed on agents and on mesh should be the same...
-                    if (mmc[3] != counts[4]) { amrex::Print() << mmc[3] << " " << counts[4] << "\n"; }
-                    AMREX_ALWAYS_ASSERT(mmc[3] == counts[4]);
+                    if (mmc[3] != counts[OutputStatus::D]) { amrex::Print() << mmc[3] << " " << counts[OutputStatus::D] << "\n"; }
+                    AMREX_ALWAYS_ASSERT(mmc[3] == counts[OutputStatus::D]);
 
                     // the total number of infected should equal the sum of
+                    //     those that are hospitalized
                     //     exposed but not infectious
                     //     infectious and asymptomatic
                     //     infectious and pre-symptomatic
                     //     infectious and symptomatic
-                    AMREX_ALWAYS_ASSERT(counts[1] == counts[5] + counts[6] + counts[7] + counts[8]);
+                    // AMREX_ALWAYS_ASSERT(counts[1] == mmc[0] + counts[5] + counts[6] + counts[7] + counts[8]);
 
                     std::ofstream File;
                     File.open(output_filename[d].c_str(), std::ios::out | std::ios::app);
@@ -413,17 +420,16 @@ void runAgent () {
                     if (!File.good()) { amrex::FileOpenFailed(output_filename[d]); }
 
                     File << std::setw(5) << i;
-                    File << std::setw(12) << counts[0];
-                    File << std::setw(12) << counts[1];
-                    File << std::setw(12) << counts[2];
-                    File << std::setw(12) << counts[4];
-                    File << std::setw(15) << mmc[0];
-                    File << std::setw(15) << mmc[1];
+                    for (int j = 0; j < OutputStatus::ICU; ++j) {
+                        File << std::setw(12) << counts[j];
+                    }
+                    File << std::setw(12) << mmc[1];
                     File << std::setw(12) << mmc[2];
-                    File << std::setw(12) << counts[5];
-                    File << std::setw(15) << counts[6];
-                    File << std::setw(15) << counts[7];
-                    File << std::setw(15) << counts[8] << "\n";
+                    for (int j = OutputStatus::R; j < OutputStatus::nattribs; ++j) {
+                        File << std::setw(12) << counts[j];
+                    }
+                    // File << std::setw(12) << mmc[4];
+                    File << "\n";
 
                     File.flush();
 
