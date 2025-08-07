@@ -41,7 +41,7 @@ The following are inputs for the overall simulation:
     The path to the ``*.dat`` file containing the census data used to set initial conditions.
     Must be provided if ``ic_type = census``. Examples of these data files are provided
     in ``ExaEpi/data/CensusData``.
-* ``agent.worker_filename`` (`string`)
+* ``agent.workerflow_filename`` (`string`)
     The path to the ``*.bin`` file containing worker flow information.
     Must be provided if ``ic_type = census``. Examples of these data files are provided
     in ``ExaEpi/data/CensusData``.
