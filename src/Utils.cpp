@@ -80,6 +80,7 @@ void ExaEpi::Utils::ParseSchoolPolicies(amrex::ParmParse& pp, std::vector<ExaEpi
         valid_policies.push_back(current_policy);
     }
     policies = std::move(valid_policies);
+    amrex::Print() << "Parsed " << policies.size() << " school policies.\n";
 }
 
 /*! \brief Read in test parameters in #ExaEpi::TestParams from input file */
@@ -153,6 +154,7 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
     pp.query("set_school_closure", params.set_school_closure);
 
     pp.query("num_school_policies", params.num_school_policies);
+
 
     if (params.num_school_policies > 0) {
         ExaEpi::Utils::ParseSchoolPolicies(pp, params.school_policies, params.nsteps);

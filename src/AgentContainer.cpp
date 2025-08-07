@@ -1732,7 +1732,10 @@ void AgentContainer::initializeSchoolAttendanceForAll(int window_size)
 void AgentContainer::assignAttendanceFromPolicies(const std::vector<ExaEpi::SchoolPolicy>& policies, int time_offset)
 {
     BL_PROFILE("AgentContainer::assignAttendanceFromPolicies");
-    if (policies.empty()) { return; }
+    if (policies.empty()) { 
+        amrex::Print() << "[INFO] No school policies defined. Skipping attendance assignment.\n";
+        return; 
+    }
 
     std::vector<SchoolPolicy::PolicyGPUData> host_policy_data;
     const uint32_t MASK_ACTIVE_AND_ALWAYS_ATTEND = 0xFFFFFFFFU & ~(1U << 30);
@@ -1863,84 +1866,124 @@ void AgentContainer::countAttendingStudents(int current_day) const
 {
     BL_PROFILE("AgentContainer::countAttendingStudents");
 
-    // Get the start day of the current schedule window. This is captured by the lambda.
+    // --- Setup based on the baseline function ---
+    const int n_school_types = 5; // College, High, Middle, Elementary, Childcare
+    const int ncomp = n_school_types; // We will count each of the 5 school types
+    const char* school_names[5] = {"College", "High", "Middle", "Elementary", "Childcare"};
     const int last_mask_update_day = getLastMaskUpdateDay();
 
-    // --- CORRECTED REDUCTION SETUP ---
-    // 1. Define a ReduceOps struct that bundles all the summation operations.
-    amrex::ReduceOps<amrex::ReduceOpSum, amrex::ReduceOpSum, amrex::ReduceOpSum,
-                     amrex::ReduceOpSum, amrex::ReduceOpSum, amrex::ReduceOpSum>
-        reduce_ops;
+    // This array will accumulate the final counts from all AMR levels
+    std::array<Real, ncomp> domain_totals = {0.0};
 
-    // 2. Use ParticleReduce with the ReduceOps struct as the third argument.
-    auto r = amrex::ParticleReduce<amrex::ReduceData<int, int, int, int, int, int>>(
-        *this,
-        [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
-                             const int i) noexcept -> amrex::GpuTuple<int, int, int, int, int, int>
-        {
-            // Initialize counts for each school type to zero for this particle.
-            amrex::GpuArray<Long, SchoolType::total> counts = {0};
+    // Loop over each AMR level, just like in the baseline
+    for (int lev = 0; lev <= finestLevel(); ++lev) {
+        const auto& geom = Geom(lev);
+        Box domain = geom.Domain();
+        int nx = domain.length(0);
+        int ny = domain.length(1);
+        BoxArray ba = this->ParticleBoxArray(lev);
+        const auto& dmap = this->ParticleDistributionMap(lev);
+        
+        // Create a MultiFab to serve as a distributed counter grid
+        MultiFab mf(ba, dmap, ncomp, 0);
+        mf.setVal(0.0);
 
-            // --- Replicate the full attendance logic inside the reduction kernel ---
+        const auto plo = geom.ProbLoArray();
+        const auto dxi = geom.InvCellSizeArray();
 
-            // 1. Basic conditions: Must be a student with a school ID.
-            bool is_student = (ptd.m_idata[IntIdx::age_group][i] < AgeGroups::a18to29) &&
-                              (ptd.m_idata[IntIdx::school_id][i] > SchoolType::none);// &&
-                            //   (ptd.m_idata[IntIdx::workgroup][i] <= 0);
-            if (!is_student) {
-                return {0, 0, 0, 0, 0, 0};
-            }
+        // Use ParticleToMesh to iterate over particles and deposit counts into the MultiFab
+        ParticleToMesh(
+            *this, mf, lev,
+            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd, int i,
+                                  Array4<Real> const& count) {
+                
+                // 1. Check if the agent is a student
+                bool is_student = (ptd.m_idata[IntIdx::workgroup][i] <= 0) &&
+                                  (ptd.m_idata[IntIdx::school_id][i] > SchoolType::none);
+                if (!is_student) return;
 
-            const uint32_t mask = static_cast<uint32_t>(ptd.m_idata[IntIdx::school_attendance_mask][i]);
-            bool attends = false;
-
-            // 2. Check if the schedule is active (MSB must be 1).
-            if ((mask & (1U << 31)) != 0) {
-                // 3. Check if the current day is within the active window.
-                if (current_day < last_mask_update_day || current_day >= last_mask_update_day + 30) {
-                    attends = true; // Outside the window, the default is to attend.
-                } else {
-                    // 4. Check the specific bit for the relative day.
+                // 2. Check if the student is scheduled to attend today
+                bool attends = false;
+                const uint32_t mask = static_cast<uint32_t>(ptd.m_idata[IntIdx::school_attendance_mask][i]);
+                if ((mask & (1U << 31)) != 0) { // Check if schedule is active
                     const int relative_day = current_day - last_mask_update_day;
-                    attends = ((mask >> relative_day) & 1U) == 1U;
+                    if (relative_day < 0 || relative_day >= 30) {
+                        attends = true; // Default to attend if outside the 30-day window
+                    } else {
+                        attends = ((mask >> relative_day) & 1U) == 1U;
+                    }
                 }
-            } // If schedule is not active, 'attends' remains false.
+                
+                if (attends) {
+                    // 3. If attending, identify school type and add to the counter
+                    const int grade = ptd.m_idata[IntIdx::school_grade][i];
+                    int school_type_idx = getSchoolType(grade) - SchoolType::college;
 
-            if (attends) {
-                const int grade = ptd.m_idata[IntIdx::school_grade][i];
-                int school_type = getSchoolType(grade);
-                if (school_type > 0 && school_type < SchoolType::total) {
-                    counts[school_type] = 1;
+                    if (school_type_idx >= 0 && school_type_idx < n_school_types) {
+                        // Get the particle's home cell to deposit the count
+                        int home_i = ptd.m_idata[IntIdx::home_i][i];
+                        int home_j = ptd.m_idata[IntIdx::home_j][i];
+                        int comm_to = home_i + home_j * domain.length(0);
+                        IntVect iv_from_comm = domain.atOffset(comm_to);
+                        
+                        // Atomically add 1 to the count for the correct school type
+                        Gpu::Atomic::AddNoRet(&count(iv_from_comm, school_type_idx), 1.0_rt);
+                    }
+                }
+            },
+            false
+        );
+
+        // --- Data Reduction, exactly matching the baseline ---
+
+        // Flatten the MultiFab into a 1D vector on each rank
+        std::vector<Real> flat_data(nx * ny * ncomp, 0.0);
+        for (MFIter mfi(mf); mfi.isValid(); ++mfi) {
+            const auto& arr = mf[mfi].array();
+            const Box& bx = mfi.validbox();
+            for (IntVect iv = bx.smallEnd(); iv <= bx.bigEnd(); bx.next(iv)) {
+                int i_local = iv[0] - domain.smallEnd(0);
+                int j_local = iv[1] - domain.smallEnd(1);
+                for (int c = 0; c < ncomp; ++c) {
+                    flat_data[(i_local * ny + j_local) * ncomp + c] += arr(iv, c);
                 }
             }
-
-            return {counts[SchoolType::none], counts[SchoolType::college], counts[SchoolType::high],
-                    counts[SchoolType::middle], counts[SchoolType::elem], counts[SchoolType::daycare]};
-        },
-        reduce_ops // Pass the single ReduceOps struct
-    );
-
-    // The result 'r' now contains the summed counts across all threads and MPI ranks.
-    // We just need to retrieve the values and print them on the I/O processor.
-    if (amrex::ParallelDescriptor::IOProcessor()) {
-        // Extract the counts from the GpuTuple result.
-        std::array<Long, SchoolType::total> final_counts = {
-            amrex::get<0>(r), amrex::get<1>(r), amrex::get<2>(r),
-            amrex::get<3>(r), amrex::get<4>(r), amrex::get<5>(r)
-        };
-
-        int total_attending = 0;
-        amrex::Print() << "\n--- School Attendance Report for Day " << current_day << " ---\n";
-        amrex::Print() << "  - College:    " << final_counts[SchoolType::college] << " students attending\n";
-        amrex::Print() << "  - High:       " << final_counts[SchoolType::high]    << " students attending\n";
-        amrex::Print() << "  - Middle:     " << final_counts[SchoolType::middle]  << " students attending\n";
-        amrex::Print() << "  - Elementary: " << final_counts[SchoolType::elem]    << " students attending\n";
-        amrex::Print() << "  - Daycare:    " << final_counts[SchoolType::daycare] << " students attending\n";
-
-        for (int i = 1; i < SchoolType::total; ++i) {
-            total_attending += final_counts[i];
         }
-        amrex::Print() << "  - TOTAL: " << total_attending << " students attending\n"
+
+        // Perform the global sum reduction on the flat vector.
+        // After this, only the IOProcessor has the correct, complete data.
+        ParallelDescriptor::ReduceRealSum(flat_data.data(), flat_data.size(), ParallelDescriptor::IOProcessorNumber());
+
+        // On the IOProcessor, sum the grid counts into the domain_totals accumulator
+        if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
+            for (int i = 0; i < nx; ++i) {
+                for (int j = 0; j < ny; ++j) {
+                    for (int c = 0; c < ncomp; ++c) {
+                        domain_totals[c] += flat_data[(i * ny + j) * ncomp + c];
+                    }
+                }
+            }
+        }
+    } // End of AMR level loop
+
+    // A final reduction on the domain_totals array (matches baseline pattern)
+    ParallelDescriptor::ReduceRealSum(domain_totals.data(), ncomp, ParallelDescriptor::IOProcessorNumber());
+
+    // On the IOProcessor, print the final report
+    if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
+        Long total_attending = 0;
+        amrex::Print() << "\n--- School Attendance Report for Day " << current_day << " ---\n";
+        
+        for (int i = 0; i < n_school_types; ++i) {
+            Long count = static_cast<Long>(domain_totals[i]);
+            total_attending += count;
+            // Spacing formatted to align names
+            amrex::Print() << "  - " << std::left << std::setw(11) << school_names[i]
+                           << ": " << count << " students attending\n";
+        }
+
+        amrex::Print() << "  ----------------------------------------\n";
+        amrex::Print() << "  - TOTAL      : " << total_attending << " students attending\n"
                        << "------------------------------------------\n\n";
     }
 }

@@ -19,7 +19,7 @@ struct SchoolPolicy {
     int start_day = 0;
     int end_day = 0;
     int school_type = -1; // -1 for all, otherwise specific type
-    std::string schedule_pattern = "A"; // everyone attends school by default
+    std::string schedule_pattern = "AA"; // everyone attends school by default
     std::string fips = "00000"; //Default FIPS code for all counties in simulation
 };
 

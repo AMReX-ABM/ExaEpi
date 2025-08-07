@@ -377,10 +377,12 @@ void runAgent () {
             if (params.set_school_closure == 1 && params.num_school_policies <= 0) {
                 pc.updateSchoolInfection(school_infection_stats);
             }
-            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(params.set_school_closure == 1 || 
-                                             params.num_school_policies > 0,
-                                             "Error: either set school closure dynamically or with policies, but not both!");
-            pc.countAttendingStudents(i);
+            // if (params.set_school_closure == 1 && params.num_school_policies > 0) {
+            // AMREX_ALWAYS_ASSERT_WITH_MESSAGE(params.set_school_closure == 1 && params.num_school_policies <= 0,
+            //                                  "Error: either set school closure dynamically or with policies, but not both!");
+            // }
+
+            // pc.countAttendingStudents(i);
             // addition stop here 
 
             for (int d = 0; d < params.num_diseases; d++) {
