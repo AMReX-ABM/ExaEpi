@@ -177,7 +177,9 @@ void runAgent () {
         }
     }
 
-    amrex::iMultiFab school_infection_stats(ba, dm, SchoolCensusIDType::total * 4, 0);
+    bool is_census = (params.ic_type == ExaEpi::ICType::Census);
+    int nattribs = is_census ? SchoolCensusIDType::total : SchoolType::total;
+    amrex::iMultiFab school_infection_stats(ba, dm, nattribs * 4, 0);
     school_infection_stats.setVal(0);
 
     amrex::Vector<std::unique_ptr<MultiFab>> disease_stats;
@@ -190,7 +192,9 @@ void runAgent () {
     MultiFab mask_behavior(ba, dm, 1, 0);
     mask_behavior.setVal(1);
 
-    AgentContainer pc(geom, dm, ba, params.num_diseases, params.disease_names, params.fast, params.ic_type);
+    AgentContainer pc(geom, dm, ba, params.num_diseases, params.disease_names,  
+                     (params.ic_type == ICType::Census ? censusData.demo.FIPS : urbanPopData.FIPS_codes), 
+                      params.fast, params.ic_type);
     bool stable_redistribute = !params.fast;
     pc.setStableRedistribute(stable_redistribute);
     pc.setTileSize(censusData.unit_mf.mfiter_tile_size);
@@ -229,6 +233,16 @@ void runAgent () {
                 }
             }
 
+            /* Debugging for school attendance mask */
+            // pc.printStudentTeacherCountsPerCommunity();
+            // pc.printStudentTeacherCounts();
+            // std::vector<int> FIPS_codes;
+            // FIPS_codes.reserve(censusData.demo.Nunit);
+            // for (int i = 0; i < censusData.demo.Nunit; ++i) {
+            //     FIPS_codes.push_back(censusData.demo.FIPS[i]);
+            // }
+            // int num_FIPS = (params.ic_type == ICType::Census ? censusData.demo.Nunit : urbanPopData.FIPS_codes.size());
+            // pc.printStudentTeacherCountsPerUnit(censusData.FIPS_mf, urbanPopData.geoid_mf, true, num_FIPS, FIPS_codes);
             pc.printStudentTeacherCounts();
             pc.printAgeGroupCounts();
 
@@ -318,6 +332,7 @@ void runAgent () {
         BL_PROFILE_REGION("Evolution");
         for (int i = start_day; i < params.nsteps; ++i) {
             auto start_time = std::chrono::high_resolution_clock::now();
+            pc.setCurrentDay(i);
 
             if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
                 if (params.ic_type == ICType::Census) {
@@ -351,8 +366,23 @@ void runAgent () {
             }
 
             // Update agents' disease status
-            pc.updateStatus(disease_stats, cur_time);
-            pc.updateSchoolInfection(school_infection_stats, cur_time);
+            pc.updateStatus(disease_stats);
+
+            /* Debugging for school policies */
+            // If school attendance schedule is set, update the attendance schedules
+            if ((i == 0 || i % 30 == 0)) {
+                pc.updateAttendanceSchedules(i, params.school_policies);
+            }
+            // If school closure is set, update the school infection stats
+            if (params.set_school_closure == 1 && params.num_school_policies <= 0) {
+                pc.updateSchoolInfection(school_infection_stats);
+            }
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(params.set_school_closure == 1 || 
+                                             params.num_school_policies > 0,
+                                             "Error: either set school closure dynamically or with policies, but not both!");
+            pc.countAttendingStudents(i);
+            // addition stop here 
+
             for (int d = 0; d < params.num_diseases; d++) {
                 auto counts = pc.getTotals(d);
                 if (counts[1] > num_infected_peak[d]) {
@@ -436,7 +466,7 @@ void runAgent () {
                 }
             }
 
-            if (params.shelter_start > 0 && params.shelter_start == i) { pc.shelterStart(cur_time); }
+            if (params.shelter_start > 0 && params.shelter_start == i) { pc.shelterStart(); }
 
             if (params.shelter_start > 0 && params.shelter_start + params.shelter_length == i) { pc.shelterStop(); }
 

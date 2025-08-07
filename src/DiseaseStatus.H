@@ -51,7 +51,7 @@ class DiseaseStatus {
     /*! \brief Updates disease status of each agent at a given step and
      *   also updates a MultiFab that tracks disease statistics (hospitalization,
      *   ICU, ventilator, and death) in a community. */
-    virtual void updateAgents(AC&, MFPtrVec&, Real) const;
+    virtual void updateAgents(AC&, MFPtrVec&) const;
 
   protected:
 };
@@ -77,10 +77,10 @@ class DiseaseStatus {
 */
 template <typename AC, typename ACT, typename ACTD, typename A>
 void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent containter */
-                                                    MFPtrVec& a_stats, /*!< MultiFab to store disease stats */
-                                                    amrex::Real a_cur_time /*!< tracking time of infection */ ) const {
+                                                   MFPtrVec& a_stats /*!< MultiFab to store disease stats */) const {
     BL_PROFILE("DiseaseStatus::updateAgents");
     int n_disease = a_agents.numDiseases();
+    int current_day = a_agents.getCurrentDay();
 
     for (int lev = 0; lev <= a_agents.finestLevel(); ++lev) {
         auto& plev = a_agents.GetParticles(lev);
@@ -164,7 +164,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                                 if (symptomatic_withdraw_compliance > 0.0_rt &&
                                     (Random(engine) < symptomatic_withdraw_compliance)) {
                                     withdrawn_ptr[i] = 1;
-                                    withdrawn_date_ptr[i] = static_cast<int>(a_cur_time);
+                                    withdrawn_date_ptr[i] = current_day;
                                 }
                                 if (Math::floor(hospital_delay_ptr[i]) == 0) {
                                     disease_parm_d->checkHospitalization(&(timer_ptr[i]), &(marked_for_ICU_ptr[i]),
@@ -200,7 +200,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                 if (marked_for_hosp_ptr[i] == 1) {
                     assignHospital(i, hosp_i_ptr, hosp_j_ptr, ptd);
                     withdrawn_ptr[i] = 1;
-                    withdrawn_date_ptr[i] = static_cast<int>(a_cur_time);
+                    withdrawn_date_ptr[i] = current_day;
                 }
             });
 

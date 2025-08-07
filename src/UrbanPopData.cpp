@@ -412,6 +412,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
         auto trav_i_ptr = soa.GetIntData(IntIdx::trav_i).data();
         auto trav_j_ptr = soa.GetIntData(IntIdx::trav_j).data();
+        auto fips_ptr   = soa.GetIntData(IntIdx::fips).data();
         soa.GetIntData(IntIdx::hosp_i).assign(-1);
         soa.GetIntData(IntIdx::hosp_j).assign(-1);
         auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
@@ -427,6 +428,8 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         soa.GetIntData(IntIdx::withdrawn_date).assign(0);
         soa.GetIntData(IntIdx::random_travel).assign(-1);
         soa.GetIntData(IntIdx::air_travel).assign(-1);
+        auto student_counts_arr = pc.m_student_counts[mfi].array();
+        auto school_attendance_mask_ptr = soa.GetIntData(IntIdx::school_attendance_mask).data();
 
         int i_RT = IntIdx::nattribs;
         int r_RT = RealIdx::nattribs;
@@ -491,6 +494,12 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             nborhood_ptr[i] = Random_int(max_nborhood, engine) + 1;
             school_grade_ptr[i] = agent.grade;
             school_id_ptr[i] = agent.school_id;
+            int school_type = getSchoolType(agent.grade);
+            if (school_type > SchoolType::none) {
+                Gpu::Atomic::AddNoRet(&student_counts_arr(home_i_ptr[i], home_j_ptr[i], 0, 0), 1); // the total student counter at idx 0
+                Gpu::Atomic::AddNoRet(&student_counts_arr(home_i_ptr[i], home_j_ptr[i], 0, school_type), 1);
+            } 
+            school_attendance_mask_ptr[i] = 0;
             school_closed_ptr[i] = 0;
             naics_ptr[i] = agent.naics;
             // set up workers, excluding wfh
@@ -517,6 +526,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
 
             trav_i_ptr[i] = home_i_ptr[i];
             trav_j_ptr[i] = home_j_ptr[i];
+            fips_ptr[i] = geoid_arr(home_i_ptr[i], home_j_ptr[i], 0, 0);
         });
         Gpu::synchronize();
 

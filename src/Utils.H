@@ -8,12 +8,20 @@
 #include <AMReX_Geometry.H>
 #include <AMReX_IntVect.H>
 #include <vector>
-
-#include "DemographicData.H"
-
 #include <string>
 
+#include "DemographicData.H"
+#include "AgentDefinitions.H"
+
 namespace ExaEpi {
+
+struct SchoolPolicy {
+    int start_day = 0;
+    int end_day = 0;
+    int school_type = -1; // -1 for all, otherwise specific type
+    std::string schedule_pattern = "A"; // everyone attends school by default
+    std::string fips = "00000"; //Default FIPS code for all counties in simulation
+};
 
 /*! \brief Structure with various simulation parameters; these are read in
     for the input file provided in the command line.
@@ -78,6 +86,11 @@ struct TestParams {
 
     bool fast = false; /*!< Use the fast implementations for various operations, e.g. binning, at the cost of
                            exact reproducibility for a given random seed. */
+
+    int set_school_closure = 0;
+    int num_school_policies = 0;
+    std::vector<ExaEpi::SchoolPolicy> school_policies = {}; // empty vector if no school policies are set
+
 };
 
 /**
@@ -95,6 +108,7 @@ struct ICType {
 namespace Utils {
 
 void getTestParams(ExaEpi::TestParams& params, const std::string& prefix);
+void ParseSchoolPolicies(amrex::ParmParse& pp, std::vector<ExaEpi::SchoolPolicy>& policies, int nsteps);
 }
 } // namespace ExaEpi
 

@@ -8,3 +8,4 @@ docs/amrex-doxygen-web.tag.xml
 .build
 src/version.h
 reports
+*ipynb_checkpoints

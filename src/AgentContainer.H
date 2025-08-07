@@ -7,6 +7,8 @@
 #include <array>
 #include <string>
 #include <vector>
+#include <cstdint>
+#include <algorithm>
 
 #include <AMReX_BoxArray.H>
 #include <AMReX_DistributionMapping.H>
@@ -91,7 +93,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
   public:
     AgentContainer(const amrex::Geometry& a_geom, const amrex::DistributionMapping& a_dmap, const amrex::BoxArray& a_ba,
-                   const int& a_num_diseases, const std::vector<std::string>& a_disease_names, const bool fast,
+                   const int& a_num_diseases, const std::vector<std::string>& a_disease_names, const std::vector<int>& a_fips_codes, const bool fast,
                    const short a_ic_type);
 
     void morningCommute(amrex::MultiFab&);
@@ -116,13 +118,13 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void returnAirTravel();
 
-    void updateStatus(MFPtrVec&, amrex::Real a_cur_time);
+    void updateStatus(MFPtrVec&);
 
-    void updateSchoolInfection(iMultiFab& a_school_stats, amrex::Real a_cur_time);
+    void updateSchoolInfection(iMultiFab& a_school_stats);
 
     void infectAgents(MFPtrVec&);
 
-    void shelterStart (amrex::Real a_cur_time);
+    void shelterStart ();
 
     void shelterStop();
 
@@ -157,7 +159,31 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void printAgeGroupCounts() const;
 
+    void printStudentTeacherCountsPerCommunity() const;
+
+    void printStudentTeacherCountsPerUnit(const amrex::iMultiFab& FIPS_mf, const amrex::iMultiFab& geoid_mf, bool use_census, int num_units, const std::vector<int>& FIPS_codes) const;
+
+    void setCurrentDay(int day);
+
+    inline int getCurrentDay() const { return m_current_day; }
+
+    void updateAttendanceSchedules(int current_day, const std::vector<ExaEpi::SchoolPolicy>& policies);
+
+    inline int getLastMaskUpdateDay() const { return m_last_mask_update_day; }
+
+    void assignAttendanceFromPolicies(const std::vector<ExaEpi::SchoolPolicy>& policies, int time_offset);
+
+    void initializeSchoolAttendanceForAll(int window_size);
+
+    void countAttendingStudents(int current_day) const;
+
+
+
     amrex::iMultiFab m_student_counts;
+    std::vector<int> m_fips_codes;
+    amrex::Gpu::DeviceVector<int> m_fips_student_stats; // FIPS-level student counts
+    amrex::iMultiFab m_school_stats; // Community and school-level school status and infection counts
+
     /// Used only for Census data. A ratio for each school type: none, college, high, middle, elem, daycare
     amrex::GpuArray<int, SchoolType::total> m_student_teacher_ratio = {0, 15, 15, 15, 15, 15};
 
@@ -197,8 +223,41 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     /*! \brief Add runtime SoA attributes */
     void addAttributes();
+
+    int m_current_day = 0;
+    int m_last_mask_update_day = -1;
 };
 
+namespace SchoolPolicy {
+    // Holds pre-calculated policy data for the GPU kernel.
+    struct PolicyGPUData {
+        int start_day;
+        int end_day;
+        int school_type;
+        int num_groups;
+        int fips;
+        // Pre-calculated 32-bit mask for each possible group (e.g., 'A', 'B', 'C', 'D')
+        uint32_t group_masks[4];
+    };
+    struct SchoolDismissalType
+    {
+        enum {
+            ByCommunity = 0,   /*!< dismiss school with respect to total infection in a community */
+            BySchool,   /*!< dismiss school with respect to total infection in specific school in a community */
+            ByFIPS  /*!< dismiss school with respect to total infection in a FIPS */
+        };
+    };
+    struct SchoolStats
+    {
+        enum {
+            SchoolDismissal = 0,   /*!< whether school is open or closed */
+            SchoolInfectionCount,  /*!< total infected students in community if school open */
+            SchoolStatusDayCount,  /*!< days since the last status change */
+            SchoolReopenDay,       /*!< day the school was last reopened */
+            nattribs
+        };
+    };
+}
 using AgentIterator = typename AgentContainer::ParIterType;
 
 #endif

@@ -40,14 +40,15 @@ struct IntIdx {
         age_group = 0, /*!< Age group (under 5, 5-17, 18-29, 30-64, 65+) */
         family,        /*!< Family ID */
         home_i,        /*!< home location index */
-        home_j /*!< home location index */,
-        work_i /*!< work location index */,
-        work_j /*!< work location index */,
-        hosp_i /*!< hosp location index */,
-        hosp_j /*!< hosp location index */,
-        trav_i /*!< air travel location index */,
-        trav_j /*!< air travel location index */,
+        home_j,        /*!< home location index */
+        work_i,        /*!< work location index */
+        work_j,        /*!< work location index */
+        hosp_i,        /*!< hosp location index */
+        hosp_j,        /*!< hosp location index */
+        trav_i,        /*!< air travel location index */
+        trav_j,        /*!< air travel location index */
         nborhood,      /*!< home neighborhood ID */
+        fips,          /*!< FIPS code for the county */
         school_grade,  /*!< school grade, including universities */
         school_id,     /*!< ID for a given school */
         school_closed, /*!< 0 for open, 1 for closed */
@@ -58,6 +59,7 @@ struct IntIdx {
         withdrawn_date, /*!< quarantine / hospitalization date */
         random_travel,  /*!< on long distance travel? */
         air_travel,     /*!< on long distance travel by Air? */
+        school_attendance_mask, /*!< 32-bit bitmask for per-student attendance schedule */
         nattribs        /*!< number of integer-type attribute */
     };
 };

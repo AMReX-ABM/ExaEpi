@@ -39,10 +39,13 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
                                 const amrex::BoxArray& a_ba,                     /*!< Box array */
                                 const int& a_num_diseases,                       /*!< Number of diseases */
                                 const std::vector<std::string>& a_disease_names, /*!< names of the diseases */
+                                const std::vector<int>& a_fips_codes,            /*!< FIPS codes */
                                 const bool fast,                                 /*!< faster but non-deterministic computation*/
                                 const short a_ic_type /*!< type of initialization */)
     : amrex::ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>(a_geom, a_dmap, a_ba),
-      m_student_counts(a_ba, a_dmap, SchoolCensusIDType::total - 1, 0) {
+      m_fips_codes(a_fips_codes),
+      m_student_counts(a_ba, a_dmap, (a_ic_type == ExaEpi::ICType::Census) ? SchoolCensusIDType::total : SchoolType::total, 0),
+      m_school_stats(a_ba, a_dmap, ((a_ic_type == ExaEpi::ICType::Census) ? SchoolCensusIDType::total : SchoolType::total) * SchoolPolicy::SchoolStats::nattribs, 0) {
     BL_PROFILE("AgentContainer::AgentContainer");
 
     ic_type = a_ic_type;
@@ -51,6 +54,11 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
     AMREX_ASSERT(m_num_diseases < ExaEpi::max_num_diseases);
 
     m_student_counts.setVal(0); // Initialize the MultiFab to zero
+
+    // Variables for School Closure Policy
+    m_school_stats.setVal(0);
+    const int num_fips = m_fips_codes.size();
+    m_fips_student_stats.resize(num_fips * SchoolPolicy::SchoolStats::nattribs, 0); 
 
     addAttributes();
 
@@ -525,10 +533,10 @@ void AgentContainer::returnAirTravel () {
 }
 
 /*! \brief Updates disease status of each agent */
-void AgentContainer::updateStatus (MFPtrVec& a_disease_stats, amrex::Real a_cur_time /*!< Community-wise disease stats tracker */) {
+void AgentContainer::updateStatus (MFPtrVec& a_disease_stats /*!< Community-wise disease stats tracker */) {
     BL_PROFILE("AgentContainer::updateStatus");
 
-    m_disease_status.updateAgents(*this, a_disease_stats, a_cur_time);
+    m_disease_status.updateAgents(*this, a_disease_stats);
     m_hospital->treatAgents(*this, a_disease_stats);
 
     // move hospitalized agents to their hospital location
@@ -574,7 +582,7 @@ void AgentContainer::updateStatus (MFPtrVec& a_disease_stats, amrex::Real a_cur_
 }
 
 /*! \brief Start shelter-in-place */
-void AgentContainer::shelterStart (amrex::Real a_cur_time) {
+void AgentContainer::shelterStart () {
     BL_PROFILE("AgentContainer::shelterStart");
 
     amrex::Print() << "Starting shelter in place order \n";
@@ -600,7 +608,7 @@ void AgentContainer::shelterStart (amrex::Real a_cur_time) {
             amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, amrex::RandomEngine const& engine) noexcept {
                 if (amrex::Random(engine) < shelter_compliance) {
                     withdrawn_ptr[i] = 1;
-                    withdrawn_date_ptr[i] = static_cast<int>(a_cur_time);
+                    withdrawn_date_ptr[i] = m_current_day;
                 }
             });
         }
@@ -886,6 +894,8 @@ void AgentContainer::interactNight (MultiFab& a_mask_behavior /*!< Masking behav
     }
 }
 
+void AgentContainer::setCurrentDay(int day) { m_current_day = day; }
+
 void AgentContainer::printStudentTeacherCounts () const {
     ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum,
               ReduceOpSum>
@@ -958,55 +968,734 @@ void AgentContainer::printAgeGroupCounts () const {
     }
 }
 
-void AgentContainer::updateSchoolInfection(iMultiFab& a_school_stats, amrex::Real a_cur_time) /*!< Community-wise school infection stats and status tracker */
+void AgentContainer::printStudentTeacherCountsPerCommunity() const {
+    const int n_school_types = 5; // College, High, Middle, Elementary, Childcare
+    // +2 for total teachers/students, +2 for infected/withdrawn students
+    const int ncomp = 2 * n_school_types + 2 + 2;
+    const int idx_infected_students = 2 * n_school_types + 2;
+    const int idx_withdrawn_students = 2 * n_school_types + 3;
+    const char* school_names[5] = {"College", "High", "Middle", "Elementary", "Childcare"};
+
+    // Prepare a domain-wide accumulator for all levels
+    std::array<Real, ncomp> domain_totals = {0.0};
+
+    for (int lev = 0; lev <= finestLevel(); ++lev) {
+        const auto& geom = Geom(lev);
+        Box domain = geom.Domain();
+        int nx = domain.length(0);
+        int ny = domain.length(1);
+        BoxArray ba = this->ParticleBoxArray(lev);
+        const auto& dmap = this->ParticleDistributionMap(lev);
+        MultiFab mf(ba, dmap, ncomp, 0);
+        mf.setVal(0);
+
+        const auto plo = geom.ProbLoArray();
+        const auto dxi = geom.InvCellSizeArray();
+
+        ParticleToMesh(
+            *this, mf, lev,
+            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd, int i,
+                                  Array4<Real> const& count) {
+                auto p = ptd.m_aos[i];
+                auto iv = getParticleCell(p, plo, dxi, domain);
+                int school_id = ptd.m_idata[IntIdx::school_id][i];
+                int grade = ptd.m_idata[IntIdx::school_grade][i];
+                int workgroup = ptd.m_idata[IntIdx::workgroup][i];
+                int home_i = ptd.m_idata[IntIdx::home_i][i];
+                int home_j = ptd.m_idata[IntIdx::home_j][i];
+                int comm_to = home_i + home_j * domain.length(0); // linear index for community
+                IntVect iv_from_comm = domain.atOffset(comm_to);
+
+                if (!domain.contains(iv)) {
+                    printf("Warning: Particle at (%g,%g) binned to out-of-bounds cell (%d,%d)\n", p.pos(0), p.pos(1), iv[0], iv[1]);
+                }
+                if (iv != iv_from_comm) {
+                    printf("Warning: iv (%d,%d) != iv_from_comm (%d,%d)\n", iv[0], iv[1], iv_from_comm[0], iv_from_comm[1]);
+                }
+
+                if (school_id > 0) {
+                    int school_type = getSchoolType(grade) - SchoolType::college;
+                    if (school_type >= 0 && school_type < n_school_types) {
+                        if (workgroup > 0) {
+                            Gpu::Atomic::AddNoRet(&count(iv_from_comm, school_type), 1.0_rt);
+                            Gpu::Atomic::AddNoRet(&count(iv_from_comm, 2 * n_school_types), 1.0_rt);
+                        } else {
+                            Gpu::Atomic::AddNoRet(&count(iv_from_comm, n_school_types + school_type), 1.0_rt);
+                            Gpu::Atomic::AddNoRet(&count(iv_from_comm, 2 * n_school_types + 1), 1.0_rt);
+                            // Count withdrawn students
+                            int withdrawn = ptd.m_idata[IntIdx::withdrawn][i];
+                            if (withdrawn) {
+                                Gpu::Atomic::AddNoRet(&count(iv_from_comm, idx_withdrawn_students), 1.0_rt);
+                            }
+                            // Count infected students (assume single disease, index 0)
+                            int status = ptd.m_runtime_idata[i0(0) + IntIdxDisease::status][i];
+                            if (status == Status::infected) {
+                                Gpu::Atomic::AddNoRet(&count(iv_from_comm, idx_infected_students), 1.0_rt);
+                            }
+                        }
+                    }
+                }
+            },
+            false
+        );
+
+        // Flatten MultiFab data into a 1D array (row-major: i, j, component)
+        std::vector<Real> flat_data(nx * ny * ncomp, 0.0);
+        for (MFIter mfi(mf); mfi.isValid(); ++mfi) {
+            const auto& arr = mf[mfi].array();
+            const Box& bx = mfi.validbox();
+            for (IntVect iv = bx.smallEnd(); iv <= bx.bigEnd(); bx.next(iv)) {
+                int i = iv[0] - domain.smallEnd(0);
+                int j = iv[1] - domain.smallEnd(1);
+                for (int c = 0; c < ncomp; ++c) {
+                    flat_data[(i * ny + j) * ncomp + c] += arr(iv, c);
+                }
+            }
+        }
+
+        // Reduce the flat array across all ranks
+        ParallelDescriptor::ReduceRealSum(flat_data.data(), flat_data.size(), ParallelDescriptor::IOProcessorNumber());
+
+        // On IOProc, print per-community counts and accumulate domain-wide totals
+        if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
+            for (int i = 0; i < nx; ++i) {
+                for (int j = 0; j < ny; ++j) {
+                    Real total_teachers = flat_data[(i * ny + j) * ncomp + 2 * n_school_types];
+                    Real total_students = flat_data[(i * ny + j) * ncomp + 2 * n_school_types + 1];
+                    Real infected_students = flat_data[(i * ny + j) * ncomp + idx_infected_students];
+                    Real withdrawn_students = flat_data[(i * ny + j) * ncomp + idx_withdrawn_students];
+                    if (total_teachers > 0 || total_students > 0) {
+                        Print() << "Level " << lev << " Community (" << (i + domain.smallEnd(0)) << "," << (j + domain.smallEnd(1)) << "):\n";
+                        Print() << "  Teachers: ";
+                        for (int t = 0; t < n_school_types; ++t)
+                            Print() << flat_data[(i * ny + j) * ncomp + t] << " ";
+                        Print() << " | Total: " << total_teachers << "\n";
+                        Print() << "  Students: ";
+                        for (int t = 0; t < n_school_types; ++t)
+                            Print() << flat_data[(i * ny + j) * ncomp + n_school_types + t] << " ";
+                        Print() << " | Total: " << total_students << "\n";
+                        Print() << "  Infected students: " << infected_students << "\n";
+                        Print() << "  Withdrawn students: " << withdrawn_students << "\n";
+                    }
+                    // Accumulate domain-wide totals
+                    for (int c = 0; c < ncomp; ++c) {
+                        domain_totals[c] += flat_data[(i * ny + j) * ncomp + c];
+                    }
+                }
+            }
+        }
+    }
+
+    // Reduce domain-wide totals across all ranks
+    ParallelDescriptor::ReduceRealSum(domain_totals.data(), ncomp, ParallelDescriptor::IOProcessorNumber());
+
+    // Print domain-wide totals (only on IOProc)
+    if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
+        Print() << "Domain-wide School counts: (educators, students, ratio)\n";
+        for (int t = 0; t < n_school_types; ++t) {
+            Real teachers = domain_totals[t];
+            Real students = domain_totals[n_school_types + t];
+            Real ratio = (teachers > 0) ? (students / teachers) : 0.0;
+            Print() << "  " << school_names[t] << "    " << teachers << " " << students << " " << ratio << "\n";
+        }
+        Real total_teachers = domain_totals[2 * n_school_types];
+        Real total_students = domain_totals[2 * n_school_types + 1];
+        Real total_ratio = (total_teachers > 0) ? (total_students / total_teachers) : 0.0;
+        Print() << "  Total      " << total_teachers << " " << total_students << " " << total_ratio << "\n";
+        Print() << "  Infected students: " << domain_totals[idx_infected_students] << "\n";
+        Print() << "  Withdrawn students: " << domain_totals[idx_withdrawn_students] << "\n";
+    }
+    // Note: With the above reductions, both per-community and domain-wide counts are correct regardless of number of ranks.
+}
+
+void AgentContainer::printStudentTeacherCountsPerUnit(const amrex::iMultiFab& FIPS_mf, const amrex::iMultiFab& geoid_mf, bool use_census, int num_units, const std::vector<int>& FIPS_codes) const {
+    const int n_school_types = 5; // College, High, Middle, Elementary, Childcare
+    // +2 for total teachers/students, +2 for infected/withdrawn students
+    const int ncomp = 2 * n_school_types + 2 + 2;
+    const int idx_infected_students = 2 * n_school_types + 2;
+    const int idx_withdrawn_students = 2 * n_school_types + 3;
+    const char* school_names[5] = {"College", "High", "Middle", "Elementary", "Childcare"};
+
+    // Build FIPS code to 0-based index map
+    std::unordered_map<int, int> fips_to_index;
+    for (int i = 0; i < FIPS_codes.size(); ++i) {
+        fips_to_index[FIPS_codes[i]] = i;
+    }
+
+    // Prepare a domain-wide accumulator for all units
+    std::vector<Real> domain_totals(ncomp, 0.0);
+    // Per-unit counts: flat array [unit * ncomp + c]
+    std::vector<Real> flat_data(num_units * ncomp, 0.0);
+
+    for (int lev = 0; lev <= finestLevel(); ++lev) {
+        const auto& geom = Geom(lev);
+        BoxArray ba = this->ParticleBoxArray(lev);
+        const auto& dmap = this->ParticleDistributionMap(lev);
+        // For each tile, get the relevant FIPS array
+        const auto& plev = GetParticles(lev);
+        for (MFIter mfi(ba, dmap); mfi.isValid(); ++mfi) {
+            int gid = mfi.index();
+            int tid = mfi.LocalTileIndex();
+            auto ptile_it = plev.find(std::make_pair(gid, tid));
+            if (ptile_it == plev.end()) continue;
+            const auto& ptile = ptile_it->second;
+            const auto& soa = ptile.GetStructOfArrays();
+            const auto np = ptile.numParticles();
+            auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
+            auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+            auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
+            auto school_grade_ptr = soa.GetIntData(IntIdx::school_grade).data();
+            auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
+            auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
+            // For infected status
+            auto status_ptr = soa.GetIntData(IntIdxDisease::status).data(); // assuming single disease, adjust if needed
+            // Set up FIPS_arr and geoid_arr as Array4<const int>
+            Array4<const int> FIPS_arr;
+            Array4<const int> geoid_arr;
+            if (use_census) {
+                FIPS_arr = FIPS_mf[mfi].array();
+            } else {
+                geoid_arr = geoid_mf[mfi].array();
+            }
+
+            for (size_t i = 0; i < np; ++i) {
+                int unit = -1;
+                if (use_census) {
+                    int fips_code = FIPS_arr(home_i_ptr[i], home_j_ptr[i], 0);
+                    auto it = fips_to_index.find(fips_code);
+                    if (it == fips_to_index.end()) continue;
+                    unit = it->second;
+                } else {
+                    int geoid_code = geoid_arr(home_i_ptr[i], home_j_ptr[i], 0);
+                    auto it = fips_to_index.find(geoid_code);
+                    if (it == fips_to_index.end()) continue;
+                    unit = it->second;
+                }
+                if (unit < 0 || unit >= num_units) continue;
+                int school_id = school_id_ptr[i];
+                int grade = school_grade_ptr[i];
+                int workgroup = workgroup_ptr[i];
+                if (school_id > 0) {
+                    int school_type = getSchoolType(grade) - SchoolType::college;
+                    if (school_type >= 0 && school_type < n_school_types) {
+                        if (workgroup > 0) {
+                            flat_data[unit * ncomp + school_type] += 1.0;
+                            flat_data[unit * ncomp + 2 * n_school_types] += 1.0;
+                        } else {
+                            flat_data[unit * ncomp + n_school_types + school_type] += 1.0;
+                            flat_data[unit * ncomp + 2 * n_school_types + 1] += 1.0;
+                            // Withdrawn
+                            if (withdrawn_ptr[i]) {
+                                flat_data[unit * ncomp + idx_withdrawn_students] += 1.0;
+                            }
+                            // Infected (assume single disease, index 0)
+                            int status = status_ptr[i];
+                            if (status == Status::infected) {
+                                flat_data[unit * ncomp + idx_infected_students] += 1.0;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Reduce the flat array across all ranks
+    ParallelDescriptor::ReduceRealSum(flat_data.data(), flat_data.size(), ParallelDescriptor::IOProcessorNumber());
+
+    // On IOProc, print per-unit counts and accumulate domain-wide totals
+    if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
+        for (int unit = 0; unit < num_units; ++unit) {
+            Real total_teachers = flat_data[unit * ncomp + 2 * n_school_types];
+            Real total_students = flat_data[unit * ncomp + 2 * n_school_types + 1];
+            Real infected_students = flat_data[unit * ncomp + idx_infected_students];
+            Real withdrawn_students = flat_data[unit * ncomp + idx_withdrawn_students];
+            if (total_teachers > 0 || total_students > 0) {
+                Print() << (use_census ? "Census" : "UrbanPop") << " Unit " << FIPS_codes[unit] << ":\n";
+                Print() << "  Teachers: ";
+                for (int t = 0; t < n_school_types; ++t)
+                    Print() << flat_data[unit * ncomp + t] << " ";
+                Print() << " | Total: " << total_teachers << "\n";
+                Print() << "  Students: ";
+                for (int t = 0; t < n_school_types; ++t)
+                    Print() << flat_data[unit * ncomp + n_school_types + t] << " ";
+                Print() << " | Total: " << total_students << "\n";
+                Print() << "  Infected students: " << infected_students << "\n";
+                Print() << "  Withdrawn students: " << withdrawn_students << "\n";
+            }
+            // Accumulate domain-wide totals
+            for (int c = 0; c < ncomp; ++c) {
+                domain_totals[c] += flat_data[unit * ncomp + c];
+            }
+        }
+    }
+
+    // Reduce domain-wide totals across all ranks
+    ParallelDescriptor::ReduceRealSum(domain_totals.data(), ncomp, ParallelDescriptor::IOProcessorNumber());
+
+    // Print domain-wide totals (only on IOProc)
+    if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
+        Print() << (use_census ? "Census" : "UrbanPop") << " Domain-wide School counts: (educators, students, ratio)\n";
+        for (int t = 0; t < n_school_types; ++t) {
+            Real teachers = domain_totals[t];
+            Real students = domain_totals[n_school_types + t];
+            Real ratio = (teachers > 0) ? (students / teachers) : 0.0;
+            Print() << "  " << school_names[t] << "    " << teachers << " " << students << " " << ratio << "\n";
+        }
+        Real total_teachers = domain_totals[2 * n_school_types];
+        Real total_students = domain_totals[2 * n_school_types + 1];
+        Real total_ratio = (total_teachers > 0) ? (total_students / total_teachers) : 0.0;
+        Print() << "  Total      " << total_teachers << " " << total_students << " " << total_ratio << "\n";
+        Print() << "  Infected students: " << domain_totals[idx_infected_students] << "\n";
+        Print() << "  Withdrawn students: " << domain_totals[idx_withdrawn_students] << "\n";
+    }
+    // Note: With the above reductions, both per-unit and domain-wide counts are correct regardless of number of ranks.
+}
+
+/*! \brief Community-wise school infection stats and status tracker */
+void AgentContainer::updateSchoolInfection(iMultiFab& a_school_stats) /*!< Community-wise school infection stats and status tracker */
 {
     BL_PROFILE("AgentContainer::updateSchoolInfo");
-
-    struct SchoolDismissal
-    {
-        enum {
-            ByCommunity = 0,   /*!< dismiss school with respect to total infection in a community */
-            BySchool,   /*!< dismiss school with respect to total infection in specific school in a community */
-            ByUnit  /*!< dismiss school with respect to total infection in a unit */
-        };
-    };
 
     int school_closure_flag = 0;
     int debug_print = 1;
     std::string closure_option = "by_community";
     double sc_infection_threshold = 0.20;
-    int  sc_length = 10;
+    int sc_length = 10;
 
     amrex::ParmParse pp("agent");
-    pp.query("school_closure_flag", school_closure_flag);
+    pp.query("set_school_closure", school_closure_flag);
     pp.query("school_closure_option", closure_option);
     pp.query("school_closure_threshold", sc_infection_threshold);
     pp.query("school_closure_length",  sc_length);
     pp.query("school_closure_debug_print", debug_print);
 
+    // if (!school_closure_flag) { return; }
+
     AMREX_ASSERT(sc_infection_threshold >= 0.0 && sc_infection_threshold <= 1.0);
 
-    int school_closure_option = SchoolDismissal::ByCommunity;
-    if (closure_option == "by_community"){school_closure_option = SchoolDismissal::ByCommunity; }
-    else if (closure_option == "by_school"){school_closure_option = SchoolDismissal::BySchool; }
-    else if (closure_option == "by_unit"){school_closure_option = SchoolDismissal::ByUnit; }
+    int school_closure_option = SchoolPolicy::SchoolDismissalType::ByCommunity;
+    if (closure_option == "by_school"){school_closure_option = SchoolPolicy::SchoolDismissalType::BySchool; }
+    else if (closure_option == "by_fips"){school_closure_option = SchoolPolicy::SchoolDismissalType::ByFIPS; }
 
-    struct SchoolStats
-    {
-        enum {
-            SchoolDismissal = 0,   /*!< whether school is open or closed */
-            SchoolInfectionCount,   /*!< total infected students in community if school open */
-            SchoolStatusDayCount,  /*!< day count of school being closed */
-            SchoolReopenDay,
-            nattribs
-        };
-    };
+    bool is_census = (ic_type == ExaEpi::ICType::Census);
 
-    int offset = SchoolCensusIDType::total;
-    AMREX_ALWAYS_ASSERT(a_school_stats.nComp() == offset * SchoolStats::nattribs);
+    /*! \brief By FIPS */
+    if (school_closure_option == SchoolPolicy::SchoolDismissalType::ByFIPS) {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(!m_fips_codes.empty(), "FIPS data must be initialized for ByFIPS closures.");
+        const int num_fips = m_fips_codes.size();
+        if (num_fips == 0) return;
 
-    for (int lev = 0; lev <= finestLevel(); ++lev)
-    {
+        // Create a GPU-friendly lookup table to map FIPS code -> 0-based index
+        int min_fips = m_fips_codes[0];
+        int max_fips = m_fips_codes[0];
+        for (int code : m_fips_codes) {
+            if (code < min_fips) min_fips = code;
+            if (code > max_fips) max_fips = code;
+        }
+        amrex::Gpu::DeviceVector<int> gpu_fips_map(max_fips - min_fips + 1, -1);
+
+        {
+            amrex::Vector<int> host_map(gpu_fips_map.size(), -1);
+            for (int i = 0; i < num_fips; ++i) {
+                host_map[m_fips_codes[i] - min_fips] = i;
+            }
+            // Copy to device asynchronously
+            amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice, host_map.begin(), host_map.end(), gpu_fips_map.begin());
+        }
+        amrex::Gpu::streamSynchronize(); // Required !
+
+        auto const* map_ptr = gpu_fips_map.data();
+        auto stats_ptr = m_fips_student_stats.data();
+        amrex::Gpu::DeviceVector<int> device_student_total(num_fips, 0);
+        auto* total_ptr = device_student_total.data();
+
+        // 1. Reset infection counts each day
+        amrex::ParallelFor(num_fips, [=] AMREX_GPU_DEVICE (int i) noexcept {
+            stats_ptr[i * SchoolPolicy::SchoolStats::nattribs + SchoolPolicy::SchoolStats::SchoolInfectionCount] = 0;
+        });
+
+
+        // 2.Count students and infections per FIPS
+        for (int lev = 0; lev <= finestLevel(); ++lev) {
+            auto& plev = GetParticles(lev);
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+            for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+                auto& ptile = plev[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
+                auto& soa = ptile.GetStructOfArrays();
+                const auto np = ptile.numParticles();
+                if (np == 0) continue;
+    
+                auto fips_ptr = soa.GetIntData(IntIdx::fips).data();
+                auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
+                auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
+                auto school_grade_ptr = soa.GetIntData(IntIdx::school_grade).data();
+                auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
+                auto withdrawn_date_ptr = soa.GetIntData(IntIdx::withdrawn_date).data();
+                auto hosp_i_ptr = soa.GetIntData(IntIdx::hosp_i).data();
+                auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
+    
+                amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int p) noexcept {
+                    int school_id = (is_census) ? school_id_ptr[p] : getSchoolType(school_grade_ptr[p]);
+                    bool at_school = (is_census) ? school_id > SchoolCensusIDType::none : school_id > SchoolType::none;
+                    bool is_daycare = (is_census) ? school_id >= SchoolCensusIDType::daycare_5 : school_id == SchoolType::daycare;
+                    if (age_group_ptr[p] == 1 && at_school && !is_daycare) {
+                        int fips_idx = map_ptr[fips_ptr[p] - min_fips];
+                        if (fips_idx != -1) {
+                            amrex::Gpu::Atomic::AddNoRet(&total_ptr[fips_idx], 1);
+
+                            int reopen_day_offset = fips_idx * SchoolPolicy::SchoolStats::nattribs + SchoolPolicy::SchoolStats::SchoolReopenDay;
+                            bool is_withdrawn = (withdrawn_ptr[p] == 1 || (hosp_i_ptr[p] > -1 && hosp_j_ptr[p] > -1))
+                                                && (withdrawn_date_ptr[p] >= stats_ptr[reopen_day_offset]);
+                            if (is_withdrawn) {
+                                int offset = fips_idx * SchoolPolicy::SchoolStats::nattribs + SchoolPolicy::SchoolStats::SchoolInfectionCount;
+                                amrex::Gpu::Atomic::AddNoRet(&stats_ptr[offset], 1);
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        // 3. Update school status based on FIPS-wide infection counts
+        amrex::ParallelFor(num_fips, [=] AMREX_GPU_DEVICE (int i) noexcept {
+            int dismissal_offset = i * SchoolPolicy::SchoolStats::nattribs + SchoolPolicy::SchoolStats::SchoolDismissal;
+            int infection_offset = i * SchoolPolicy::SchoolStats::nattribs + SchoolPolicy::SchoolStats::SchoolInfectionCount;
+            int status_day_offset = i * SchoolPolicy::SchoolStats::nattribs + SchoolPolicy::SchoolStats::SchoolStatusDayCount;
+            int reopen_day_offset = i * SchoolPolicy::SchoolStats::nattribs + SchoolPolicy::SchoolStats::SchoolReopenDay;
+    
+            int old_status = stats_ptr[dismissal_offset];
+            int new_status;
+
+            int school_closure_threshold = sc_infection_threshold * total_ptr[i];
+            
+            amrex::Gpu::Atomic::AddNoRet(&stats_ptr[status_day_offset], 1);
+            if (stats_ptr[infection_offset] > school_closure_threshold) {
+                stats_ptr[dismissal_offset] = 1; // 1 = closed
+                stats_ptr[status_day_offset] = 0;
+            } else {
+                stats_ptr[dismissal_offset] = 0; // 0 = open
+                stats_ptr[reopen_day_offset] = m_current_day;
+                stats_ptr[status_day_offset] = 0;
+
+            }
+        });
+    
+        // 4. Update agent status based on FIPS-wide school status
+        for (int lev = 0; lev <= finestLevel(); ++lev) {
+            auto& plev = GetParticles(lev);
+            for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+                auto& ptile = plev[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
+                auto& soa = ptile.GetStructOfArrays();
+                const auto np = ptile.numParticles();
+                if (np == 0) continue;
+
+                auto fips_ptr = soa.GetIntData(IntIdx::fips).data();
+                auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
+                auto school_closed_ptr = soa.GetIntData(IntIdx::school_closed).data();
+                auto school_grade_ptr = soa.GetIntData(IntIdx::school_grade).data();
+
+                amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int p) noexcept {
+                    int school_id = (is_census) ? school_id_ptr[p] : getSchoolType(school_grade_ptr[p]);
+                    bool at_school = (is_census) ? school_id > SchoolCensusIDType::none : school_id > SchoolType::none;
+                    bool is_daycare = (is_census) ? school_id >= SchoolCensusIDType::daycare_5 : school_id == SchoolType::daycare;
+
+                    // Update both students and teachers based on their FIPS
+                    if (at_school && !is_daycare) {
+                        int fips_code = fips_ptr[p];
+                        if (fips_code >= min_fips && fips_code < min_fips + gpu_fips_map.size()){
+                            int fips_idx = map_ptr[fips_code - min_fips];
+                            if (fips_idx != -1) {
+                                int dismissal_status = stats_ptr[fips_idx * SchoolPolicy::SchoolStats::nattribs + SchoolPolicy::SchoolStats::SchoolDismissal];
+                                school_closed_ptr[p] = (dismissal_status == 1) ? 1 : 0; 
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        amrex::Gpu::streamSynchronize();
+    } else { // By Community or By School Type
+
+        int offset = is_census ? SchoolCensusIDType::total : SchoolType::total;
+        AMREX_ALWAYS_ASSERT(a_school_stats.nComp() == offset * SchoolPolicy::SchoolStats::nattribs);
+
+        for (int lev = 0; lev <= finestLevel(); ++lev)
+        {
+            auto& plev = GetParticles(lev);
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+            for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+            {
+                int gid = mfi.index();
+                int tid = mfi.LocalTileIndex();
+                auto& ptile = plev[std::make_pair(gid, tid)];
+                auto& soa = ptile.GetStructOfArrays();
+                const auto np = ptile.numParticles();
+                if (np == 0) { continue; }
+
+                auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
+                auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
+                auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+                auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
+                auto school_grade_ptr = soa.GetIntData(IntIdx::school_grade).data();
+                auto school_closed_ptr = soa.GetIntData(IntIdx::school_closed).data();
+                auto hosp_i_ptr = soa.GetIntData(IntIdx::hosp_i).data();
+                auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
+                auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
+                auto withdrawn_date_ptr = soa.GetIntData(IntIdx::withdrawn_date).data();
+
+                auto status_arr = a_school_stats[mfi].array();
+                const auto& counts_arr = m_student_counts[mfi].array();
+
+                const Box& bx = mfi.tilebox();
+
+                //DEBUGGING PURPOSES
+                // check that when cur_time == 0, everything is zero
+                if (m_current_day == 0) {
+                    // Assert that all particle data and grid data are zero
+                    bool allZero = true;
+
+                    // Check grid data if all particle data was zero
+                    if (allZero) {
+                        for (int i = bx.smallEnd(0); i <= bx.bigEnd(0); ++i) {
+                            for (int j = bx.smallEnd(1); j <= bx.bigEnd(1); ++j) {
+                                for (int k = bx.smallEnd(2); k <= bx.bigEnd(2); ++k) {
+                                    for (int comp = 0; comp < status_arr.nComp(); ++comp) {
+                                        if (status_arr(i, j, k, comp) != 0) {
+                                            allZero = false;
+                                            break;
+                                        }
+                                    }
+                                    for (int comp = 0; comp < counts_arr.nComp(); ++comp) {
+                                        if (counts_arr(i, j, k, comp) != 0) {
+                                            allZero = false;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    AMREX_ALWAYS_ASSERT(allZero);
+                }
+
+                //Reset counts each day
+                amrex::ParallelFor(bx,
+                    [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept
+                    {
+                        for (int ii = 0; ii <  offset; ii ++){
+                            status_arr(i, j, k, ii + offset * SchoolPolicy::SchoolStats::SchoolInfectionCount) = 0;
+                        }
+
+                    });
+                Gpu::synchronize();
+
+                // Infection Counts at a given day
+                amrex::ParallelFor(np,
+                    [=] AMREX_GPU_DEVICE(int p) noexcept
+                    {
+                        int home_i = home_i_ptr[p];
+                        int home_j = home_j_ptr[p];
+                        // int school_id = getSchoolType(school_grade_ptr[p]);
+                        int school_id = school_id_ptr[p];
+                        if (age_group_ptr[p] == 1) { // Exclude DayCare/Playgroud
+                            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(school_id >= 0, "school_ptr can't be negative");
+                            if (school_id > 0 && (withdrawn_ptr[p] == 1 || hosp_i_ptr[p] > -1 || hosp_j_ptr[p] > -1)) {
+                                // Add to the community-level counter (index 0)
+                                if (withdrawn_date_ptr[p] >= status_arr(home_i, home_j, 0, offset * SchoolPolicy::SchoolStats::SchoolReopenDay)) {
+                                    amrex::Gpu::Atomic::AddNoRet(&status_arr(home_i, home_j, 0, offset * SchoolPolicy::SchoolStats::SchoolInfectionCount), 1);
+                                }
+                                // Also add to the per-school counter (index = school_id)
+                                if (withdrawn_date_ptr[p] >= status_arr(home_i, home_j, 0, school_id + offset * SchoolPolicy::SchoolStats::SchoolReopenDay)) {
+                                    amrex::Gpu::Atomic::AddNoRet(&status_arr(home_i, home_j, 0, school_id + offset * SchoolPolicy::SchoolStats::SchoolInfectionCount), 1);
+                                }
+                            }
+                        }
+                    });
+                Gpu::synchronize();
+
+                // close community/school based on infection count
+                amrex::ParallelFor(bx,
+                    [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept
+                    {
+                        int start_dismiss = (school_closure_option == SchoolPolicy::SchoolDismissalType::BySchool) ? 1 : 0;
+                        int stop_dismiss = 1;
+                        if (is_census) {
+                            stop_dismiss = (school_closure_option == SchoolPolicy::SchoolDismissalType::BySchool) ? SchoolCensusIDType::daycare_5 : 1; // exclude daycare otherwise use SchoolCensusIDType::total
+                        } else {
+                            stop_dismiss = (school_closure_option == SchoolPolicy::SchoolDismissalType::BySchool) ? SchoolType::daycare : 1; // exclude daycare otherwise use SchoolType::total
+                        }
+
+                        for (int ii = start_dismiss; ii < stop_dismiss; ii++) //exclude DayCare
+                        {
+                            int student_total = 0;
+                            if (school_closure_option == SchoolPolicy::SchoolDismissalType::ByCommunity) {
+                                if (is_census) {
+                                    student_total = counts_arr(i, j, k, 0) - counts_arr(i, j, k, SchoolCensusIDType::daycare_5);
+                                } else {
+                                    student_total = counts_arr(i, j, k, 0) - counts_arr(i, j, k, SchoolType::daycare);
+                                }
+                            } else { // BySchool
+                                student_total = counts_arr(i, j, k, ii);
+                            }
+
+                            if (student_total == 0) continue;
+
+                            int& dismissal_status = status_arr(i, j, k, ii + offset * SchoolPolicy::SchoolStats::SchoolDismissal);
+                            int& day_count = status_arr(i, j, k, ii + offset * SchoolPolicy::SchoolStats::SchoolStatusDayCount);                
+                            int infection_count = status_arr(i, j, k, ii + offset * SchoolPolicy::SchoolStats::SchoolInfectionCount);
+
+                            amrex::Gpu::Atomic::AddNoRet(&day_count, 1); // increment day counter when open as well?
+                    
+                            if (dismissal_status == 0) {        
+                                int thresh = static_cast<int>(sc_infection_threshold * student_total) + 1;
+                                if (infection_count >= thresh)
+                                {
+                                    dismissal_status = 1; // Close the school
+                                    if ( i == 14 && j == 2 && debug_print) {
+                                        printf("School %d (%d, %d, %d) is now closed at day %d (dissmissal = %d). Infection number: MultiFab = %d, Day = %d\n",
+                                            ii, i, j, k, m_current_day,
+                                            dismissal_status,
+                                            infection_count,
+                                            day_count);
+                                    }
+                                    day_count = 0; // Reset the closure day counter
+                                }
+                                else {
+                                    if ( i == 14 && j == 2 && debug_print) {
+                                        printf("School %d (%d, %d, %d) is currenly opened %d. Infection number: MultiFab = %d, Day = %d\n",
+                                            ii, i, j, k,
+                                            dismissal_status,
+                                            infection_count,
+                                            day_count);
+                                    }
+                                }
+                            } else { // School is closed
+                                if (day_count >= sc_length) {
+                                    dismissal_status = 0;
+                                    status_arr(i, j, k, ii + offset * SchoolPolicy::SchoolStats::SchoolReopenDay) = m_current_day;
+
+                                    if ( i == 14 && j == 2 && debug_print) {
+                                        printf("School %d (%d, %d, %d) has now opened at day %d (dissmissal = %d). Infection number: MultiFab = %d, Day = %d\n",
+                                            ii, i, j, k, m_current_day,
+                                            dismissal_status,
+                                            infection_count,
+                                            day_count);
+                                    }
+                                    day_count = 0;
+
+                                } else {
+                                    if (i == 14 && j == 2 && debug_print) {
+                                        printf("School %d (%d, %d, %d) is currently closed %d. Infection number: MultiFab = %d, Day = %d\n",
+                                            ii, i, j, k,
+                                            dismissal_status,
+                                            infection_count,
+                                            day_count);
+                                    }
+                                }
+                            }
+                        }
+
+                    });
+                Gpu::synchronize();
+
+                // for debugging purposes
+                amrex::ParallelFor(bx,
+                    [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept
+                    {
+                        if (i == 14 && j == 2 && debug_print) {
+                            int start_dismiss = (school_closure_option == SchoolPolicy::SchoolDismissalType::BySchool) ? 1 : 0;
+                            int stop_dismiss = 1;
+                            if (is_census) {
+                                stop_dismiss = (school_closure_option == SchoolPolicy::SchoolDismissalType::BySchool) ? SchoolCensusIDType::daycare_5 : 1; // exclude daycare otherwise use SchoolCensusIDType::total
+                            } else {
+                                stop_dismiss = (school_closure_option == SchoolPolicy::SchoolDismissalType::BySchool) ? SchoolType::daycare : 1; // exclude daycare otherwise use SchoolType::total
+                            }
+        
+                            for (int ii = start_dismiss; ii < stop_dismiss; ii++) //exclude DayCare
+                            {
+                                int student_total = 0;
+                                if (school_closure_option == SchoolPolicy::SchoolDismissalType::ByCommunity) {
+                                    if (is_census) {
+                                        student_total = counts_arr(i, j, k, 0) - counts_arr(i, j, k, SchoolCensusIDType::daycare_5);
+                                    } else {
+                                        student_total = counts_arr(i, j, k, 0) - counts_arr(i, j, k, SchoolType::daycare);
+                                    }
+                                } else { // BySchool
+                                    student_total = counts_arr(i, j, k, ii);
+                                }
+
+                                printf("School %d (%d, %d, %d) has Infection number:  MultiFab = %d, Day = %d, with total students %d\n",
+                                    ii, i, j, k,
+                                    status_arr(i, j, k,  ii + offset * SchoolPolicy::SchoolStats::SchoolInfectionCount),
+                                    status_arr(i, j, k,  ii + offset * SchoolPolicy::SchoolStats::SchoolStatusDayCount),
+                                    student_total
+                                    );
+                            }
+                        }
+                    });
+
+                Gpu::synchronize();
+
+                // update school_closed_ptr for both teachers and children based on school closure status
+                if (school_closure_flag){
+                    amrex::ParallelFor( np,
+                    [=] AMREX_GPU_DEVICE (int p) noexcept
+                    {
+                        bool update_this_agent = true;
+                        if (is_census) {
+                            int agent_school_id = school_id_ptr[p];
+                            update_this_agent = (agent_school_id > 0 && agent_school_id != SchoolCensusIDType::daycare_5);
+                        } else {
+                            int agent_school_id = getSchoolType(school_grade_ptr[p]);
+                            update_this_agent = (agent_school_id >= 0 && agent_school_id != SchoolType::daycare);
+                        }
+
+                        if (update_this_agent) {
+                            int school_type = 0; // default to community-level school status
+                            if (school_closure_option == SchoolPolicy::SchoolDismissalType::BySchool) {
+                                if (is_census) {
+                                    school_type = school_id_ptr[p];
+                                } else {
+                                    school_type = getSchoolType(school_grade_ptr[p]);
+                                }
+                            }
+                            int school_status = status_arr(home_i_ptr[p], home_j_ptr[p], 0, school_type + offset * SchoolPolicy::SchoolStats::SchoolDismissal);
+                            school_closed_ptr[p] = (school_status == 1) ? 1 : 0; 
+
+                            AMREX_ASSERT(school_closed_ptr[p] == ((school_status == 1) ? 1 : 0));
+                        }
+                    });
+                    Gpu::synchronize();
+                }
+            }
+        }
+    }
+
+}
+
+/*! \brief Sets a default 32-bit school attendance schedule for all student agents.
+
+   For students assigned to a school, the schedule is set to active (MSB=1), and
+   the daily bits are set to 'attend' (1) for the specified number of steps.
+   For all other agents, the schedule is set to inactive (mask = 0).    
+ */
+void AgentContainer::initializeSchoolAttendanceForAll(int window_size)
+{
+    BL_PROFILE("AgentContainer::initializeSchoolAttendanceForAll");
+    if (window_size > 30) {
+        amrex::Abort("ERROR: Number of schedule days (window_size) cannot exceed 30 for a 32-bit mask.");
+    }
+    // MSB=0 (inactive) and all daily bits=0 (don't attend).
+    const uint32_t inactive_mask = 0;
+    // (1U << 31) sets the active flag (MSB = 1)& ((1U << window_size) - 1) sets the daily attendance bits.
+    const uint32_t attendance_mask = (1U << 31) | ((1U << window_size) - 1);
+    for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev = GetParticles(lev);
 
 #ifdef AMREX_USE_OMP
@@ -1019,223 +1708,239 @@ void AgentContainer::updateSchoolInfection(iMultiFab& a_school_stats, amrex::Rea
             auto& ptile = plev[std::make_pair(gid, tid)];
             auto& soa = ptile.GetStructOfArrays();
             const auto np = ptile.numParticles();
-
-            auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
-            auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
-            auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+            auto mask_ptr = soa.GetIntData(IntIdx::school_attendance_mask).data();
             auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
-            auto school_closed_ptr = soa.GetIntData(IntIdx::school_closed).data();
-            auto hosp_i_ptr = soa.GetIntData(IntIdx::hosp_i).data();
-            auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
-            auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
-            auto withdrawn_date_ptr = soa.GetIntData(IntIdx::withdrawn_date).data();
+            auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
+            amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
+                if (age_group_ptr[i] < AgeGroups::a18to29 && school_id_ptr[i] > SchoolType::none) {
+                    mask_ptr[i] = attendance_mask;
+                } else {
+                    mask_ptr[i] = inactive_mask;
+                }
+            });
+            Gpu::synchronize();
+        }
+    }
+    Print() << "[INFO] Set initial 32-bit school attendance for " << window_size << " days. (Day " << m_current_day << " to Day " << m_current_day + window_size << ").\n";
+}
 
-            auto status_arr = a_school_stats[mfi].array();
-            const auto& counts_arr = m_student_counts[mfi].array();
+/*! \brief Applies user-defined attendance policies to modify student schedules for a specific time window.  
+   It is time-aware, calculating schedules only for policies that are active within the 30-day window starting at time_offset.
+  + First, pre-calculates 32-bit masks for each policy group.
+  + Second,students are randomly assigned to a group and their schedule is updated.
+ */
+void AgentContainer::assignAttendanceFromPolicies(const std::vector<ExaEpi::SchoolPolicy>& policies, int time_offset)
+{
+    BL_PROFILE("AgentContainer::assignAttendanceFromPolicies");
+    if (policies.empty()) { return; }
 
-            const Box& bx = mfi.tilebox();
+    std::vector<SchoolPolicy::PolicyGPUData> host_policy_data;
+    const uint32_t MASK_ACTIVE_AND_ALWAYS_ATTEND = 0xFFFFFFFFU & ~(1U << 30);
 
-            //DEBUGGING PURPOSES
-            // check that when cur_time == 0, everything is zero
-            if (std::abs(a_cur_time) < 1e-9) {
-                // Assert that all particle data and grid data are zero
-                bool allZero = true;
+    for (const auto& policy : policies) {
+        // Only consider policies that are active in the new time 30 day window
+        if (policy.end_day <= time_offset || policy.start_day >= time_offset + 30) {
+            continue; 
+        }
 
-                // Check grid data if all particle data was zero
-                if (allZero) {
-                    for (int i = bx.smallEnd(0); i <= bx.bigEnd(0); ++i) {
-                        for (int j = bx.smallEnd(1); j <= bx.bigEnd(1); ++j) {
-                            for (int k = bx.smallEnd(2); k <= bx.bigEnd(2); ++k) {
-                                if (status_arr(i, j, k) != 0 || counts_arr(i, j, k) != 0) {
-                                    allZero = false;
-                                    break;  // Early exit if any value is non-zero
-                                }
-                            }
+        SchoolPolicy::PolicyGPUData data;
+        data.school_type = policy.school_type;
+
+        try {
+            data.fips = std::stoi(policy.fips);
+        } catch (const std::invalid_argument& e) {
+            amrex::Abort("Invalid FIPS code in policy: " + policy.fips);
+        }
+
+        std::string pattern = policy.schedule_pattern;
+        std::string unique_chars = pattern;
+        unique_chars.erase(std::remove(unique_chars.begin(), unique_chars.end(), '_'), unique_chars.end());
+        std::sort(unique_chars.begin(), unique_chars.end());
+        unique_chars.erase(std::unique(unique_chars.begin(), unique_chars.end()), unique_chars.end());
+
+        data.num_groups = unique_chars.length();
+        
+        // Debugging
+        if (amrex::ParallelDescriptor::IOProcessor()) {
+            amrex::Print() << "\n--- POLICY DEBUGGER ---\n";
+            amrex::Print() << "  - Raw Pattern String: '" << pattern << "'\n";
+            amrex::Print() << "  - Unique Chars Found: '" << unique_chars << "'\n";
+            amrex::Print() << "  - Calculated num_groups: " << data.num_groups << "\n";
+            amrex::Print() << "  - FIPS Code (as int): " << data.fips << " (0 means ALL)\n";
+            amrex::Print() << "-----------------------\n\n";
+        }
+        if (data.num_groups == 0 && pattern.find_first_not_of('_') == std::string::npos) {
+            data.num_groups = 1;
+        }
+
+        if (data.num_groups > 4) { amrex::Abort("Policies with more than 4 unique groups are not supported."); }
+        if (data.num_groups == 0) continue;
+
+        // Pre-calculate the 32-bit mask for each group for the window [time_offset, time_offset + 30)
+        for (int i = 0; i < data.num_groups; ++i) {
+            char group_char = unique_chars.empty() ? 'A' : unique_chars[i]; // in case user put all '_____'
+            uint32_t group_mask = MASK_ACTIVE_AND_ALWAYS_ATTEND;
+
+            for (int d = 0; d < 30; ++d) {
+                int day_in_sim = time_offset + d; 
+
+                if (day_in_sim >= policy.start_day && day_in_sim < policy.end_day) {
+                    // Determine the character for this day from the repeating pattern
+                    char day_char = pattern[(day_in_sim - policy.start_day) % pattern.length()];
+                    if (day_char == '_' || day_char != group_char) {
+                        // The bit position 'd' is relative to the window's start.
+                        // Set the bit to 0 to mark as absent.
+                        group_mask &= ~(1U << d);
+                    }
+                }
+            }
+            data.group_masks[i] = group_mask;
+        }
+        host_policy_data.push_back(data);
+    }
+
+    if (host_policy_data.empty()) { return; }
+
+    amrex::Gpu::DeviceVector<SchoolPolicy::PolicyGPUData> device_policy_data(host_policy_data.size());
+    amrex::Gpu::copy(amrex::Gpu::hostToDevice, host_policy_data.begin(), host_policy_data.end(), device_policy_data.begin());
+    auto* policies_ptr = device_policy_data.data();
+    int num_policies = device_policy_data.size();
+
+    // Apply the pre-calculated masks to each student
+    for (int lev = 0; lev <= finestLevel(); ++lev) {
+        auto& plev = GetParticles(lev);
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            int gid = mfi.index();
+            int tid = mfi.LocalTileIndex();
+            auto& ptile = plev[std::make_pair(gid, tid)];
+            auto& soa = ptile.GetStructOfArrays();
+            const auto np = ptile.numParticles();
+            auto school_grade_ptr = soa.GetIntData(IntIdx::school_grade).data();
+            auto mask_ptr = soa.GetIntData(IntIdx::school_attendance_mask).data();
+            auto fips_ptr = soa.GetIntData(IntIdx::fips).data();
+
+            amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, amrex::RandomEngine const& engine) noexcept {
+                // Check if the student's schedule is active (MSB is 1)
+                if ((mask_ptr[i] & (1U << 31)) != 0) {
+                    for (int p_idx = 0; p_idx < num_policies; ++p_idx) {
+                        const auto& policy = policies_ptr[p_idx];
+                        bool school_type_matches = (policy.school_type == -1 || policy.school_type == getSchoolType(school_grade_ptr[i]));
+                        bool fips_matches = (policy.fips == 0 || policy.fips == fips_ptr[i]);
+                        if (school_type_matches && fips_matches) {
+                            int group_idx = amrex::Random_int(policy.num_groups, engine);
+                            mask_ptr[i] &= policy.group_masks[group_idx];
                         }
                     }
                 }
-                AMREX_ALWAYS_ASSERT(allZero);
-            }
-
-
-            //Reset counts each day
-            amrex::ParallelFor(bx,
-                [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept
-                {
-                    for (int ii = 0; ii <  offset; ii ++){
-                        status_arr(i, j, k, ii + offset * SchoolStats::SchoolInfectionCount) = 0;
-                    }
-
-                });
+            });
             Gpu::synchronize();
-
-            // Infection Counts at a given day
-            amrex::ParallelFor(np,
-                [=] AMREX_GPU_DEVICE(int p) noexcept
-                {
-                    int home_i = home_i_ptr[p];
-                    int home_j = home_j_ptr[p];
-                    // int school_id = getSchoolType(school_grade_ptr[p]);
-                    int school_id = school_id_ptr[p];
-                    if (age_group_ptr[p] == 1) { // Exclude DayCare/Playgroud
-                        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(school_id >= 0, "school_ptr can't be negative");
-                        if (school_id > 0 && (withdrawn_ptr[p] == 1 || hosp_i_ptr[p] > -1 || hosp_j_ptr[p] > -1)) {
-                            if (withdrawn_date_ptr[p] >= (status_arr(home_i, home_j, 0, offset * SchoolStats::SchoolReopenDay) - 1e-9)) {
-                                amrex::Gpu::Atomic::Add(&status_arr(home_i, home_j, 0,  offset * SchoolStats::SchoolInfectionCount), 1);
-                            }
-                            if (withdrawn_date_ptr[p] >= (status_arr(home_i, home_j, 0, school_id + offset * SchoolStats::SchoolReopenDay) - 1e-9)){
-                                amrex::Gpu::Atomic::Add(&status_arr(home_i, home_j, 0, school_id +  offset * SchoolStats::SchoolInfectionCount), 1);
-                            }
-                        }
-                    }
-                });
-            Gpu::synchronize();
-
-            // close community/school based on infection count
-            amrex::ParallelFor(bx,
-                [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept
-                {
-                    int start_dismiss = 0;
-                    int stop_dismiss  = 1;
-                    if (school_closure_option == SchoolDismissal::BySchool){
-                        start_dismiss = 1;
-                        stop_dismiss  = 5;
-                    }
-
-                    for (int ii = start_dismiss; ii < stop_dismiss; ii++) //exclude DayCare
-                    {
-                        if (status_arr(i, j, k, ii +  offset * SchoolStats::SchoolDismissal) == 0) {
-                            // Check if the school should be closed
-                            int student_total;
-                            if (ii == 0){
-                                student_total = counts_arr(i, j, k, SchoolCensusIDType::elem_3)
-                                        + counts_arr(i, j, k, SchoolCensusIDType::elem_4)
-                                        + counts_arr(i, j, k, SchoolCensusIDType::middle_2)
-                                        + counts_arr(i, j, k, SchoolCensusIDType::high_1); // handle daycare,playgroup later
-                            }
-                            else{ student_total = counts_arr(i, j, k, ii);}
-
-                            long thresh = static_cast<int>(sc_infection_threshold * student_total) + 1;
-                            if (status_arr(i, j, k, ii + offset * SchoolStats::SchoolInfectionCount) >= thresh)
-                            {
-                                status_arr(i, j, k, ii + offset * SchoolStats::SchoolDismissal) = 1; // close school
-                                if ( i == 14 && j == 2 && debug_print) {
-                                    printf("School %d (%d, %d, %d) is now closed at day %f (dissmissal = %d). Infection number: MultiFab = %d, Day = %d\n",
-                                        ii, i, j, k, a_cur_time,
-                                        status_arr(i, j, k, ii + offset * SchoolStats::SchoolDismissal),
-                                        status_arr(i, j, k, ii + offset * SchoolStats::SchoolInfectionCount),
-                                        status_arr(i, j, k, ii + offset * SchoolStats::SchoolStatusDayCount));
-                                }
-                                status_arr(i, j, k, ii + offset * SchoolStats::SchoolStatusDayCount) = 0; //update school closure day to Day 0
-
-                            }
-                            else {
-                                if ( i == 14 && j == 2 && debug_print) {
-                                    printf("School %d (%d, %d, %d) is currenly opened %d. Infection number: MultiFab = %d, Day = %d\n",
-                                        ii, i, j, k,
-                                        status_arr(i, j, k, ii + offset * SchoolStats::SchoolDismissal),
-                                        status_arr(i, j, k, ii + offset * SchoolStats::SchoolInfectionCount),
-                                        status_arr(i, j, k, ii + offset * SchoolStats::SchoolStatusDayCount));
-                                }
-                                amrex::Gpu::Atomic::Add(&status_arr(i, j, k, ii + offset * SchoolStats::SchoolStatusDayCount), 1);
-
-                            }
-                        } else { // School is closed
-                            if (status_arr(i, j, k, ii + offset * SchoolStats::SchoolStatusDayCount) > sc_length - 1 ) {
-
-                                status_arr(i, j, k, ii + offset * SchoolStats::SchoolDismissal) = 0;
-                                status_arr(i, j, k, ii + offset * SchoolStats::SchoolReopenDay) = static_cast<int>(a_cur_time);
-
-                                if ( i == 14 && j == 2 && debug_print) {
-                                    printf("School %d (%d, %d, %d) has now opened at day %f (dissmissal = %d). Infection number: MultiFab = %d, Day = %d\n",
-                                        ii, i, j, k, a_cur_time,
-                                        status_arr(i, j, k, ii + offset * SchoolStats::SchoolDismissal),
-                                        status_arr(i, j, k, ii + offset * SchoolStats::SchoolInfectionCount),
-                                        status_arr(i, j, k, ii + offset * SchoolStats::SchoolStatusDayCount));
-                                }
-                                status_arr(i, j, k, ii + offset * SchoolStats::SchoolStatusDayCount) = 0;
-
-                            } else {
-                                if (i == 14 && j == 2 && debug_print) {
-                                    printf("School %d (%d, %d, %d) is currently closed %d. Infection number: MultiFab = %d, Day = %d\n",
-                                        ii, i, j, k,
-                                        status_arr(i, j, k, ii + offset * SchoolStats::SchoolDismissal),
-                                        status_arr(i, j, k, ii + offset * SchoolStats::SchoolInfectionCount),
-                                        status_arr(i, j, k, ii + offset * SchoolStats::SchoolStatusDayCount));
-                                }
-                                amrex::Gpu::Atomic::Add(&status_arr(i, j, k, ii + offset * SchoolStats::SchoolStatusDayCount), 1);
-
-                            }
-                        }
-                        int school_status = status_arr(i, j, k, ii + offset * SchoolStats::SchoolDismissal);
-                        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(school_status == 1 || school_status == 0,
-                                "School status should be 1 when the school is closed.");
-                    }
-
-                });
-            Gpu::synchronize();
-
-            // for debugging purposes
-            amrex::ParallelFor(bx,
-                [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept
-                {
-                    if (i == 14 && j == 2 && debug_print) {
-                        int start_dismiss = 0;
-                        int stop_dismiss  = 1;
-                        if (school_closure_option == SchoolDismissal::BySchool){
-                            start_dismiss = 1;
-                            stop_dismiss  = 5;
-                        }
-
-                        for (int ii = start_dismiss; ii < stop_dismiss; ii++) //exclude DayCare
-                        {
-                            int total_student = 0;
-                            if (ii == 0){
-                                total_student = (counts_arr(i, j, k, SchoolCensusIDType::elem_3)
-                                                + counts_arr(i, j, k, SchoolCensusIDType::elem_4)
-                                                + counts_arr(i, j, k, SchoolCensusIDType::middle_2)
-                                                + counts_arr(i, j, k, SchoolCensusIDType::high_1));
-                            } else {
-                                total_student = counts_arr(i, j, k, ii);
-                            }
-
-                            printf("School %d (%d, %d, %d) has Infection number:  MultiFab = %d, Day = %d, with total students %d\n",
-                                ii, i, j, k,
-                                status_arr(i, j, k,  ii + offset * SchoolStats::SchoolInfectionCount),
-                                status_arr(i, j, k,  ii + offset * SchoolStats::SchoolStatusDayCount),
-                                total_student
-                                );
-                        }
-                    }
-                });
-
-            Gpu::synchronize();
-
-            // update school_closed_ptr for both teachers and children based on school closure status
-            if (school_closure_flag){
-                amrex::ParallelFor( np,
-                [=] AMREX_GPU_DEVICE (int p) noexcept
-                {
-                    if (age_group_ptr[p] >= 1 && school_id_ptr[p] > 0 && school_id_ptr[p] < 5){ // teachers and student -- excludes daycare for now
-
-                        int school_type = 0; // zero here means community-level
-                        if (school_closure_option == SchoolDismissal::BySchool){
-                            school_type = school_id_ptr[p];
-                        }
-                        int school_status = status_arr(home_i_ptr[p], home_j_ptr[p], 0, school_type + offset * SchoolStats::SchoolDismissal);
-
-                        if (school_status == 0){ school_closed_ptr[p] = 0; }
-                        else{
-                            school_closed_ptr[p] = 1;
-                            // Ensure that the school status is correctly marked as closed (1)
-                            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(school_status == 1,
-                                "School status should be 1 when the school is closed.");
-                        }
-                    }
-                });
-                Gpu::synchronize();
-            }
         }
     }
+}
 
+/*! \brief Update of all attendance schedules for a new 30-day window. */
+void AgentContainer::updateAttendanceSchedules(int current_day, const std::vector<ExaEpi::SchoolPolicy>& policies)
+{
+    Print() << "[INFO] Updating attendance schedules for window starting on day " << current_day << ".\n";
+
+    // 1. Set a baseline "always attend" schedule for the next 30 days.
+    initializeSchoolAttendanceForAll(30);
+
+    // 2. Apply policies relative to the start of this new window.
+    assignAttendanceFromPolicies(policies, current_day);
+
+    // 3. Record that the update has been performed for this window.
+    m_last_mask_update_day = current_day;
+}
+
+/*! \brief Counts and prints the number of students attending school on a given day. */
+void AgentContainer::countAttendingStudents(int current_day) const
+{
+    BL_PROFILE("AgentContainer::countAttendingStudents");
+
+    // Get the start day of the current schedule window. This is captured by the lambda.
+    const int last_mask_update_day = getLastMaskUpdateDay();
+
+    // --- CORRECTED REDUCTION SETUP ---
+    // 1. Define a ReduceOps struct that bundles all the summation operations.
+    amrex::ReduceOps<amrex::ReduceOpSum, amrex::ReduceOpSum, amrex::ReduceOpSum,
+                     amrex::ReduceOpSum, amrex::ReduceOpSum, amrex::ReduceOpSum>
+        reduce_ops;
+
+    // 2. Use ParticleReduce with the ReduceOps struct as the third argument.
+    auto r = amrex::ParticleReduce<amrex::ReduceData<int, int, int, int, int, int>>(
+        *this,
+        [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
+                             const int i) noexcept -> amrex::GpuTuple<int, int, int, int, int, int>
+        {
+            // Initialize counts for each school type to zero for this particle.
+            amrex::GpuArray<Long, SchoolType::total> counts = {0};
+
+            // --- Replicate the full attendance logic inside the reduction kernel ---
+
+            // 1. Basic conditions: Must be a student with a school ID.
+            bool is_student = (ptd.m_idata[IntIdx::age_group][i] < AgeGroups::a18to29) &&
+                              (ptd.m_idata[IntIdx::school_id][i] > SchoolType::none);// &&
+                            //   (ptd.m_idata[IntIdx::workgroup][i] <= 0);
+            if (!is_student) {
+                return {0, 0, 0, 0, 0, 0};
+            }
+
+            const uint32_t mask = static_cast<uint32_t>(ptd.m_idata[IntIdx::school_attendance_mask][i]);
+            bool attends = false;
+
+            // 2. Check if the schedule is active (MSB must be 1).
+            if ((mask & (1U << 31)) != 0) {
+                // 3. Check if the current day is within the active window.
+                if (current_day < last_mask_update_day || current_day >= last_mask_update_day + 30) {
+                    attends = true; // Outside the window, the default is to attend.
+                } else {
+                    // 4. Check the specific bit for the relative day.
+                    const int relative_day = current_day - last_mask_update_day;
+                    attends = ((mask >> relative_day) & 1U) == 1U;
+                }
+            } // If schedule is not active, 'attends' remains false.
+
+            if (attends) {
+                const int grade = ptd.m_idata[IntIdx::school_grade][i];
+                int school_type = getSchoolType(grade);
+                if (school_type > 0 && school_type < SchoolType::total) {
+                    counts[school_type] = 1;
+                }
+            }
+
+            return {counts[SchoolType::none], counts[SchoolType::college], counts[SchoolType::high],
+                    counts[SchoolType::middle], counts[SchoolType::elem], counts[SchoolType::daycare]};
+        },
+        reduce_ops // Pass the single ReduceOps struct
+    );
+
+    // The result 'r' now contains the summed counts across all threads and MPI ranks.
+    // We just need to retrieve the values and print them on the I/O processor.
+    if (amrex::ParallelDescriptor::IOProcessor()) {
+        // Extract the counts from the GpuTuple result.
+        std::array<Long, SchoolType::total> final_counts = {
+            amrex::get<0>(r), amrex::get<1>(r), amrex::get<2>(r),
+            amrex::get<3>(r), amrex::get<4>(r), amrex::get<5>(r)
+        };
+
+        int total_attending = 0;
+        amrex::Print() << "\n--- School Attendance Report for Day " << current_day << " ---\n";
+        amrex::Print() << "  - College:    " << final_counts[SchoolType::college] << " students attending\n";
+        amrex::Print() << "  - High:       " << final_counts[SchoolType::high]    << " students attending\n";
+        amrex::Print() << "  - Middle:     " << final_counts[SchoolType::middle]  << " students attending\n";
+        amrex::Print() << "  - Elementary: " << final_counts[SchoolType::elem]    << " students attending\n";
+        amrex::Print() << "  - Daycare:    " << final_counts[SchoolType::daycare] << " students attending\n";
+
+        for (int i = 1; i < SchoolType::total; ++i) {
+            total_attending += final_counts[i];
+        }
+        amrex::Print() << "  - TOTAL: " << total_attending << " students attending\n"
+                       << "------------------------------------------\n\n";
+    }
 }

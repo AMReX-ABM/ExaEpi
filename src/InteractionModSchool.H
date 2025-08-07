@@ -5,10 +5,17 @@
 #ifndef _INTERACTION_MOD_SCHOOL_H_
 #define _INTERACTION_MOD_SCHOOL_H_
 
+#include <cstdint> // For uint32_t
 #include "AgentDefinitions.H"
 #include "InteractionModel.H"
 
 using namespace amrex;
+
+// Global variables for school attendance mask needed for isCandidate
+namespace {
+    int g_current_day = 0;
+    int g_last_mask_update_day = 0;
+}
 
 #ifndef FAST_INTERACTIONS
 /*! \brief One-on-one interaction between an infectious agent and a susceptible agent.
@@ -75,9 +82,35 @@ template <typename PTDType>
 struct SchoolCandidate {
     AMREX_GPU_HOST_DEVICE
     bool operator()(const int idx, const PTDType& ptd) const noexcept {
-        return !inHospital(idx, ptd) && ptd.m_idata[IntIdx::school_id][idx] > 0 && ptd.m_idata[IntIdx::school_closed][idx] == 0 &&
-               !ptd.m_idata[IntIdx::withdrawn][idx] && ptd.m_idata[IntIdx::air_travel][idx] < 0 &&
-               ptd.m_idata[IntIdx::random_travel][idx] < 0;
+        bool basic_conditions = !inHospital(idx, ptd) && 
+                               ptd.m_idata[IntIdx::school_id][idx] > 0 && 
+                               ptd.m_idata[IntIdx::school_closed][idx] == 0 &&
+                               !ptd.m_idata[IntIdx::withdrawn][idx] && 
+                               ptd.m_idata[IntIdx::air_travel][idx] < 0 &&
+                               ptd.m_idata[IntIdx::random_travel][idx] < 0;
+        if (!basic_conditions) {
+            return false;
+        }
+        const uint32_t mask = static_cast<uint32_t>(ptd.m_idata[IntIdx::school_attendance_mask][idx]);
+
+         // Check active flag (MSB). return if INACTIVE.
+        if ((mask & (1U << 31)) == 0) {
+            return false;
+        }
+
+        // Check if the current day is within the active window
+        if (g_current_day < g_last_mask_update_day || g_current_day >= g_last_mask_update_day + 30) {
+#ifdef AMREX_USE_CUDA
+            printf("WARNING: School attendance check for day %d is outside the active mask window [%d, %d). Defaulting to attend.\n",
+                   g_current_day, g_last_mask_update_day, g_last_mask_update_day + 30);
+#endif
+            return true;
+        }
+
+        // Check the corresponding bit of relative day
+        const int relative_day = g_current_day - g_last_mask_update_day;
+        const bool attends = ((mask >> relative_day) & 1U) == 1U;
+        return attends;
     }
 };
 
@@ -93,6 +126,9 @@ class InteractionModSchool : public InteractionModel<PCType, PTDType, PType> {
 
     /*! \brief Simulate agent interaction at school */
     virtual void interactAgents (PCType& agents, MultiFab&) override {
+        // Update variables for school attendance mask needed for isCandidate
+        g_current_day = agents.getCurrentDay();
+        g_last_mask_update_day = agents.getLastMaskUpdateDay();
 #ifdef FAST_INTERACTIONS
         fastInteractSchool(agents);
 #else

@@ -296,12 +296,14 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
         auto trav_j_ptr = soa.GetIntData(IntIdx::trav_j).data();
         auto hosp_i_ptr = soa.GetIntData(IntIdx::hosp_i).data();
         auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
+        auto fips_ptr = soa.GetIntData(IntIdx::fips).data();
         auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
         auto withdrawn_date_ptr = soa.GetIntData(IntIdx::withdrawn_date).data();
         auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
         auto school_grade_ptr = soa.GetIntData(IntIdx::school_grade).data();
         auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
         auto school_closed_ptr = soa.GetIntData(IntIdx::school_closed).data();
+        auto school_attendance_mask_ptr = soa.GetIntData(IntIdx::school_attendance_mask).data();
         auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
         auto work_nborhood_ptr = soa.GetIntData(IntIdx::work_nborhood).data();
@@ -461,6 +463,7 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                 trav_j_ptr[ip] = j;
                 hosp_i_ptr[ip] = -1;
                 hosp_j_ptr[ip] = -1;
+                fips_ptr[ip] = FIPS_arr(i, j, k, 0);
                 nborhood_ptr[ip] = nborhood;
                 work_nborhood_ptr[ip] = nborhood;
                 workgroup_ptr[ip] = 0;
@@ -473,12 +476,16 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                 assignSchool(&school_grade_ptr[ip], &school_id_ptr[ip], age_group, nborhood, engine);
 
                 school_closed_ptr[ip] = 0;
+                school_attendance_mask_ptr[ip] = 0;
 
                 // Increment the appropriate student counter based on the school assignment
-                if (school_id_ptr[ip] >= SchoolCensusIDType::daycare_5) {
-                    Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, SchoolCensusIDType::daycare_5 - 1), 1);
-                } else if (school_id_ptr[ip] > SchoolCensusIDType::none) {
-                    Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, school_id_ptr[ip] - 1), 1);
+                if (school_id_ptr[ip] > SchoolCensusIDType::none) {
+                    Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, 0), 1); // use idx 0 for total
+                    if (school_id_ptr[ip] >= SchoolCensusIDType::daycare_5) {
+                        Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, SchoolCensusIDType::daycare_5), 1);
+                    } else {
+                        Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, school_id_ptr[ip]), 1);
+                    }
                 }
             }
         });
@@ -716,15 +723,15 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& pc, const int workg
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
             int comm = comm_arr(i, j, k);
             if (comm >= Ncommunity || comm < 0) { return; }
-            high_teachers_ptr[comm] = int(std::round(double(student_counts_arr(i, j, k, SchoolCensusIDType::high_1 - 1)) /
+            high_teachers_ptr[comm] = int(std::round(double(student_counts_arr(i, j, k, SchoolCensusIDType::high_1)) /
                                                      student_teacher_ratio[SchoolType::high]));
-            middle_teachers_ptr[comm] = int(std::round((double)student_counts_arr(i, j, k, SchoolCensusIDType::middle_2 - 1) /
+            middle_teachers_ptr[comm] = int(std::round((double)student_counts_arr(i, j, k, SchoolCensusIDType::middle_2) /
                                                        student_teacher_ratio[SchoolType::middle]));
-            elem3_teachers_ptr[comm] = int(std::round((double)student_counts_arr(i, j, k, SchoolCensusIDType::elem_3 - 1) /
+            elem3_teachers_ptr[comm] = int(std::round((double)student_counts_arr(i, j, k, SchoolCensusIDType::elem_3) /
                                                       student_teacher_ratio[SchoolType::elem]));
-            elem4_teachers_ptr[comm] = int(std::round((double)student_counts_arr(i, j, k, SchoolCensusIDType::elem_4 - 1) /
+            elem4_teachers_ptr[comm] = int(std::round((double)student_counts_arr(i, j, k, SchoolCensusIDType::elem_4) /
                                                       student_teacher_ratio[SchoolType::elem]));
-            daycare_teachers_ptr[comm] = int(std::round((double)student_counts_arr(i, j, k, SchoolCensusIDType::daycare_5 - 1) /
+            daycare_teachers_ptr[comm] = int(std::round((double)student_counts_arr(i, j, k, SchoolCensusIDType::daycare_5) /
                                                         student_teacher_ratio[SchoolType::daycare]));
         });
         Gpu::synchronize();
