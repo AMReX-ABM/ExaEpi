@@ -28,16 +28,16 @@ typedef std::map<std::pair<int, int>, DenseBins<AgentContainer::ParticleType>> B
     + Sum up number of infected agents over all processors and return that value.
 */
 static int infectRandomCommunity (
-        AgentContainer& pc,                      /*!< Agent container (particle container)*/
+        AgentContainer& pc,                                                 /*!< Agent container (particle container)*/
 #ifdef AMREX_USE_GPU
-        ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>* pc_h,                    /*!< A copy of Agent container on the host*/
+        ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>* pc_h, /*!< A copy of Agent container on the host*/
 #endif
-        const Vector<int>& unit_community_start, /*!< Start community number for each unit */
-        iMultiFab& comm_mf,                      /*!< Community numbers */
-        BinMap& bin_map,                         /*!< Map of dense bins with agents */
-        int unit,                                /*!< Unit number to infect */
-        const int d_idx,                         /*!< Disease index */
-        int ninfect,                             /*!< Target number of agents to infect */
+        const Vector<int>& unit_community_start,                            /*!< Start community number for each unit */
+        iMultiFab& comm_mf,                                                 /*!< Community numbers */
+        BinMap& bin_map,                                                    /*!< Map of dense bins with agents */
+        int unit,                                                           /*!< Unit number to infect */
+        const int d_idx,                                                    /*!< Disease index */
+        int ninfect,                                                        /*!< Target number of agents to infect */
         const bool fast_bin /*!< Use GPU binning - fast but non-deterministic */) {
     // chose random community
     int ncomms = unit_community_start[unit + 1] - unit_community_start[unit];
