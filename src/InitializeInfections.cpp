@@ -58,7 +58,7 @@ static int infectRandomCommunity (
         DenseBins<AgentContainer::ParticleType>& bins = bin_map[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
 #ifdef AMREX_USE_GPU
         auto& agents_tile = fast_bin ? pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())]
-		                     : pc_h->GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
+                                     : pc_h->GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
 #else
         auto& agents_tile = pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
 #endif
