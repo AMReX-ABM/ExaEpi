@@ -28,8 +28,8 @@ typedef std::map<std::pair<int, int>, DenseBins<AgentContainer::ParticleType>> B
     + Sum up number of infected agents over all processors and return that value.
 */
 static int infectRandomCommunity (AgentContainer& pc,                      /*!< Agent container (particle container)*/
-#ifdef AMREX_USE_SYCL
-                                  AgentContainer& pc_h,                    /*!< A copy of Agent container on the host*/
+#ifdef AMREX_USE_GPU
+                                  ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>* pc_h,                    /*!< A copy of Agent container on the host*/
 #endif
                                   const Vector<int>& unit_community_start, /*!< Start community number for each unit */
                                   iMultiFab& comm_mf,                      /*!< Community numbers */
@@ -55,9 +55,8 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
     int num_infected = 0;
     for (MFIter mfi = pc.MakeMFIter(0); mfi.isValid(); ++mfi) {
         DenseBins<AgentContainer::ParticleType>& bins = bin_map[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
-#ifdef AMREX_USE_SYCL
-        auto& agents_tile = pc_h.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
-        if (fast_bin) { agents_tile = pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())]; }
+#ifdef AMREX_USE_GPU
+        auto& agents_tile = fast_bin? pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())]: pc_h->GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
 #else
         auto& agents_tile = pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
 #endif
@@ -166,9 +165,10 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
     BL_PROFILE("setInitialCasesFromFile");
 
     std::map<std::pair<int, int>, amrex::DenseBins<AgentContainer::ParticleType>> bin_map;
-#ifdef AMREX_USE_SYCL
-    AgentContainer pc_h;
-    dtoh_memcpy((void*)&pc_h, (void*)&pc, sizeof(ParticleContainer));
+#ifdef AMREX_USE_GPU
+    //A separate copy on the host to avoid impact of managed memory
+    void *pc_h= new char[sizeof(ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>)];
+    memcpy(pc_h, &pc, sizeof(ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>));
 #endif
 
     Print() << "Initializing infections for " << d_name << "\n";
@@ -192,8 +192,8 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
                     ntry = diff > 5 ? 5 : diff;
                     int nSuccesses =
                             infectRandomCommunity(pc,
-#ifdef AMREX_USE_SYCL
-                                                  pc_h,
+#ifdef AMREX_USE_GPU
+                                                  (ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>*) pc_h,
 #endif
                                                   unit_community_start, comm_mf, bin_map, units[u], d_idx, ntry, fast_bin);
                     ninf += nSuccesses;
@@ -216,9 +216,10 @@ void setInitialCasesRandom (AgentContainer& pc,                      /*!< Agent 
     BL_PROFILE("setInitialCasesRandom");
 
     std::map<std::pair<int, int>, amrex::DenseBins<AgentContainer::ParticleType>> bin_map;
-#ifdef AMREX_USE_SYCL
-    AgentContainer pc_h;
-    dtoh_memcpy((void*)&pc_h, (void*)&pc, sizeof(ParticleContainer));
+#ifdef AMREX_USE_GPU
+    //A separate copy on the host to avoid impact of managed memory
+    void *pc_h= new char[sizeof(ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>)];
+    memcpy(pc_h, &pc, sizeof(ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>));
 #endif
 
     Print() << "Initializing infections for " << d_name << "\n";
@@ -231,8 +232,8 @@ void setInitialCasesRandom (AgentContainer& pc,                      /*!< Agent 
             if (ParallelDescriptor::IOProcessor()) { unit = Random_int(unit_community_start.size() - 1); }
             ParallelDescriptor::Bcast(&unit, 1);
             int nSuccesses = infectRandomCommunity(pc,
-#ifdef AMREX_USE_SYCL
-                                                   pc_h,
+#ifdef AMREX_USE_GPU
+                                                   (ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>*) pc_h,
 #endif
                                                    unit_community_start, comm_mf, bin_map, unit, d_idx, 1, fast_bin);
             ninf += nSuccesses;
