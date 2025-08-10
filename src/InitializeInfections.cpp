@@ -29,9 +29,6 @@ typedef std::map<std::pair<int, int>, DenseBins<AgentContainer::ParticleType>> B
 */
 static int infectRandomCommunity (
         AgentContainer& pc,                                                 /*!< Agent container (particle container)*/
-#ifdef AMREX_USE_GPU
-        ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>* pc_h, /*!< A copy of Agent container on the host*/
-#endif
         const Vector<int>& unit_community_start,                            /*!< Start community number for each unit */
         iMultiFab& comm_mf,                                                 /*!< Community numbers */
         BinMap& bin_map,                                                    /*!< Map of dense bins with agents */
@@ -56,12 +53,7 @@ static int infectRandomCommunity (
     int num_infected = 0;
     for (MFIter mfi = pc.MakeMFIter(0); mfi.isValid(); ++mfi) {
         DenseBins<AgentContainer::ParticleType>& bins = bin_map[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
-#ifdef AMREX_USE_GPU
-        auto& agents_tile = fast_bin ? pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())]
-                                     : pc_h->GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
-#else
         auto& agents_tile = pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
-#endif
         auto& aos = agents_tile.GetArrayOfStructs();
         auto& soa = agents_tile.GetStructOfArrays();
         const size_t np = aos.numParticles();
@@ -167,11 +159,6 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
     BL_PROFILE("setInitialCasesFromFile");
 
     std::map<std::pair<int, int>, amrex::DenseBins<AgentContainer::ParticleType>> bin_map;
-#ifdef AMREX_USE_GPU
-    // A separate copy on the host to avoid impact of managed memory
-    void* pc_h = new char[sizeof(ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>)];
-    memcpy(pc_h, (void*)&pc, sizeof(ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>));
-#endif
 
     Print() << "Initializing infections for " << d_name << "\n";
     int ntry = 5;
@@ -193,11 +180,7 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
                     int diff = cases.Size_hubs[ihub] - i;
                     ntry = diff > 5 ? 5 : diff;
                     int nSuccesses =
-                            infectRandomCommunity(pc,
-#ifdef AMREX_USE_GPU
-                                                  (ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>*)pc_h,
-#endif
-                                                  unit_community_start, comm_mf, bin_map, units[u], d_idx, ntry, fast_bin);
+                            infectRandomCommunity(pc, unit_community_start, comm_mf, bin_map, units[u], d_idx, ntry, fast_bin);
                     ninf += nSuccesses;
                     i += nSuccesses;
                     u = (u + 1) % units.size(); // sometimes we infect fewer than ntry, but switch to next unit anyway
@@ -218,11 +201,6 @@ void setInitialCasesRandom (AgentContainer& pc,                      /*!< Agent 
     BL_PROFILE("setInitialCasesRandom");
 
     std::map<std::pair<int, int>, amrex::DenseBins<AgentContainer::ParticleType>> bin_map;
-#ifdef AMREX_USE_GPU
-    // A separate copy on the host to avoid impact of managed memory
-    void* pc_h = new char[sizeof(ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>)];
-    memcpy(pc_h, (void*)&pc, sizeof(ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>));
-#endif
 
     Print() << "Initializing infections for " << d_name << "\n";
 
@@ -233,11 +211,7 @@ void setInitialCasesRandom (AgentContainer& pc,                      /*!< Agent 
             int unit = 0;
             if (ParallelDescriptor::IOProcessor()) { unit = Random_int(unit_community_start.size() - 1); }
             ParallelDescriptor::Bcast(&unit, 1);
-            int nSuccesses = infectRandomCommunity(pc,
-#ifdef AMREX_USE_GPU
-                                                   (ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>*)pc_h,
-#endif
-                                                   unit_community_start, comm_mf, bin_map, unit, d_idx, 1, fast_bin);
+            int nSuccesses = infectRandomCommunity(pc, unit_community_start, comm_mf, bin_map, unit, d_idx, 1, fast_bin);
             ninf += nSuccesses;
             i += nSuccesses;
         }
