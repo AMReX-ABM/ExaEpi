@@ -150,9 +150,9 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
             auto infected_family_not_withdrawn_d_ptr = infected_family_not_withdrawn_d[OMP_THREAD_NUM].data();
             auto infected_nc_d_ptr = infected_nc_d[OMP_THREAD_NUM].data();
 
-            auto infected_family_asymp_d_ptr = infected_family_d[OMP_THREAD_NUM].data();
-            auto infected_family_not_withdrawn_asymp_d_ptr = infected_family_not_withdrawn_d[OMP_THREAD_NUM].data();
-            auto infected_nc_asymp_d_ptr = infected_nc_d[OMP_THREAD_NUM].data();
+            auto infected_family_asymp_d_ptr = infected_family_asymp_d[OMP_THREAD_NUM].data();
+            auto infected_family_not_withdrawn_asymp_d_ptr = infected_family_not_withdrawn_asymp_d[OMP_THREAD_NUM].data();
+            auto infected_nc_asymp_d_ptr = infected_nc_asymp_d[OMP_THREAD_NUM].data();
 
             for (int d = 0; d < n_disease; d++) {
                 // calculate separately for infected children and infected adults, since they have different transmission rates
