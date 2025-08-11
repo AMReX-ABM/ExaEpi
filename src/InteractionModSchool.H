@@ -201,8 +201,10 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                                     Real daycare_prob = 1.0_rt - infect * lparm->xmit_school[SchoolType::daycare] * scale;
                                     prob_ptr[i] *= static_cast<ParticleReal>(std::pow(daycare_prob, num_infected_daycare));
                                     int num_infected_daycare_asymp = infected_daycare_asymp_d_ptr[pos];
-                                    Real daycare_prob_asymp = 1.0_rt - lparm->asymp_relative_inf * infect * lparm->xmit_school[SchoolType::daycare] * scale;
-                                    prob_ptr[i] *= static_cast<ParticleReal>(std::pow(daycare_prob_asymp, num_infected_daycare_asymp));
+                                    Real daycare_prob_asymp = 1.0_rt - lparm->asymp_relative_inf * infect *
+                                                                               lparm->xmit_school[SchoolType::daycare] * scale;
+                                    prob_ptr[i] *=
+                                            static_cast<ParticleReal>(std::pow(daycare_prob_asymp, num_infected_daycare_asymp));
                                 }
                             } else {
                                 int num_infected_school = infected_school_d_ptr[pos];

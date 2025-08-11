@@ -222,7 +222,7 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
                             int num_infected_family = infected_family_d_ptr[family_i];
                             int num_infected_family_asymp = infected_family_asymp_d_ptr[family_i];
                             Real family_prob = 1.0_rt - infect * xmit_family_prob * scale;
-                            Real family_prob_asymp = 1.0_rt - lparm->asymp_relative_inf*infect * xmit_family_prob * scale;
+                            Real family_prob_asymp = 1.0_rt - lparm->asymp_relative_inf * infect * xmit_family_prob * scale;
                             prob_ptr[i] *= static_cast<ParticleReal>(std::pow(family_prob, num_infected_family));
                             prob_ptr[i] *= static_cast<ParticleReal>(std::pow(family_prob_asymp, num_infected_family_asymp));
                             if (!ptd.m_idata[IntIdx::withdrawn][i]) {

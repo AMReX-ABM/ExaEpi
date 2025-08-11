@@ -167,12 +167,13 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
                                 static_cast<ParticleReal>(std::pow(comm_prob, num_infected_community - num_infected_nborhood));
                         Real nborhood_prob = 1.0_prt - infect * lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * scale;
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nborhood_prob, num_infected_nborhood));
-                        Real comm_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect * lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * scale;
-                        prob_ptr[i] *=
-                                static_cast<ParticleReal>(std::pow(comm_prob_asymp, num_infected_community_asymp - num_infected_nborhood_asymp));
-                        Real nborhood_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect * lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * scale;
+                        Real comm_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect *
+                                                                 lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * scale;
+                        prob_ptr[i] *= static_cast<ParticleReal>(
+                                std::pow(comm_prob_asymp, num_infected_community_asymp - num_infected_nborhood_asymp));
+                        Real nborhood_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect *
+                                                                     lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * scale;
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nborhood_prob_asymp, num_infected_nborhood_asymp));
-
                     }
                 });
                 Gpu::synchronize();
