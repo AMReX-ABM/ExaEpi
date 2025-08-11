@@ -184,7 +184,7 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                 auto lparm_h = agents.getDiseaseParameters_h(d);
                 Real scale = 1.0_prt; // TODO this should vary based on cell
                 Real infect = (1.0_rt - lparm_h->vac_eff);
-		Real asymp_relative_inf = lparm_h->asymp_relative_inf;
+        Real asymp_relative_inf = lparm_h->asymp_relative_inf;
 
                 ParallelFor(bins_ptr->numItems(), [=] AMREX_GPU_DEVICE (int ii) noexcept {
                     auto infectious_i = inds[ii];
@@ -196,7 +196,7 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                     // because there are usually more susceptible agents than infectious. This can be a large performance
                     // difference for CPU only runs.
                     if (isInfectious(infectious_i, ptd, d) && isCandidate(infectious_i, ptd)) {
-			ParticleReal relative_inf = isAsymptomatic(infectious_i, ptd, d) ? asymp_relative_inf : 1.0_prt;
+            ParticleReal relative_inf = isAsymptomatic(infectious_i, ptd, d) ? asymp_relative_inf : 1.0_prt;
                         // Real i_mask = mask_arr(home_i_ptr[i], home_j_ptr[i], 0);
                         for (auto jj = cell_start; jj < cell_stop; ++jj) {
                             auto susceptible_i = inds[jj];
