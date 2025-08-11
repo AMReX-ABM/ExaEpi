@@ -101,6 +101,9 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
     Vector<Gpu::DeviceVector<int>> infected_family_d(OMP_MAX_THREADS);
     Vector<Gpu::DeviceVector<int>> infected_family_not_withdrawn_d(OMP_MAX_THREADS);
     Vector<Gpu::DeviceVector<int>> infected_nc_d(OMP_MAX_THREADS);
+    Vector<Gpu::DeviceVector<int>> infected_family_asymp_d(OMP_MAX_THREADS);
+    Vector<Gpu::DeviceVector<int>> infected_family_not_withdrawn_asymp_d(OMP_MAX_THREADS);
+    Vector<Gpu::DeviceVector<int>> infected_nc_asymp_d(OMP_MAX_THREADS);
 
     for (int lev = 0; lev < agents.numLevels(); ++lev) {
 #ifdef AMREX_USE_OMP
@@ -139,9 +142,17 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
             infected_family_not_withdrawn_d[OMP_THREAD_NUM].resize(max_communities * max_family);
             infected_nc_d[OMP_THREAD_NUM].resize(max_communities * num_ncs * max_nborhood);
 
+            infected_family_asymp_d[OMP_THREAD_NUM].resize(max_communities * max_family);
+            infected_family_not_withdrawn_asymp_d[OMP_THREAD_NUM].resize(max_communities * max_family);
+            infected_nc_asymp_d[OMP_THREAD_NUM].resize(max_communities * num_ncs * max_nborhood);
+
             auto infected_family_d_ptr = infected_family_d[OMP_THREAD_NUM].data();
             auto infected_family_not_withdrawn_d_ptr = infected_family_not_withdrawn_d[OMP_THREAD_NUM].data();
             auto infected_nc_d_ptr = infected_nc_d[OMP_THREAD_NUM].data();
+
+            auto infected_family_asymp_d_ptr = infected_family_d[OMP_THREAD_NUM].data();
+            auto infected_family_not_withdrawn_asymp_d_ptr = infected_family_not_withdrawn_d[OMP_THREAD_NUM].data();
+            auto infected_nc_asymp_d_ptr = infected_nc_d[OMP_THREAD_NUM].data();
 
             for (int d = 0; d < n_disease; d++) {
                 // calculate separately for infected children and infected adults, since they have different transmission rates
@@ -152,6 +163,10 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
                         devMemset(infected_family_not_withdrawn_d_ptr, 0,
                                   infected_family_not_withdrawn_d[OMP_THREAD_NUM].size() * sizeof(int));
                         devMemset(infected_nc_d_ptr, 0, infected_nc_d[OMP_THREAD_NUM].size() * sizeof(int));
+                        devMemset(infected_family_asymp_d_ptr, 0, infected_family_asymp_d[OMP_THREAD_NUM].size() * sizeof(int));
+                        devMemset(infected_family_not_withdrawn_asymp_d_ptr, 0,
+                                  infected_family_not_withdrawn_asymp_d[OMP_THREAD_NUM].size() * sizeof(int));
+                        devMemset(infected_nc_asymp_d_ptr, 0, infected_nc_asymp_d[OMP_THREAD_NUM].size() * sizeof(int));
                     }
                     auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                     auto lparm = agents.getDiseaseParameters_d(d);
@@ -164,12 +179,24 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
                             auto community = getCommunityIndex(ptd, i);
                             AMREX_ALWAYS_ASSERT(community <= max_communities);
                             int family_i = community * max_family + family_ptr[i];
-                            Gpu::Atomic::AddNoRet(&infected_family_d_ptr[family_i], 1);
+                            if (isAsymptomatic(i, ptd, d)) {
+                                Gpu::Atomic::AddNoRet(&infected_family_asymp_d_ptr[family_i], 1);
+                            } else {
+                                Gpu::Atomic::AddNoRet(&infected_family_d_ptr[family_i], 1);
+                            }
                             if (!ptd.m_idata[IntIdx::withdrawn][i]) {
-                                Gpu::Atomic::AddNoRet(&infected_family_not_withdrawn_d_ptr[family_i], 1);
+                                if (isAsymptomatic(i, ptd, d)) {
+                                    Gpu::Atomic::AddNoRet(&infected_family_not_withdrawn_asymp_d_ptr[family_i], 1);
+                                } else {
+                                    Gpu::Atomic::AddNoRet(&infected_family_not_withdrawn_d_ptr[family_i], 1);
+                                }
                                 int cluster = family_ptr[i] / FAMILIES_PER_CLUSTER;
                                 int nc = (community * max_nborhood + nborhood_ptr[i]) * num_ncs + cluster;
-                                Gpu::Atomic::AddNoRet(&infected_nc_d_ptr[nc], 1);
+                                if (isAsymptomatic(i, ptd, d)) {
+                                    Gpu::Atomic::AddNoRet(&infected_nc_asymp_d_ptr[nc], 1);
+                                } else {
+                                    Gpu::Atomic::AddNoRet(&infected_nc_d_ptr[nc], 1);
+                                }
                             }
                         }
                     });
@@ -193,8 +220,11 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
                             AMREX_ALWAYS_ASSERT(community <= max_communities);
                             int family_i = community * max_family + family_ptr[i];
                             int num_infected_family = infected_family_d_ptr[family_i];
+                            int num_infected_family_asymp = infected_family_asymp_d_ptr[family_i];
                             Real family_prob = 1.0_rt - infect * xmit_family_prob * scale;
+                            Real family_prob_asymp = 1.0_rt - lparm->asymp_relative_inf*infect * xmit_family_prob * scale;
                             prob_ptr[i] *= static_cast<ParticleReal>(std::pow(family_prob, num_infected_family));
+                            prob_ptr[i] *= static_cast<ParticleReal>(std::pow(family_prob_asymp, num_infected_family_asymp));
                             if (!ptd.m_idata[IntIdx::withdrawn][i]) {
                                 int num_infected_family_not_withdrawn = infected_family_not_withdrawn_d_ptr[family_i];
                                 AMREX_ALWAYS_ASSERT(num_infected_family >= num_infected_family_not_withdrawn);
@@ -204,6 +234,14 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
                                 AMREX_ALWAYS_ASSERT(num_infected_nc >= 0);
                                 Real nc_prob = 1.0_rt - infect * xmit_nc_prob * scale;
                                 prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nc_prob, num_infected_nc));
+
+                                // same for asymptomatic
+                                int num_infected_family_not_withdrawn_asymp = infected_family_not_withdrawn_asymp_d_ptr[family_i];
+                                AMREX_ALWAYS_ASSERT(num_infected_family_asymp >= num_infected_family_not_withdrawn_asymp);
+                                int num_infected_nc_asymp = infected_nc_asymp_d_ptr[nc] - num_infected_family_not_withdrawn_asymp;
+                                AMREX_ALWAYS_ASSERT(num_infected_nc_asymp >= 0);
+                                Real nc_prob_asymp = 1.0_rt - lparm->asymp_relative_inf * infect * xmit_nc_prob * scale;
+                                prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nc_prob_asymp, num_infected_nc_asymp));
                             }
                         }
                     });

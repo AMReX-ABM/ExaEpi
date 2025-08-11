@@ -90,6 +90,7 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
     WorkCandidate<PTDType> isCandidate;
 
     Vector<Gpu::DeviceVector<int>> infected_workgroup_d(OMP_MAX_THREADS);
+    Vector<Gpu::DeviceVector<int>> infected_workgroup_asymp_d(OMP_MAX_THREADS);
 
     for (int lev = 0; lev < agents.numLevels(); ++lev) {
 #ifdef AMREX_USE_OMP
@@ -116,12 +117,16 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
             infected_workgroup_d[OMP_THREAD_NUM].resize(max_communities * max_workgroup * max_naics);
             auto infected_workgroup_d_ptr = infected_workgroup_d[OMP_THREAD_NUM].data();
 
+            infected_workgroup_asymp_d[OMP_THREAD_NUM].resize(max_communities * max_workgroup * max_naics);
+            auto infected_workgroup_asymp_d_ptr = infected_workgroup_asymp_d[OMP_THREAD_NUM].data();
+
             // Print() << mfi.tilebox() << " np " << np << " max communities " << max_communities
             //         << " max workgroup " << max_workgroup << " max naics " << max_naics
             //         << " workgroup vector size " << max_communities * max_workgroup * max_naics
             //         << "\n";
             for (int d = 0; d < n_disease; d++) {
                 devMemset(infected_workgroup_d_ptr, 0, infected_workgroup_d[OMP_THREAD_NUM].size() * sizeof(int));
+                devMemset(infected_workgroup_asymp_d_ptr, 0, infected_workgroup_asymp_d[OMP_THREAD_NUM].size() * sizeof(int));
 
                 auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                 auto lparm = agents.getDiseaseParameters_d(d);
@@ -133,7 +138,11 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
                     if (isInfectious(i, ptd, d) && isCandidate(i, ptd)) {
                         auto community = getCommunityIndex(ptd, i);
                         int wgroup_i = (community * max_workgroup + workgroup_ptr[i]) * max_naics + naics_ptr[i];
-                        Gpu::Atomic::AddNoRet(&infected_workgroup_d_ptr[wgroup_i], 1);
+                        if (isAsymptomatic(i, ptd, d)) {
+                            Gpu::Atomic::AddNoRet(&infected_workgroup_asymp_d_ptr[wgroup_i], 1);
+                        } else {
+                            Gpu::Atomic::AddNoRet(&infected_workgroup_d_ptr[wgroup_i], 1);
+                        }
                     }
                 });
                 Gpu::synchronize();
@@ -145,6 +154,9 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
                         int num_infected_workgroup = infected_workgroup_d_ptr[wgroup_i];
                         Real workgroup_prob = 1.0_prt - infect * lparm->xmit_work * scale;
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(workgroup_prob, num_infected_workgroup));
+                        int num_infected_workgroup_asymp = infected_workgroup_asymp_d_ptr[wgroup_i];
+                        Real workgroup_prob_asymp = 1.0_prt -  lparm->asymp_relative_inf * infect * lparm->xmit_work * scale;
+                        prob_ptr[i] *= static_cast<ParticleReal>(std::pow(workgroup_prob_asymp, num_infected_workgroup_asymp));
                     }
                 });
                 Gpu::synchronize();

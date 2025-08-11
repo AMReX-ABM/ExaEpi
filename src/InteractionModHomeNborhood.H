@@ -87,6 +87,9 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
     Vector<Gpu::DeviceVector<int>> infected_community_d(OMP_MAX_THREADS);
     Vector<Gpu::DeviceVector<int>> infected_nborhood_d(OMP_MAX_THREADS);
 
+    Vector<Gpu::DeviceVector<int>> infected_community_asymp_d(OMP_MAX_THREADS);
+    Vector<Gpu::DeviceVector<int>> infected_nborhood_asymp_d(OMP_MAX_THREADS);
+
     for (int lev = 0; lev < agents.numLevels(); ++lev) {
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -109,8 +112,13 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
 
             infected_community_d[OMP_THREAD_NUM].resize(max_communities);
             infected_nborhood_d[OMP_THREAD_NUM].resize(max_communities * max_nborhood);
+            infected_community_asymp_d[OMP_THREAD_NUM].resize(max_communities);
+            infected_nborhood_asymp_d[OMP_THREAD_NUM].resize(max_communities * max_nborhood);
             auto infected_community_d_ptr = infected_community_d[OMP_THREAD_NUM].data();
             auto infected_nborhood_d_ptr = infected_nborhood_d[OMP_THREAD_NUM].data();
+
+            auto infected_community_asymp_d_ptr = infected_community_asymp_d[OMP_THREAD_NUM].data();
+            auto infected_nborhood_asymp_d_ptr = infected_nborhood_asymp_d[OMP_THREAD_NUM].data();
 
             /*
             Print() << mfi.tilebox() << " np " << np << " max communities " << max_communities
@@ -121,6 +129,8 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
             for (int d = 0; d < n_disease; d++) {
                 devMemset(infected_community_d_ptr, 0, infected_community_d[OMP_THREAD_NUM].size() * sizeof(int));
                 devMemset(infected_nborhood_d_ptr, 0, infected_nborhood_d[OMP_THREAD_NUM].size() * sizeof(int));
+                devMemset(infected_community_asymp_d_ptr, 0, infected_community_asymp_d[OMP_THREAD_NUM].size() * sizeof(int));
+                devMemset(infected_nborhood_asymp_d_ptr, 0, infected_nborhood_asymp_d[OMP_THREAD_NUM].size() * sizeof(int));
 
                 auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                 auto lparm = agents.getDiseaseParameters_d(d);
@@ -132,8 +142,13 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
                     if (isInfectious(i, ptd, d) && isCandidate(i, ptd)) {
                         auto community = getCommunityIndex(ptd, i);
                         auto nborhood = nborhood_ptr[i];
-                        Gpu::Atomic::AddNoRet(&infected_community_d_ptr[community], 1);
-                        Gpu::Atomic::AddNoRet(&infected_nborhood_d_ptr[community * max_nborhood + nborhood], 1);
+                        if (isAsymptomatic(i, ptd, d)) {
+                            Gpu::Atomic::AddNoRet(&infected_community_asymp_d_ptr[community], 1);
+                            Gpu::Atomic::AddNoRet(&infected_nborhood_asymp_d_ptr[community * max_nborhood + nborhood], 1);
+                        } else {
+                            Gpu::Atomic::AddNoRet(&infected_community_d_ptr[community], 1);
+                            Gpu::Atomic::AddNoRet(&infected_nborhood_d_ptr[community * max_nborhood + nborhood], 1);
+                        }
                     }
                 });
                 Gpu::synchronize();
@@ -144,12 +159,20 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
                         auto nborhood = nborhood_ptr[i];
                         int num_infected_nborhood = infected_nborhood_d_ptr[community * max_nborhood + nborhood];
                         int num_infected_community = infected_community_d_ptr[community];
+                        int num_infected_nborhood_asymp = infected_nborhood_asymp_d_ptr[community * max_nborhood + nborhood];
+                        int num_infected_community_asymp = infected_community_asymp_d_ptr[community];
                         AMREX_ALWAYS_ASSERT(num_infected_community >= num_infected_nborhood);
                         Real comm_prob = 1.0_prt - infect * lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * scale;
                         prob_ptr[i] *=
                                 static_cast<ParticleReal>(std::pow(comm_prob, num_infected_community - num_infected_nborhood));
                         Real nborhood_prob = 1.0_prt - infect * lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * scale;
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nborhood_prob, num_infected_nborhood));
+                        Real comm_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect * lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * scale;
+                        prob_ptr[i] *=
+                                static_cast<ParticleReal>(std::pow(comm_prob_asymp, num_infected_community_asymp - num_infected_nborhood_asymp));
+                        Real nborhood_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect * lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * scale;
+                        prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nborhood_prob_asymp, num_infected_nborhood_asymp));
+
                     }
                 });
                 Gpu::synchronize();
