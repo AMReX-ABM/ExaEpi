@@ -45,6 +45,38 @@ void overrideAmrexDefaults () {
 /*! \brief Main function: initializes AMReX, calls runAgent(), finalizes AMReX */
 int main (int argc, /*!< Number of command line arguments */
           char* argv[] /*!< Command line arguments */) {
+
+    int my_rank;
+#ifdef AMREX_USE_MPI
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
+#else
+    my_rank = 0;
+#endif
+
+    if (argc < 2) {
+        if (my_rank == 0) {
+            std::cout << "Usage: \n"
+                      << "Either run ./agent --version to print the ExaEpi and AMReX versions, or \n"
+                      << "           ./agent <inputs_file> <optional> <command> <line> <arguments> to run the model. \n";
+        }
+#ifdef AMREX_USE_MPI
+        MPI_Finalize();
+#endif
+        return 0;
+    }
+
+    if (std::string(argv[1]) == "--version") {
+        if (my_rank == 0) {
+            std::cout << "AMReX version " << amrex::Version() << "\n";
+            std::cout << "ExaEpi version " << EXAEPI_VERSION << " (built on " << __DATE__ << ")\n";
+        }
+#ifdef AMREX_USE_MPI
+        MPI_Finalize();
+#endif
+        return 0;
+    }
+
     amrex::Initialize(argc, argv, true, MPI_COMM_WORLD, overrideAmrexDefaults);
 
     Print() << "ExaEpi version " << EXAEPI_VERSION << " (built on " << __DATE__ << ")\n";
@@ -52,6 +84,10 @@ int main (int argc, /*!< Number of command line arguments */
     runAgent();
 
     amrex::Finalize();
+
+#ifdef AMREX_USE_MPI
+    MPI_Finalize();
+#endif
 }
 
 /*! \brief Run agent-based simulation:
