@@ -109,6 +109,12 @@ void InteractionModWorkNborhood<PCType, PTDType, PType>::fastInteractWorkNborhoo
 
             GetCommunityIndex<PTDType> getCommunityIndex;
             getCommunityIndex.init(agents.Geom(lev), mfi.tilebox(), agents.comm_mf[mfi].array());
+            auto plo = getCommunityIndex.plo;
+            auto dxi = getCommunityIndex.dxi;
+            auto domain = getCommunityIndex.domain;
+            auto valid_box = getCommunityIndex.valid_box;
+            auto bin_size = getCommunityIndex.bin_size;
+            auto comm_to_local_index_d = getCommunityIndex.comm_to_local_index_d;
 
             int max_communities = getCommunityIndex.max();
             int max_nborhood = agents.getMaxGroup(IntIdx::work_nborhood) + 1;
@@ -131,10 +137,14 @@ void InteractionModWorkNborhood<PCType, PTDType, PType>::fastInteractWorkNborhoo
                 auto lparm_h = agents.getDiseaseParameters_h(d);
                 Real scale = 1.0_rt; // TODO this should vary based on cell
                 Real infect = (1.0_rt - lparm_h->vac_eff);
+                auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                     if (isInfectious(i, ptd, d) && isCandidate(i, ptd)) {
-                        auto community = getCommunityIndex(ptd, i);
+                        Box tbx;
+                        auto iv = getParticleCell(ptd, i, plo, dxi, domain);
+                        auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
+                        auto community = d_ptr[tidx];
                         // always use work nborhood, because even age group 0 could be in another nborhood during the day for
                         // daycare
                         int nborhood = work_nborhood_ptr[i];
@@ -146,7 +156,10 @@ void InteractionModWorkNborhood<PCType, PTDType, PType>::fastInteractWorkNborhoo
 
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                     if (isSusceptible(i, ptd, d) && isCandidate(i, ptd)) {
-                        auto community = getCommunityIndex(ptd, i);
+                        Box tbx;
+                        auto iv = getParticleCell(ptd, i, plo, dxi, domain);
+                        auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
+                        auto community = d_ptr[tidx];
                         int nborhood = work_nborhood_ptr[i];
                         int num_infected_nborhood = infected_nborhood_d_ptr[community * max_nborhood + nborhood];
                         int num_infected_community = infected_community_d_ptr[community];
