@@ -39,6 +39,17 @@ For example:
     cd build/bin
     ./agent ../../examples/inputs
 
+On Aurora at ALCF, if compiled with SYCL be sure to add "agent.fast=1" at the end of the command line to speed up the case initialization
+
+For example: mpirun -np 1 ./agent ../../examples/inputs.ca agent.fast=1
+
+If reproducibility is a must, we do a quick run for 0 day to checkpoint the initial condition.
+mpirun -np 1 ./agent ../../examples/inputs.ca agent.fast=1 agent.nsteps=0 agent.check_int=1 
+
+Subsequent runs will start from the checkpoint by adding "agent.restart=chk00000" to the end of the command line.
+mpirun -np 1 ./agent ../../examples/inputs.ca agent.restart=chk00000
+
+
 ## Looking at the output
 
 Running the code succesfully will create a number of "plt?????" files. You can visualize

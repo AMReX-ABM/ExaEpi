@@ -15,9 +15,6 @@
 #include <AMReX_IntVect.H>
 #include <AMReX_MultiFab.H>
 #include <AMReX_Particles.H>
-#ifdef AMREX_USE_SYCL
-#include <dpct/dpct.hpp>
-#endif
 
 using namespace amrex;
 
@@ -290,7 +287,7 @@ struct GetCommunityIndex {
 #define devMemset cudaMemset
 #else
 #ifdef AMREX_USE_SYCL
-#define devMemset dpct::get_default_queue().memset
+#define devMemset(p,v,s) (Gpu::Device::streamQueue().memset((p),(v),(s)).wait())
 #else
 #define devMemset memset
 #endif
