@@ -11,8 +11,8 @@ import glob
 import numpy as np
 from pandas.api.types import CategoricalDtype
 from colorama import Fore
-import get_schools
-from get_schools import timer
+import get_schools  # type: ignore
+from get_schools import timer  # type: ignore
 
 grade_categs = CategoricalDtype(
     categories=[
@@ -128,6 +128,21 @@ def get_lodes_groups(lodes_fnames):
     return df
 
 
+def check_flows_correlation(nt_dt_df, lodes_df):
+    # check that the actual allocated workers follow the lodes flows closely
+    generated_df = nt_dt_df.groupby(["orig_geoid", "dest_geoid"]).size().reset_index(name="total")
+    generated_df["key"] = generated_df["orig_geoid"].astype(str) + "-" + generated_df["dest_geoid"].astype(str)
+    lodes_df["key"] = lodes_df["h_geocode"].astype(str) + "-" + lodes_df["w_geocode"].astype(str)
+    merged_df = generated_df.merge(lodes_df, on="key", how="outer")[["key", "total", "S000"]]
+    merged_df = merged_df.fillna(0).astype({"total": "int", "S000": "int"})
+    if DUMP_INTERMEDIATES:
+        merged_df.to_csv("worker_check_ods.csv")
+    corr = merged_df.total.corr(merged_df.S000)
+    print(f"LODES flows correlation: {corr:.3f} (generated count {merged_df.total.sum()}, actual count {merged_df.S000.sum()})")
+    if corr < CORR_CHECK_LEVEL:
+        print(f"{Fore.RED}WARNING: low correlation!{Fore.RESET}")
+
+
 @timer
 def alloc_workers(args, workers_df):
     print(Fore.GREEN + "Allocating workers" + Fore.RESET)
@@ -178,19 +193,8 @@ def alloc_workers(args, workers_df):
     print("Added destinations for", len(nt_dt_df), "workers")
     if DUMP_INTERMEDIATES:
         nt_dt_df.to_csv("workers_nt_dt.csv", index=False)
-    # check that the actual allocated workers follow the lodes flows closely
-    generated_df = nt_dt_df.groupby(["orig_geoid", "dest_geoid"]).size().reset_index(name="total")
-    generated_df["key"] = generated_df["orig_geoid"].astype(str) + "-" + generated_df["dest_geoid"].astype(str)
-    lodes_df["key"] = lodes_df["h_geocode"].astype(str) + "-" + lodes_df["w_geocode"].astype(str)
-    merged_df = generated_df.merge(lodes_df, on="key", how="outer")[["key", "total", "S000"]]
-    merged_df = merged_df.fillna(0).astype({"total": "int", "S000": "int"})
-    if DUMP_INTERMEDIATES:
-        merged_df.to_csv("worker_check_ods.csv")
-    corr = merged_df.total.corr(merged_df.S000)
-    print(f"LODES flows correlation: {corr:.3f} (generated count {merged_df.total.sum()}, actual count {merged_df.S000.sum()})")
-    if corr < CORR_CHECK_LEVEL:
-        print(f"{Fore.RED}WARNING: low correlation!{Fore.RESET}")
 
+    check_flows_correlation(nt_dt_df, lodes_df)
     return nt_dt_df
 
 
@@ -562,7 +566,7 @@ def get_level_from_age(min_age, max_age):
 
 
 @timer
-def get_from_up_nt_dt(args, upop_df):
+def get_from_upop_nt_dt(args, upop_df):
     df = pd.DataFrame()
     print(f"{Fore.GREEN}Loading UrbanPop nighttime/daytime files{Fore.RESET}")
     for fname in args.up_nt_dt_files:
@@ -675,7 +679,10 @@ def main():
         print("ERROR: total agents mismatch, allocated", tot, "but found", len(upop_df), "in UrbanPop feather files")
 
     if args.up_nt_dt_files:
-        workers_nt_dt_df, students_nt_dt_df, schools_df, unemp_df = get_from_up_nt_dt(args, upop_df)
+        workers_nt_dt_df, students_nt_dt_df, schools_df, unemp_df = get_from_upop_nt_dt(args, upop_df)
+        if args.lodes_files:
+            lodes_df = get_lodes_groups(args.lodes_files)
+            check_flows_correlation(workers_nt_dt_df, lodes_df)
     else:
         workers_nt_dt_df = alloc_workers(args, workers_df)
         students_nt_dt_df = alloc_students(args, students_df)
@@ -687,12 +694,14 @@ def main():
     workers_nt_dt_df = alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, "university")
     check_teacher_corr(workers_nt_dt_df, schools_df)
 
+    for df in [workers_nt_dt_df, unemp_df, students_nt_dt_df]:
+        for col in df.columns:
+            df[col] = df[col].astype(str)
+
     nt_dt_df = pd.concat([workers_nt_dt_df, unemp_df, students_nt_dt_df], ignore_index=True)
     # these astype calls are needed to satisfy the to_feather call
     nt_dt_df.grade = nt_dt_df.grade.astype(str)
     nt_dt_df.loc[nt_dt_df.grade == "-1", "grade"] = ""
-    nt_dt_df.naics = nt_dt_df.naics.fillna(-1).astype(int)
-    nt_dt_df.naics = nt_dt_df.naics.astype(str)
     nt_dt_df.loc[(nt_dt_df.naics == "") | (nt_dt_df.naics == "None"), "naics"] = "-1"
     # ensure dest_geoid is set to origin if blank
     nt_dt_df.loc[nt_dt_df.dest_geoid == "", "dest_geoid"] = nt_dt_df.orig_geoid

@@ -6,7 +6,7 @@ import os
 import numpy as np
 import pandas as pd
 import argparse
-from yt.frontends.boxlib.api import AMReXDataset
+from yt.frontends.amrex.data_structures import AMReXDataset
 import geopandas as gp
 import matplotlib.pyplot as plt
 import matplotlib as mp
@@ -116,7 +116,7 @@ def main():
         ax = status[1]
         states.boundary.plot(ax=ax, lw=1, color="black")
         # Some decent colormaps: RdPu OrRd Greys
-        df.plot(ax=ax, column=status[0], cmap=status[2], legend=True, norm=mp.colors.LogNorm(vmin=1.0, vmax=max_count))
+        df.plot(ax=ax, column=status[0], cmap=status[2], legend=True, norm=mp.colors.LogNorm(vmin=1.0, vmax=max_count))  # type: ignore
         # ax.set_xlim([ds.domain_left_edge[0], ds.domain_right_edge[0]])
         # ax.set_ylim([ds.domain_left_edge[1], ds.domain_right_edge[1]])
         ax.set_title(status[0].upper())
