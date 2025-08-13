@@ -287,7 +287,7 @@ struct GetCommunityIndex {
 #define devMemset cudaMemset
 #else
 #ifdef AMREX_USE_SYCL
-#define devMemset(p,v,s) (Gpu::Device::streamQueue().memset((p),(v),(s)).wait())
+#define devMemset(p, v, s) (Gpu::Device::streamQueue().memset((p), (v), (s)).wait())
 #else
 #define devMemset memset
 #endif
