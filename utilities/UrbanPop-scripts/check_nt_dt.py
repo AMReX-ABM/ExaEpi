@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from os.path import basename, splitext
 import pandas as pd
 import argparse
 import configparser
@@ -8,6 +9,7 @@ import matplotlib.pyplot as plt
 import glob
 
 import gen_nt_dt
+import convert_urbanpop_to_exaepi
 
 
 def compare_worker_flows(nt_dt_df, upop_nt_dt_df):
@@ -24,39 +26,45 @@ def compare_worker_flows(nt_dt_df, upop_nt_dt_df):
                 .size()
                 .reset_index(name="count")
             )
-        gen_df["count_normalized"] = gen_df["count"] / gen_df["count"].sum()
-        upop_df["count_normalized"] = upop_df["count"] / upop_df["count"].sum()
+        # gen_df["count_normalized"] = gen_df["count"] / gen_df["count"].sum()
+        # upop_df["count_normalized"] = upop_df["count"] / upop_df["count"].sum()
 
         gen_df["key"] = gen_df["orig_geoid"].astype(str) + "-" + gen_df["dest_geoid"].astype(str)
         upop_df["key"] = upop_df["orig_geoid"].astype(str) + "-" + upop_df["dest_geoid"].astype(str)
 
         merged_df = gen_df.merge(upop_df, on="key", how="outer", suffixes=["_gen", "_up"])[
-            ["key", "count_gen", "count_up", "count_normalized_gen", "count_normalized_up"]
+            #    ["key", "count_gen", "count_up", "count_normalized_gen", "count_normalized_up"]
+            ["key", "count_gen", "count_up"]
         ]
         merged_df = merged_df.fillna(0)
 
-        corr = merged_df.count_normalized_gen.corr(merged_df.count_normalized_up)
+        # corr = merged_df.count_normalized_gen.corr(merged_df.count_normalized_up)
+        corr = merged_df.count_gen.corr(merged_df.count_up)
         print(f"  {role}: correlation {corr:.3f}")
         print(f"    Total flows - Generated: {merged_df.count_gen.sum():.0f}" f", UrbanPop: {merged_df.count_up.sum():.0f}")
 
         plt.figure(figsize=(10, 10))
-        plt.scatter(merged_df.count_normalized_gen, merged_df.count_normalized_up, alpha=0.5)
+        # plt.scatter(merged_df.count_normalized_gen, merged_df.count_normalized_up, alpha=0.5)
+        plt.scatter(merged_df.count_gen, merged_df.count_up, alpha=0.5)
         plt.xlabel("Generated Flow Counts")
         # plt.xscale("log")
         # plt.yscale("log")
-        max_val = max(merged_df.count_normalized_gen.max(), merged_df.count_normalized_up.max())
+        # max_val = max(merged_df.count_normalized_gen.max(), merged_df.count_normalized_up.max())
+        max_val = max(merged_df.count_gen.max(), merged_df.count_up.max())
         min_val = max(
             1e-6,
             min(
-                merged_df.count_normalized_gen[merged_df.count_normalized_gen > 0].min(),
-                merged_df.count_normalized_up[merged_df.count_normalized_up > 0].min(),
+                # merged_df.count_normalized_gen[merged_df.count_normalized_gen > 0].min(),
+                # merged_df.count_normalized_up[merged_df.count_normalized_up > 0].min(),
+                merged_df.count_gen[merged_df.count_gen > 0].min(),
+                merged_df.count_up[merged_df.count_up > 0].min(),
             ),
         )
 
         plt.xlim(min_val, max_val)
         plt.ylim(min_val, max_val)
-        plt.xlabel("Normalized Generated Flow Counts")
-        plt.ylabel("Normalized UrbanPop Flow Counts")
+        plt.xlabel("Generated Flow Counts")
+        plt.ylabel("UrbanPop Flow Counts")
         plt.title(f"Flow Counts Comparison for {role}")
         # Add diagonal line for perfect correlation
         plt.plot([0, max_val], [0, max_val], "r--", alpha=0.5)
@@ -201,22 +209,23 @@ def main():
     )
     cfg_parser.add_argument("-c", "--config", help="Config file", metavar="FILE")
     args, remaining_argv = cfg_parser.parse_known_args()
-    main_args = {"generated_nt_dt_file": "", "urbanpop_nt_dt_file": "", "schools_file": "", "lodes_files": ""}
+    main_args = {"generated_nt_dt_file": "", "urbanpop_nt_dt_file": "", "schools_file": "", "lodes_files": "", "upop_files": ""}
     if args.config:
         cfg = configparser.ConfigParser()
         cfg.read([args.config])
         main_args.update(dict(cfg.items("main")))
-        for files_label in ["lodes_files"]:
+        for files_label in ["lodes_files", "upop_files"]:
             file_list = []
             for f in main_args[files_label].split():
                 file_list.extend(glob.glob(f))
             main_args[files_label] = file_list  # type: ignore
     parser = argparse.ArgumentParser(parents=[cfg_parser])
     parser.set_defaults(**main_args)
-    parser.add_argument("--generated_nt_dt_file", "-f", help="Generated nightime/daytime file")
+    parser.add_argument("--generated_nt_dt_file", "-g", help="Generated nightime/daytime file")
     parser.add_argument("--urbanpop_nt_dt_file", "-u", help="UrbanPop nightime/daytime file")
     parser.add_argument("--schools_file", "-s", help="File containing schools data in CSV")
     parser.add_argument("--lodes_files", "-l", nargs="+", help="LODES7 origin-destination (OD) files in CSV format")
+    parser.add_argument("--upop_files", "-f", nargs="+", help="UrbanPop files in Feather format")
     args = parser.parse_args(remaining_argv)
     print(Fore.CYAN, "Options:", sep="")
     for arg, value in args.__dict__.items():
@@ -230,6 +239,18 @@ def main():
     nt_dt_df = nt_dt_df[nt_dt_df["p_id"].isin(common_pids)]
     upop_nt_dt_df = upop_nt_dt_df[upop_nt_dt_df["p_id"].isin(common_pids)]
     print(f"Found {len(common_pids)} common p_ids between datasets")
+    gen_file = f"{basename(splitext(args.generated_nt_dt_file)[0])}.common.feather"
+    nt_dt_df.to_feather(gen_file)
+    print(f"Common generated nt/dt data saved to {gen_file}")
+    upop_file = f"{basename(splitext(args.urbanpop_nt_dt_file)[0])}.common.feather"
+    upop_nt_dt_df.to_feather(upop_file)
+    print(f"Common UrbanPop nt/dt data saved to {upop_file}")
+    upop_df = convert_urbanpop_to_exaepi.process_pop_feather_files(args.upop_files)
+    upop_df = upop_df[upop_df["p_id"].isin(common_pids)]
+    upop_file = "urbanpop.common"
+    upop_df.to_feather(upop_file + ".feather")
+    upop_df.to_csv(upop_file + ".csv", index=False)
+    print(f"Common UrbanPop data saved to {upop_file}")
 
     compare_worker_flows(nt_dt_df, upop_nt_dt_df)
     compare_educational_flows(args, nt_dt_df, upop_nt_dt_df)
