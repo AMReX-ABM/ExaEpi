@@ -196,7 +196,9 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                     // because there are usually more susceptible agents than infectious. This can be a large performance
                     // difference for CPU only runs.
                     if (isInfectious(infectious_i, ptd, d) && isCandidate(infectious_i, ptd)) {
-                        ParticleReal relative_inf = isAsymptomatic(infectious_i, ptd, d) || isPresymptomatic(i, ptd, d) ? asymp_relative_inf : 1.0_prt;
+                        ParticleReal relative_inf = isAsymptomatic(infectious_i, ptd, d) || isPresymptomatic(i, ptd, d)
+                                                            ? asymp_relative_inf
+                                                            : 1.0_prt;
                         // Real i_mask = mask_arr(home_i_ptr[i], home_j_ptr[i], 0);
                         for (auto jj = cell_start; jj < cell_stop; ++jj) {
                             auto susceptible_i = inds[jj];
