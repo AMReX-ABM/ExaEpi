@@ -14,6 +14,7 @@ from colorama import Fore
 import get_schools  # type: ignore
 from get_schools import timer  # type: ignore
 
+
 grade_categs = CategoricalDtype(
     categories=[
         "childcare",
@@ -144,13 +145,13 @@ def check_flows_correlation(nt_dt_df, lodes_df):
 
 
 @timer
-def alloc_workers(args, workers_df):
+def alloc_workers(lodes_files, workers_df):
     print(Fore.GREEN + "Allocating workers" + Fore.RESET)
     # need to alloc files with the following columns:
     # p_id,role,orig_geoid,dest_geoid,lodes_segment,naics,grade,school_id
     # we can skip the lodes_segment, since we don't use it in later processing
     worker_groups = workers_df.groupby(["geoid"])
-    lodes_df = get_lodes_groups(args.lodes_files)
+    lodes_df = get_lodes_groups(lodes_files)
     lodes_groups = lodes_df.groupby(["h_geocode"])
     nt_dt_df = pd.DataFrame()
     print(f"Assigning workers in {len(worker_groups)} GEOIDS")
@@ -329,9 +330,9 @@ def alloc_students_level(schools_df, students_df, level):
 
 
 @timer
-def alloc_students(args, students_df):
+def alloc_students(schools_file, students_df):
     print(Fore.GREEN + "Allocating students" + Fore.RESET)
-    schools_df = load_schools(args.schools_file)
+    schools_df = load_schools(schools_file)
     # convert grades to ages
     grade_categs_found = list(students_df["pr_grade"].unique())
     grade_categs_expected = list(grade_categs.categories)
@@ -566,15 +567,15 @@ def get_level_from_age(min_age, max_age):
 
 
 @timer
-def get_from_upop_nt_dt(args, upop_df):
+def get_from_upop_nt_dt(up_nt_dt_files, upop_df):
     df = pd.DataFrame()
     print(f"{Fore.GREEN}Loading UrbanPop nighttime/daytime files{Fore.RESET}")
-    for fname in args.up_nt_dt_files:
+    for fname in up_nt_dt_files:
         region_df = pd.read_feather(fname)[["p_id", "role", "orig_geoid", "dest_geoid", "naics", "grade", "school_id"]].astype(
             {"orig_geoid": "str", "dest_geoid": "str", "grade": "str"}
         )
         df = pd.concat([df, region_df], ignore_index=True)
-    print(f"Loaded {len(df)} entries from {len(args.up_nt_dt_files)} files")
+    print(f"Loaded {len(df)} entries from {len(up_nt_dt_files)} files")
     workers_df = df[df.role == "worker"].reset_index(drop=True)
     workers_df["grade"] = ""
     workers_df["naics"] = workers_df.merge(upop_df, on="p_id", how="left")["pr_naics"]
@@ -597,6 +598,73 @@ def get_from_upop_nt_dt(args, upop_df):
     schools_df = schools_df[["id", "students", "teachers", "level", "geoid"]]
     schools_df.to_csv("schools_with_geoids_up.csv", index=False)
     return workers_df, students_df, schools_df, unemp_df
+
+
+def get_merged_upop_and_nt_dt(upop_df, lodes_files, schools_file, up_nt_dt_files):
+    # randomly allocate some young agents to childcare
+    upop_df = set_childcare(upop_df)
+    # now split into students, workers and unemployed.
+    # Note that the UrbanPop nt/dt data classifies mil as unemployed (nope); because they don't commute?
+    # UrbanPop nt/dt sometimes classifies employed people with undergrad/grad grade as students, not workers. Not sure when/why
+    # it does this. So not sure what to do. Taking all employed as workers only and not students give a better match to the
+    # schools data
+    # is_employed = (upop_df.pr_emp_stat == "employed") & (upop_df.pr_grade != "undergrad") & (upop_df.pr_grade != "grad")
+    is_employed = upop_df.pr_emp_stat == "employed"
+    in_school = (upop_df.pr_grade != "") & ~is_employed
+    students_df = upop_df[in_school].copy()
+    workers_df = upop_df[is_employed]
+    unemp_df = upop_df[~is_employed & ~in_school]
+    tot = len(workers_df) + len(students_df) + len(unemp_df)
+    print("Counts:")
+    print("  workers:   ", len(workers_df))
+    print("  students:  ", len(students_df))
+    print("  unemployed:", len(unemp_df))
+    print("  total:     ", tot)
+    if tot != len(upop_df):
+        print("ERROR: total agents mismatch, allocated", tot, "but found", len(upop_df), "in UrbanPop feather files")
+
+    if up_nt_dt_files:
+        workers_nt_dt_df, students_nt_dt_df, schools_df, unemp_df = get_from_upop_nt_dt(up_nt_dt_files, upop_df)
+        if lodes_files:
+            lodes_df = get_lodes_groups(lodes_files)
+            check_flows_correlation(workers_nt_dt_df, lodes_df)
+    else:
+        workers_nt_dt_df = alloc_workers(lodes_files, workers_df)
+        students_nt_dt_df = alloc_students(schools_file, students_df)
+        schools_df = load_schools(schools_file)
+        unemp_df = get_unemp(unemp_df)
+
+    workers_nt_dt_df = alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, "childcare")
+    workers_nt_dt_df = alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, "secondary")
+    workers_nt_dt_df = alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, "university")
+    check_teacher_corr(workers_nt_dt_df, schools_df)
+
+    for df in [workers_nt_dt_df, unemp_df, students_nt_dt_df]:
+        for col in df.columns:
+            df[col] = df[col].astype(str)
+
+    df = pd.concat([workers_nt_dt_df, unemp_df, students_nt_dt_df], ignore_index=True)
+    # these astype calls are needed to satisfy the to_feather call
+    df.grade = df.grade.astype(str)
+    df.loc[df.grade == "-1", "grade"] = ""
+    df.loc[(df.naics == "") | (df.naics == "None"), "naics"] = "-1"
+    # ensure dest_geoid is set to origin if blank
+    df.loc[df.dest_geoid == "", "dest_geoid"] = df.orig_geoid
+    df.sort_values(by=["p_id"], inplace=True, ignore_index=True)
+    df.orig_geoid = df.orig_geoid.astype("int64")
+    df.dest_geoid = df.dest_geoid.astype("int64")
+    df.naics = df.naics.astype("int32")
+    if False:
+        # convert school ids to unique 64 bit ints
+        df.school_id = df.school_id.astype(str)
+        unique_school_ids = sorted(df.school_id.unique(), key=lambda x: (x is None, x))
+        school_id_map = dict(zip(unique_school_ids, range(len(unique_school_ids))))
+        school_id_map[None] = -1
+        df["school_name"] = df["school_id"]
+        df["school_id"] = df["school_id"].map(school_id_map).astype("int64")
+        # make the valid school ids start at 1, 0 means no school
+        df["school_id"] += 1
+    return df
 
 
 @timer
@@ -656,59 +724,10 @@ def main():
     np.random.seed(args.rseed)
 
     upop_df = load_urbanpop_files(args.urbanpop_files)
-    # randomly allocate some young agents to childcare
-    upop_df = set_childcare(upop_df)
-    # now split into students, workers and unemployed.
-    # Note that the UrbanPop nt/dt data classifies mil as unemployed (nope); because they don't commute?
-    # UrbanPop nt/dt sometimes classifies employed people with undergrad/grad grade as students, not workers. Not sure when/why
-    # it does this. So not sure what to do. Taking all employed as workers only and not students give a better match to the
-    # schools data
-    # is_employed = (upop_df.pr_emp_stat == "employed") & (upop_df.pr_grade != "undergrad") & (upop_df.pr_grade != "grad")
-    is_employed = upop_df.pr_emp_stat == "employed"
-    in_school = (upop_df.pr_grade != "") & ~is_employed
-    students_df = upop_df[in_school].copy()
-    workers_df = upop_df[is_employed]
-    unemp_df = upop_df[~is_employed & ~in_school]
-    tot = len(workers_df) + len(students_df) + len(unemp_df)
-    print("Counts:")
-    print("  workers:   ", len(workers_df))
-    print("  students:  ", len(students_df))
-    print("  unemployed:", len(unemp_df))
-    print("  total:     ", tot)
-    if tot != len(upop_df):
-        print("ERROR: total agents mismatch, allocated", tot, "but found", len(upop_df), "in UrbanPop feather files")
-
-    if args.up_nt_dt_files:
-        workers_nt_dt_df, students_nt_dt_df, schools_df, unemp_df = get_from_upop_nt_dt(args, upop_df)
-        if args.lodes_files:
-            lodes_df = get_lodes_groups(args.lodes_files)
-            check_flows_correlation(workers_nt_dt_df, lodes_df)
-    else:
-        workers_nt_dt_df = alloc_workers(args, workers_df)
-        students_nt_dt_df = alloc_students(args, students_df)
-        schools_df = load_schools(args.schools_file)
-        unemp_df = get_unemp(unemp_df)
-
-    workers_nt_dt_df = alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, "childcare")
-    workers_nt_dt_df = alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, "secondary")
-    workers_nt_dt_df = alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, "university")
-    check_teacher_corr(workers_nt_dt_df, schools_df)
-
-    for df in [workers_nt_dt_df, unemp_df, students_nt_dt_df]:
-        for col in df.columns:
-            df[col] = df[col].astype(str)
-
-    nt_dt_df = pd.concat([workers_nt_dt_df, unemp_df, students_nt_dt_df], ignore_index=True)
-    # these astype calls are needed to satisfy the to_feather call
-    nt_dt_df.grade = nt_dt_df.grade.astype(str)
-    nt_dt_df.loc[nt_dt_df.grade == "-1", "grade"] = ""
-    nt_dt_df.loc[(nt_dt_df.naics == "") | (nt_dt_df.naics == "None"), "naics"] = "-1"
-    # ensure dest_geoid is set to origin if blank
-    nt_dt_df.loc[nt_dt_df.dest_geoid == "", "dest_geoid"] = nt_dt_df.orig_geoid
-    nt_dt_df.sort_values(by=["p_id"], inplace=True, ignore_index=True)
+    nt_dt_df = get_merged_upop_and_nt_dt(upop_df, args.lodes_files, args.schools_file, args.up_nt_dt_files)
     nt_dt_df.to_csv(args.output_file + "_nt_dt.csv", index=False)
     nt_dt_df.to_feather(args.output_file + "_nt_dt.feather")
-    print("Wrote nt/dt data to", args.output_file + "_nt_dt.csv")
+    print("Wrote nt/dt data to", args.output_file + "_nt_dt.csv/feather")
 
     print("Completed in %.2f s" % (time.time() - t))
 

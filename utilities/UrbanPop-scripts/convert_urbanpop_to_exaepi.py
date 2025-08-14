@@ -574,7 +574,7 @@ def process_pop_feather_files(fnames):
         if DUMP_INTERMEDIATES:
             df_read.to_csv(fname + ".csv")
         dfs.append(df_read)
-        if i % chunk_size == 0 or i == len(fnames) - 1:
+        if i == len(fnames) - 1 or i % chunk_size == 0:
             dfs.append(df)
             df = pd.concat(dfs, ignore_index=True)
             del dfs
@@ -582,9 +582,12 @@ def process_pop_feather_files(fnames):
             gc.collect()
             mem_used = float(psutil.Process(os.getpid()).memory_info().rss) / 1024 / 1024 / 1024
             mem_of_df = float(df.memory_usage().sum()) / 1024 / 1024 / 1024
-            print(f"  {int(i / chunk_size)}: read {fname}, memory RSS {mem_used:0.2f} G, memory of df {mem_of_df:0.2f} G")
+            if chunk_size > 0:
+                print(f"  {int(i / chunk_size)}:", end="")
+            print(f" read {fname}, memory RSS {mem_used:0.2f} G, memory of df {mem_of_df:0.2f} G")
+
     print(f"Read {len(df.index)} records")
-    df.geoid = df.geoid.astype("int64")
+    # df.geoid = df.geoid.astype("int64")
     # need to sort to ensure the order is the same between the population files and the daytime/nighttime files
     df.sort_values(by=["p_id"], inplace=True)
     return df
@@ -640,10 +643,12 @@ def get_upop_only(df, nt_dt_df):
 def merge_nt_dt(df, nt_dt_df):
     if not np.array_equal(df.p_id.values, nt_dt_df.p_id.values):
         df, nt_dt_df = get_upop_only(df, nt_dt_df)
-    if not np.array_equal(df.p_id.values, nt_dt_df.p_id.values):
+    if not np.array_equal(df.p_id.values, nt_dt_df.p_id.to_numpy()):
         err_str = f"{Fore.RED}Mismatched p_ids for population vs daytime/nightime{Fore.RESET}"
         raise RuntimeError(err_str)
-    if not np.array_equal(df.geoid.values, nt_dt_df.orig_geoid.values):
+    df.geoid = df.geoid.astype("int64")
+    nt_dt_df.orig_geoid = nt_dt_df.orig_geoid.astype("int64")
+    if not np.array_equal(df.geoid.values, nt_dt_df.orig_geoid.to_numpy()):
         print(f"lengths: {len(df.geoid.values)} {len(nt_dt_df.orig_geoid.values)}")
         err_str = f"{Fore.RED}Mismatched geoids for population vs daytime/nightime{Fore.RESET}"
         raise RuntimeError(err_str)
@@ -654,17 +659,21 @@ def merge_nt_dt(df, nt_dt_df):
     df.insert(df.columns.get_loc("geoid") + 1, "work_geoid", int(0))
     # get values from worker data
     df["work_geoid"] = nt_dt_df["dest_geoid"].values
-    if not np.array_equal(df.work_geoid.values, nt_dt_df.dest_geoid.values):
+    if not np.array_equal(df.work_geoid.values, nt_dt_df.dest_geoid.to_numpy()):
         err_str = f"{Fore.RED}Mismatched work geoids for population vs daytime/nightime{Fore.RESET}"
         raise RuntimeError(err_str)
     nt_dt_df.school_id = nt_dt_df.school_id.fillna(0).astype("int")
     nt_dt_df.naics = nt_dt_df.naics.fillna(-1).astype("int")
+    nt_dt_df.grade = nt_dt_df.grade.fillna(-1).astype("int")
+    df.grade = nt_dt_df.grade.fillna(-1).astype("int")
     for col in ["role", "naics", "grade", "school_id"]:
         df[col] = nt_dt_df[col].values
-        if not np.array_equal(df[col].values, nt_dt_df[col].values):
+        if not np.array_equal(df[col].values, nt_dt_df[col].to_numpy()):
             df.to_csv("err-df.csv", index=False)
             nt_dt_df.to_csv("err-df-dt-nt.csv", index=False)
             err_str = f"{Fore.RED}Mismatched {col} for population vs daytime/nightime{Fore.RESET}"
+            print(df.dtypes)
+            print(nt_dt_df.dtypes)
             raise RuntimeError(err_str)
 
     # now ensure all empty grades and school ids are set to 0
@@ -835,8 +844,9 @@ def rename_fields(df):
 
 
 @timer
-def set_lnglat(df, geoid_locs_map):
+def set_lnglat(df, shape_files):
     print("Setting lat/long for data")
+    geoid_locs_map = process_census_bg_shape_file(shape_files)
     # add lat/long locations from geoids
     df.insert(df.columns.get_loc("home_geoid") + 1, "home_lat", float(0))
     df.insert(df.columns.get_loc("home_lat") + 1, "home_lng", float(0))
@@ -898,10 +908,12 @@ def adjust_household_ids(df):
 def main():
     np.random.seed(29)
 
-    cfg_parser = argparse.ArgumentParser(description="Convert UrbanPop feather files to C++ struct binary file", add_help=False)
+    cfg_parser = argparse.ArgumentParser(
+        description="Convert UrbanPop feather files to a csv file for ExaEpi input", add_help=False
+    )
     cfg_parser.add_argument("-c", "--config", help="Config file", metavar="FILE")
     args, remaining_argv = cfg_parser.parse_known_args()
-    main_args = {"output": "out", "files": "", "shape_files": "", "day_night_files": ""}
+    main_args = {"output": "out", "files": [], "shape_files": [], "day_night_files": []}
     if args.config:
         cfg = configparser.ConfigParser()
         cfg.read([args.config])
@@ -929,14 +941,13 @@ def main():
         print(f"  {arg:20s} {value}")
     print(Fore.RESET, end="")
 
-    geoid_locs_map = process_census_bg_shape_file(args.shape_files)
     nt_dt_df = process_nt_dt_feather_files(args.day_night_files, args.output)
     df = process_pop_feather_files(args.files)
     merge_nt_dt(df, nt_dt_df)
     set_types(df)
     rename_fields(df)
     # this call will drop all agents without GEOIDs in the block group shape files
-    set_lnglat(df, geoid_locs_map)
+    set_lnglat(df, args.shape_files)
     # don't save the lng/lat columns
     df.drop(columns=["home_lng", "home_lat", "work_lng", "work_lat"], inplace=True)
     orig_ids_df = pd.DataFrame()
