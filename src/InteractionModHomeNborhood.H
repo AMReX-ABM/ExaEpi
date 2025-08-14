@@ -142,7 +142,7 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
                     if (isInfectious(i, ptd, d) && isCandidate(i, ptd)) {
                         auto community = getCommunityIndex(ptd, i);
                         auto nborhood = nborhood_ptr[i];
-                        if (isAsymptomatic(i, ptd, d)) {
+                        if (isAsymptomatic(i, ptd, d) || isPresymptomatic(i, ptd, d)) {
                             Gpu::Atomic::AddNoRet(&infected_community_asymp_d_ptr[community], 1);
                             Gpu::Atomic::AddNoRet(&infected_nborhood_asymp_d_ptr[community * max_nborhood + nborhood], 1);
                         } else {

@@ -179,20 +179,20 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
                             auto community = getCommunityIndex(ptd, i);
                             AMREX_ALWAYS_ASSERT(community <= max_communities);
                             int family_i = community * max_family + family_ptr[i];
-                            if (isAsymptomatic(i, ptd, d)) {
+                            if (isAsymptomatic(i, ptd, d) || isPresymptomatic(i, ptd, d)) {
                                 Gpu::Atomic::AddNoRet(&infected_family_asymp_d_ptr[family_i], 1);
                             } else {
                                 Gpu::Atomic::AddNoRet(&infected_family_d_ptr[family_i], 1);
                             }
                             if (!ptd.m_idata[IntIdx::withdrawn][i]) {
-                                if (isAsymptomatic(i, ptd, d)) {
+                                if (isAsymptomatic(i, ptd, d) || isPresymptomatic(i, ptd, d)) {
                                     Gpu::Atomic::AddNoRet(&infected_family_not_withdrawn_asymp_d_ptr[family_i], 1);
                                 } else {
                                     Gpu::Atomic::AddNoRet(&infected_family_not_withdrawn_d_ptr[family_i], 1);
                                 }
                                 int cluster = family_ptr[i] / FAMILIES_PER_CLUSTER;
                                 int nc = (community * max_nborhood + nborhood_ptr[i]) * num_ncs + cluster;
-                                if (isAsymptomatic(i, ptd, d)) {
+                                if (isAsymptomatic(i, ptd, d) || isPresymptomatic(i, ptd, d)) {
                                     Gpu::Atomic::AddNoRet(&infected_nc_asymp_d_ptr[nc], 1);
                                 } else {
                                     Gpu::Atomic::AddNoRet(&infected_nc_d_ptr[nc], 1);

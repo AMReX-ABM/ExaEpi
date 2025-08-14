@@ -147,7 +147,7 @@ void InteractionModWorkNborhood<PCType, PTDType, PType>::fastInteractWorkNborhoo
                         // always use work nborhood, because even age group 0 could be in another nborhood during the day for
                         // daycare
                         int nborhood = work_nborhood_ptr[i];
-                        if (isAsymptomatic(i, ptd, d)) {
+                        if (isAsymptomatic(i, ptd, d) || isPresymptomatic(i, ptd, d)) {
                             Gpu::Atomic::AddNoRet(&infected_community_asymp_d_ptr[community], 1);
                             Gpu::Atomic::AddNoRet(&infected_nborhood_asymp_d_ptr[community * max_nborhood + nborhood], 1);
                         } else {
