@@ -17,23 +17,23 @@ from get_schools import timer  # type: ignore
 
 grade_categs = CategoricalDtype(
     categories=[
-        "childcare",
-        "preschl",
-        "kind",
-        "1st",
-        "2nd",
-        "3rd",
-        "4th",
-        "5th",
-        "6th",
-        "7th",
-        "8th",
-        "9th",
-        "10th",
-        "11th",
-        "12th",
-        "undergrad",
-        "grad",
+        "childcare",  # 3
+        "preschl",  # 4
+        "kind",  # 5
+        "1st",  # 6
+        "2nd",  # 7
+        "3rd",  # 8
+        "4th",  # 9
+        "5th",  # 10
+        "6th",  # 11
+        "7th",  # 12
+        "8th",  # 13
+        "9th",  # 14
+        "10th",  # 15
+        "11th",  # 16
+        "12th",  # 17
+        "undergrad",  # 18
+        "grad",  # 19
     ]
 )
 
@@ -467,7 +467,7 @@ def alloc_teachers_region(teachers_df, schools_df, geoid_scaling):
 
 
 @timer
-def alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, school_type):
+def alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, school_type, from_upop):
     print(f"{Fore.GREEN}Allocating teachers for {school_type}{Fore.RESET}")
     # The number of students at each school will not exactly match the original schools data, so we use the actual number
     # of students we have allocated, and the original student/teacher ratio to set the desired teacher counts for each school
@@ -511,7 +511,16 @@ def alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, school_type)
     )
     schools_df = schools_df.merge(alloc_schools_df, on="id")
     schools_df["ratio"] = schools_df.alloc_students / schools_df.students
-    schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.teachers * schools_df.ratio))
+    if from_upop:
+        if school_type == "childcare":
+            schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.students / 7.0))
+        elif school_type == "secondary":
+            schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.students / 13.0))
+        else:
+            schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.students / 5.0))
+    else:
+        schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.teachers * schools_df.ratio))
+
     if DUMP_INTERMEDIATES:
         schools_df.to_csv("selected_schools.csv", sep="\t", float_format="%.2f", index=False)
     schools_df["alloc_teachers"] = schools_df.adj_teachers
@@ -519,7 +528,13 @@ def alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, school_type)
     teachers_df["school_id"] = None
     teachers_df["grade"] = ""
     num_reqd_teachers = schools_df.adj_teachers.sum()
-    print("Found", len(teachers_df), "edu workers for", num_reqd_teachers, "required teachers")
+    print(
+        "Found",
+        len(teachers_df),
+        "edu workers for",
+        num_reqd_teachers,
+        "required teachers, ratio %.2f" % (len(students_nt_dt_df) / num_reqd_teachers),
+    )
     scales = list(region_scales.keys())
     # pick schools for teachers from decreasing resolution; the goal is to allocate teachers as close to home as possible
     for scale in scales:
@@ -590,8 +605,12 @@ def get_from_upop_nt_dt(up_nt_dt_files, upop_df):
     students_df.to_csv("students_from_up.csv", index=False)
     schools_df = students_df.groupby(["school_id", "dest_geoid"]).size().reset_index(name="students")
     schools_df.rename(columns={"school_id": "id", "dest_geoid": "geoid"}, inplace=True)
-    # we don't have information for these schools, so we just use an average student:teacher ratio of 12:1
-    schools_df["teachers"] = np.ceil(schools_df.students / 12).astype(int)
+    # we have estimated ratios for teachers per students at each level
+    teacher_ratios = [[18, 19, 5], [14, 17, 15], [11, 13, 13], [5, 10, 12], [3, 4, 7]]
+    for ratio in teacher_ratios:
+        idx = (students_df.grade >= ratio[0]) & (students_df.grade <= ratio[1])
+        schools_df.loc[idx, "teachers"] = np.ceil(schools_df.students / ratio[2]).astype(int)
+
     schools_df["min_age"] = students_df.groupby(["school_id", "dest_geoid"], as_index=False)["grade"].min()["grade"]
     schools_df["max_age"] = students_df.groupby(["school_id", "dest_geoid"], as_index=False)["grade"].max()["grade"]
     schools_df["level"] = list(map(get_level_from_age, schools_df["min_age"], schools_df["max_age"]))
@@ -632,9 +651,11 @@ def get_merged_upop_and_nt_dt(upop_df, lodes_files, schools_file, up_nt_dt_files
         schools_df = load_schools(schools_file)
         unemp_df = get_unemp(unemp_df)
 
-    workers_nt_dt_df = alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, "childcare")
-    workers_nt_dt_df = alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, "secondary")
-    workers_nt_dt_df = alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, "university")
+    from_upop = True if up_nt_dt_files else False
+    # allocate teachers to schools
+    workers_nt_dt_df = alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, "childcare", from_upop)
+    workers_nt_dt_df = alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, "secondary", from_upop)
+    workers_nt_dt_df = alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, "university", from_upop)
     check_teacher_corr(workers_nt_dt_df, schools_df)
 
     for df in [workers_nt_dt_df, unemp_df, students_nt_dt_df]:
