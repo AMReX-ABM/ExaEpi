@@ -605,11 +605,9 @@ def get_merged_upop_and_nt_dt(upop_df, lodes_files, schools_file, up_nt_dt_files
     upop_df = set_childcare(upop_df)
     # now split into students, workers and unemployed.
     # Note that the UrbanPop nt/dt data classifies mil as unemployed (nope); because they don't commute?
-    # UrbanPop nt/dt sometimes classifies employed people with undergrad/grad grade as students, not workers. Not sure when/why
-    # it does this. So not sure what to do. Taking all employed as workers only and not students give a better match to the
-    # schools data
-    # is_employed = (upop_df.pr_emp_stat == "employed") & (upop_df.pr_grade != "undergrad") & (upop_df.pr_grade != "grad")
-    is_employed = upop_df.pr_emp_stat == "employed"
+    # UrbanPop nt/dt sometimes classifies employed people with assigned grades as students, not workers. Not sure when/why
+    # it does this. We will assume that employed agents with assigned grades are students if they are under 25 in age
+    is_employed = (upop_df.pr_emp_stat == "employed") & ((upop_df.pr_grade == "") | (upop_df.pr_age >= 25))
     in_school = (upop_df.pr_grade != "") & ~is_employed
     students_df = upop_df[in_school].copy()
     workers_df = upop_df[is_employed]
