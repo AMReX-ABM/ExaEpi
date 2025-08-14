@@ -515,9 +515,9 @@ def alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, school_type,
         if school_type == "childcare":
             schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.students / 7.0))
         elif school_type == "secondary":
-            schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.students / 13.0))
+            schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.students / 13.7))
         else:
-            schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.students / 5.0))
+            schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.students / 5.7))
     else:
         schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.teachers * schools_df.ratio))
 
