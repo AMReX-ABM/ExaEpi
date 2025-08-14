@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env -S python -u
 
 # This code is for generating nighttime/daytime flows that are missing from UrbanPop
 
@@ -513,11 +513,11 @@ def alloc_teachers(workers_nt_dt_df, students_nt_dt_df, schools_df, school_type,
     schools_df["ratio"] = schools_df.alloc_students / schools_df.students
     if from_upop:
         if school_type == "childcare":
-            schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.students / 7.0))
+            schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.students / 6.6))
         elif school_type == "secondary":
             schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.students / 13.7))
         else:
-            schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.students / 5.7))
+            schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.students / 4.8))
     else:
         schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.teachers * schools_df.ratio))
 

@@ -41,7 +41,9 @@ def compare_worker_flows(nt_dt_df, upop_nt_dt_df):
         # corr = merged_df.count_normalized_gen.corr(merged_df.count_normalized_up)
         corr = merged_df.count_gen.corr(merged_df.count_up)
         print(f"  {role}: correlation {corr:.3f}")
-        print(f"    Total flows - Generated: {merged_df.count_gen.sum():.0f}" f", UrbanPop: {merged_df.count_up.sum():.0f}")
+        gen_sum = merged_df.count_gen.sum()
+        upop_sum = merged_df.count_up.sum()
+        print(f"    Total flows - Generated: {gen_sum:.0f}" f", UrbanPop: {upop_sum:.0f}")
 
         plt.figure(figsize=(10, 10))
         # plt.scatter(merged_df.count_normalized_gen, merged_df.count_normalized_up, alpha=0.5)
@@ -69,13 +71,9 @@ def compare_worker_flows(nt_dt_df, upop_nt_dt_df):
         # Add diagonal line for perfect correlation
         plt.plot([0, max_val], [0, max_val], "r--", alpha=0.5)
         # Add correlation coefficient to plot
-        plt.text(
-            0.05,
-            0.95,
-            f"Correlation: {corr:.3f}",
-            transform=plt.gca().transAxes,
-            bbox=dict(facecolor="white", alpha=0.8),
-        )
+        plt.text(0.05, 0.95, f"Correlation: {corr:.3f}", transform=plt.gca().transAxes)
+        plt.text(0.05, 0.90, f"Total Generated: {gen_sum:.0f}", transform=plt.gca().transAxes)
+        plt.text(0.05, 0.85, f"Total UrbanPop: {upop_sum:.0f}", transform=plt.gca().transAxes)
         plt.tight_layout()
         plot_file = f"flow_comparison_{role}.png"
         plt.savefig(plot_file)
@@ -138,7 +136,7 @@ def compare_educational_flows(args, nt_dt_df, upop_nt_dt_df):
         plt.xlim(min_val, max_val)
         plt.ylim(min_val, max_val)
         # Add correlation coefficient to plot
-        plt.text(0.05, 0.95, f"Correlation: {corr:.3f}", transform=plt.gca().transAxes, bbox=dict(facecolor="white", alpha=0.8))
+        plt.text(0.05, 0.95, f"Correlation: {corr:.3f}", transform=plt.gca().transAxes)
         plt.tight_layout()
         plot_file = f"school_population_comparison_{compare_df[1].lower()}.png"
         plt.savefig(plot_file)
@@ -183,17 +181,11 @@ def compare_lodes_files(args, nt_dt_df, upop_nt_dt_df):
         # Labels and title
         plt.xlabel(f"Normalized {compare_df[1]} Worker Flow (%)")
         plt.ylabel("Normalized LODES Flow (%)")
-        plt.title(f"Normalized Worker Flow Comparison\n{compare_df[1]} vs LODES")
+        plt.title(f"Worker Flow Comparison\n{compare_df[1]} vs LODES")
         # Add diagonal line for perfect correlation
         plt.plot([min_val, max_val], [min_val, max_val], "r--", alpha=0.5)
         # Add correlation coefficients to plot
-        plt.text(
-            0.05,
-            0.88,
-            f"Correlation: {corr_norm:.3f}",
-            transform=plt.gca().transAxes,
-            bbox=dict(facecolor="white", alpha=0.8),
-        )
+        plt.text(0.05, 0.88, f"Correlation: {corr_norm:.3f}", transform=plt.gca().transAxes)
 
         plt.grid(True, which="both", ls="-", alpha=0.2)
         plt.tight_layout()

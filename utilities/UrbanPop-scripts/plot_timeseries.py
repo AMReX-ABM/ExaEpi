@@ -47,33 +47,24 @@ if __name__ == "__main__":
             label = args.labels[i]
         else:
             label = fname
-        if "8-" in fname or i == 0:
-            ls = "solid"
-            c = "red"
-        elif "16-" in fname:
-            ls = "dotted"
-            c = "black"
+        ls = ""
+        marker = "+"
+        alpha = 0.3
+        if "gen" in fname:
+            c = "green"
         else:
-            ls = "dashed"
             c = "blue"
+        ax1.plot(list(df.index), list(df.Infected), label=label, lw=3, ls=ls, alpha=alpha, marker=marker, color=c)
+        ax2.plot(list(df.index), list(df.Asymptomatic), label=label, lw=3, ls=ls, alpha=alpha, marker=marker, color=c)
+        ax3.plot(list(df.index), list(df.Hospitalized), label=label, lw=3, ls=ls, alpha=alpha, marker=marker, color=c)
+        ax4.plot(list(df.index), list(df.ICU), label=label, lw=3, ls=ls, alpha=alpha, marker=marker, color=c)
+        ax5.plot(list(df.index), list(df.Ventilated), label=label, lw=3, ls=ls, alpha=alpha, marker=marker, color=c)
+        ax6.plot(list(df.index), list(df.Deaths.diff()), label=label, lw=3, ls=ls, alpha=alpha, marker=marker, color=c)
 
-        ls = "dashed"
-        if i % 2 == 0:
-            ls = "dotted"
-            alpha = 0.8
-        else:
-            alpha = 0.6
-        ls = "solid"
-        alpha = 1.0
-        ax1.plot(list(df.index), list(df.Infected), label=label, lw=3, ls=ls, alpha=alpha)  # ), color=c)
-        ax2.plot(list(df.index), list(df.Asymptomatic), label=label, lw=3)  # , color=c, alpha=0.2)
-        ax3.plot(list(df.index), list(df.Hospitalized), label=label, lw=3)  # , color=c, alpha=0.2)
-        ax4.plot(list(df.index), list(df.ICU), label=label, lw=3)  # , color=c, alpha=0.2)
-        ax5.plot(list(df.index), list(df.Ventilated), label=label, lw=3)  # , color=c, alpha=0.2)
-        ax6.plot(list(df.index), list(df.Deaths.diff()), label=label, lw=3)  # , color=c, alpha=0.2)
-
+    ax1.text(0.02, 0.98, "Generated", color="green", transform=ax1.transAxes, verticalalignment="top", fontsize=14)
+    ax1.text(0.02, 0.93, "UrbanPop NT/DT", color="blue", transform=ax1.transAxes, verticalalignment="top", fontsize=14)
     # ax1.legend()
-    ax2.legend()
+    # ax2.legend()
     ax1.grid()
     ax2.grid()
     ax3.grid()
