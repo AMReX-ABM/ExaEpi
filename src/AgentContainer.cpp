@@ -44,8 +44,8 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
                                 const short a_ic_type /*!< type of initialization */)
     : amrex::ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>(a_geom, a_dmap, a_ba),
       m_fips_codes(a_fips_codes),
-      m_student_counts(a_ba, a_dmap, (a_ic_type == ExaEpi::ICType::Census) ? SchoolCensusIDType::total : SchoolType::total, 0),
-      m_school_stats(a_ba, a_dmap, ((a_ic_type == ExaEpi::ICType::Census) ? SchoolCensusIDType::total : SchoolType::total) * SchoolPolicy::SchoolStats::nattribs, 0) {
+      m_student_counts(a_ba, a_dmap, (a_ic_type == ExaEpi::ICType::Census) ?  static_cast<int>(SchoolCensusIDType::total) :  static_cast<int>(SchoolType::total), 0),
+      m_school_stats(a_ba, a_dmap, ((a_ic_type == ExaEpi::ICType::Census) ?  static_cast<int>(SchoolCensusIDType::total) :  static_cast<int>(SchoolType::total)) *  static_cast<int>(SchoolPolicy::SchoolStats::nattribs), 0) {
     BL_PROFILE("AgentContainer::AgentContainer");
 
     ic_type = a_ic_type;
@@ -1419,7 +1419,7 @@ void AgentContainer::updateSchoolInfection(iMultiFab& a_school_stats) /*!< Commu
         amrex::Gpu::streamSynchronize();
     } else { // By Community or By School Type
 
-        int offset = is_census ? SchoolCensusIDType::total : SchoolType::total;
+        int offset = is_census ? static_cast<int>(SchoolCensusIDType::total) : static_cast<int>(SchoolType::total);
         AMREX_ALWAYS_ASSERT(a_school_stats.nComp() == offset * SchoolPolicy::SchoolStats::nattribs);
 
         for (int lev = 0; lev <= finestLevel(); ++lev)

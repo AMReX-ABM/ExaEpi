@@ -178,7 +178,7 @@ void runAgent () {
     }
 
     bool is_census = (params.ic_type == ExaEpi::ICType::Census);
-    int nattribs = is_census ? SchoolCensusIDType::total : SchoolType::total;
+    int nattribs = is_census ?  static_cast<int>(SchoolCensusIDType::total) :  static_cast<int>(SchoolType::total);
     amrex::iMultiFab school_infection_stats(ba, dm, nattribs * 4, 0);
     school_infection_stats.setVal(0);
 
@@ -263,7 +263,7 @@ void runAgent () {
                 if (amrex::FileExists(output_filename[d])) {
                     std::string newoldname(output_filename[d] + ".old." + amrex::UniqueString());
                     amrex::Print() << output_filename[d] << " exists.  Renaming to:  " << newoldname << '\n';
-                    std::filesystem::copy(output_filename[d], newoldname);
+                    // std::filesystem::copy(output_filename[d], newoldname);
                 }
 
                 std::ifstream inFile;
