@@ -87,7 +87,7 @@ disease.num_initial_cases = 0
 disease.p_trans = 0.2
 # Probability of being asymptomatic.
 disease.p_asymp = 0.4
-# Relative infectiousness of asymptomatic indivudals. Curnently not implemented.
+# Relative infectiousness of asymptomatic individuals.
 disease.asymp_relative_inf = 0.75
 # Vaccine efficacy. Not yet implemented; leave at 0.
 disease.vac_eff = 0

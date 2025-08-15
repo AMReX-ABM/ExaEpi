@@ -21,7 +21,7 @@ struct BinaryInteractionSchool {
     ParticleReal operator()(const int infectious_i,           /*!< Index of infectious agent */
                             const int susceptible_i,          /*!< Index of susceptible agent */
                             const PTDType& a_ptd,             /*!< Particle tile data */
-                            const DiseaseParm* const a_lparm, /*!< disease paramters */
+                            const DiseaseParm* const a_lparm, /*!< disease parameters */
                             const Real a_social_scale /*!< Social scale */) const noexcept {
         AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::school_id][infectious_i] == a_ptd.m_idata[IntIdx::school_id][susceptible_i]);
         AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::school_grade][infectious_i] ==
@@ -113,6 +113,8 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
 
     Vector<Gpu::DeviceVector<int>> infected_school_d(OMP_MAX_THREADS);
     Vector<Gpu::DeviceVector<int>> infected_daycare_d(OMP_MAX_THREADS);
+    Vector<Gpu::DeviceVector<int>> infected_school_asymp_d(OMP_MAX_THREADS);
+    Vector<Gpu::DeviceVector<int>> infected_daycare_asymp_d(OMP_MAX_THREADS);
 
     for (int lev = 0; lev < agents.numLevels(); ++lev) {
 #ifdef AMREX_USE_OMP
@@ -144,8 +146,12 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
 
             infected_school_d[OMP_THREAD_NUM].resize(max_communities * max_school_id * max_school_grade);
             infected_daycare_d[OMP_THREAD_NUM].resize(max_communities * max_school_id * max_school_grade);
+            infected_school_asymp_d[OMP_THREAD_NUM].resize(max_communities * max_school_id * max_school_grade);
+            infected_daycare_asymp_d[OMP_THREAD_NUM].resize(max_communities * max_school_id * max_school_grade);
             auto infected_school_d_ptr = infected_school_d[OMP_THREAD_NUM].data();
             auto infected_daycare_d_ptr = infected_daycare_d[OMP_THREAD_NUM].data();
+            auto infected_school_asymp_d_ptr = infected_school_asymp_d[OMP_THREAD_NUM].data();
+            auto infected_daycare_asymp_d_ptr = infected_daycare_asymp_d[OMP_THREAD_NUM].data();
 
             /*
             Print() << mfi.tilebox() << " np " << np << " max communities " << max_communities
@@ -157,6 +163,9 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                 for (auto adults : {true, false}) {
                     devMemset(infected_school_d_ptr, 0, infected_school_d[OMP_THREAD_NUM].size() * sizeof(int));
                     devMemset(infected_daycare_d_ptr, 0, infected_daycare_d[OMP_THREAD_NUM].size() * sizeof(int));
+
+                    devMemset(infected_school_asymp_d_ptr, 0, infected_school_asymp_d[OMP_THREAD_NUM].size() * sizeof(int));
+                    devMemset(infected_daycare_asymp_d_ptr, 0, infected_daycare_asymp_d[OMP_THREAD_NUM].size() * sizeof(int));
 
                     auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                     auto lparm = agents.getDiseaseParameters_d(d);
@@ -173,9 +182,17 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                             auto community = d_ptr[tidx];
                             int pos = (community * max_school_id + school_id_ptr[i]) * max_school_grade + school_grade_ptr[i];
                             if (getSchoolType(school_grade_ptr[i]) == SchoolType::daycare) {
-                                Gpu::Atomic::AddNoRet(&infected_daycare_d_ptr[pos], 1);
+                                if (isAsymptomatic(i, ptd, d) || isPresymptomatic(i, ptd, d)) {
+                                    Gpu::Atomic::AddNoRet(&infected_daycare_asymp_d_ptr[pos], 1);
+                                } else {
+                                    Gpu::Atomic::AddNoRet(&infected_daycare_d_ptr[pos], 1);
+                                }
                             } else {
-                                Gpu::Atomic::AddNoRet(&infected_school_d_ptr[pos], 1);
+                                if (isAsymptomatic(i, ptd, d) || isPresymptomatic(i, ptd, d)) {
+                                    Gpu::Atomic::AddNoRet(&infected_school_asymp_d_ptr[pos], 1);
+                                } else {
+                                    Gpu::Atomic::AddNoRet(&infected_school_d_ptr[pos], 1);
+                                }
                             }
                         }
                     });
@@ -196,9 +213,15 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                                     int num_infected_daycare = infected_daycare_d_ptr[pos];
                                     Real daycare_prob = 1.0_rt - infect * lparm->xmit_school[SchoolType::daycare] * scale;
                                     prob_ptr[i] *= static_cast<ParticleReal>(std::pow(daycare_prob, num_infected_daycare));
+                                    int num_infected_daycare_asymp = infected_daycare_asymp_d_ptr[pos];
+                                    Real daycare_prob_asymp = 1.0_rt - lparm->asymp_relative_inf * infect *
+                                                                               lparm->xmit_school[SchoolType::daycare] * scale;
+                                    prob_ptr[i] *=
+                                            static_cast<ParticleReal>(std::pow(daycare_prob_asymp, num_infected_daycare_asymp));
                                 }
                             } else {
                                 int num_infected_school = infected_school_d_ptr[pos];
+                                int num_infected_school_asymp = infected_school_asymp_d_ptr[pos];
                                 Real xmit = 0.0_rt;
                                 if (adults) {                                    // transmitters are adults
                                     if (age_group_ptr[i] <= AgeGroups::a5to17) { // Adult teacher/staff -> child student
@@ -217,6 +240,8 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                                 }
                                 Real school_prob = 1.0_rt - infect * xmit * scale;
                                 prob_ptr[i] *= static_cast<ParticleReal>(std::pow(school_prob, num_infected_school));
+                                Real school_prob_asymp = 1.0_rt - lparm->asymp_relative_inf * infect * xmit * scale;
+                                prob_ptr[i] *= static_cast<ParticleReal>(std::pow(school_prob_asymp, num_infected_school_asymp));
                             }
                         }
                     });
