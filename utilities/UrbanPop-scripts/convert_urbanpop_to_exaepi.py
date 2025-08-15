@@ -21,7 +21,6 @@ from colorama import Fore
 from get_schools import timer
 
 # only include these fields in the output csv and c++ structure
-
 include_fields = [
     "p_id",
     "h_id",
