@@ -103,6 +103,47 @@ categ_types = {
     ),
 }
 
+CORR_CHECK_LEVEL = 0.8
+
+region_scales = {
+    12: "blockgroup",
+    11: "tract",
+    10: "county_subdiv",
+    7: "census_places",
+    5: "county",
+    2: "state",
+}
+
+age_levels = {
+    "C": [3, 3],
+    "P": [4, 4],
+    "E": [5, 10],
+    "M": [11, 13],
+    "H": [14, 17],
+    "U": [18, 19],
+    "PE": [4, 10],
+    "PEM": [4, 13],
+    "PEMH": [4, 17],
+    "EM": [5, 13],
+    "EMH": [5, 17],
+    "MH": [11, 17],
+}
+
+teacher_ratios = {
+    "C": 6.6,
+    "P": 12.3,
+    "E": 12.3,
+    "M": 12.7,
+    "H": 14.5,
+    "U": 4.8,
+    "PE": 12.3,
+    "PEM": 12.5,
+    "PEMH": 13,
+    "EM": 12.5,
+    "EMH": 13,
+    "MH": 13,
+}
+
 
 def warn(fmt_str, *args):
     print(f"{Fore.RED}WARNING: {fmt_str}{Fore.RESET}" % args)
@@ -265,7 +306,7 @@ def load_upop_feather_files(fnames, out_fname):
 @timer
 def set_types(df):
     # treat the NAICS types as strings for later sorting
-    df.pr_naics = df.pr_naics.astype("str")
+    df.pr_naics = df.pr_naics.str.extract(r"(\d+)", expand=False).fillna(-1).astype("int32")
     df.h_id = df.h_id.str.split("-").str[-1].astype("int32")
     for field_type in df:
         if field_type in categ_types:
@@ -323,18 +364,40 @@ def process_upop_nt_dt(up_nt_dt_files, upop_df):
     # get NAICS from base UrbanPop data - it gives more detailed categories
     for fname in up_nt_dt_files:
         region_df = pd.read_feather(fname)[
-            ["p_id", "role", "orig_geoid", "dest_geoid", "school_id"]
+            ["p_id", "role", "orig_geoid", "dest_geoid", "school_id", "grade"]
         ].astype({"orig_geoid": "str", "dest_geoid": "str"})
         df = pd.concat([df, region_df], ignore_index=True)
     print(f"Loaded {len(df)} entries from {len(up_nt_dt_files)} files")
     df.sort_values(by=["p_id"], inplace=True)
-    df.rename(
-        columns={"p_id": "id", "orig_geoid": "home_geoid", "dest_geoid": "work_geoid"}, inplace=True
+    # convert the grades to a number (category code)
+    idx = df["grade"].isin(
+        ["childcare", "undergrad_male", "undergrad_female", "grad_male", "grad_female"]
     )
+    df.loc[idx, "grade"] = df.loc[idx, "grade"].str.split("_", n=1, expand=True).iloc[:, 0]
+    df.loc[~idx, "grade"] = df.loc[~idx, "grade"].str.split("_", n=1, expand=True).iloc[:, 1]
+    df.grade = df.grade.astype(categ_types["pr_grade"]).cat.codes
+    df.loc[df.grade != -1, "grade"] += 3  # add 3 to the grade to match UrbanPop data
+    df.rename(
+        columns={
+            "p_id": "id",
+            "orig_geoid": "home_geoid",
+            "dest_geoid": "work_geoid",
+            "grade": "nt_dt_grade",
+        },
+        inplace=True,
+    )
+    # convert school ids to unique 64 bit ints
+    unique_school_ids = sorted(df.school_id.unique(), key=lambda x: (x is None, x))
+    school_id_map = dict(zip(unique_school_ids, range(len(unique_school_ids))))
+    school_id_map[None] = -1
+    print(f"Found {len(school_id_map)} unique school ids")
+    df.school_id = df.school_id.map(school_id_map).astype("int64")
+
     upop_len = len(upop_df)
     upop_df = upop_df[upop_df["id"].isin(df["id"])].reset_index(drop=True)
     if len(upop_df) != upop_len:
-        print(f"Dropped {upop_len - len(upop_df)} entries not found in daytime/nightime")
+        warn(f"Dropped {upop_len - len(upop_df)} entries not found in daytime/nightime")
+
     if not np.array_equal(df.id.to_numpy(), upop_df.id.to_numpy()):
         print(f"ids: {df.id.to_numpy()[:10]}\n{upop_df.id.to_numpy()[:10]}")
         err_str = f"{Fore.RED}Mismatched p_ids for population vs daytime/nightime{Fore.RESET}"
@@ -343,33 +406,43 @@ def process_upop_nt_dt(up_nt_dt_files, upop_df):
         print(f"home geoids: {df.home_geoid.to_numpy()[:10]}\n{upop_df.home_geoid.to_numpy()[:10]}")
         err_str = f"{Fore.RED}Mismatched geoids for population vs daytime/nightime{Fore.RESET}"
         raise RuntimeError(err_str)
-    # FIXME: we should probably check the grades too
 
     df.drop(columns=["home_geoid"], inplace=True)
     df = df.merge(upop_df, on="id", how="outer")
-    print(df.dtypes)
+
+    # dump the mismatched grades
+    if not np.array_equal(df.grade.to_numpy(), df.nt_dt_grade.to_numpy()):
+        mismatched_df = df[df.grade != df.nt_dt_grade].copy()
+        mismatched_df.to_csv("upop_grade_mismatches.csv", index=False)
+        print(f"Saved {len(mismatched_df)} mismatched grade rows to upop_grade_mismatches.csv")
+
+    # dump_intermediate(df, "upop_with_nt_dt")
+    # copy the grades from the upop nt/dt data
+    df.grade = df.nt_dt_grade
+    df.drop(columns=["nt_dt_grade"], inplace=True)
 
     workers_df = df[df.role == "worker"].reset_index(drop=True)
     workers_df["grade"] = -1
-    dump_intermediate(workers_df, "workers_from_upop_nt_dt")
+    workers_df.drop(columns=["role"], inplace=True)
+    # dump_intermediate(workers_df, "workers_from_upop_nt_dt")
 
     unemp_df = df[df.role == "nope"].reset_index(drop=True)
+    unemp_df.drop(columns=["role"], inplace=True)
     unemp_df["grade"] = -1
-    dump_intermediate(unemp_df, "unemployed_from_upop_nt_dt")
+    # dump_intermediate(unemp_df, "unemployed_from_upop_nt_dt")
 
-    students_df = df[df.role == "student"].reset_index(drop=True)
-    dump_intermediate(students_df, "students_from_upop_nt_dt")
+    # students must also have an allocated school_id
+    students_without_schools = len(df[(df.role == "student") & (df.school_id == -1)])
+    warn(f"Found {students_without_schools} students without school assignments")
+    students_df = df[(df.role == "student") & (df.school_id != -1)].reset_index(drop=True)
+    students_df.drop(columns=["role"], inplace=True)
+    # dump_intermediate(students_df, "students_from_upop_nt_dt")
 
     schools_df = (
         students_df.groupby(["school_id", "work_geoid"]).size().reset_index(name="students")
     )
+    # dump_intermediate(schools_df, "schools_from_upop_nt_dt")
     schools_df.rename(columns={"school_id": "id", "work_geoid": "geoid"}, inplace=True)
-    # we have estimated ratios for teachers per students at each level
-    teacher_ratios = [[18, 19, 5], [14, 17, 15], [11, 13, 13], [5, 10, 12], [3, 4, 7]]
-    for ratio in teacher_ratios:
-        idx = (students_df.grade >= ratio[0]) & (students_df.grade <= ratio[1])
-        schools_df.loc[idx, "teachers"] = np.ceil(schools_df.students / ratio[2]).astype(int)
-
     schools_df["min_age"] = students_df.groupby(["school_id", "work_geoid"], as_index=False)[
         "grade"
     ].min()["grade"]
@@ -379,8 +452,15 @@ def process_upop_nt_dt(up_nt_dt_files, upop_df):
     schools_df["level"] = list(
         map(get_level_from_age, schools_df["min_age"], schools_df["max_age"])
     )
+
+    # set the teachers according to predefined ratios
+    schools_df["teachers"] = schools_df["students"] / schools_df["level"].map(
+        teacher_ratios
+    ).round().astype("int32")
+    schools_df["teachers"] = schools_df["teachers"].clip(lower=1)  # at least one teacher per school
+
     schools_df = schools_df[["id", "students", "teachers", "level", "geoid"]]
-    dump_intermediate(schools_df, "schools_with_geoids_upop_nt_dt")
+    # dump_intermediate(schools_df, "schools_with_geoids_upop_nt_dt")
     return workers_df, students_df, schools_df, unemp_df
 
 
@@ -412,16 +492,17 @@ def process_upop(df, out_fname):
         # "pr_hsplat",
         # "pr_ipr",
         "pr_naics",
-        "pr_emp_stat",
+        # "pr_emp_stat",
         "pr_travel",
         "pr_veh_occ",
         "pr_commute",
         "pr_grade",
     }
     df.drop(columns=set(df.columns.values) - include_fields, inplace=True)
-    # dump_intermediate(df, out_fname + ".upop.purged")
     set_types(df)
     rename_fields(df)
+    df.loc[df.grade != -1, "grade"] += 3
+    # dump_intermediate(df, out_fname + ".upop.purged")
 
 
 @timer
@@ -457,7 +538,7 @@ def get_lodes_groups(lodes_fnames):
             .reset_index()
             .rename(columns={0: "count"})
         )
-        dump_intermediate(lodes_df, lodes_fname + "-short")
+        # dump_intermediate(lodes_df, lodes_fname + "_short")
         df = pd.concat([df, lodes_df], ignore_index=True)
     return df
 
@@ -499,18 +580,30 @@ def load_schools(fname):
     return schools_df
 
 
+def alloc_students(schools_df, students_df):
+    return students_df
+
+
+def alloc_workers(lodes_df, workers_df):
+    return workers_df
+
+
 @timer
 def generate_nt_dt(schools_file, upop_df, lodes_df):
     # randomly allocate some young agents to childcare
     upop_df = set_childcare(upop_df)
     # now split into students, workers and unemployed.
-    # Note that the UrbanPop nt/dt data classifies mil as unemployed (nope); because they don't commute?
-    # UrbanPop nt/dt sometimes classifies employed people with assigned grades as students, not workers. Not sure when/why
-    # it does this. We will assume that employed agents with assigned grades are students if they are under 25 in age
-    is_employed = (upop_df.pr_emp_stat == "employed") & (
-        (upop_df.pr_grade == "") | (upop_df.pr_age >= 25)
-    )
-    in_school = (upop_df.pr_grade != "") & ~is_employed
+    # Note that the UrbanPop nt/dt data classifies mil as unemployed (nope); because they don't
+    # commute?
+    # UrbanPop nt/dt sometimes classifies employed people with assigned grades as students, not
+    # workers. Not sure when/why it does this. We will assume that employed agents with assigned
+    # grades are students if they are under 25 in age. We determine who is employed by checking who
+    # has a NAICS code
+    # is_employed = (upop_df.pr_emp_stat == "employed") & (
+    #    (upop_df.pr_grade == "") | (upop_df.pr_age >= 25)
+    # )
+    is_employed = upop_df.naics != ""
+    in_school = (upop_df.grade != "") & ~is_employed
     students_df = upop_df[in_school].copy()
     workers_df = upop_df[is_employed]
     unemp_df = upop_df[~is_employed & ~in_school]
@@ -529,17 +622,178 @@ def generate_nt_dt(schools_file, upop_df, lodes_df):
             "in UrbanPop feather files",
         )
 
-    workers_nt_dt_df = pd.DataFrame()  # alloc_workers(lodes_df, workers_df)
+    workers_nt_dt_df = alloc_workers(lodes_df, workers_df)
 
     schools_df = load_schools(schools_file)
-    students_nt_dt_df = pd.DataFrame()  # alloc_students(schools_df, students_df)
+    students_nt_dt_df = alloc_students(schools_df, students_df)
 
     unemp_df["work_geoid"] = unemp_df["home_geoid"]
     unemp_df["school_id"] = ""
-    unemp_df["role"] = "nope"
-    unemp_df["grade"] = ""
+    unemp_df["grade"] = -1
+    unemp_df["naics"] = ""
 
     return workers_nt_dt_df, students_nt_dt_df, schools_df, unemp_df
+
+
+def alloc_teachers_region(teachers_df, schools_df, geoid_scaling):
+    schools_df["region"] = schools_df.geoid.str[:geoid_scaling]
+    teachers_df = teachers_df[teachers_df.grade == -1].copy()
+    teachers_df["region"] = teachers_df.work_geoid.str[:geoid_scaling]
+    teacher_groups = teachers_df.groupby(["region"])
+    school_groups = schools_df.groupby(["region"])
+    missing_regions = 0
+    tot_reqd_teachers = 0
+    for group_name, school_group in school_groups:
+        num_teachers_reqd = school_group.adj_teachers.sum()
+        # print(f"group name {group_name} num_teachers_reqd {num_teachers_reqd}")
+        if num_teachers_reqd == 0:
+            continue
+        tot_reqd_teachers += num_teachers_reqd
+        try:
+            teacher_group = teacher_groups.get_group(group_name)
+        except KeyError:
+            missing_regions += 1
+            continue
+        num_teachers_reqd = min(num_teachers_reqd, teacher_group.id.count())
+        teachers_selected = teacher_group.sample(n=num_teachers_reqd, replace=False)
+        probs = school_group.adj_teachers / num_teachers_reqd
+        schools_selected = school_group.sample(n=num_teachers_reqd, weights=probs, replace=True)
+        schools_selected.index.rename("index", inplace=True)
+        schools_selected["grade"] = (
+            schools_selected["level"]
+            .map(age_levels)
+            .apply(lambda x: np.random.randint(x[0], x[1] + 1))
+            .astype("int8")
+        )
+        # the university teachers will be uniformly split betw undergrad and grad. Readjust this to
+        # a 80:20 split
+        # FIXME: at college level, "teachers" will likely interact with both grad and undergrads
+        schools_selected["rnd"] = np.random.uniform(size=len(schools_selected))
+        schools_selected.loc[
+            (schools_selected.grade == 19) & (schools_selected.rnd < 0.5), "grade"
+        ] = 18
+        teachers_df.loc[teachers_selected.index, "school_id"] = list(schools_selected.id)
+        teachers_df.loc[teachers_selected.index, "grade"] = list(schools_selected.grade)
+        teachers_df.loc[teachers_selected.index, "dest_geoid"] = list(schools_selected.geoid)
+        # reduce the reqd teachers count according to how many have been allocated
+        schools_selected_groups = schools_selected.groupby(["index"])
+        selected_school_indexes = list(schools_selected_groups.groups.keys())
+        selected_school_counts = schools_selected_groups.id.count().tolist()
+        schools_df.loc[schools_df.index.isin(selected_school_indexes), "adj_teachers"] -= np.int32(
+            selected_school_counts
+        )
+        schools_df.loc[schools_df.adj_teachers < 0, "adj_teachers"] = 0
+        schools_df.loc[
+            schools_df.index.isin(selected_school_indexes), "alloc_teachers"
+        ] -= np.int32(selected_school_counts)
+
+    teachers_df.drop("region", axis=1, inplace=True)
+    num_allocated = len(teachers_df[(teachers_df.grade != -1)])
+    print(
+        f"  For {region_scales[geoid_scaling]}, allocated {num_allocated} teachers"
+        f" out of {tot_reqd_teachers}"
+    )
+    return teachers_df
+
+
+@timer
+def alloc_teachers_for_school_type(workers_df, students_df, schools_df, school_type):
+    print(f"{Fore.GREEN}Allocating teachers for {school_type}{Fore.RESET}")
+    # The number of students at each school will not exactly match the original schools data, so we
+    # use the actual number of students we have allocated, and the original student/teacher ratio
+    # to set the desired teacher counts for each school
+    if school_type == "childcare":
+        naics_code = 6244
+        schools_df = schools_df[schools_df.level == "C"]
+        students_df = students_df[students_df.grade <= 3]
+    elif school_type == "secondary":
+        naics_code = 6111
+        schools_df = schools_df[
+            (schools_df.level == "E")
+            | (schools_df.level == "EM")
+            | (schools_df.level == "EMH")
+            | (schools_df.level == "M")
+            | (schools_df.level == "MH")
+            | (schools_df.level == "H")
+            | (schools_df.level == "P")
+            | (schools_df.level == "PE")
+            | (schools_df.level == "PEM")
+            | (schools_df.level == "PEMH")
+        ]
+        students_df = students_df[(students_df.grade > 3) & (students_df.grade <= 17)]
+    elif school_type == "university":
+        naics_code = 611
+        schools_df = schools_df[schools_df.level == "U"]
+        students_df = students_df[(students_df.grade >= 18) & (students_df.grade <= 19)]
+    else:
+        err_str = f"{Fore.RED}ERROR: school_type {school_type} not valid{Fore.RESET}"
+        raise RuntimeError(err_str)
+
+    print(f"Number of schools to use {len(schools_df)}, number of students {len(students_df)}")
+
+    alloc_schools_df = students_df.groupby(["school_id"])["id"].count().reset_index()
+    alloc_schools_df = alloc_schools_df.rename(columns={"id": "alloc_students", "school_id": "id"})
+
+    schools_df = schools_df.merge(alloc_schools_df, on="id")
+    schools_df["ratio"] = schools_df.alloc_students / schools_df.students
+    schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.teachers * schools_df.ratio))
+
+    dump_intermediate(schools_df, "schools_" + school_type)
+    schools_df["alloc_teachers"] = schools_df.adj_teachers
+    teachers_df = workers_df[workers_df.naics == naics_code].copy()
+    num_reqd_teachers = schools_df.adj_teachers.sum()
+    print(
+        f"Found {len(teachers_df)} workers with NAICS code {naics_code} for "
+        f"{num_reqd_teachers} required teachers, ratio {len(students_df) / num_reqd_teachers:.2f}"
+    )
+    scales = list(region_scales.keys())
+    teachers_df["school_id"] = -1
+    teachers_df["grade"] = -1
+
+    # pick schools for teachers from decreasing resolution; the goal is to allocate teachers as
+    # close to home as possible
+    for scale in scales:
+        # print(f"  Region {region_scales[scale]}")
+        teachers_df = alloc_teachers_region(teachers_df, schools_df, scale)
+        workers_df.loc[teachers_df.index, "school_id"] = teachers_df.school_id
+        workers_df.loc[teachers_df.index, "work_geoid"] = teachers_df.work_geoid
+        workers_df.loc[teachers_df.index, "grade"] = teachers_df.grade
+        # dump_intermediate(teachers_df, "teachers_" + school_type + "_" + str(region_scales[scale]))
+
+    return workers_df
+
+
+@timer
+def allocate_teachers(workers_df, students_df, schools_df):
+    for school_type in ["childcare", "secondary", "university"]:
+        workers_df = alloc_teachers_for_school_type(
+            workers_df, students_df, schools_df, school_type
+        )
+    # check the correlation between the number of teachers allocated to each school and the
+    gen_schools_df = (
+        workers_df.loc[workers_df["school_id"] != -1]
+        .groupby(["school_id"])
+        .size()
+        .reset_index(name="teachers")
+    )
+    schools_check_df = schools_df.copy()
+    gen_schools_df["key"] = gen_schools_df["school_id"].astype(str)
+    schools_check_df["key"] = schools_check_df["id"].astype(str)
+    # only merge in the matching schools from the actual data, since that consists of potentially
+    # many more schools than we are using for this subset (e.g. NM)
+    merged_df = gen_schools_df.merge(
+        schools_check_df, on="key", how="left", suffixes=["_gen", "_orig"]
+    )[["key", "teachers_gen", "teachers_orig"]]
+    merged_df = merged_df.fillna(0).astype({"teachers_gen": "int", "teachers_orig": "int"})
+    dump_intermediate(merged_df, "schools_check")
+    corr = merged_df.teachers_gen.corr(merged_df.teachers_orig)
+    print(
+        f"Teacher school counts correlation: {corr:.3f} "
+        + f"(generated count {merged_df.teachers_gen.sum()}, "
+        f"actual count {merged_df.teachers_orig.sum()})"
+    )
+    if corr < CORR_CHECK_LEVEL:
+        warn(f"Low correlation {corr} < {CORR_CHECK_LEVEL} for teachers allocation")
 
 
 @timer
@@ -551,13 +805,45 @@ def main():
     process_upop(upop_df, args.output)
     lodes_df = get_lodes_groups(args.lodes_files)
     if args.up_nt_dt_files:
+        from_upop = True
         workers_df, students_df, schools_df, unemp_df = process_upop_nt_dt(
             args.up_nt_dt_files, upop_df
         )
     else:
+        from_upop = False
         workers_df, students_df, schools_df, unemp_df = generate_nt_dt(
             args.schools_file, upop_df, lodes_df
         )
+
+    allocate_teachers(workers_df, students_df, schools_df)
+
+    df = pd.concat([workers_df, students_df, unemp_df], ignore_index=True)
+    # reorder the columns
+    df = df[
+        [
+            "id",
+            "household_id",
+            "home_geoid",
+            "work_geoid",
+            "age",
+            "sex",
+            "race",
+            "travel",
+            "veh_occ",
+            "commute",
+            "naics",
+            "grade",
+            "school_id",
+        ]
+    ]
+
+    dump_intermediate(df, args.output + "_nt_dt")
+
+    # set some types
+    # check correlations
+    # adjust school ids
+    # adjust household ids
+    # print agents and index
 
 
 if __name__ == "__main__":
