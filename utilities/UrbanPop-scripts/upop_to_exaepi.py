@@ -23,7 +23,7 @@ from get_schools import timer
 import get_schools
 
 
-DUMP_INTERMEDIATES = True
+DUMP_INTERMEDIATES = False
 
 # note: missing category indexes are written as -1
 # we could extract these from the dataset, but then they will not be in a suitable order, even with
@@ -273,7 +273,6 @@ def get_args():
     return args
 
 
-@timer
 def dump_intermediate(df, fname):
     if DUMP_INTERMEDIATES:
         print(f"Dumping intermediate file {fname + ".intermediate.csv"}")
@@ -304,7 +303,7 @@ def load_upop_feather_files(fnames, out_fname):
     # need to sort to ensure the order is the same between the population files and the
     # daytime/nighttime files
     df.sort_values(by=["p_id"], inplace=True)
-    # dump_intermediate(df, out_fname + ".upop")
+    dump_intermediate(df, out_fname + ".upop")
     return df
 
 
@@ -425,32 +424,32 @@ def process_upop_nt_dt(up_nt_dt_files, upop_df):
         mismatched_df.to_csv("upop_grade_mismatches.csv", index=False)
         print(f"Saved {len(mismatched_df)} mismatched grade rows to upop_grade_mismatches.csv")
 
-    # dump_intermediate(df, "upop_with_nt_dt")
+    dump_intermediate(df, "upop_with_nt_dt")
     # copy the grades from the upop nt/dt data
     df.grade = df.nt_dt_grade.astype("int8")
     df.loc[(df.role == "worker") | (df.role == "nope"), "grade"] = -1
+    df.loc[(df.role == "worker") | (df.role == "nope"), "school_id"] = -1
     df.drop(columns=["nt_dt_grade"], inplace=True)
 
     workers_df = df[df.role == "worker"].reset_index(drop=True).drop(columns=["role"])
-    # dump_intermediate(workers_df, "workers_from_upop_nt_dt")
-    # workers_df.drop(columns=["role"], inplace=True)
-    # dump_intermediate(workers_df, "workers_from_upop_nt_dt")
+    dump_intermediate(workers_df, "workers_from_upop_nt_dt")
+    dump_intermediate(workers_df, "workers_from_upop_nt_dt")
 
     unemp_df = df[df.role == "nope"].reset_index(drop=True).drop(columns=["role"])
-    # unemp_df.drop(columns=["role"], inplace=True)
-    # dump_intermediate(unemp_df, "unemployed_from_upop_nt_dt")
+    dump_intermediate(unemp_df, "unemployed_from_upop_nt_dt")
 
     # students must also have an allocated school_id
     students_without_schools = len(df[(df.role == "student") & (df.school_id == -1)])
     warn(f"Found {students_without_schools} students without school assignments")
     students_df = df[(df.role == "student") & (df.school_id != -1)].reset_index(drop=True)
     students_df.drop(columns=["role"], inplace=True)
-    # dump_intermediate(students_df, "students_from_upop_nt_dt")
+    students_df.naics = -1
+    dump_intermediate(students_df, "students_from_upop_nt_dt")
 
     schools_df = (
         students_df.groupby(["school_id", "work_geoid"]).size().reset_index(name="students")
     )
-    # dump_intermediate(schools_df, "schools_from_upop_nt_dt")
+    dump_intermediate(schools_df, "schools_from_upop_nt_dt")
     schools_df.rename(columns={"school_id": "id", "work_geoid": "geoid"}, inplace=True)
     schools_df["min_age"] = students_df.groupby(["school_id", "work_geoid"], as_index=False)[
         "grade"
@@ -469,7 +468,7 @@ def process_upop_nt_dt(up_nt_dt_files, upop_df):
     schools_df["teachers"] = schools_df["teachers"].clip(lower=1)  # at least one teacher per school
 
     schools_df = schools_df[["id", "students", "teachers", "level", "geoid"]]
-    # dump_intermediate(schools_df, "schools_with_geoids_upop_nt_dt")
+    dump_intermediate(schools_df, "schools_with_geoids_upop_nt_dt")
     return workers_df, students_df, schools_df, unemp_df
 
 
@@ -511,7 +510,7 @@ def process_upop(df, out_fname):
     set_types(df)
     rename_fields(df)
     df.loc[df.grade != -1, "grade"] += 3
-    # dump_intermediate(df, out_fname + ".upop.purged")
+    dump_intermediate(df, out_fname + ".upop.purged")
 
 
 @timer
@@ -547,7 +546,7 @@ def get_lodes_groups(lodes_fnames):
             .reset_index()
             .rename(columns={0: "count"})
         )
-        # dump_intermediate(lodes_df, lodes_fname + "_short")
+        dump_intermediate(lodes_df, lodes_fname + "_short")
         df = pd.concat([df, lodes_df], ignore_index=True)
     return df
 
@@ -766,7 +765,7 @@ def alloc_teachers_for_school_type(workers_df, students_df, schools_df, school_t
         workers_df.loc[teachers_df.index, "school_id"] = teachers_df.school_id
         workers_df.loc[teachers_df.index, "work_geoid"] = teachers_df.work_geoid
         workers_df.loc[teachers_df.index, "grade"] = teachers_df.grade.astype("int8")
-        # dump_intermediate(teachers_df, "teachers_" + school_type + "_" + str(region_scales[scale]))
+        dump_intermediate(teachers_df, "teachers_" + school_type + "_" + str(region_scales[scale]))
 
     return workers_df
 
@@ -808,19 +807,21 @@ def adjust_indexes(df, output):
     orig_ids_df = pd.DataFrame()
     orig_ids_df["orig_id"] = df.id
     # make sure all the ids are globally unique and just integers
-    df["id"] = np.arange(0, len(df.index))
+    df.id = np.arange(0, len(df.index))
     orig_ids_df["new_id"] = df.id
     orig_ids_df.to_csv(output + ".idmap.csv", index=False)
     # df.loc[df.school_id == 0, "school_id"] = np.nan
-    # set school ids to be unique only to work geoid
-    df["school_id"] = (
-        df.groupby(["work_geoid"])["school_id"]
+    # set school ids to be unique only to work geoid and to be 0 if no school id
+    df.school_id = (
+        df[df.school_id != -1]
+        .groupby(["work_geoid"])["school_id"]
         .transform(lambda x: pd.factorize(x)[0])
         .astype("int16")
-        + 1
     )
+    df.school_id += 1
+    df.school_id = df.school_id.fillna(0).astype("int16")
     # set household ids to be unique only to home geoid
-    df["household_id"] = (
+    df.household_id = (
         df.groupby(["home_geoid"])["household_id"]
         .transform(lambda x: pd.factorize(x)[0])
         .astype("int16")
