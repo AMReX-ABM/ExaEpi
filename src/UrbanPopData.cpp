@@ -77,7 +77,7 @@ bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, amrex::
         if (it == geoid_to_block_groups.end()) { Abort("Cannot find block group for work location"); }
         auto& work_block_group = block_groups[it->second];
         agents_extras[i].work_xy = IntVect(work_block_group.x, work_block_group.y);
-        if (agent.role == ROLE::_worker) {
+        if (agent.naics != -1) {
             num_employed++;
             agents_extras[i].naics_population = work_block_group.work_populations[agent.naics + 1];
             AMREX_ASSERT(agents_extras[i].naics_population > 0 && agents_extras[i].naics_population < 100000);
@@ -90,8 +90,8 @@ bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, amrex::
         } else {
             agents_extras[i].naics_population = 0;
             agents_extras[i].work_population = 0;
-            if (agent.role == ROLE::_nope) { AMREX_ASSERT(agent.home_geoid == agent.work_geoid); }
-            if (agent.role == ROLE::_student) { num_students++; }
+            if (agent.naics == -1) { AMREX_ASSERT(agent.home_geoid == agent.work_geoid); }
+            if (agent.naics == -1 && agent.school_id != -1) { num_students++; }
         }
         agents_extras[i].home_population = home_population;
         // Print() << "Agent " << i << " home " << agents_extras[i].home_xy << " work " << agents_extras[i].work_xy << "\n";
@@ -407,7 +407,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             school_closed_ptr[i] = 0;
             naics_ptr[i] = agent.naics;
             // set up workers
-            if (agent.role == ROLE::_worker) {
+            if (agent.naics != -1) {
                 if (agent.school_id == 0) {
                     // the group work population for this agent is for the NAICS category for the agent
                     int max_workgroup = agents_extras_ptr[i].naics_population / workgroup_size + 1;

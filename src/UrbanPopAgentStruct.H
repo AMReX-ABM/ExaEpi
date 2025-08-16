@@ -16,13 +16,8 @@ using float32_t = amrex::ParticleReal;
 
 namespace UrbanPop {
 
-const size_t NUM_COLS = 13;
+const size_t NUM_COLS = 12;
 
-const int ROLE_COUNT = 3;
-static string role_descriptions[ROLE_COUNT] = {"nope", "worker", "student"};
-struct ROLE {
-    enum { _nope, _worker, _student };
-};
 const int NAICS_COUNT = 251;
 static string naics_descriptions[NAICS_COUNT] =
         {"111",   "112",    "113",    "1133",  "114",   "115",  "211",   "2121",   "2122",   "2123",   "213",    "22",
@@ -302,6 +297,59 @@ struct NAICS {
     };
 };
 
+const int SEX_COUNT = 2;
+static string sex_descriptions[SEX_COUNT] = {"female", "male"};
+struct SEX {
+    enum { _female, _male };
+};
+
+const int RACE_COUNT = 7;
+static string race_descriptions[RACE_COUNT] = {"white", "blk_af_amer", "asian", "native_amer", "pac_island", "other", "mult"};
+struct RACE {
+    enum { _white, _blk_af_amer, _asian, _native_amer, _pac_island, _other, _mult };
+};
+
+const int TRAVEL_COUNT = 8;
+static string travel_descriptions[TRAVEL_COUNT] = {"car_truck_van", "public_transportation",
+                                                   "bicycle",       "walked",
+                                                   "motorcycle",    "taxicab",
+                                                   "other",         "wfh"};
+struct TRAVEL {
+    enum { _car_truck_van, _public_transportation, _bicycle, _walked, _motorcycle, _taxicab, _other, _wfh };
+};
+
+const int VEH_OCC_COUNT = 2;
+static string veh_occ_descriptions[VEH_OCC_COUNT] = {"drove_alone", "carpooled"};
+struct VEH_OCC {
+    enum { _drove_alone, _carpooled };
+};
+
+const int GRADE_COUNT = 17;
+static string grade_descriptions[GRADE_COUNT] = {"childcare", "preschl", "kind", "1st",       "2nd", "3rd",
+                                                 "4th",       "5th",     "6th",  "7th",       "8th", "9th",
+                                                 "10th",      "11th",    "12th", "undergrad", "grad"};
+struct GRADE {
+    enum {
+        _childcare,
+        _preschl,
+        _kind,
+        _1st,
+        _2nd,
+        _3rd,
+        _4th,
+        _5th,
+        _6th,
+        _7th,
+        _8th,
+        _9th,
+        _10th,
+        _11th,
+        _12th,
+        _undergrad,
+        _grad
+    };
+};
+
 static std::vector<string> splitString (const string& s, char delim) {
     std::vector<string> elems;
     std::stringstream ss(s);
@@ -314,18 +362,17 @@ static std::vector<string> splitString (const string& s, char delim) {
 
 struct UrbanPopAgent {
     int64_t id;
-    int32_t household_id;
     int64_t home_geoid;
     int64_t work_geoid;
+    int16_t naics;
+    int16_t household_id;
+    int16_t school_id;
     int8_t age;
     int8_t sex;
     int8_t race;
     int8_t travel;
     int8_t veh_occ;
-    int8_t role;
-    int16_t naics;
     int8_t grade;
-    int16_t school_id;
 
     bool readCsv (std::ifstream& f) {
         string buf;
@@ -341,18 +388,17 @@ struct UrbanPopAgent {
                                          std::to_string(tokens.size()));
             }
             id = stol(tokens[0]);
-            household_id = stoi(tokens[1]);
-            home_geoid = stol(tokens[2]);
-            work_geoid = stol(tokens[3]);
-            age = stoi(tokens[4]);
-            sex = stoi(tokens[5]);
-            race = stoi(tokens[6]);
-            travel = stoi(tokens[7]);
-            veh_occ = stoi(tokens[8]);
-            role = stoi(tokens[9]);
-            naics = stoi(tokens[10]);
+            home_geoid = stol(tokens[1]);
+            work_geoid = stol(tokens[2]);
+            naics = stoi(tokens[3]);
+            household_id = stoi(tokens[4]);
+            school_id = stoi(tokens[5]);
+            age = stoi(tokens[6]);
+            sex = stoi(tokens[7]);
+            race = stoi(tokens[8]);
+            travel = stoi(tokens[9]);
+            veh_occ = stoi(tokens[10]);
             grade = stoi(tokens[11]);
-            school_id = stoi(tokens[12]);
 
         } catch (const std::exception& ex) {
             std::ostringstream os;
@@ -366,18 +412,18 @@ struct UrbanPopAgent {
     friend std::ostream& operator<<(std::ostream& os, const UrbanPopAgent& agent) {
         os << std::fixed << std::setprecision(6);
         os << agent.id << ",";
-        os << agent.household_id << ",";
         os << agent.home_geoid << ",";
         os << agent.work_geoid << ",";
+        os << agent.naics << (agent.naics != -1 ? ":" + naics_descriptions[agent.naics] : "") << ",";
+        os << agent.household_id << ",";
+        os << agent.school_id << ",";
         os << (int)agent.age << ",";
-        os << (int)agent.sex << ",";
-        os << (int)agent.race << ",";
-        os << (int)agent.travel << ",";
-        os << (int)agent.veh_occ << ",";
-        os << (int)agent.role << (agent.role != -1 ? ":" + role_descriptions[agent.role] : "") << ",";
-        os << (int)agent.naics << (agent.naics != -1 ? ":" + naics_descriptions[agent.naics] : "") << ",";
-        os << (int)agent.grade << ",";
-        os << agent.school_id;
+        os << (int)agent.sex << (agent.sex != -1 ? ":" + sex_descriptions[agent.sex] : "") << ",";
+        os << (int)agent.race << (agent.race != -1 ? ":" + race_descriptions[agent.race] : "") << ",";
+        os << (int)agent.travel << (agent.travel != -1 ? ":" + travel_descriptions[agent.travel] : "") << ",";
+        os << (int)agent.veh_occ << (agent.veh_occ != -1 ? ":" + veh_occ_descriptions[agent.veh_occ] : "") << ",";
+        os << (int)agent.grade << (agent.grade != -1 ? ":" + grade_descriptions[agent.grade] : "");
+
         return os;
     }
 };

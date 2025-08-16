@@ -47,24 +47,94 @@ if __name__ == "__main__":
             label = args.labels[i]
         else:
             label = fname
-        ls = ""
-        marker = "+"
-        alpha = 0.3
-        if "gen" in fname:
-            c = "green"
-        else:
-            c = "blue"
-        ax1.plot(list(df.index), list(df.Infected), label=label, lw=3, ls=ls, alpha=alpha, marker=marker, color=c)
-        ax2.plot(list(df.index), list(df.Asymptomatic), label=label, lw=3, ls=ls, alpha=alpha, marker=marker, color=c)
-        ax3.plot(list(df.index), list(df.Hospitalized), label=label, lw=3, ls=ls, alpha=alpha, marker=marker, color=c)
-        ax4.plot(list(df.index), list(df.ICU), label=label, lw=3, ls=ls, alpha=alpha, marker=marker, color=c)
-        ax5.plot(list(df.index), list(df.Ventilated), label=label, lw=3, ls=ls, alpha=alpha, marker=marker, color=c)
-        ax6.plot(list(df.index), list(df.Deaths.diff()), label=label, lw=3, ls=ls, alpha=alpha, marker=marker, color=c)
+        # ls = ""
+        # marker = "+"
+        # alpha = 0.3
+        # if "gen" in fname:
+        #    c = "green"
+        # else:
+        #    c = "blue"
+        ax1.plot(
+            list(df.index),
+            list(df.Infected),
+            label=label,
+            lw=3,
+            # ls=ls,
+            # alpha=alpha,
+            # marker=marker,
+            # color=c,
+        )
+        ax2.plot(
+            list(df.index),
+            list(df.Asymptomatic),
+            label=label,
+            lw=3,
+            # ls=ls,
+            # alpha=alpha,
+            # marker=marker,
+            # color=c,
+        )
+        ax3.plot(
+            list(df.index),
+            list(df.Hospitalized),
+            label=label,
+            lw=3,
+            # ls=ls,
+            # alpha=alpha,
+            # marker=marker,
+            # color=c,
+        )
+        ax4.plot(
+            list(df.index),
+            list(df.ICU),
+            label=label,
+            lw=3,
+            # ls=ls,
+            # alpha=alpha,
+            # marker=marker,
+            # color=c,
+        )
+        ax5.plot(
+            list(df.index),
+            list(df.Ventilated),
+            label=label,
+            lw=3,
+            # ls=ls,
+            # alpha=alpha,
+            # marker=marker,
+            # color=c,
+        )
+        ax6.plot(
+            list(df.index),
+            list(df.Deaths.diff()),
+            label=label,
+            lw=3,
+            # ls=ls,
+            # alpha=alpha,
+            # marker=marker,
+            # color=c,
+        )
 
-    ax1.text(0.02, 0.98, "Generated", color="green", transform=ax1.transAxes, verticalalignment="top", fontsize=14)
-    ax1.text(0.02, 0.93, "UrbanPop NT/DT", color="blue", transform=ax1.transAxes, verticalalignment="top", fontsize=14)
+    # ax1.text(
+    #    0.02,
+    #    0.98,
+    #    "Generated",
+    #    color="green",
+    #    transform=ax1.transAxes,
+    #    verticalalignment="top",
+    #    fontsize=14,
+    # )
+    # ax1.text(
+    #    0.02,
+    #    0.93,
+    #    "UrbanPop NT/DT",
+    #    color="blue",
+    #    transform=ax1.transAxes,
+    #    verticalalignment="top",
+    #    fontsize=14,
+    # )
     # ax1.legend()
-    # ax2.legend()
+    ax2.legend()
     ax1.grid()
     ax2.grid()
     ax3.grid()

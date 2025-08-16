@@ -931,7 +931,7 @@ static std::vector<string> splitString(const string &s, char delim) {{
         else:
             hdr += f"        os << {agent}"
         if col in categ_types or "pr_" + col in categ_types:
-            hdr += f"""({agent} != -1 ? ":" + {col}_descriptions[{agent}] : "")"""
+            hdr += f""" << ({agent} != -1 ? ":" + {col}_descriptions[{agent}] : "")"""
 
         if i < len(df.columns) - 1:
             hdr += """ << ",";\n"""
