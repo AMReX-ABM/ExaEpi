@@ -8,6 +8,7 @@
 # the data.
 
 import gc
+import io
 import os
 import sys
 import pandas as pd
@@ -70,7 +71,7 @@ categ_types = {
         # fmt: on
     ),
     "role": CategoricalDtype(categories=["nope", "worker", "student"]),
-    "naics": CategoricalDtype(
+    "pr_naics": CategoricalDtype(
         # fmt: off
         categories=[
             "111", "112", "113", "1133", "114", "115", "211", "2121", "2122", "2123", "213",
@@ -147,6 +148,10 @@ teacher_ratios = {
 
 def warn(fmt_str, *args):
     print(f"{Fore.RED}WARNING: {fmt_str}{Fore.RESET}" % args)
+
+
+def raise_err(fmt_str, *args):
+    raise RuntimeError(f"{Fore.RED}ERROR: {fmt_str}{Fore.RESET}" % args)
 
 
 def get_args():
@@ -305,8 +310,8 @@ def load_upop_feather_files(fnames, out_fname):
 
 @timer
 def set_types(df):
-    # treat the NAICS types as strings for later sorting
-    df.pr_naics = df.pr_naics.str.extract(r"(\d+)", expand=False).fillna(-1).astype("int32")
+    # treat the NAICS types as strings for later sorting - make them string to convert to a category
+    df.pr_naics = df.pr_naics.str.extract(r"(\d+)", expand=False).fillna(-1).astype("string")
     df.h_id = df.h_id.str.split("-").str[-1].astype("int32")
 
     for field_type in df:
@@ -316,7 +321,9 @@ def set_types(df):
             categs_found = list(df[field_type].unique())
             categs_expected = list(categ_types[field_type].categories)
             missing = [
-                x for x in categs_found if x not in categs_expected and x != "" and x is not None
+                x
+                for x in categs_found
+                if x not in categs_expected and x != "" and x != "-1" and x is not None
             ]
             if missing:
                 warn(f"Found missing categories for {field_type}: {missing}")
@@ -335,6 +342,8 @@ def set_types(df):
                     df[field_type] = df[field_type].astype("int32")
                 else:
                     df[field_type] = df[field_type].astype("int64")
+
+    df.pr_naics = df.pr_naics.astype("int16")
 
 
 def rename_fields(df):
@@ -402,12 +411,10 @@ def process_upop_nt_dt(up_nt_dt_files, upop_df):
 
     if not np.array_equal(df.id.to_numpy(), upop_df.id.to_numpy()):
         print(f"ids: {df.id.to_numpy()[:10]}\n{upop_df.id.to_numpy()[:10]}")
-        err_str = f"{Fore.RED}Mismatched p_ids for population vs daytime/nightime{Fore.RESET}"
-        raise RuntimeError(err_str)
+        raise_err("Mismatched p_ids for population vs daytime/nightime")
     if not np.array_equal(df.home_geoid.to_numpy(), upop_df.home_geoid.to_numpy()):
         print(f"home geoids: {df.home_geoid.to_numpy()[:10]}\n{upop_df.home_geoid.to_numpy()[:10]}")
-        err_str = f"{Fore.RED}Mismatched geoids for population vs daytime/nightime{Fore.RESET}"
-        raise RuntimeError(err_str)
+        raise_err("Mismatched geoids for population vs daytime/nightime")
 
     df.drop(columns=["home_geoid"], inplace=True)
     df = df.merge(upop_df, on="id", how="outer")
@@ -705,11 +712,11 @@ def alloc_teachers_for_school_type(workers_df, students_df, schools_df, school_t
     # use the actual number of students we have allocated, and the original student/teacher ratio
     # to set the desired teacher counts for each school
     if school_type == "childcare":
-        naics_code = 6244
+        naics_code = categ_types["pr_naics"].categories.get_loc("6244")
         schools_df = schools_df[schools_df.level == "C"]
         students_df = students_df[students_df.grade <= 3]
     elif school_type == "secondary":
-        naics_code = 6111
+        naics_code = categ_types["pr_naics"].categories.get_loc("6111")
         schools_df = schools_df[
             (schools_df.level == "E")
             | (schools_df.level == "EM")
@@ -724,12 +731,11 @@ def alloc_teachers_for_school_type(workers_df, students_df, schools_df, school_t
         ]
         students_df = students_df[(students_df.grade > 3) & (students_df.grade <= 17)]
     elif school_type == "university":
-        naics_code = 611
+        naics_code = categ_types["pr_naics"].categories.get_loc("611")
         schools_df = schools_df[schools_df.level == "U"]
         students_df = students_df[(students_df.grade >= 18) & (students_df.grade <= 19)]
     else:
-        err_str = f"{Fore.RED}ERROR: school_type {school_type} not valid{Fore.RESET}"
-        raise RuntimeError(err_str)
+        raise_err(f"School_type {school_type} not valid")
 
     print(f"Number of schools to use {len(schools_df)}, number of students {len(students_df)}")
 
@@ -742,10 +748,10 @@ def alloc_teachers_for_school_type(workers_df, students_df, schools_df, school_t
 
     dump_intermediate(schools_df, "schools_" + school_type)
     schools_df["alloc_teachers"] = schools_df.adj_teachers
-    teachers_df = workers_df[workers_df.naics == naics_code].copy()
+    teachers_df = workers_df[workers_df.naics == naics_code].copy()  # type: ignore
     num_reqd_teachers = schools_df.adj_teachers.sum()
     print(
-        f"Found {len(teachers_df)} workers with NAICS code {naics_code} for "
+        f"Found {len(teachers_df)} workers with NAICS code {naics_code} for "  # type: ignore
         f"{num_reqd_teachers} required teachers, ratio {len(students_df) / num_reqd_teachers:.2f}"
     )
     scales = list(region_scales.keys())
@@ -821,7 +827,7 @@ def adjust_indexes(df, output):
     )
 
 
-def print_header(df):
+def print_cpp_header(df):
     hdr_fname = "UrbanPopAgentStruct.H"
     print("Writing C++ header file at", hdr_fname)
 
@@ -850,8 +856,12 @@ const size_t NUM_COLS = {len(df.columns)};
 
     # print out string arrays with category names
     for field_type in df:
+        categs_expected = None
         if field_type in categ_types:
             categs_expected = list(categ_types[field_type].categories)
+        elif "pr_" + field_type in categ_types:
+            categs_expected = list(categ_types["pr_" + field_type].categories)
+        if categs_expected:
             enum_categs_expected = ["_" + categ for categ in categs_expected]
             num_categs = len(categs_expected)
             hdr += f"""
@@ -920,7 +930,7 @@ static std::vector<string> splitString(const string &s, char delim) {{
             hdr += f"        os << (int){agent}"
         else:
             hdr += f"        os << {agent}"
-        if col in categ_types:
+        if col in categ_types or "pr_" + col in categ_types:
             hdr += f"""({agent} != -1 ? ":" + {col}_descriptions[{agent}] : "")"""
 
         if i < len(df.columns) - 1:
@@ -939,6 +949,119 @@ static std::vector<string> splitString(const string &s, char delim) {{
     print(hdr, file=f_hdr)
     f_hdr.close()
     print("Wrote", len(df.columns), "fields to", hdr_fname)
+
+
+@timer
+def print_agents(df, out_fname):
+    num_rows = len(df.index)
+    # start with a distinct marker so that the file can be read in parallel more easily
+    df.index = ["*"] * num_rows
+    # print each geoid in turn so we can track the file offsets
+    buff = io.StringIO()
+    foffsets = []
+    home_pops = []
+    home_geoids = []
+    num_geoids = df.home_geoid.unique()
+    step = int(len(num_geoids) / 10)
+    out_fname_csv = out_fname + ".csv"
+    print("Writing CSV text data to", out_fname_csv)
+    for i, (geoid, subset_df) in enumerate(df.groupby("home_geoid")):
+        home_geoids.append(geoid)
+        if i % step == 0:
+            print(f"  GEOID {geoid} {i}", flush=True)
+        foffsets.append(buff.tell())
+        home_pops.append(len(subset_df))
+        subset_df.to_csv(buff, index=True, header=(i == 0))
+    out_fname_csv = out_fname + ".csv"
+    with open(out_fname_csv, "w") as f:
+        print(buff.getvalue(), end="", file=f)
+        print(f"Wrote {len(df)} records in {buff.tell()} bytes")
+    buff.close()
+    return foffsets, home_pops, home_geoids
+
+
+@timer
+def compute_worker_populations(df):
+    class Fake(object):
+        def __init__(self, list_obj):
+            self.obj = list_obj
+
+    # compute worker populations for each NAICS code
+    work_geoids = df.work_geoid.unique()
+    naics_types = list(range(len(categ_types["pr_naics"].categories)))
+    print(f"Found {len(work_geoids)} unique work GEOIDS and {len(naics_types)} unique NAICS codes")
+    work_geoids_df = (
+        df.loc[df.naics != -1]
+        .groupby(["work_geoid", "naics"])["naics"]
+        .count()
+        .reset_index(name="num")
+    )
+    # ensure every GEOID has entries for all the NAICS codes, even ones for count 0
+    full_naics_df = pd.DataFrame()
+    full_naics_df["work_geoid"] = work_geoids
+    full_naics_df["naics"] = Fake(naics_types)
+    full_naics_df["num"] = 0
+    full_naics_df.naics = full_naics_df.naics.apply(lambda x: x.obj)
+    full_naics_df = full_naics_df.explode("naics")
+    work_geoids_pops_df = work_geoids_df.merge(
+        full_naics_df, on=["work_geoid", "naics"], how="outer"
+    ).rename(columns={"num_x": "num"})
+    work_geoids_pops_df.drop(columns="num_y", inplace=True)
+    work_geoids_pops_df["num"] = work_geoids_pops_df["num"].fillna(0).astype("int")
+    return work_geoids_pops_df, naics_types
+
+
+@timer
+def print_index(df, out_fname, foffsets, home_pops, home_geoids):
+    work_geoids_pops_df, naics_types = compute_worker_populations(df)
+    dump_intermediate(work_geoids_pops_df, out_fname + "_work_geoids_pops")
+    work_geoids = df.work_geoid.unique()
+    step = int(len(work_geoids) / 10)
+    out_fname_idx = out_fname + ".idx"
+    print("Writing block group indexes to", out_fname_idx)
+    with open(out_fname_idx, mode="w") as f:
+        naics_descrs = list(categ_types["pr_naics"].categories)
+        print("geoid foff h_pop w_pop", " ".join(naics_descrs), file=f)
+        # print work-only GEOIDs
+        if len(work_geoids) > len(home_geoids):
+            only_work_geoids = list(set(work_geoids) - set(home_geoids))
+            print(f"Found {len(only_work_geoids)} work-only geoids")
+            for geoid in only_work_geoids:
+                work_pops = work_geoids_pops_df.loc[
+                    work_geoids_pops_df.work_geoid == geoid
+                ].num.to_list()
+                tot_work_pop = np.sum(work_pops)
+                print(geoid, 0, 0, tot_work_pop, " ".join(map(str, work_pops)), file=f)
+        for i, geoid in enumerate(home_geoids):
+            if i % step == 0:
+                print(f"  GEOID {geoid} {i}", flush=True)
+            work_pops = work_geoids_pops_df.loc[
+                work_geoids_pops_df.work_geoid == geoid
+            ].num.to_list()
+            tot_work_pop = np.sum(work_pops)
+            if tot_work_pop == 0:
+                work_pops = [0] * len(naics_types)
+            if len(work_pops) != len(naics_types):
+                print(f"len work_pops {len(work_pops)} != len naics_types {len(naics_types)}")
+                print(f"len naics_descrs {len(naics_descrs)}")
+                for i, p in enumerate(work_pops):
+                    if p > 0:
+                        print(i, p, naics_descrs[i])
+                print("")
+                print(f"Total work pop: {sum(work_pops)}")
+                raise_err(
+                    f"For geoid {geoid}, work pops != NAICS types, "
+                    f"{len(work_pops)} != {len(naics_types)}"
+                )
+
+            print(
+                geoid,
+                foffsets[i],
+                home_pops[i],
+                tot_work_pop,
+                " ".join(map(str, work_pops)),
+                file=f,
+            )
 
 
 @timer
@@ -961,21 +1084,21 @@ def main():
     allocate_teachers(workers_df, students_df, schools_df)
 
     df = pd.concat([workers_df, students_df, unemp_df], ignore_index=True)
-    # reorder the columns
+    # reorder the columns so that we have the largest variables first
     df = df[
         [
             "id",
-            "household_id",
             "home_geoid",
             "work_geoid",
+            "naics",
+            "household_id",
+            "school_id",
             "age",
             "sex",
             "race",
             "travel",
             "veh_occ",
-            "naics",
             "grade",
-            "school_id",
         ]
     ]
     # set the location types
@@ -983,11 +1106,11 @@ def main():
     df.work_geoid = df.work_geoid.astype("int64")
 
     dump_intermediate(df, args.output + "_nt_dt")
-    print("Fields are:\n", df.dtypes, sep="")
     adjust_indexes(df, args.output)
-    print_header(df)
-    # foffsets, home_pops, home_geoids = print_agents(df, args.output)
-    # print_index(df, args.output, foffsets, home_pops, home_geoids)
+    print("Fields are:\n", df.dtypes, sep="")
+    print_cpp_header(df)
+    foffsets, home_pops, home_geoids = print_agents(df, args.output)
+    print_index(df, args.output, foffsets, home_pops, home_geoids)
 
 
 if __name__ == "__main__":
