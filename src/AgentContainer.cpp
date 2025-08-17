@@ -1985,5 +1985,6 @@ void AgentContainer::countAttendingStudents(int current_day) const
         amrex::Print() << "  ----------------------------------------\n";
         amrex::Print() << "  - TOTAL      : " << total_attending << " students attending\n"
                        << "------------------------------------------\n\n";
+    
     }
 }
