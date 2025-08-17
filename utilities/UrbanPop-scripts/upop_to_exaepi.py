@@ -370,6 +370,15 @@ def get_level_from_age(min_age, max_age):
     return get_schools.get_level_from_age(min_age, max_age)
 
 
+def convert_school_ids_to_int64(df):
+    # convert school ids to unique 64 bit ints
+    unique_school_ids = sorted(df.school_id.unique(), key=lambda x: (x is None, x))
+    school_id_map = dict(zip(unique_school_ids, range(len(unique_school_ids))))
+    school_id_map[None] = -1
+    print(f"Found {len(school_id_map)} unique school ids")
+    return df.school_id.map(school_id_map).astype("int64")
+
+
 @timer
 def process_upop_nt_dt(up_nt_dt_files, upop_df):
     printgreen("Loading UrbanPop nighttime/daytime files")
@@ -401,11 +410,7 @@ def process_upop_nt_dt(up_nt_dt_files, upop_df):
     )
 
     # convert school ids to unique 64 bit ints
-    unique_school_ids = sorted(df.school_id.unique(), key=lambda x: (x is None, x))
-    school_id_map = dict(zip(unique_school_ids, range(len(unique_school_ids))))
-    school_id_map[None] = -1
-    print(f"Found {len(school_id_map)} unique school ids")
-    df.school_id = df.school_id.map(school_id_map).astype("int64")
+    df.school_id = convert_school_ids_to_int64(df)
 
     upop_len = len(upop_df)
     upop_df = upop_df[upop_df["id"].isin(df["id"])].reset_index(drop=True)
@@ -626,8 +631,8 @@ def alloc_workers(lodes_df, workers_df):
     df = pd.concat(nt_dts, ignore_index=True)
     df.rename(columns={"dest_geoid": "work_geoid"}, inplace=True)
     # workers have no grade since that indicates that the agent is in school
-    df["grade"] = -1
-    df["school_id"] = -1
+    df["grade"] = np.int8(-1)
+    df["school_id"] = ""
     num_without_naics = len(df.loc[df["naics"] == -1, "naics"])
     if num_without_naics > 0:
         warn(f"There are {num_without_naics} workers without NAICS classification")
@@ -793,16 +798,21 @@ def alloc_students(schools_df, students_df):
     print("Unallocated students:", len(students_df.loc[unalloc]))
     students_df.loc[unalloc, "dest_geoid"] = students_df.home_geoid
     students_df.loc[unalloc, "grade"] = -1
+    students_df.loc[unalloc, "school_id"] = ""
 
-    dump_intermediate(students_df, "students_nt_dt.csv", True)
+    dump_intermediate(students_df, "students_nt_dt")
 
+    return students_df
+
+
+def check_schools_correlation(students_df, schools_df):
+    # now check correlation of generated data with actual schools data
     gen_schools_df = (
         students_df.loc[students_df.school_id != ""]
         .groupby(["school_id"])
         .size()
         .reset_index(name="students")
     )
-    # now check correlation of generated data with actual schools data
     schools_check_df = schools_df.copy()
     gen_schools_df["key"] = gen_schools_df["school_id"].astype(str)
     schools_check_df["key"] = schools_check_df["id"].astype(str)
@@ -812,7 +822,7 @@ def alloc_students(schools_df, students_df):
         schools_check_df, on="key", how="left", suffixes=["_gen", "_orig"]
     )[["key", "students_gen", "students_orig"]]
     merged_df = merged_df.fillna(0).astype({"students_gen": "int", "students_orig": "int"})
-    dump_intermediate(merged_df, "schools_check.csv", True)
+    dump_intermediate(merged_df, "schools_check.csv")
     corr = merged_df.students_gen.corr(merged_df.students_orig)
     print(
         f"Student school counts correlation: {corr:.3f} "
@@ -821,8 +831,6 @@ def alloc_students(schools_df, students_df):
     )
     if corr < CORR_CHECK_LEVEL:
         warn("Low correlation!")
-
-    return students_df
 
 
 @timer
@@ -863,16 +871,15 @@ def generate_nt_dt(schools_df, upop_df, lodes_df):
     workers_nt_dt_df = alloc_workers(lodes_df, workers_df)
 
     unemp_df["work_geoid"] = unemp_df.home_geoid
-    unemp_df.school_id = -1
-    unemp_df.grade = -1
-    unemp_df.naics = -1
+    unemp_df.school_id = ""
+    unemp_df.grade = np.int8(-1)
+    unemp_df.naics = np.int8(-1)
 
     return workers_nt_dt_df, students_nt_dt_df, schools_df, unemp_df
 
 
 def alloc_teachers_region(teachers_df, schools_df, geoid_scaling):
     schools_df["region"] = schools_df.geoid.str[:geoid_scaling]
-    teachers_df = teachers_df[teachers_df.grade == -1].copy()
     teachers_df["region"] = teachers_df.work_geoid.str[:geoid_scaling]
     teacher_groups = teachers_df.groupby(["region"])
     school_groups = schools_df.groupby(["region"])
@@ -907,8 +914,12 @@ def alloc_teachers_region(teachers_df, schools_df, geoid_scaling):
         schools_selected.loc[
             (schools_selected.grade == 19) & (schools_selected.rnd < 0.5), "grade"
         ] = 18
+        schools_selected.grade = schools_selected.grade.astype("int8")
+        schools_selected.id = schools_selected.id.astype("str")
         teachers_df.loc[teachers_selected.index, "school_id"] = list(schools_selected.id)
-        teachers_df.loc[teachers_selected.index, "grade"] = list(schools_selected.grade)
+        teachers_df.loc[teachers_selected.index, "grade"] = np.array(
+            list(schools_selected.grade), dtype=np.int8
+        )
         teachers_df.loc[teachers_selected.index, "dest_geoid"] = list(schools_selected.geoid)
         # reduce the reqd teachers count according to how many have been allocated
         schools_selected_groups = schools_selected.groupby(["index"])
@@ -981,32 +992,31 @@ def alloc_teachers_for_school_type(workers_df, students_df, schools_df, school_t
         f"{num_reqd_teachers} required teachers, ratio {len(students_df) / num_reqd_teachers:.2f}"
     )
     scales = list(region_scales.keys())
-    teachers_df["school_id"] = -1
-    teachers_df["grade"] = -1
-
+    teachers_df["school_id"] = pd.Series([""] * len(teachers_df), dtype="str")
+    teachers_df["grade"] = np.int8(-1)
     # pick schools for teachers from decreasing resolution; the goal is to allocate teachers as
     # close to home as possible
     for scale in scales:
-        # print(f"  Region {region_scales[scale]}")
-        teachers_df = alloc_teachers_region(teachers_df, schools_df, scale)
-        workers_df.loc[teachers_df.index, "school_id"] = teachers_df.school_id
-        workers_df.loc[teachers_df.index, "work_geoid"] = teachers_df.work_geoid
-        workers_df.loc[teachers_df.index, "grade"] = teachers_df.grade.astype("int8")
-        dump_intermediate(teachers_df, "teachers_" + school_type + "_" + str(region_scales[scale]))
+        avail_teachers = teachers_df[teachers_df.grade == -1].copy()
+        teachers_df = alloc_teachers_region(avail_teachers, schools_df, scale)
+        assigned_df = teachers_df[teachers_df.grade != -1]
+        dump_intermediate(assigned_df, "teachers_" + school_type + "_" + str(region_scales[scale]))
+        workers_df.loc[assigned_df.index, "school_id"] = assigned_df.school_id.astype("str")
+        workers_df.loc[assigned_df.index, "work_geoid"] = assigned_df.work_geoid
+        workers_df.loc[assigned_df.index, "grade"] = assigned_df.grade.astype("int8")
 
     return workers_df
 
 
 @timer
 def allocate_teachers(workers_df, students_df, schools_df):
-    printgreen("Allocating teachers")
     for school_type in ["childcare", "secondary", "university"]:
         workers_df = alloc_teachers_for_school_type(
             workers_df, students_df, schools_df, school_type
         )
     # check the correlation between the number of teachers allocated to each school and the
     gen_schools_df = (
-        workers_df.loc[workers_df["school_id"] != -1]
+        workers_df.loc[workers_df["school_id"] != ""]
         .groupby(["school_id"])
         .size()
         .reset_index(name="teachers")
@@ -1041,7 +1051,7 @@ def adjust_indexes(df, output):
     # df.loc[df.school_id == 0, "school_id"] = np.nan
     # set school ids to be unique only to work geoid and to be 0 if no school id
     df.school_id = (
-        df[df.school_id != -1]
+        df[df.school_id != ""]
         .groupby(["work_geoid"])["school_id"]
         .transform(lambda x: pd.factorize(x)[0])
         .astype("int16")
@@ -1312,27 +1322,42 @@ def print_index(df, out_fname, foffsets, home_pops, home_geoids):
             )
 
 
+FULL = True
+
+
 @timer
 def main():
     args = get_args()
     np.random.seed(args.rseed)
 
-    upop_df = load_upop_feather_files(args.upop_files, args.output)
-    process_upop(upop_df, args.output)
-    lodes_df = get_lodes_groups(args.lodes_files)
-    schools_df = load_schools(args.schools_file)
-    if args.up_nt_dt_files:
-        workers_df, students_df, schools_df, unemp_df = process_upop_nt_dt(
-            args.up_nt_dt_files, upop_df
-        )
-    else:
-        workers_df, students_df, schools_df, unemp_df = generate_nt_dt(
-            schools_df, upop_df, lodes_df
-        )
+    if FULL:
+        upop_df = load_upop_feather_files(args.upop_files, args.output)
+        process_upop(upop_df, args.output)
+        lodes_df = get_lodes_groups(args.lodes_files)
+        schools_df = load_schools(args.schools_file)
+        if args.up_nt_dt_files:
+            workers_df, students_df, schools_df, unemp_df = process_upop_nt_dt(
+                args.up_nt_dt_files, upop_df
+            )
+        else:
+            workers_df, students_df, schools_df, unemp_df = generate_nt_dt(
+                schools_df, upop_df, lodes_df
+            )
 
-    check_flows_correlation(workers_df, lodes_df)
+        check_flows_correlation(workers_df, lodes_df)
+
+        workers_df.to_pickle("workers_df.pkl")
+        students_df.to_pickle("students_df.pkl")
+        schools_df.to_pickle("schools_df.pkl")
+        unemp_df.to_pickle("unemp_df.pkl")
+    else:
+        workers_df = pd.read_pickle("workers_df.pkl")
+        students_df = pd.read_pickle("students_df.pkl")
+        schools_df = pd.read_pickle("schools_df.pkl")
+        unemp_df = pd.read_pickle("unemp_df.pkl")
 
     allocate_teachers(workers_df, students_df, schools_df)
+    check_schools_correlation(students_df, schools_df)
 
     df = pd.concat([workers_df, students_df, unemp_df], ignore_index=True)
     # reorder the columns so that we have the largest variables first
@@ -1354,7 +1379,8 @@ def main():
     ]
     # set the location types
     df.home_geoid = df.home_geoid.astype("int64")
-    df.work_geoid = df.work_geoid.astype("int64")
+    df.work_geoid = df.work_geoid.fillna(-1).astype("int64")
+    df.loc[df.work_geoid == -1, "work_geoid"] = df.home_geoid
 
     dump_intermediate(df, args.output + "_nt_dt")
     adjust_indexes(df, args.output)
