@@ -130,19 +130,21 @@ age_levels = {
     "MH": [11, 17],
 }
 
+# these are teacher ratios used to add teachers to the UrbanPop day/night data, *not* for the
+# generated data
 teacher_ratios = {
-    "C": 6.6,
-    "P": 12.3,
-    "E": 12.3,
-    "M": 12.7,
-    "H": 14.5,
-    "U": 4.8,
-    "PE": 12.3,
-    "PEM": 12.5,
-    "PEMH": 13,
-    "EM": 12.5,
-    "EMH": 13,
-    "MH": 13,
+    "C": 6.8,
+    "P": 12.8,
+    "E": 12.8,
+    "M": 14.0,
+    "H": 15.0,
+    "U": 5.5,
+    "PE": 12.8,
+    "PEM": 13.5,
+    "PEMH": 14.2,
+    "EM": 13.5,
+    "EMH": 14.2,
+    "MH": 14.5,
 }
 
 
@@ -460,7 +462,7 @@ def process_upop_nt_dt(up_nt_dt_files, upop_df):
     )
 
     # set the teachers according to predefined ratios
-    schools_df["teachers"] = schools_df["students"] / schools_df["level"].map(
+    schools_df["teachers"] = schools_df["students"].astype("float") / schools_df["level"].map(
         teacher_ratios
     ).round().astype("int32")
     schools_df["teachers"] = schools_df["teachers"].clip(lower=1)  # at least one teacher per school
@@ -727,8 +729,8 @@ def alloc_students_level(schools_df, students_df, level):
 
     num_unalloc = len(students_df[(students_df.school_id == "")])
     if num_unalloc > 0:
-        warn(f"Found {num_unalloc} unallocated students")
         students_df.loc[students_df.school_id == "", "work_geoid"] = students_df.home_geoid
+        students_df.loc[students_df.school_id == "", "grade"] = -1
 
     ids_after = students_df.id.to_numpy()
     if not np.array_equal(ids_before, ids_after):
@@ -823,11 +825,11 @@ def print_school_counts(students_df, workers_df):
         "PE": "Elementary",
         "M": "Middle",
         "H": "High",
-        "U": "University",
+        "U": "College",
     }
     tot_students = 0
     tot_teachers = 0
-    for level in ["C", "PE", "M", "H", "U"]:
+    for level in ["U", "H", "M", "PE", "C"]:
         num_students = len(
             students_df[
                 (students_df.grade >= age_levels[level][0])
@@ -866,7 +868,7 @@ def generate_nt_dt(schools_df, upop_df, lodes_df):
     # is_employed = (upop_df.pr_emp_stat == "employed") & (
     #    (upop_df.pr_grade == "") | (upop_df.pr_age >= 25)
     # )
-    is_employed = (upop_df.naics != -1) & ((upop_df.grade == -1) | (upop_df.age >= 25))
+    is_employed = (upop_df.naics != -1) & ((upop_df.grade == -1) | (upop_df.age > 26))
     in_school = (upop_df.grade != -1) & ~is_employed
     students_df = upop_df[in_school].copy()
     workers_df = upop_df[is_employed]
