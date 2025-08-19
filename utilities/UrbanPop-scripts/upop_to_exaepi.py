@@ -682,10 +682,11 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
         schools_df.loc[schools_df.remaining_student_places < 1, "remaining_student_places"] = 1
 
     print(
-        f"    Found {len(student_groups)} student regions and "
-        f"{len(school_groups)} school regions, and there are "
-        f"{missing_regions} regions without schools"
+        f"  For {region_scales[geoid_scaling]}, allocated "
+        f"{len(students_df[students_df.school_id != ''])} students"
+        f" out of {len(students_df)}"
     )
+
     students_df.drop(columns=["region"], inplace=True)
     return students_df
 
@@ -714,7 +715,6 @@ def alloc_students_level(schools_df, students_df, level):
     # pick schools for students from decreasing resolution; the goal is to allocate students as
     # close to home as possible
     for scale in scales:
-        print("  Region", region_scales[scale])
         # make sure to allocate all at the final region scale
         alloc_all = True if scale == scales[-1] else False
         unassigned_df = students_df[(students_df.school_id == "")].copy()
@@ -722,7 +722,6 @@ def alloc_students_level(schools_df, students_df, level):
         students_df.loc[assigned_df.index, "school_id"] = assigned_df.school_id.astype("string")
         students_df.loc[assigned_df.index, "work_geoid"] = assigned_df.work_geoid
         num_unalloc = len(students_df[(students_df.school_id == "")])
-        print(f"    Set destinations for {len(assigned_df)} students, {num_unalloc} unallocated")
         if num_unalloc == 0:
             break
 
@@ -743,6 +742,7 @@ def alloc_students(schools_df, students_df):
     printgreen("Allocating students")
     num_unique_before = len(students_df.id.unique())
     students_df["school_id"] = ""
+    students_df["naics"] = -1
     students_df["work_geoid"] = students_df.home_geoid
 
     # allocate students from each level
