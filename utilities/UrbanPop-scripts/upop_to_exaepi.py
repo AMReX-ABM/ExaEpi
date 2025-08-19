@@ -588,9 +588,14 @@ def load_schools(fname):
 def alloc_workers(lodes_df, workers_df):
     printgreen("Allocating workers")
     worker_groups = workers_df.groupby(["home_geoid"])
-    lodes_groups = lodes_df.groupby(["h_geocode"])
+    # only use the lodes groups where both the home and work geoids are found in the workers home
+    # geoid
+    worker_geoids = set(worker_groups.groups.keys())
+    lodes_groups = lodes_df[
+        lodes_df.w_geocode.isin(worker_geoids) & lodes_df.h_geocode.isin(worker_geoids)
+    ].groupby(["h_geocode"])
     df = pd.DataFrame()
-    print(f"Assigning workers in {len(worker_groups)} GEOIDS")
+    print(f"Assigning workers in {len(worker_groups)} GEOIDS for {len(lodes_groups)} LODES groups")
     i = 0
     nt_dts = [df]
     for name, worker_group in worker_groups:
@@ -1044,6 +1049,16 @@ def alloc_teachers_for_school_type(workers_df, students_df, schools_df, school_t
 
 @timer
 def allocate_teachers(workers_df, students_df, schools_df):
+    # Filter schools to only include those in worker home geoids
+    worker_geoids = set(workers_df.home_geoid.unique())
+    schools_filtered = len(schools_df)
+    schools_df = schools_df[schools_df.geoid.isin(worker_geoids)]
+    if len(schools_df) != schools_filtered:
+        print(
+            f"Filtered out {schools_filtered - len(schools_df)} "
+            f"schools not in worker home geoids"
+        )
+
     for school_type in ["childcare", "secondary", "university"]:
         workers_df = alloc_teachers_for_school_type(
             workers_df, students_df, schools_df, school_type
@@ -1055,7 +1070,7 @@ def adjust_indexes(df, output):
     df.sort_values(by=["id"], inplace=True)
     orig_ids_df["orig_id"] = df.id
     # make sure all the ids are globally unique and just integers
-    # df.id = np.arange(0, len(df.index))
+    df.id = np.arange(0, len(df.index))
     orig_ids_df["new_id"] = df.id
     orig_ids_df.to_csv(output + ".idmap.csv", index=False)
 
@@ -1303,7 +1318,7 @@ def print_index(df, out_fname, foffsets, home_pops, home_geoids):
         # print work-only GEOIDs
         if len(work_geoids) > len(home_geoids):
             only_work_geoids = list(set(work_geoids) - set(home_geoids))
-            print(f"Found {len(only_work_geoids)} work-only geoids")
+            warn(f"Found {len(only_work_geoids)} work-only geoids out of {len(work_geoids)}")
             for geoid in only_work_geoids:
                 work_pops = work_geoids_pops_df.loc[
                     work_geoids_pops_df.work_geoid == geoid
@@ -1378,6 +1393,9 @@ def main():
 
         lodes_df = get_lodes_groups(args.lodes_files)
         schools_df = load_schools(args.schools_file)
+        # filter out those schools that don't have the same geoid as the home geoids
+        schools_df = schools_df[schools_df.geoid.isin(upop_df.home_geoid.unique())]
+
         if args.up_nt_dt_files:
             workers_df, students_df, schools_df, unemp_df = process_upop_nt_dt(
                 args.up_nt_dt_files, upop_df
@@ -1399,8 +1417,6 @@ def main():
         students_df = pd.read_pickle("students_df.pkl")
         schools_df = pd.read_pickle("schools_df.pkl")
         unemp_df = pd.read_pickle("unemp_df.pkl")
-
-    df = pd.concat([workers_df, students_df, unemp_df], ignore_index=True)
 
     allocate_teachers(workers_df, students_df, schools_df)
     teachers_df = workers_df[workers_df.grade != -1].copy()

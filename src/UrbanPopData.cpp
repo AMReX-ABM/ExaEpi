@@ -90,7 +90,7 @@ bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, amrex::
         } else {
             agents_extras[i].naics_population = 0;
             agents_extras[i].work_population = 0;
-            if (agent.naics == -1) { AMREX_ASSERT(agent.home_geoid == agent.work_geoid); }
+            if (agent.naics == -1 && agent.school_id == 0) { AMREX_ASSERT(agent.home_geoid == agent.work_geoid); }
             if (agent.naics == -1 && agent.school_id != 0) { num_students++; }
         }
         agents_extras[i].home_population = home_population;
