@@ -24,8 +24,8 @@ struct CaseTypes {
 
 struct HospitalStayType {
     enum {
-	Constant = 0, /*!< Agents in the same age group all have the same hospital stay duration. */
-	Random        /*!< Agents have a random hospital day duration, with the distribution varying by age group. */
+    Constant = 0, /*!< Agents in the same age group all have the same hospital stay duration. */
+    Random        /*!< Agents have a random hospital day duration, with the distribution varying by age group. */
     };
 };
 
