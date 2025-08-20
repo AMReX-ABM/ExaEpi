@@ -214,12 +214,6 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
     community_mf.setVal(-1);
 
     std::ofstream geoid_coords_ofs;
-    // if (ParallelDescriptor::IOProcessor()) {
-    //     // write out the x, y coords and lng,lat
-    //     geoid_coords_ofs.open(params.urbanpop_filename + ".geoids.csv");
-    //     geoid_coords_ofs << "GEOID,x,y\n";
-    //     geoid_coords_ofs << std::fixed << std::setprecision(std::numeric_limits<amrex::Real>::digits10);
-    // }
     //  allocate block groups to x,y grid locations and use a map to keep track of them for later processing
     int max_x = geom.Domain().bigEnd()[0];
     int max_y = geom.Domain().bigEnd()[1];
@@ -230,9 +224,6 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
         auto& block_group = block_groups[bi];
         block_group.x = x;
         block_group.y = y;
-        // if (ParallelDescriptor::IOProcessor()) {
-        //     geoid_coords_ofs << block_group.geoid << "," << block_group.x << "," << block_group.y << "\n";
-        // }
         auto xy = IntVect(x, y);
         if (xy_to_block_groups.insert({xy, bi}).second == false) { Abort("Duplicate xy location found for block groups"); }
         x++;
@@ -243,7 +234,6 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
         }
         num_communities++;
     }
-    // if (ParallelDescriptor::IOProcessor()) { geoid_coords_ofs.close(); }
 }
 
 void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& params) {

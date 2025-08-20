@@ -53,13 +53,6 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
         params.ic_type = ICType::UrbanPop;
         pp.get("urbanpop_filename", params.urbanpop_filename);
         params.max_box_size = 16;
-        /*
-        #ifdef AMREX_USE_CUDA
-                params.max_box_size = 500;
-        #else
-                params.max_box_size = 100;
-        #endif
-        */
     } else {
         amrex::Abort("ic_type not recognized (currently supported 'census')");
     }

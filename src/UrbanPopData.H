@@ -24,8 +24,6 @@ struct AgentExtras {
 
 struct BlockGroup {
     int64_t geoid;
-    // amrex::Real lng;
-    // amrex::Real lat;
     size_t file_offset;
     int block_i;
     int x = -1;
