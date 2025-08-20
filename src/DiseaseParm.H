@@ -120,8 +120,8 @@ struct DiseaseParm {
 
     /*! Parameters for gamma distribution for hospital stay lengths. These are used if
      *  m_hospital_stay_type = HospitalStayType::Random */
-    Real m_t_hosp_alpha[AgeGroups_Hosp::total] = {1.33333333, 0.5, 0.57142857};
-    Real m_t_hosp_beta[AgeGroups_Hosp::total] = {1.5, 4.0, 3.5};
+    Real m_t_hosp_alpha[AgeGroups_Hosp::total] = {Real(1.33333333), Real(0.5), Real(0.57142857)};
+    Real m_t_hosp_beta[AgeGroups_Hosp::total] = {Real(1.5), Real(4.0), Real(3.5)};
 
     /*! sick -> hospital probabilities */
     Real m_CHR[AgeGroups::total] = {Real(.0104), Real(.0104), Real(.070), Real(.28), Real(.28), Real(1.0)};
