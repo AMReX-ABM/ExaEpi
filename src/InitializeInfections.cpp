@@ -64,6 +64,7 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
         int ntiles = numTilesInBox(box, true, bin_size);
 
         auto binner = GetParticleBin{plo, dxi, domain, bin_size, box};
+
         if (bins.numBins() < 0) {
             if (fast_bin) {
                 bins.build(BinPolicy::GPU, np, pstruct_ptr, ntiles, binner);
@@ -71,6 +72,7 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
                 bins.build(BinPolicy::Serial, np, pstruct_ptr, ntiles, binner);
             }
         }
+
         auto inds = bins.permutationPtr();
         auto offsets = bins.offsetsPtr();
 

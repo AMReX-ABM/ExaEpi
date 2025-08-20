@@ -75,7 +75,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void generateCellData(amrex::MultiFab& mf, const int ncomp) const;
 
-    std::array<amrex::Long, 9> getTotals(const int);
+    std::array<amrex::Long, OutputStatus::nattribs> getTotals(const int);
 
     int getMaxGroup(const int group_idx);
 

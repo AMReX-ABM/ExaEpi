@@ -9,7 +9,7 @@ agent.ic_type = census
 # agent.census_filename
 # The input worker flow filename for census ic_type.
 # no default, must be set when ic_type is census
-# agent.worker_filename
+# agent.workerflow_filename
 # The number of agents in a neighborhood.
 agent.nborhood_size = 500
 # The number of agents in a workgroup.

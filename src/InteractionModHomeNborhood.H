@@ -102,6 +102,12 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
 
             GetCommunityIndex<PTDType> getCommunityIndex;
             getCommunityIndex.init(agents.Geom(lev), mfi.tilebox(), agents.comm_mf[mfi].array());
+            auto plo = getCommunityIndex.plo;
+            auto dxi = getCommunityIndex.dxi;
+            auto domain = getCommunityIndex.domain;
+            auto valid_box = getCommunityIndex.valid_box;
+            auto bin_size = getCommunityIndex.bin_size;
+            auto comm_to_local_index_d = getCommunityIndex.comm_to_local_index_d;
 
             int max_communities = getCommunityIndex.max();
             int max_nborhood = agents.getMaxGroup(IntIdx::nborhood) + 1;
@@ -128,10 +134,14 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
                 auto lparm_h = agents.getDiseaseParameters_h(d);
                 Real scale = 1.0_rt; // TODO this should vary based on cell
                 Real infect = 1.0_rt - lparm_h->vac_eff;
+                auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                     if (isInfectious(i, ptd, d) && isCandidate(i, ptd)) {
-                        auto community = getCommunityIndex(ptd, i);
+                        Box tbx;
+                        auto iv = getParticleCell(ptd, i, plo, dxi, domain);
+                        auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
+                        auto community = d_ptr[tidx];
                         auto nborhood = nborhood_ptr[i];
                         Gpu::Atomic::AddNoRet(&infected_community_d_ptr[community], 1);
                         Gpu::Atomic::AddNoRet(&infected_nborhood_d_ptr[community * max_nborhood + nborhood], 1);
@@ -141,7 +151,10 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
 
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                     if (isSusceptible(i, ptd, d) && isCandidate(i, ptd)) {
-                        auto community = getCommunityIndex(ptd, i);
+                        Box tbx;
+                        auto iv = getParticleCell(ptd, i, plo, dxi, domain);
+                        auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
+                        auto community = d_ptr[tidx];
                         auto nborhood = nborhood_ptr[i];
                         int num_infected_nborhood = infected_nborhood_d_ptr[community * max_nborhood + nborhood];
                         int num_infected_community = infected_community_d_ptr[community];
