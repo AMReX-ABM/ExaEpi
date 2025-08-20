@@ -53,6 +53,7 @@ def main():
     print("Reading ExaEpi data from directory", args.plot_dir)
     ds = yt.load(args.plot_dir)  # type: ignore
     ad = ds.all_data()
+    print(ds._field_list)
     grid_stats_df = pd.DataFrame(
         {
             "FIPS": ad["FIPS"],
@@ -61,7 +62,7 @@ def main():
             "never_infected": ad["never_infected"],
             "infected": ad["infected"],
             "immune": ad["immune"],
-            "dead": ad["dead"],
+            # "dead": ad["dead"],
         }
     )
     # FIPS is the first 5 digits of the block group code, and tract is the last 7. These need to be
@@ -71,7 +72,7 @@ def main():
     grid_stats_df.Tract = grid_stats_df.Tract.astype("int").astype(str).str.zfill(7)
     grid_stats_df["GEOID10"] = grid_stats_df.FIPS + grid_stats_df.Tract
     grid_stats_df.GEOID10 = grid_stats_df.GEOID10.astype("int64")
-    grid_stats_df.to_csv("grid_stats.csv")
+    # grid_stats_df.to_csv("grid_stats.csv")
 
     shp_dfs = []
     state_codes = []
@@ -97,8 +98,9 @@ def main():
     max_count = 30000  # never_infected_agents["count"].max()
 
     df = pd.merge(shp_data, grid_stats_df, on=["GEOID10"], how="inner")
-    df.to_csv("merged.csv")
-    df[["GEOID10", "pop", "never_infected", "infected", "immune", "dead"]].to_csv("merged.csv")
+    # df.to_csv("merged.csv")
+    # df[["GEOID10", "pop", "never_infected", "infected", "immune", "dead"]].to_csv("merged.csv")
+    # df[["GEOID10", "pop", "never_infected", "infected", "immune"]].to_csv("merged.csv")
     xmin = max(float(args.coord_bounds[0]), float(df.INTPTLON10.astype("float").min()) - 0.5)
     xmax = min(float(args.coord_bounds[1]), float(df.INTPTLON10.astype("float").max()) + 0.5)
     xrange = xmax - xmin
@@ -106,19 +108,21 @@ def main():
     ymax = min(float(args.coord_bounds[3]), float(df.INTPTLAT10.astype("float").max()) + 0.5)
     yrange = ymax - ymin
 
-    fig_x = 32.0
-    fig_y = float(fig_x) * yrange / 1.8 / xrange
+    fig_x = 12.0
+    # fig_y = float(fig_x) * yrange / 1.8 / xrange
+    fig_y = float(fig_x) * yrange / xrange
     print(f"Plot dimensions: lng/lat {xmin}, {xmax}, {ymin}, {ymax}, figure size: {fig_x}, {fig_y}")
 
     # _, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(32, 32))
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(fig_x, fig_y))
+    # fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(fig_x, fig_y))
+    fig, (ax1) = plt.subplots(1, 1, figsize=(fig_x, fig_y))
 
     status_list = {
         # 0: ["never_infected", ax1, "Blues"],
         1: ["infected", ax1, "OrRd"],
         # 2: ["immune", ax3, "Greens"],
         # 3: ["susceptible", ax4, "OrRd"],
-        4: ["dead", ax2, "OrRd"],
+        # 4: ["dead", ax2, "OrRd"],
     }
 
     for _, status in status_list.items():
