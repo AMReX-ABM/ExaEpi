@@ -40,7 +40,13 @@ def main():
         default="geo.pdf",
         help="Output file name for plot",
     )
-    parser.add_argument("--coord_bounds", "-b", default=[-170, -66.6, 18.5, 71.5], nargs="+", help="Range for longitude: min,max")
+    parser.add_argument(
+        "--coord_bounds",
+        "-b",
+        default=[-170, -66.6, 18.5, 71.5],
+        nargs="+",
+        help="Range for longitude: min,max",
+    )
 
     args = parser.parse_args()
 
@@ -59,8 +65,8 @@ def main():
             "dead": ad["dead"],
         }
     )
-    # FIPS is the first 5 digits of the block group code, and tract is the last 7. These need to be combined to give the geoids
-    # found in the urbanpop file mapping geoids to lng/lat
+    # FIPS is the first 5 digits of the block group code, and tract is the last 7. These need to be
+    # combined to give the geoids found in the urbanpop file mapping geoids to lng/lat
     grid_stats_df = grid_stats_df[grid_stats_df.FIPS != -1].reset_index(drop=True)
     grid_stats_df.FIPS = grid_stats_df.FIPS.astype("int").astype(str).str.zfill(5)
     grid_stats_df.Tract = grid_stats_df.Tract.astype("int").astype(str).str.zfill(7)
@@ -72,7 +78,11 @@ def main():
     state_codes = []
     for fname in args.shape_files:
         if not fname.endswith(".shp"):
-            print("WARNING: file", fname, "passed with --shape_files does not appear to be a shapefile with .shp extension")
+            print(
+                "WARNING: file",
+                fname,
+                "passed with --shape_files does not appear to be a shapefile with .shp extension",
+            )
             continue
         print("Reading data from", fname)
         shp_dfs.append(gp.read_file(fname))
@@ -116,7 +126,13 @@ def main():
         ax = status[1]
         states.boundary.plot(ax=ax, lw=1, color="black")
         # Some decent colormaps: RdPu OrRd Greys
-        df.plot(ax=ax, column=status[0], cmap=status[2], legend=True, norm=mp.colors.LogNorm(vmin=1.0, vmax=max_count))  # type: ignore
+        df.plot(
+            ax=ax,
+            column=status[0],
+            cmap=status[2],
+            legend=True,
+            norm=mp.colors.LogNorm(vmin=1.0, vmax=max_count),  # type: ignore
+        )
         # ax.set_xlim([ds.domain_left_edge[0], ds.domain_right_edge[0]])
         # ax.set_ylim([ds.domain_left_edge[1], ds.domain_right_edge[1]])
         ax.set_title(status[0].upper())

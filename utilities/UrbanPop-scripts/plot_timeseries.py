@@ -21,72 +21,65 @@ if __name__ == "__main__":
         default="timeseries.pdf",
         help="Output file for timeseries plots (choose extension for format, e.g. pdf, png, etc",
     )
+    parser.add_argument(
+        "--cloud", "-c", action="store_true", help="Plot results as a cloud of markers"
+    )
     args = parser.parse_args()
 
     plt.rc("font", size=16)
     px = 1.0 / plt.rcParams["figure.dpi"]
-    _, ((ax1, ax2), (ax3, ax4), (ax5, ax6)) = plt.subplots(3, 2, figsize=(1870 * px, 2000 * px))
-    # _, (ax1, ax6) = plt.subplots(1, 2, figsize=(1000*px, 600*px))
-    ax1.set_xlabel("Days")
-    ax1.set_ylabel("Infected")
-    ax2.set_xlabel("Days")
-    ax2.set_ylabel("Asymptomatic")
-    ax3.set_xlabel("Days")
-    ax3.set_ylabel("Hospitalized")
-    ax4.set_xlabel("Days")
-    ax4.set_ylabel("ICU")
-    ax5.set_xlabel("Days")
-    ax5.set_ylabel("Ventilated")
-    ax6.set_xlabel("Days")
-    ax6.set_ylabel("Deaths")
-
-    PLOT_CLOUD = False
+    _, axes = plt.subplots(3, 1, figsize=(1100 * px, 1600 * px))
+    state_maps = {
+        "Infected": ["PS/PI", "S/PI", "S/I", "PS/I", "A/PI", "A/I", "H/I"],
+        "Hospitalized": ["H/NI", "H/I", "ICU", "V"],
+        "Dead": ["D"],
+    }
+    for i, state in enumerate(state_maps.keys()):
+        axes[i].set_xlabel("Days")
+        axes[i].set_ylabel(state)
 
     for i, fname in enumerate(args.files):
         df = pd.read_csv(fname, delimiter=r"\s+")
         print("Read", len(df), "records in %.3f s" % (time.time() - t))
+        for state, columns in state_maps.items():
+            df[state] = df[columns].sum(axis=1)
+            # if state == "Dead":
+            #    df.Deaths = df.Deaths.diff().fillna(0)
+
         label = args.labels[i] if args.labels != None and i < len(args.labels) else fname
         c = "green" if "gen" in fname else "blue"
-        if PLOT_CLOUD:
+        if args.cloud:
             kwargs = {"label": label, "lw": 3, "ls": "", "alpha": 0.3, "marker": "+", "color": c}
         else:
             kwargs = {"label": label, "lw": 3}
+        for ax_i, state in enumerate(state_maps.keys()):
+            axes[ax_i].plot(list(df.index), list(df[state]), **kwargs)
 
-        ax1.plot(list(df.index), list(df.Infected), **kwargs)
-        ax2.plot(list(df.index), list(df.Asymptomatic), **kwargs)
-        ax3.plot(list(df.index), list(df.Hospitalized), **kwargs)
-        ax4.plot(list(df.index), list(df.ICU), **kwargs)
-        ax5.plot(list(df.index), list(df.Ventilated), **kwargs)
-        ax6.plot(list(df.index), list(df.Deaths.diff()), **kwargs)
-
-    if PLOT_CLOUD:
-        ax1.text(
+    if args.cloud:
+        axes[0].text(
             0.02,
             0.98,
             "Generated",
             color="green",
-            transform=ax1.transAxes,
+            transform=axes[0].transAxes,
             verticalalignment="top",
             fontsize=14,
         )
-        ax1.text(
+        axes[0].text(
             0.02,
             0.93,
             "UrbanPop NT/DT",
             color="blue",
-            transform=ax1.transAxes,
+            transform=axes[0].transAxes,
             verticalalignment="top",
             fontsize=14,
         )
     else:
-        ax2.legend()
+        axes[0].legend()
 
-    ax1.grid()
-    ax2.grid()
-    ax3.grid()
-    ax4.grid()
-    ax5.grid()
-    ax6.grid()
+    for ax in axes:
+        ax.grid()
+
     plt.tight_layout()
     plt.savefig(args.output)
     print(f"Saved plot to '{args.output}'")
