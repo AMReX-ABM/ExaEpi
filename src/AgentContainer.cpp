@@ -11,21 +11,11 @@ using namespace ExaEpi::Utils;
 /*! Add runtime SoA attributes */
 void AgentContainer::addAttributes () {
     const bool communicate_this_comp = true;
-    {
-        // int count(0);
-        for (int i = 0; i < m_num_diseases * RealIdxDisease::nattribs; i++) {
-            AddRealComp(communicate_this_comp);
-            // count++;
-        }
-        // Print() << "Added " << count << " real-type run-time SoA attibute(s).\n";
+    for (int i = 0; i < m_num_diseases * RealIdxDisease::nattribs; i++) {
+        AddRealComp(communicate_this_comp);
     }
-    {
-        // int count(0);
-        for (int i = 0; i < m_num_diseases * IntIdxDisease::nattribs; i++) {
-            AddIntComp(communicate_this_comp);
-            // count++;
-        }
-        // Print() << "Added " << count << " integer-type run-time SoA attibute(s).\n";
+    for (int i = 0; i < m_num_diseases * IntIdxDisease::nattribs; i++) {
+        AddIntComp(communicate_this_comp);
     }
 }
 
@@ -677,7 +667,7 @@ void AgentContainer::generateCellData (MultiFab& mf, /*!< MultiFab with at least
 
     AMREX_ASSERT(OK());
     AMREX_ASSERT(numParticlesOutOfRange(*this, 0) == 0);
-    AMREX_ASSERT(a_ncomp == (Status::dead + 2));
+    AMREX_ASSERT(a_ncomp == (Status::dead + 1));
 
     const auto& geom = Geom(lev);
     const auto plo = geom.ProbLoArray();
@@ -695,8 +685,7 @@ void AgentContainer::generateCellData (MultiFab& mf, /*!< MultiFab with at least
                 for (int d = 0; d < n_disease; d++) {
                     int status = ptd.m_runtime_idata[i0(d) + IntIdxDisease::status][i];
                     Gpu::Atomic::AddNoRet(&count(iv, a_ncomp * d + 0), 1.0_rt);
-                    // if (status != Status::dead) { Gpu::Atomic::AddNoRet(&count(iv, a_ncomp * d + status + 1), 1.0_rt); }
-                    Gpu::Atomic::AddNoRet(&count(iv, a_ncomp * d + status + 1), 1.0_rt);
+                    if (status != Status::dead) { Gpu::Atomic::AddNoRet(&count(iv, a_ncomp * d + status + 1), 1.0_rt); }
                 }
             },
             false);
