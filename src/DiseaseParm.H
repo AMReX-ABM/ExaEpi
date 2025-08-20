@@ -170,17 +170,17 @@ struct DiseaseParm {
                 if (a_age_group == AgeGroups::o65) {
                     int num_days = static_cast<int>(amrex::RandomGamma(m_t_hosp_alpha[AgeGroups_Hosp::o65],
                                                                        m_t_hosp_beta[AgeGroups_Hosp::o65], a_reng));
-                    if (num_days < 0) { num_days = 0;)
+                    if (num_days < 0) { num_days = 0;}
                     *a_t_hosp = static_cast<ParticleReal>(num_days);
                 } else if (a_age_group == AgeGroups::a50to64) {
                     int num_days = static_cast<int>(amrex::RandomGamma(m_t_hosp_alpha[AgeGroups_Hosp::a50to64],
                                                                        m_t_hosp_beta[AgeGroups_Hosp::a50to64], a_reng));
-                    if (num_days < 0) { num_days = 0;)
+                    if (num_days < 0) { num_days = 0;}
                     *a_t_hosp = static_cast<ParticleReal>(num_days);
                 } else {
                     int num_days = static_cast<int>(amrex::RandomGamma(m_t_hosp_alpha[AgeGroups_Hosp::u50],
                                                                        m_t_hosp_beta[AgeGroups_Hosp::u50], a_reng));
-                    if (num_days < 0) { num_days = 0;)
+                    if (num_days < 0) { num_days = 0;}
                     *a_t_hosp = static_cast<ParticleReal>(num_days);
                 }
             }
