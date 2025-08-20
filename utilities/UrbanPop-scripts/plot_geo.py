@@ -6,10 +6,10 @@ import os
 import numpy as np
 import pandas as pd
 import argparse
-from yt.frontends.amrex.data_structures import AMReXDataset
 import geopandas as gp
 import matplotlib.pyplot as plt
 import matplotlib as mp
+import yt
 
 
 def main():
@@ -51,8 +51,7 @@ def main():
     args = parser.parse_args()
 
     print("Reading ExaEpi data from directory", args.plot_dir)
-    ds = AMReXDataset(args.plot_dir)
-    # print(ds.field_list)
+    ds = yt.load(args.plot_dir)  # type: ignore
     ad = ds.all_data()
     grid_stats_df = pd.DataFrame(
         {
