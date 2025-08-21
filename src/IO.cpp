@@ -56,10 +56,13 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
                     const int step /*!< Current step */) {
     amrex::Print() << "Writing plotfile \n";
 
-    // make sure status_names are in the same order as the struct Status in AgentDefinitions.H (do not include "dead")
+    // make sure status_names are in the same order as the struct Status in AgentDefinitions.H
+    // these are the names per disease, which do not include "dead", which will be added once at the end of all the diseases
     static const Vector<std::string> status_names = {"total", "never_infected", "infected", "immune", "susceptible"};
 
     static const int ncomp_d = status_names.size();
+    // if ic_type == urbanpop then unit_mf_ptr == nullptr
+    // the +4 (+3) is for new_cases, FIPS, Tract, Unit (new_cases, FIPS, Tract)
     static const int ncomp = ncomp_d * num_diseases + num_diseases + (unit_mf_ptr != nullptr ? 4 : 3);
 
     MultiFab output_mf(pc.ParticleBoxArray(0), pc.ParticleDistributionMap(0), ncomp, 0);
