@@ -8,8 +8,7 @@ from colorama import Fore
 import matplotlib.pyplot as plt
 import glob
 
-import gen_nt_dt
-import convert_urbanpop_to_exaepi
+import upop_to_exaepi
 
 
 def compare_nt_dt_flows(gen_df, up_df):
@@ -157,7 +156,7 @@ def compare_educational_flows(args, gen_df, up_df):
 
 
 def compare_lodes_files(args, gen_df, up_df):
-    lodes_df = gen_nt_dt.get_lodes_groups(args.lodes_files)
+    lodes_df = upop_to_exaepi.get_lodes_groups(args.lodes_files)
     workers_gen_df = gen_df.loc[gen_df.naics != -1]
     workers_up_df = up_df.loc[up_df.naics != -1]
     for compare_df in [(workers_gen_df, "generated"), (workers_up_df, "UrbanPop")]:
@@ -264,7 +263,7 @@ def main():
     up_df = up_df[up_df["id"].isin(common_pids)]
     print(f"Found {len(common_pids)} common ids between datasets")
     if args.upop_files != "" and args.upop_files != []:
-        upop_df = convert_urbanpop_to_exaepi.process_pop_feather_files(args.upop_files)
+        upop_df = upop_to_exaepi.load_upop_feather_files(args.upop_files)
         upop_df = upop_df[upop_df["p_id"].isin(common_pids)]
         upop_file = "urbanpop.common"
         upop_df.to_feather(upop_file + ".feather")

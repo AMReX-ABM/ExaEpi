@@ -285,7 +285,7 @@ def dump_intermediate(df, fname, override=False):
         df.to_csv(fname + ".intermediate.csv", index=False)
 
 
-def load_upop_feather_files(fnames, out_fname):
+def load_upop_feather_files(fnames, out_fname=""):
     printgreen(f"Reading UrbanPop data from {len(fnames)} files")
     dfs = []
     df = pd.DataFrame()
@@ -309,7 +309,8 @@ def load_upop_feather_files(fnames, out_fname):
     # need to sort to ensure the order is the same between the population files and the
     # daytime/nighttime files
     df.sort_values(by=["p_id"], inplace=True)
-    dump_intermediate(df, out_fname + ".upop")
+    if out_fname != "":
+        dump_intermediate(df, out_fname + ".upop")
     return df
 
 

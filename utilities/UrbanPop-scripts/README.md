@@ -1,41 +1,74 @@
-The scripts in this directory are for processing UrbanPop files into a format that is usable by ExaEpi.
+The scripts in this directory are for processing UrbanPop files into a format that is usable by
+ExaEpi, and for checking and visualizing results.
 
 ## Scripts
 
-The script `gen_nt_dt.py` must always be run first, and it will generate a nightime/daytime feather file that will be
-used by `convert_urbanpop_to_exaepi.py`. This latter file takes as input a set of UrbanPop feather files, census block
-group files, and daytime/nightime files. It merges these all together to produce three files: `urbanpop_<output>.csv`,
-which contains the list of agent data, `urbanpop_<output>.idx`, which contains the indexes into the first file, for
-reading in parallel, and `UrbanPopAgentStruct.H`, which contains the C++ header file containing data structures needed in
-ExaEpi. This should be placed in the `src`, but it only needs to be updated if the data fields have changed.
+* `upop_to_exaepi.py`
 
-A config file or options can be passed to `convert_urbanpop_to_exaepi.py`. This is an example of a config file for New
-Mexico:
+The main script is `upop_to_exaepi.py`. Run with `-h` to see the options:
+
+```
+usage: upop_to_exaepi.py [-h] [-c FILE] [--output OUTPUT]
+                         [--upop_files UPOP_FILES [UPOP_FILES ...]]
+                         [--lodes_files LODES_FILES [LODES_FILES ...]]
+                         [--schools_file SCHOOLS_FILE]
+                         [--up_nt_dt_files UP_NT_DT_FILES [UP_NT_DT_FILES ...]]
+                         [--rseed RSEED]
+
+options:
+  -h, --help            show this help message and exit
+  -c FILE, --config FILE
+                        Config file
+  --output OUTPUT, -o OUTPUT
+                        Output file
+  --upop_files UPOP_FILES [UPOP_FILES ...], -f UPOP_FILES [UPOP_FILES ...]
+                        UrbanPop feather files
+  --lodes_files LODES_FILES [LODES_FILES ...], -l LODES_FILES [LODES_FILES ...]
+                        LODES7 origin-destination (OD) files in CSV format.
+  --schools_file SCHOOLS_FILE, -s SCHOOLS_FILE
+                        File containing schools data in CSV format.
+  --up_nt_dt_files UP_NT_DT_FILES [UP_NT_DT_FILES ...], -n UP_NT_DT_FILES [UP_NT_DT_FILES ...]
+                        Files containing nighttime/daytime data from UrbanPop in feather
+                        format. If absent, night/day will be generated from LODES
+  --rseed RSEED, -r RSEED
+                        Random seed
+```
+
+When using the config file option, specify configurations as section `main`, as shown in this
+example file for New Mexico:
 
 ```
 [main]
-output=urbanpop_nm_new
-files=data/35_NM/syp*.feather
-shape_files=../../NM_2010_Census_BlockGroups/*.shp
-day_night_files=nm_nt_dt.feather
-```
-
-Currently, UrbanPop nightime/daytime files are not available for all locations. If they are available, they can be used
-in the `gen_nt_dt.py` script. If not, `gen_nt_dt.py` requires as input the UrbanPop feather files, LODES files containing
-origin/destination flows, and a schools file, containing information on school sizes and locations. Here's an example
-config file for New Mexico is:
-
-```
-[main]
-urbanpop_files=data/35_NM/syp*.feather
-lodes_files=../../LODES7/nm_od_main_2019.csv
-schools_file=../../EducationData/schools_with_geoids.csv
-output_file=nm
+upop_files=nm_urbanpop.feather
+lodes_files=../LODES7/nm_od_main_2019.csv
+schools_file=../EducationData/schools_with_geoids.csv
+output=upop_nm_gen
 rseed=29
 ```
 
-To generate the schools data, use the script `get_schools.py`. This takes as input HIFLD files containing data on
-private schools, public schools, childcare and colleges/universities. An example config file for New Mexico is:
+Any options specified on the command line after the config file will override settings in the config
+file.
+
+There are two basic ways to use `upop_to_exaepi.py`. First, it can be used with day/night data that was
+generated separately for UrbanPop. For this approach, set the `--up_nt_dt_files` option. Currently,
+UrbanPop day/night data is not available for most locations in the US. Otherwise,
+the data is generated based on the LODES flows input and the schools input. Even for the separate
+UrbanPop data, the LODES and schools files are still required, because the script will compute a
+correlation comparison of the day/night data with the flows from those files.
+
+`upop_to_exaepi.py` will generate three output files based on the `--output` option: `<output>.csv`, which
+contains the list of all the agent data, `<output>.idx`, which contains the indexes into the first
+file (used for reading in parallel), and `<output>.idmap.csv`, which contains mappings between the
+agent IDs given in `<output>.csv` and the `p_id`s from the original UrbanPop files (`--upop_files`).
+The latter is for purely diagnostic purposes; only the first two are used by ExaEpi.
+
+In addition, `upop_to_exaepi.py` will produces a file, `UrbanPopAgentStruct.H`, which is the C++
+header file containing data structures needed in ExaEpi. This should be placed in the `src`, but it only
+needs to be updated if the data fields generated by `upop_to_exaepi.py` have been modified.
+
+To generate the schools data, use the script `get_schools.py`. This takes as input HIFLD files
+containing data on private schools, public schools, childcare and colleges/universities. An example
+config file is:
 
 ```
 [main]
@@ -46,8 +79,16 @@ childcare_files=hifld-data-2024/Child_Care_Centers.csv
 census_bg_files=../US_Census_BlockGroups/*.shp
 ```
 
-Also provided is a script `check_nt_dt.py`, which compares the results generated from the LODES flows and schools files with the
-UrbanPop nighttime/daytime flows. It computes correlations. An example config file for New Mexico is:
+This will generate schools for all of the US, but the file can be used for any single state without
+any issues.
+
+* `check_nt_dt.py`
+
+Also provided is a script `check_nt_dt.py`, which compares the results generated from the LODES flows
+and schools files with the UrbanPop day/night flows. It computes correlations between the various
+outputs. Assuming that we have used `upop_to_exaepi.py` to generate an output `upop_nm_gen.csv` for
+generated day/night data, and an output `upop_nm_up.csv` for data from separated UrbanPop day/night
+files, an example config file for New Mexico is:
 
 ```
 [main]
@@ -57,8 +98,74 @@ schools_file=../../EducationData/schools_with_geoids.csv
 lodes_files=../LODES7/nm_od_main_2019.csv
 ```
 
+This will produce results like the following:
+
+```
+Options:
+  config               None
+  gen_file             upop_nm_gen.csv
+  up_file              upop_nm_up.csv
+  schools_file         ../EducationData/schools_with_geoids.csv
+  lodes_files          ['../LODES7/nm_od_main_2019.csv']
+  upop_files           []
+Found 1873670 common ids between datasets
+Correlations for night/day flows (generated vs UrbanPop):
+  worker: correlation 0.862
+    Total flows - Generated: 756314, UrbanPop: 755420
+    Plot saved to flow_comparison_worker.png
+  student: correlation 0.598
+    Total flows - Generated: 458970, UrbanPop: 459339
+    Plot saved to flow_comparison_student.png
+  all: correlation 0.965
+    Total flows - Generated: 1873670, UrbanPop: 1873670
+    Plot saved to flow_comparison_all.png
+Correlation of school populations per GEOID (generated vs UrbanPop): 0.827 458970 458970
+Correlations with school populations for GEOIDS using "../EducationData/schools_with_geoids.csv":
+  generated: 0.979 458970 481381
+  Plot saved to school_population_comparison_generated.png
+  UrbanPop: 0.837 458970 480650
+  Plot saved to school_population_comparison_urbanpop.png
+Loading LODES files
+Loading ../LODES7/nm_od_main_2019.csv
+Elapsed time for get_lodes_groups: 4.34 seconds, memory 0.09 G
+Checking flows for generated workers
+  Correlation: 0.881 (flows: 756314, LODES: 2712058)
+  Plot saved to worker_flows_comparison_generated_vs_lodes.png
+Checking flows for UrbanPop workers
+  Correlation: 0.787 (flows: 755420, LODES: 2712058)
+```
+
+As can be seen, it has computed correlations between the separate UrbanPop day/night files
+and the generated data for workers (0.862), students (0.598), and school populations per block
+group (GEOID) (0.827). It also computes the correlations between the schools data and the UrbanPop
+day/night data and the schools data and the generated data (0.837, 0.979). Finally, it computes the
+correlations between the LODES data and the UrbanPop day/night data and the LODES data and the
+generated data (0.881, 0.787). It also produces plots of all these results, with names as indicated
+in the output.
+
+Two ploting scripts are also provided.
+
+* `plot_timeseries.py`
+
+This plots the number of infected, hospitalized and dead over time for a run of ExaEpi. It requires
+the output file from an ExaEpi run as input (the one specified by the `diag.output_filename` option
+to ExaEpi).
+
+* `plot_geo.py`
+
+This plots a map of infcetions, coloring each census tract according to the number of infections.
+It requires the plot files from an ExaEpi run as input (produced when `agent.plot_int` is set). In
+addition it requires shape files for the geometry of the census tracts and state boundaries. To plot
+a run of New Mexico (census state code 35), the command line could be:
+
+```
+plot_geo.py -p plt00000 -s ../US_2010_Census_BlockGroups/tl_2010_35_bg10.shp -e ../US_2010_Census_States/gz_2010_us_040_00_500k.shp -o geo-nm.png
+```
+
 
 ## Data sources
+
+The two required sources of data are for schools and worker flows.
 
 ### Education data
 
@@ -72,8 +179,8 @@ The LODES data can be obtained from:
 
 `https://lehd.ces.census.gov/data/lodes/LODES7`
 
-For compatibility, use the 2019 files (UrbanPop uses the 2010 Census data). For each state, there are several files,
-of the form (e.g. for New Mexico):
+For compatibility, use the 2019 files (UrbanPop uses the 2010 Census data). For each state there
+are several files of the form (e.g. for New Mexico):
 
 `nm_od_main_JT0?_2019.csv.gz`
 
