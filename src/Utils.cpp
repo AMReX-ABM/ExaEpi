@@ -38,7 +38,7 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
     }
     pp.queryarr("disease_names", params.disease_names, 0, params.num_diseases);
 
-    std::string ic_type = "census";
+    std::string ic_type = "urbanpop";
     pp.query("ic_type", ic_type);
     if (ic_type == "census") {
         params.ic_type = ICType::Census;

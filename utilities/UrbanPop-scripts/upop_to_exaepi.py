@@ -1380,44 +1380,35 @@ def sanity_checks(df):
         warn(f"There are {len(mismatches)} unemployed agents with differing home and dest geoids")
 
 
-FULL = True
-
-
 @timer
 def main():
     args = get_args()
     np.random.seed(args.rseed)
 
-    if FULL:
-        upop_df = load_upop_feather_files(args.upop_files, args.output)
-        process_upop(upop_df, args.output)
+    upop_df = load_upop_feather_files(args.upop_files, args.output)
+    process_upop(upop_df, args.output)
 
-        lodes_df = get_lodes_groups(args.lodes_files)
-        schools_df = load_schools(args.schools_file)
-        # filter out those schools that don't have the same geoid as the home geoids
-        schools_df = schools_df[schools_df.geoid.isin(upop_df.home_geoid.unique())]
+    lodes_df = get_lodes_groups(args.lodes_files)
+    schools_df = load_schools(args.schools_file)
+    # filter out those schools that don't have the same geoid as the home geoids
+    schools_df = schools_df[schools_df.geoid.isin(upop_df.home_geoid.unique())]
 
-        if args.up_nt_dt_files:
-            workers_df, students_df, schools_df, unemp_df = process_upop_nt_dt(
-                args.up_nt_dt_files, upop_df
-            )
-        else:
-            workers_df, students_df, schools_df, unemp_df = generate_nt_dt(
-                schools_df, upop_df, lodes_df
-            )
-            df = pd.concat([workers_df, students_df, unemp_df], ignore_index=True)
-
-        check_flows_correlation(workers_df, lodes_df)
-
-        workers_df.to_pickle("workers_df.pkl")
-        students_df.to_pickle("students_df.pkl")
-        schools_df.to_pickle("schools_df.pkl")
-        unemp_df.to_pickle("unemp_df.pkl")
+    if args.up_nt_dt_files:
+        workers_df, students_df, schools_df, unemp_df = process_upop_nt_dt(
+            args.up_nt_dt_files, upop_df
+        )
     else:
-        workers_df = pd.read_pickle("workers_df.pkl")
-        students_df = pd.read_pickle("students_df.pkl")
-        schools_df = pd.read_pickle("schools_df.pkl")
-        unemp_df = pd.read_pickle("unemp_df.pkl")
+        workers_df, students_df, schools_df, unemp_df = generate_nt_dt(
+            schools_df, upop_df, lodes_df
+        )
+        df = pd.concat([workers_df, students_df, unemp_df], ignore_index=True)
+
+    check_flows_correlation(workers_df, lodes_df)
+
+    workers_df.to_pickle("workers_df.pkl")
+    students_df.to_pickle("students_df.pkl")
+    schools_df.to_pickle("schools_df.pkl")
+    unemp_df.to_pickle("unemp_df.pkl")
 
     allocate_teachers(workers_df, students_df, schools_df)
     teachers_df = workers_df[workers_df.grade != -1].copy()
