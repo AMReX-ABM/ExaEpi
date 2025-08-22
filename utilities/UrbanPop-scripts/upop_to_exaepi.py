@@ -649,17 +649,16 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
     student_groups = students_df.groupby(["region"])
     school_groups = schools_df.groupby(["region"])
 
-    missing_regions = 0
-    for region, student_group in student_groups:
+    def process_region(args):
+        region, student_group = args
         num_students_reqd = len(student_group)
         if num_students_reqd == 0:
             warn(f"No students requested for group {region}")
-            continue
+            return None
         try:
             school_group = school_groups.get_group(region)
         except KeyError:
-            missing_regions += 1
-            continue
+            return None
         school_group = school_group[["geoid", "id", "remaining_student_places"]]
         sum_remaining_student_places = school_group.remaining_student_places.sum()
         if not alloc_all and num_students_reqd > sum_remaining_student_places:
@@ -676,16 +675,33 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
         schools_selected = school_group.sample(
             n=num_students_reqd, weights=school_probs, replace=True
         )
-        students_df.loc[student_group.index, ["work_geoid", "school_id"]] = schools_selected[
-            ["geoid", "id"]
-        ].values
+        geoids = schools_selected.geoid.values
+        school_ids = schools_selected.id.values
         # clear out dummy schools
         schools_selected.index.rename("index", inplace=True)
         schools_selected = schools_selected[(schools_selected.id != "")]
-        if len(schools_selected) > 0:
-            counts = schools_selected.groupby("index").size()
-            schools_df.loc[counts.index, "remaining_student_places"] -= counts.values
-            schools_df.remaining_student_places = schools_df.remaining_student_places.clip(lower=1)
+        if len(schools_selected) == 0:
+            return None
+        counts = schools_selected.groupby("index").size()
+        return {
+            "student_idx": student_group.index,
+            "work_geoids": geoids,
+            "school_ids": school_ids,
+            "school_counts": counts,
+        }
+
+    with ThreadPool(processes=8) as pool:
+        results = pool.map(process_region, [(region, group) for region, group in student_groups])
+
+    for result in results:
+        if result is None:
+            continue
+        students_df.loc[result["student_idx"], "work_geoid"] = result["work_geoids"]
+        students_df.loc[result["student_idx"], "school_id"] = result["school_ids"]
+        schools_df.loc[result["school_counts"].index, "remaining_student_places"] -= result[
+            "school_counts"
+        ].values
+        schools_df.remaining_student_places = schools_df.remaining_student_places.clip(lower=1)
 
     print(
         f"  For {region_scales[geoid_scaling]}, allocated "
