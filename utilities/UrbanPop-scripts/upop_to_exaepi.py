@@ -9,6 +9,9 @@
 
 import gc
 import io
+from multiprocessing import Pool
+from functools import partial
+from multiprocessing.pool import ThreadPool
 import os
 import sys
 import pandas as pd
@@ -285,13 +288,14 @@ def dump_intermediate(df, fname, override=False):
         df.to_csv(fname + ".intermediate.csv", index=False)
 
 
+@timer
 def load_upop_feather_files(fnames, out_fname=""):
     printgreen(f"Reading UrbanPop data from {len(fnames)} files")
     dfs = []
     df = pd.DataFrame()
     chunk_size = int(len(fnames) / 10)
     for i, fname in enumerate(fnames):
-        df_read = pd.read_feather(fname)
+        df_read = pd.read_feather(fname, use_threads=True)
         dfs.append(df_read)
         if i == len(fnames) - 1 or i % chunk_size == 0:
             dfs.append(df)
@@ -644,14 +648,15 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
     dump_intermediate(students_df, "students_" + region_scales[geoid_scaling])
     student_groups = students_df.groupby(["region"])
     school_groups = schools_df.groupby(["region"])
+
     missing_regions = 0
-    for group_name, student_group in student_groups:
+    for region, student_group in student_groups:
         num_students_reqd = len(student_group)
         if num_students_reqd == 0:
-            warn(f"No students requested for group {group_name}")
+            warn(f"No students requested for group {region}")
             continue
         try:
-            school_group = school_groups.get_group(group_name)
+            school_group = school_groups.get_group(region)
         except KeyError:
             missing_regions += 1
             continue
@@ -701,11 +706,6 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
 
 @timer
 def alloc_students_level(schools_df, students_df, level):
-    start_age = age_levels[level][0]
-    end_age = age_levels[level][1]
-    students_df = students_df[
-        (students_df.grade >= start_age) & (students_df.grade <= end_age)
-    ].copy()
     ids_before = students_df.id.to_numpy()
     print(f"Allocating {len(students_df)} students for level {level}")
     dump_intermediate(students_df[["id", "grade"]], "students-" + level)
@@ -745,6 +745,18 @@ def alloc_students_level(schools_df, students_df, level):
     return students_df
 
 
+def process_level(level, schools, students):
+    level_students = students[
+        (students.grade >= age_levels[level][0]) & (students.grade <= age_levels[level][1])
+    ].copy()
+
+    if len(level_students) == 0:
+        return pd.DataFrame()
+
+    print(f"Processing level {level} with {len(level_students)} students")
+    return alloc_students_level(schools, level_students, level)
+
+
 @timer
 def alloc_students(schools_df, students_df):
     printgreen("Allocating students")
@@ -756,8 +768,19 @@ def alloc_students(schools_df, students_df):
     # allocate students from each level
     dfs = []
     for level in ["P", "E", "M", "H", "U", "C"]:
-        df = alloc_students_level(schools_df, students_df, level=level)
+        level_students_df = students_df[
+            (students_df.grade >= age_levels[level][0])
+            & (students_df.grade <= age_levels[level][1])
+        ].copy()
+        if len(level_students_df) == 0:
+            continue
+        df = alloc_students_level(schools_df, level_students_df, level=level)
         dfs.append(df)
+
+    # levels = ["P", "E", "M", "H", "U", "C"]
+    # with Pool(processes=6) as pool:
+    #    process_level_partial = partial(process_level, schools=schools_df, students=students_df)
+    #    dfs = pool.map(process_level_partial, levels)
 
     students_df = pd.concat(dfs, ignore_index=True)
 
