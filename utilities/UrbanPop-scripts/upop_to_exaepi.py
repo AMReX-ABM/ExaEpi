@@ -676,23 +676,16 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
         schools_selected = school_group.sample(
             n=num_students_reqd, weights=school_probs, replace=True
         )
-        schools_selected.index.rename("index", inplace=True)
-
-        student_group = student_group.assign(
-            work_geoid=schools_selected.geoid.tolist(), school_id=schools_selected.id.tolist()
-        )
-        students_df.loc[student_group.index, "work_geoid"] = student_group.work_geoid
-        students_df.loc[student_group.index, "school_id"] = student_group.school_id
+        students_df.loc[student_group.index, ["work_geoid", "school_id"]] = schools_selected[
+            ["geoid", "id"]
+        ].values
         # clear out dummy schools
+        schools_selected.index.rename("index", inplace=True)
         schools_selected = schools_selected[(schools_selected.id != "")]
-        # reduce the available students at schools count according to how many have been allocated
-        schools_selected_groups = schools_selected.groupby(["index"])
-        selected_school_indexes = list(schools_selected_groups.groups.keys())
-        selected_school_counts = schools_selected_groups.id.count().tolist()
-        indexes = schools_df.index.isin(selected_school_indexes)
-        schools_df.loc[indexes, "remaining_student_places"] -= np.int32(selected_school_counts)
-        # always set to 1 to enable a slight chance of allocating to this school
-        schools_df.loc[schools_df.remaining_student_places < 1, "remaining_student_places"] = 1
+        if len(schools_selected) > 0:
+            counts = schools_selected.groupby("index").size()
+            schools_df.loc[counts.index, "remaining_student_places"] -= counts.values
+            schools_df.remaining_student_places = schools_df.remaining_student_places.clip(lower=1)
 
     print(
         f"  For {region_scales[geoid_scaling]}, allocated "
