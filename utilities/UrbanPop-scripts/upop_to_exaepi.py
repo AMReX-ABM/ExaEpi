@@ -567,7 +567,7 @@ def set_childcare(upop_df):
     df = upop_df.copy()
     for age in np.arange(0, 5):
         is_candidate = (df.grade == -1) & (df.age == age)
-        num_candidates = int(len(df[is_candidate]) * PROBS[age])
+        num_candidates = int(len(df[is_candidate]) * PROBS[age])  # type: ignore
         to_set = df[is_candidate].sample(n=num_candidates, replace=False)
         print("  Age", age, "set", len(to_set), "out of", len(df[is_candidate]))
         df.loc[to_set.index, "grade"] = 3
@@ -690,7 +690,7 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
             "school_counts": counts,
         }
 
-    with ThreadPool(processes=8) as pool:
+    with ThreadPool(processes=2) as pool:
         results = pool.map(process_region, [(region, group) for region, group in student_groups])
 
     for result in results:
@@ -758,11 +758,8 @@ def process_level(level, schools, students):
     level_students = students[
         (students.grade >= age_levels[level][0]) & (students.grade <= age_levels[level][1])
     ].copy()
-
     if len(level_students) == 0:
         return pd.DataFrame()
-
-    print(f"Processing level {level} with {len(level_students)} students")
     return alloc_students_level(schools, level_students, level)
 
 
@@ -774,22 +771,25 @@ def alloc_students(schools_df, students_df):
     students_df["naics"] = -1
     students_df["work_geoid"] = students_df.home_geoid
 
-    # allocate students from each level
+    USE_MULTIPROCS = True
     dfs = []
-    for level in ["P", "E", "M", "H", "U", "C"]:
-        level_students_df = students_df[
-            (students_df.grade >= age_levels[level][0])
-            & (students_df.grade <= age_levels[level][1])
-        ].copy()
-        if len(level_students_df) == 0:
-            continue
-        df = alloc_students_level(schools_df, level_students_df, level=level)
-        dfs.append(df)
+    # allocate students from each level
+    if not USE_MULTIPROCS:
+        for level in ["P", "E", "M", "H", "U", "C"]:
+            level_students_df = students_df[
+                (students_df.grade >= age_levels[level][0])
+                & (students_df.grade <= age_levels[level][1])
+            ].copy()
+            if len(level_students_df) == 0:
+                continue
+            df = alloc_students_level(schools_df, level_students_df, level=level)
+            dfs.append(df)
 
-    # levels = ["P", "E", "M", "H", "U", "C"]
-    # with Pool(processes=6) as pool:
-    #    process_level_partial = partial(process_level, schools=schools_df, students=students_df)
-    #    dfs = pool.map(process_level_partial, levels)
+    elif USE_MULTIPROCS:
+        levels = ["P", "E", "M", "H", "U", "C"]
+        with Pool(processes=6) as pool:
+            process_level_partial = partial(process_level, schools=schools_df, students=students_df)
+            dfs = pool.map(process_level_partial, levels)
 
     students_df = pd.concat(dfs, ignore_index=True)
 
