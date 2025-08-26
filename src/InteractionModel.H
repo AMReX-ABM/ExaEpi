@@ -288,8 +288,10 @@ struct GetCommunityIndex {
     int num_comms;
 };
 
-#ifdef AMREX_USE_CUDA
+#if defined(AMREX_USE_CUDA)
 #define devMemset cudaMemset
+#elif defined(AMREX_USE_HIP)
+#define devMemset (void)hipMemset
 #else
 #ifdef AMREX_USE_SYCL
 #define devMemset(p, v, s) (Gpu::Device::streamQueue().memset((p), (v), (s)).wait())
