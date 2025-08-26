@@ -16,83 +16,337 @@ using float32_t = amrex::ParticleReal;
 
 namespace UrbanPop {
 
-const size_t NUM_COLS = 17;
+const size_t NUM_COLS = 12;
 
-const int ROLE_COUNT = 3;
-static string role_descriptions[ROLE_COUNT] = {"nope", "worker", "student"};
-struct ROLE {
-    enum { nope, worker, student };
-};
-const int NAICS_COUNT = 21;
-static string naics_descriptions[NAICS_COUNT] = {"agr_ffh", "ext",     "utl",     "con", "mfg", "whl", "ret",
-                                                 "trn_whs", "inf",     "fin_ins", "rrl", "prf", "mgt", "adm_wmr",
-                                                 "edu",     "med_sca", "ent",     "afs", "srv", "pad", "wfh"};
+const int NAICS_COUNT = 251;
+static string naics_descriptions[NAICS_COUNT] =
+        {"111",   "112",    "113",    "1133",  "114",   "115",  "211",   "2121",   "2122",   "2123",   "213",    "22",
+         "221",   "2211",   "2212",   "2213",  "22132", "23",   "3",     "31",     "311",    "3113",   "3114",   "3115",
+         "3116",  "3118",   "311811", "3121",  "3122",  "3131", "3132",  "3133",   "314",    "31411",  "315",    "316",
+         "3162",  "3211",   "3212",   "3219",  "32199", "3221", "3222",  "32221",  "3231",   "3241",   "32411",  "325",
+         "3252",  "3253",   "3254",   "3255",  "3256",  "3261", "3262",  "32621",  "327",    "32711",  "327120", "3272",
+         "3279",  "33",     "331",    "3313",  "3314",  "3315", "332",   "3321",   "3322",   "3327",   "3328",   "33299",
+         "333",   "3331",   "33311",  "3333",  "3335",  "3336", "334",   "3341",   "3345",   "335",    "3352",   "336",
+         "33641", "3365",   "3366",   "3369",  "337",   "3391", "3399",  "4",      "42",     "4231",   "4232",   "4233",
+         "4234",  "4235",   "4236",   "4237",  "4238",  "4239", "42393", "424",    "4241",   "4243",   "4244",   "4245",
+         "4247",  "4248",   "4249",   "42491", "4251",  "4411", "4412",  "4413",   "442",    "443141", "443142", "4441",
+         "44413", "4442",   "44511",  "44512", "4452",  "4453", "446",   "44611",  "447",    "4481",   "44821",  "4483",
+         "4511",  "45113",  "45114",  "45121", "45221", "4523", "4531",  "45321",  "45322",  "4533",   "4539",   "454110",
+         "4542",  "454310", "45439",  "481",   "482",   "483",  "484",   "485",    "4853",   "486",    "487",    "488",
+         "491",   "492",    "493",    "5111",  "51111", "5112", "5121",  "5122",   "515",    "517",    "517311", "5182",
+         "5191",  "51912",  "51913",  "52",    "522",   "5221", "5241",  "5242",   "53",     "531",    "5313",   "532",
+         "5321",  "5411",   "5412",   "5413",  "5414",  "5415", "5416",  "5417",   "5418",   "5419",   "54194",  "55",
+         "561",   "5613",   "5614",   "5615",  "5616",  "5617", "56173", "562",    "611",    "6111",   "621",    "6211",
+         "6212",  "6213",   "62131",  "62132", "6214",  "6216", "622",   "6222",   "623",    "6231",   "6241",   "6242",
+         "6243",  "6244",   "711",    "7111",  "7112",  "7115", "712",   "713",    "71395",  "721",    "7211",   "722",
+         "7224",  "8111",   "811192", "8112",  "8113",  "8114", "8121",  "812111", "812112", "8122",   "8123",   "8129",
+         "813",   "8131",   "8139",   "81393", "814",   "92",   "9211",  "92113",  "92119",  "923",    "928"};
 struct NAICS {
     enum {
-        agr_ffh,
-        ext,
-        utl,
-        con,
-        mfg,
-        whl,
-        ret,
-        trn_whs,
-        inf,
-        fin_ins,
-        rrl,
-        prf,
-        mgt,
-        adm_wmr,
-        edu,
-        med_sca,
-        ent,
-        afs,
-        srv,
-        pad,
-        wfh
+        _111,
+        _112,
+        _113,
+        _1133,
+        _114,
+        _115,
+        _211,
+        _2121,
+        _2122,
+        _2123,
+        _213,
+        _22,
+        _221,
+        _2211,
+        _2212,
+        _2213,
+        _22132,
+        _23,
+        _3,
+        _31,
+        _311,
+        _3113,
+        _3114,
+        _3115,
+        _3116,
+        _3118,
+        _311811,
+        _3121,
+        _3122,
+        _3131,
+        _3132,
+        _3133,
+        _314,
+        _31411,
+        _315,
+        _316,
+        _3162,
+        _3211,
+        _3212,
+        _3219,
+        _32199,
+        _3221,
+        _3222,
+        _32221,
+        _3231,
+        _3241,
+        _32411,
+        _325,
+        _3252,
+        _3253,
+        _3254,
+        _3255,
+        _3256,
+        _3261,
+        _3262,
+        _32621,
+        _327,
+        _32711,
+        _327120,
+        _3272,
+        _3279,
+        _33,
+        _331,
+        _3313,
+        _3314,
+        _3315,
+        _332,
+        _3321,
+        _3322,
+        _3327,
+        _3328,
+        _33299,
+        _333,
+        _3331,
+        _33311,
+        _3333,
+        _3335,
+        _3336,
+        _334,
+        _3341,
+        _3345,
+        _335,
+        _3352,
+        _336,
+        _33641,
+        _3365,
+        _3366,
+        _3369,
+        _337,
+        _3391,
+        _3399,
+        _4,
+        _42,
+        _4231,
+        _4232,
+        _4233,
+        _4234,
+        _4235,
+        _4236,
+        _4237,
+        _4238,
+        _4239,
+        _42393,
+        _424,
+        _4241,
+        _4243,
+        _4244,
+        _4245,
+        _4247,
+        _4248,
+        _4249,
+        _42491,
+        _4251,
+        _4411,
+        _4412,
+        _4413,
+        _442,
+        _443141,
+        _443142,
+        _4441,
+        _44413,
+        _4442,
+        _44511,
+        _44512,
+        _4452,
+        _4453,
+        _446,
+        _44611,
+        _447,
+        _4481,
+        _44821,
+        _4483,
+        _4511,
+        _45113,
+        _45114,
+        _45121,
+        _45221,
+        _4523,
+        _4531,
+        _45321,
+        _45322,
+        _4533,
+        _4539,
+        _454110,
+        _4542,
+        _454310,
+        _45439,
+        _481,
+        _482,
+        _483,
+        _484,
+        _485,
+        _4853,
+        _486,
+        _487,
+        _488,
+        _491,
+        _492,
+        _493,
+        _5111,
+        _51111,
+        _5112,
+        _5121,
+        _5122,
+        _515,
+        _517,
+        _517311,
+        _5182,
+        _5191,
+        _51912,
+        _51913,
+        _52,
+        _522,
+        _5221,
+        _5241,
+        _5242,
+        _53,
+        _531,
+        _5313,
+        _532,
+        _5321,
+        _5411,
+        _5412,
+        _5413,
+        _5414,
+        _5415,
+        _5416,
+        _5417,
+        _5418,
+        _5419,
+        _54194,
+        _55,
+        _561,
+        _5613,
+        _5614,
+        _5615,
+        _5616,
+        _5617,
+        _56173,
+        _562,
+        _611,
+        _6111,
+        _621,
+        _6211,
+        _6212,
+        _6213,
+        _62131,
+        _62132,
+        _6214,
+        _6216,
+        _622,
+        _6222,
+        _623,
+        _6231,
+        _6241,
+        _6242,
+        _6243,
+        _6244,
+        _711,
+        _7111,
+        _7112,
+        _7115,
+        _712,
+        _713,
+        _71395,
+        _721,
+        _7211,
+        _722,
+        _7224,
+        _8111,
+        _811192,
+        _8112,
+        _8113,
+        _8114,
+        _8121,
+        _812111,
+        _812112,
+        _8122,
+        _8123,
+        _8129,
+        _813,
+        _8131,
+        _8139,
+        _81393,
+        _814,
+        _92,
+        _9211,
+        _92113,
+        _92119,
+        _923,
+        _928
     };
 };
-const int GRADE_COUNT = 31;
-static string grade_descriptions[GRADE_COUNT] = {"childcare",     "k12pub_preschl", "k12pub_kind", "k12pub_1st",  "k12pub_2nd",
-                                                 "k12pub_3rd",    "k12pub_4th",     "k12pub_5th",  "k12pub_6th",  "k12pub_7th",
-                                                 "k12pub_8th",    "k12pub_9th",     "k12pub_10th", "k12pub_11th", "k12pub_12th",
-                                                 "k12pv_preschl", "k12pv_kind",     "k12pv_1st",   "k12pv_2nd",   "k12pv_3rd",
-                                                 "k12pv_4th",     "k12pv_5th",      "k12pv_6th",   "k12pv_7th",   "k12pv_8th",
-                                                 "k12pv_9th",     "k12pv_10th",     "k12pv_11th",  "k12pv_12th",  "undergrad",
-                                                 "grad"};
+
+const int SEX_COUNT = 2;
+static string sex_descriptions[SEX_COUNT] = {"female", "male"};
+struct SEX {
+    enum { _female, _male };
+};
+
+const int RACE_COUNT = 7;
+static string race_descriptions[RACE_COUNT] = {"white", "blk_af_amer", "asian", "native_amer", "pac_island", "other", "mult"};
+struct RACE {
+    enum { _white, _blk_af_amer, _asian, _native_amer, _pac_island, _other, _mult };
+};
+
+const int TRAVEL_COUNT = 8;
+static string travel_descriptions[TRAVEL_COUNT] = {"car_truck_van", "public_transportation",
+                                                   "bicycle",       "walked",
+                                                   "motorcycle",    "taxicab",
+                                                   "other",         "wfh"};
+struct TRAVEL {
+    enum { _car_truck_van, _public_transportation, _bicycle, _walked, _motorcycle, _taxicab, _other, _wfh };
+};
+
+const int VEH_OCC_COUNT = 2;
+static string veh_occ_descriptions[VEH_OCC_COUNT] = {"drove_alone", "carpooled"};
+struct VEH_OCC {
+    enum { _drove_alone, _carpooled };
+};
+
+const int GRADE_COUNT = 17;
+static string grade_descriptions[GRADE_COUNT] = {"childcare", "preschl", "kind", "1st",       "2nd", "3rd",
+                                                 "4th",       "5th",     "6th",  "7th",       "8th", "9th",
+                                                 "10th",      "11th",    "12th", "undergrad", "grad"};
 struct GRADE {
     enum {
-        childcare,
-        k12pub_preschl,
-        k12pub_kind,
-        k12pub_1st,
-        k12pub_2nd,
-        k12pub_3rd,
-        k12pub_4th,
-        k12pub_5th,
-        k12pub_6th,
-        k12pub_7th,
-        k12pub_8th,
-        k12pub_9th,
-        k12pub_10th,
-        k12pub_11th,
-        k12pub_12th,
-        k12pv_preschl,
-        k12pv_kind,
-        k12pv_1st,
-        k12pv_2nd,
-        k12pv_3rd,
-        k12pv_4th,
-        k12pv_5th,
-        k12pv_6th,
-        k12pv_7th,
-        k12pv_8th,
-        k12pv_9th,
-        k12pv_10th,
-        k12pv_11th,
-        k12pv_12th,
-        undergrad,
-        grad
+        _childcare,
+        _preschl,
+        _kind,
+        _1st,
+        _2nd,
+        _3rd,
+        _4th,
+        _5th,
+        _6th,
+        _7th,
+        _8th,
+        _9th,
+        _10th,
+        _11th,
+        _12th,
+        _undergrad,
+        _grad
     };
 };
 
@@ -108,22 +362,17 @@ static std::vector<string> splitString (const string& s, char delim) {
 
 struct UrbanPopAgent {
     int64_t id;
-    int32_t household_id;
     int64_t home_geoid;
-    float32_t home_lat;
-    float32_t home_lng;
     int64_t work_geoid;
-    float32_t work_lat;
-    float32_t work_lng;
+    int16_t naics;
+    int16_t household_id;
+    int16_t school_id;
     int8_t age;
     int8_t sex;
     int8_t race;
     int8_t travel;
     int8_t veh_occ;
-    int8_t role;
-    int8_t naics;
     int8_t grade;
-    int16_t school_id;
 
     bool readCsv (std::ifstream& f) {
         string buf;
@@ -139,26 +388,22 @@ struct UrbanPopAgent {
                                          std::to_string(tokens.size()));
             }
             id = stol(tokens[0]);
-            household_id = stoi(tokens[1]);
-            home_geoid = stol(tokens[2]);
-            home_lat = stof(tokens[3]);
-            home_lng = stof(tokens[4]);
-            work_geoid = stol(tokens[5]);
-            work_lat = stof(tokens[6]);
-            work_lng = stof(tokens[7]);
-            age = stoi(tokens[8]);
-            sex = stoi(tokens[9]);
-            race = stoi(tokens[10]);
-            travel = stoi(tokens[11]);
-            veh_occ = stoi(tokens[12]);
-            role = stoi(tokens[13]);
-            naics = stoi(tokens[14]);
-            grade = stoi(tokens[15]);
-            school_id = stoi(tokens[16]);
+            home_geoid = stol(tokens[1]);
+            work_geoid = stol(tokens[2]);
+            naics = stoi(tokens[3]);
+            household_id = stoi(tokens[4]);
+            school_id = stoi(tokens[5]);
+            age = stoi(tokens[6]);
+            sex = stoi(tokens[7]);
+            race = stoi(tokens[8]);
+            travel = stoi(tokens[9]);
+            veh_occ = stoi(tokens[10]);
+            grade = stoi(tokens[11]);
 
         } catch (const std::exception& ex) {
             std::ostringstream os;
-            os << "Error reading UrbanPop input file: " << ex.what() << ", line read: " << "'" << buf << "'";
+            os << "<" << __LINE__ << ">: Error reading UrbanPop input file: " << ex.what() << ", line read: " << "'" << buf
+               << "'";
             amrex::Abort(os.str());
         }
         return true;
@@ -167,22 +412,18 @@ struct UrbanPopAgent {
     friend std::ostream& operator<<(std::ostream& os, const UrbanPopAgent& agent) {
         os << std::fixed << std::setprecision(6);
         os << agent.id << ",";
-        os << agent.household_id << ",";
         os << agent.home_geoid << ",";
-        os << agent.home_lat << ",";
-        os << agent.home_lng << ",";
         os << agent.work_geoid << ",";
-        os << agent.work_lat << ",";
-        os << agent.work_lng << ",";
+        os << agent.naics << (agent.naics != -1 ? ":" + naics_descriptions[agent.naics] : "") << ",";
+        os << agent.household_id << ",";
+        os << agent.school_id << ",";
         os << (int)agent.age << ",";
-        os << (int)agent.sex << ",";
-        os << (int)agent.race << ",";
-        os << (int)agent.travel << ",";
-        os << (int)agent.veh_occ << ",";
-        os << (int)agent.role << (agent.role != -1 ? ":" + role_descriptions[agent.role] : "") << ",";
-        os << (int)agent.naics << (agent.naics != -1 ? ":" + naics_descriptions[agent.naics] : "") << ",";
-        os << (int)agent.grade << (agent.grade != -1 ? ":" + grade_descriptions[agent.grade] : "") << ",";
-        os << agent.school_id;
+        os << (int)agent.sex << (agent.sex != -1 ? ":" + sex_descriptions[agent.sex] : "") << ",";
+        os << (int)agent.race << (agent.race != -1 ? ":" + race_descriptions[agent.race] : "") << ",";
+        os << (int)agent.travel << (agent.travel != -1 ? ":" + travel_descriptions[agent.travel] : "") << ",";
+        os << (int)agent.veh_occ << (agent.veh_occ != -1 ? ":" + veh_occ_descriptions[agent.veh_occ] : "") << ",";
+        os << (int)agent.grade << (agent.grade != -1 ? ":" + grade_descriptions[agent.grade] : "");
+
         return os;
     }
 };

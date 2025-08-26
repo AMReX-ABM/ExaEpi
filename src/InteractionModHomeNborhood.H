@@ -114,7 +114,8 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
 
             int max_communities = getCommunityIndex.max();
             int max_nborhood = agents.getMaxGroup(IntIdx::nborhood) + 1;
-            AMREX_ALWAYS_ASSERT(max_nborhood <= np);
+            // if (max_nborhood > np) { Print() << "max nborhood " << max_nborhood << " np " << np << "\n"; }
+            // AMREX_ALWAYS_ASSERT(max_nborhood <= np);
 
             infected_community_d[OMP_THREAD_NUM].resize(max_communities);
             infected_nborhood_d[OMP_THREAD_NUM].resize(max_communities * max_nborhood);

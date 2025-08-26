@@ -164,7 +164,7 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
                 // calculate separately for infected children and infected adults, since they have different transmission rates
                 for (auto adults : {true, false}) {
                     {
-                        BL_PROFILE("fill_modhome_vectors");
+                        BL_PROFILE("fastInteractHome::fill_device_vectors");
                         devMemset(infected_family_d_ptr, 0, infected_family_d[OMP_THREAD_NUM].size() * sizeof(int));
                         devMemset(infected_family_not_withdrawn_d_ptr, 0,
                                   infected_family_not_withdrawn_d[OMP_THREAD_NUM].size() * sizeof(int));
@@ -212,8 +212,8 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
                     });
                     Gpu::synchronize();
                     // Loop to compute infection probability for each susceptible agent.
-                    // For each agent, find count of infectious agents in each group and use that as the exponent to compute the
-                    // infection probability. In cases where there is an overlap (e.g. infectious agents in same family
+                    // For each agent, find count of infectious agents in each group and use that as the exponent to compute
+                    // the infection probability. In cases where there is an overlap (e.g. infectious agents in same family
                     // and in neighborhood cluster, adjust the infected counts to avoid double-counting the overlap.
                     ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                         if (isSusceptible(i, ptd, d) && isHomeCandidate(i, ptd)) {
