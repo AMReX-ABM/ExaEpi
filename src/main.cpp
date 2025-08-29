@@ -459,11 +459,13 @@ void runAgent () {
 
                     File << std::setw(5) << i;
                     for (int j = 0; j < OutputStatus::ICU; ++j) {
+                        AMREX_ALWAYS_ASSERT(counts[j] >= 0);
                         File << std::setw(12) << counts[j];
                     }
                     File << std::setw(12) << mmc[1];
                     File << std::setw(12) << mmc[2];
                     for (int j = OutputStatus::R; j < OutputStatus::nattribs; ++j) {
+                        AMREX_ALWAYS_ASSERT(counts[j] >= 0);
                         File << std::setw(12) << counts[j];
                     }
                     // File << std::setw(12) << mmc[4];

@@ -88,9 +88,9 @@ void DiseaseParm::readInputs (const std::string& a_pp_str /*!< Parmparse string 
     pp.query("immune_length_alpha", immune_length_alpha);
     pp.query("immune_length_beta", immune_length_beta);
 
-    std::string hospital_stay_type = "constant";
+    std::string hospital_stay_type = m_hospital_stay_type == HospitalStayType::Constant ? "constant" : "random";
     pp.query("hospital_stay_type", hospital_stay_type);
-    pp.query("t_hosp_offset", m_t_hosp_offset);
+    pp.query("hospital_offset", m_t_hosp_offset);
 
     if (hospital_stay_type == "constant") {
         m_hospital_stay_type = HospitalStayType::Constant;
