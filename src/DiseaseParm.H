@@ -168,7 +168,9 @@ struct DiseaseParm {
                 *a_t_hosp = m_t_hosp[age_idx];
             } else { // Random
                 int num_days = static_cast<int>(amrex::RandomGamma(m_t_hosp_alpha[age_idx], m_t_hosp_beta[age_idx], a_reng));
-                if (num_days > m_t_hosp_offset - 3) { num_days = m_t_hosp_offset - 3; }
+                // the number of days must always be less than the offset, because the offset is used to determine when
+                // treatment is completed for ICU and ventilated. See HospitalModel::treatAgents
+                if (num_days > m_t_hosp_offset - 1) { num_days = m_t_hosp_offset - 1; }
                 if (num_days < 1) { num_days = 1; }
                 *a_t_hosp = static_cast<ParticleReal>(num_days);
             }
