@@ -117,7 +117,7 @@ struct DiseaseParm {
      * or whatvere value is generated from the gamma distribution for random length stays.
      * The default here is greater than a human lifespan, and so never needs to be changed.
      */
-    const Real m_t_hosp_offset = 100000.0;
+    Real m_t_hosp_offset = 100000.0;
 
     /*! Parameters for gamma distribution for hospital stay lengths. These are used if
      *  m_hospital_stay_type = HospitalStayType::Random */
