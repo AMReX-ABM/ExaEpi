@@ -163,6 +163,74 @@ struct SymptomStatus {
     };
 };
 
+struct OutputStatus {
+    enum {
+        /* Total number of agents in each category are written to summary table each step */
+        Su = 0, /*!< Susceptible */
+        PS_PI,  /*!< Presymptomatic/Preinfectious */
+        S_PI,   /*!< Symptomatic/Preinfectious */
+        PS_I,   /*!< Presymptomatic/Infectious */
+        S_I,    /*!< Symptomatic/Infectious */
+        A_PI,   /*!< Asymptomatic/Preinfectious */
+        A_I,    /*!< Asymptomatic/Infectious */
+        H_NI,   /*!< Hospitalized/Noninfectious */
+        H_I,    /*!< Hostitalized/Infectious */
+        ICU,    /*!< In the ICU */
+        V,      /*!< On ventilator */
+        R,      /*!< Recovered */
+        D,      /*!< Dead */
+        NewS,   /*!< Became symptomatic this step */
+        NewH,   /*!< Became hospitalized this step */
+        nattribs
+    };
+};
+
+/*! \brief Get the total number of exposed agents (in or out of hospital) */
+AMREX_FORCE_INLINE
+amrex::Long totalInfected (const std::array<amrex::Long, OutputStatus::nattribs> counts) {
+    return counts[OutputStatus::PS_PI] + counts[OutputStatus::S_PI] + counts[OutputStatus::S_I] + counts[OutputStatus::PS_I] +
+           counts[OutputStatus::A_PI] + counts[OutputStatus::A_I] + counts[OutputStatus::H_NI] + counts[OutputStatus::H_I];
+}
+
+/*! \brief Is an agent symptomatic? */
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+bool isSymptomatic (const int a_idx,      /*!< Agent index */
+                    const PTDType& a_ptd, /*!< Particle tile data */
+                    const int a_d /*!< Disease index */) {
+    return a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx] == SymptomStatus::symptomatic;
+}
+
+/*! \brief Did the agent just become symptomatic this step? */
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+bool isNewlySymptomatic (const int a_idx,      /*!< Agent index */
+                         const PTDType& a_ptd, /*!< Particle tile data */
+                         const int a_d /*!< Disease index */) {
+    return (a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx] == Status::infected) &&
+           (a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx] ==
+            amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx])) &&
+           (a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx] == SymptomStatus::symptomatic);
+}
+
+/*! \brief Is an agent asymptomatic (does not currently have symptoms and will not develop them)? */
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+bool isAsymptomatic (const int a_idx,      /*!< Agent index */
+                     const PTDType& a_ptd, /*!< Particle tile data */
+                     const int a_d /*!< Disease index */) {
+    return a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx] == SymptomStatus::asymptomatic;
+}
+
+/*! \brief Is an agent presymptomatic (does not currently have symptoms but will develop them)? */
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+bool isPresymptomatic (const int a_idx,      /*!< Agent index */
+                       const PTDType& a_ptd, /*!< Particle tile data */
+                       const int a_d /*!< Disease index */) {
+    return a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx] == SymptomStatus::presymptomatic;
+}
+
 /*! \brief Is an agent infected but not infectious? */
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
@@ -215,6 +283,25 @@ bool inHospital (const int a_idx, /*!< Agent index */
     return ((a_ptd.m_idata[IntIdx::hosp_i][a_idx] >= 0) && (a_ptd.m_idata[IntIdx::hosp_j][a_idx] >= 0));
 }
 
+/*! \brief Did the agent just become hospitalized this step? */
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+bool isNewlyHospitalized (const int a_idx,      /*!< Agent index */
+                          const PTDType& a_ptd, /*!< Particle tile data */
+                          const int a_d /*!< Disease index */) {
+    amrex::Real delay = amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::hospital_delay][a_idx]);
+    amrex::Real incub = amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
+    if (isNewlySymptomatic(a_idx, a_ptd, a_d) && (delay == 0) && inHospital(a_idx, a_ptd)) {
+        return true;
+    } else if ((a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx] == Status::infected) &&
+               (a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx] == incub + delay) &&
+               inHospital(a_idx, a_ptd)) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
 /*! \brief Is agent an adult? */
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
@@ -223,24 +310,61 @@ bool isAnAdult (const int a_idx, /*!< Agent index */
     return a_ptd.m_idata[IntIdx::age_group][a_idx] > AgeGroups::a5to17;
 }
 
-// grade definitions
-// 0: "childcare",
-// 1: "k12pub_preschl", 2: "k12pub_kind", 3: "k12pub_1st", 4: "k12pub_2nd", 5: "k12pub_3rd", 6: "k12pub_4th", 7: "k12pub_5th",
-// 8: "k12pub_6th", 9: "k12pub_7th", 10: "k12pub_8th",
-// 11: "k12pub_9th", 12: "k12pub_10th", 13: "k12pub_11th", 14: "k12pub_12th",
-// 15: "k12pv_preschl", 16: "k12pv_kind", 17: "k12pv_1st", 18: "k12pv_2nd", 19: "k12pv_3rd", 20: "k12pv_4th", 21: "k12pv_5th",
-// 22: "k12pv_6th", 23: "k12pv_7th", 24: "k12pv_8th",
-// 25: "k12pv_9th", 26: "k12pv_10th", 27: "k12pv_11th", 28: "k12pv_12th",
-// 29: "undergrad", 30: "grad"
-
+// School grade is actually age of student
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 static int getSchoolType (const int grade) {
-    if (grade == 0) { return SchoolType::daycare; }
-    if ((grade >= 1 && grade <= 7) || (grade >= 15 && grade <= 21)) { return SchoolType::elem; }
-    if ((grade >= 8 && grade <= 10) || (grade >= 22 && grade <= 24)) { return SchoolType::middle; }
-    if ((grade >= 11 && grade <= 14) || (grade >= 25 && grade <= 28)) { return SchoolType::high; }
-    if (grade >= 29) { return SchoolType::college; }
+    if (grade == 3) { return SchoolType::daycare; }
+    if (grade > 3 && grade <= 10) { return SchoolType::elem; }
+    if (grade > 10 && grade <= 13) { return SchoolType::middle; }
+    if (grade > 13 && grade <= 17) { return SchoolType::high; }
+    if (grade > 17) { return SchoolType::college; }
     return SchoolType::none;
+}
+
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+static int schoolTypeToGrade (const int school_type) {
+    switch (school_type) {
+    case SchoolType::daycare: return 3;
+    case SchoolType::elem: return 5;
+    case SchoolType::middle: return 11;
+    case SchoolType::high: return 15;
+    case SchoolType::college: return 18;
+    default: return -1;
+    }
+}
+
+/*! \brief Set computational domain, i.e., number of cells in each direction, from the number of communities.
+ *
+ *  + The domain is a 2D square, where the total number of cells is the lowest square of an
+ *    integer that is greater than #DemographicData::Ncommunity
+ *  + The physical size is 1.0 in each dimension.
+ *
+ *  A periodic Cartesian grid is defined.
+ */
+inline amrex::Geometry getGeometry (const int ncommunity) {
+    int is_per[BL_SPACEDIM];
+    for (int i = 0; i < BL_SPACEDIM; i++) {
+        is_per[i] = true;
+    }
+
+    amrex::RealBox real_box;
+    amrex::Box base_domain;
+    amrex::Geometry geom;
+
+    amrex::IntVect iv;
+    iv[0] = iv[1] = (int)std::floor(std::sqrt((double)ncommunity));
+    while (iv[0] * iv[1] <= ncommunity) {
+        ++iv[0];
+    }
+    base_domain = amrex::Box(amrex::IntVect(AMREX_D_DECL(0, 0, 0)), iv - 1);
+
+    for (int n = 0; n < BL_SPACEDIM; n++) {
+        real_box.setLo(n, 0.0);
+        real_box.setHi(n, 1.0);
+    }
+
+    geom.define(base_domain, &real_box, amrex::CoordSys::cartesian, is_per);
+    return geom;
 }
 
 #endif

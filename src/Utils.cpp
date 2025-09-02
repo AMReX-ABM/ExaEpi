@@ -38,7 +38,7 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
     }
     pp.queryarr("disease_names", params.disease_names, 0, params.num_diseases);
 
-    std::string ic_type = "census";
+    std::string ic_type = "urbanpop";
     pp.query("ic_type", ic_type);
     if (ic_type == "census") {
         params.ic_type = ICType::Census;
@@ -52,11 +52,7 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
     } else if (ic_type == "urbanpop") {
         params.ic_type = ICType::UrbanPop;
         pp.get("urbanpop_filename", params.urbanpop_filename);
-#ifdef AMREX_USE_CUDA
-        params.max_box_size = 500;
-#else
-        params.max_box_size = 100;
-#endif
+        params.max_box_size = 16;
     } else {
         amrex::Abort("ic_type not recognized (currently supported 'census')");
     }

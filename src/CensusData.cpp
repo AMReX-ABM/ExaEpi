@@ -8,47 +8,11 @@
 using namespace amrex;
 using namespace ExaEpi;
 
-/*! \brief Set computational domain, i.e., number of cells in each direction, from the
-    demographic data (number of communities).
- *
- *  If the initialization type (ExaEpi::TestParams::ic_type) is ExaEpi::ICType::Census, then
- *  + The domain is a 2D square, where the total number of cells is the lowest square of an
- *    integer that is greater than #DemographicData::Ncommunity
- *  + The physical size is 1.0 in each dimension.
- *
- *  A periodic Cartesian grid is defined.
-*/
-Geometry getGeometry (const DemographicData& demo /*!< demographic data */) {
-    int is_per[BL_SPACEDIM];
-    for (int i = 0; i < BL_SPACEDIM; i++) {
-        is_per[i] = true;
-    }
-
-    RealBox real_box;
-    Box base_domain;
-    Geometry geom;
-
-    IntVect iv;
-    iv[0] = iv[1] = (int)std::floor(std::sqrt((double)demo.Ncommunity));
-    while (iv[0] * iv[1] <= demo.Ncommunity) {
-        ++iv[0];
-    }
-    base_domain = Box(IntVect(AMREX_D_DECL(0, 0, 0)), iv - 1);
-
-    for (int n = 0; n < BL_SPACEDIM; n++) {
-        real_box.setLo(n, 0.0);
-        real_box.setHi(n, 1.0);
-    }
-
-    geom.define(base_domain, &real_box, CoordSys::cartesian, is_per);
-    return geom;
-}
-
 void CensusData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& ba, DistributionMapping& dm) {
 
     demo.initFromFile(params.census_filename, params.workgroup_size);
 
-    geom = getGeometry(demo);
+    geom = getGeometry(demo.Ncommunity);
 
     ba.define(geom.Domain());
     ba.maxSize(params.max_box_size);
@@ -77,7 +41,7 @@ void assignSchool (int* school_grade, int* school_id, const int age_group, const
         // under 5
         // assume 50% in daycare
         if (Random_int(100, engine) < 50) {
-            *school_grade = 0;
+            *school_grade = schoolTypeToGrade(SchoolType::daycare);
             *school_id = SchoolCensusIDType::daycare_5 + nborhood; // one daycare per nborhood
         } else {
             *school_grade = -1;
@@ -88,14 +52,14 @@ void assignSchool (int* school_grade, int* school_id, const int age_group, const
         int il4 = Random_int(100, engine);
         if (il4 < 36) {
             *school_id = SchoolCensusIDType::elem_3 + (nborhood / 2); // elementary school, in neighborhood 1&2 or 3&4
-            *school_grade = 5;
+            *school_grade = schoolTypeToGrade(SchoolType::elem);
             AMREX_ALWAYS_ASSERT(*school_id < 5);
         } else if (il4 < 68) {
             *school_id = SchoolCensusIDType::middle_2; // middle school, one for all neighborhoods
-            *school_grade = 9;
+            *school_grade = schoolTypeToGrade(SchoolType::middle);
         } else if (il4 < 93) {
             *school_id = SchoolCensusIDType::high_1;   // high school, one for all neighborhoods
-            *school_grade = 12;
+            *school_grade = schoolTypeToGrade(SchoolType::high);
         } else {
             *school_id = SchoolCensusIDType::none;     // not in school, presumably 18-year-olds or some home-schooled, etc
             *school_grade = -1;
@@ -792,31 +756,31 @@ void CensusData::assignTeachersAndWorkgroup (AgentContainer& a_pc) {
             if (total_teachers > 0) {
                 int choice = Random_int(total_teachers);
                 if (choice < high_teachers) {
-                    school_grade_ptr[ip] = 12; // 10th grade - generic for high school
+                    school_grade_ptr[ip] = schoolTypeToGrade(SchoolType::high);
                     school_id_ptr[ip] = SchoolCensusIDType::high_1;
                     work_nborhood_ptr[ip] = 3; // assuming the high school is located in Neighbordhood 3
                     workgroup_ptr[ip] = 1;
                     high_teachers_ptr[comm]--;
                 } else if (choice < high_teachers + middle_teachers) {
-                    school_grade_ptr[ip] = 9;  // 7th grade - generic for middle
+                    school_grade_ptr[ip] = schoolTypeToGrade(SchoolType::middle);
                     school_id_ptr[ip] = SchoolCensusIDType::middle_2;
                     work_nborhood_ptr[ip] = 1; // assuming the middle school is located in Neighbordhood 2
                     workgroup_ptr[ip] = 2;
                     middle_teachers_ptr[comm]--;
                 } else if (choice < high_teachers + middle_teachers + elem3_teachers) {
-                    school_grade_ptr[ip] = 5;  // 3rd grade - generic for elementary
+                    school_grade_ptr[ip] = schoolTypeToGrade(SchoolType::elem);
                     school_id_ptr[ip] = SchoolCensusIDType::elem_3;
                     work_nborhood_ptr[ip] = 0; // assuming the first elementary school is located in Neighbordhood 1
                     workgroup_ptr[ip] = 3;
                     elem3_teachers_ptr[comm]--;
                 } else if (choice < high_teachers + middle_teachers + elem3_teachers + elem4_teachers) {
-                    school_grade_ptr[ip] = 5;  // 3rd grade - generic for elementary
+                    school_grade_ptr[ip] = schoolTypeToGrade(SchoolType::elem);
                     school_id_ptr[ip] = SchoolCensusIDType::elem_4;
                     work_nborhood_ptr[ip] = 2; // assuming the first elementary school is located in Neighbordhood 3
                     workgroup_ptr[ip] = 4;
                     elem4_teachers_ptr[comm]--;
                 } else {
-                    school_grade_ptr[ip] = 0;              // generic for daycare
+                    school_grade_ptr[ip] = schoolTypeToGrade(SchoolType::daycare);
                     work_nborhood_ptr[ip] = Random_int(4); // randomly select nborhood
                     school_id_ptr[ip] = SchoolCensusIDType::daycare_5 + work_nborhood_ptr[ip];
                     workgroup_ptr[ip] = 5;

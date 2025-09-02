@@ -56,10 +56,13 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
                     const int step /*!< Current step */) {
     amrex::Print() << "Writing plotfile \n";
 
-    // make sure status_names are in the same order as the struct Status in AgentDefinitions.H (do not include "dead")
+    // make sure status_names are in the same order as the struct Status in AgentDefinitions.H
+    // these are the names per disease, which do not include "dead", which will be added once at the end of all the diseases
     static const Vector<std::string> status_names = {"total", "never_infected", "infected", "immune", "susceptible"};
 
     static const int ncomp_d = status_names.size();
+    // if ic_type == urbanpop then unit_mf_ptr == nullptr
+    // the +4 (+3) is for new_cases, FIPS, Tract, Unit (new_cases, FIPS, Tract)
     static const int ncomp = ncomp_d * num_diseases + num_diseases + (unit_mf_ptr != nullptr ? 4 : 3);
 
     MultiFab output_mf(pc.ParticleBoxArray(0), pc.ParticleDistributionMap(0), ncomp, 0);
@@ -72,7 +75,7 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
 
     amrex::Copy(output_mf, *FIPS_mf_ptr, 0, ncomp_d * num_diseases + num_diseases, 2, 0);
     amrex::Copy(output_mf, *comm_mf_ptr, 0, ncomp_d * num_diseases + num_diseases + 2, 1, 0);
-    if (unit_mf_ptr != nullptr) { amrex::Copy(output_mf, *unit_mf_ptr, 0, ncomp_d * num_diseases + 3, 1, 0); }
+    if (unit_mf_ptr != nullptr) { amrex::Copy(output_mf, *unit_mf_ptr, 0, ncomp_d * num_diseases + num_diseases + 3, 1, 0); }
 
     {
         Vector<std::string> plt_varnames = {};
@@ -426,7 +429,7 @@ void writeAggregatedData (const AgentContainer& agents,                  /*!< Ag
 
     for (int d = 0; d < num_diseases; d++) {
         amrex::Print() << "Generating diagnostic data by census block group " << "for " << disease_names[d] << "\n";
-        std::vector<amrex::Real> data(urbanpopData.num_communities, 0.0);
+        std::vector<amrex::Real> data(urbanpopData.block_groups.size(), 0.0);
         amrex::Gpu::DeviceVector<amrex::Real> d_data(data.size(), 0.0);
         amrex::Real* const AMREX_RESTRICT data_ptr = d_data.dataPtr();
 

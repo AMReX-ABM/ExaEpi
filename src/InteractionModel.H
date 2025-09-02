@@ -184,6 +184,7 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                 auto lparm_h = agents.getDiseaseParameters_h(d);
                 Real scale = 1.0_prt; // TODO this should vary based on cell
                 Real infect = (1.0_rt - lparm_h->vac_eff);
+                Real asymp_relative_inf = lparm_h->asymp_relative_inf;
 
                 ParallelFor(bins_ptr->numItems(), [=] AMREX_GPU_DEVICE (int ii) noexcept {
                     auto infectious_i = inds[ii];
@@ -195,6 +196,9 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                     // because there are usually more susceptible agents than infectious. This can be a large performance
                     // difference for CPU only runs.
                     if (isInfectious(infectious_i, ptd, d) && isCandidate(infectious_i, ptd)) {
+                        ParticleReal relative_inf = isAsymptomatic(infectious_i, ptd, d) || isPresymptomatic(i, ptd, d)
+                                                            ? asymp_relative_inf
+                                                            : 1.0_prt;
                         // Real i_mask = mask_arr(home_i_ptr[i], home_j_ptr[i], 0);
                         for (auto jj = cell_start; jj < cell_stop; ++jj) {
                             auto susceptible_i = inds[jj];
@@ -202,7 +206,8 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                             if (infectious_i != susceptible_i && isSusceptible(susceptible_i, ptd, d) &&
                                 isCandidate(susceptible_i, ptd)) {
                                 ParticleReal prob =
-                                        1.0_prt - infect * binaryInteraction(infectious_i, susceptible_i, ptd, lparm, scale);
+                                        1.0_prt -
+                                        relative_inf * infect * binaryInteraction(infectious_i, susceptible_i, ptd, lparm, scale);
                                 // The atomic operation is needed because we find all the susceptible for each infectious in turn.
                                 // It can be eliminated by switching the order of infectious and susceptible.
                                 Gpu::Atomic::Multiply(&prob_ptr[susceptible_i], prob);
@@ -240,8 +245,7 @@ struct GetCommunityIndex {
 
         int max_communities = numTilesInBox(valid_box, true, bin_size);
         comm_to_local_index_d.resize(max_communities, -1);
-        comm_to_local_index_d_ptr = comm_to_local_index_d.data();
-        auto d_ptr = comm_to_local_index_d_ptr;
+        auto d_ptr = comm_to_local_index_d.data();
 
         num_comms = 0;
         Gpu::DeviceScalar<int> num_comms_d(num_comms);
@@ -261,11 +265,11 @@ struct GetCommunityIndex {
     }
 
     AMREX_GPU_HOST_DEVICE
-    int operator()(const PTDType& ptd, int i) const noexcept {
+    int getIndex (int* d_ptr, const PTDType& ptd, int i) const noexcept {
         Box tbx;
         auto iv = getParticleCell(ptd, i, plo, dxi, domain);
 
-        auto index = comm_to_local_index_d_ptr[getTileIndex(iv, valid_box, true, bin_size, tbx)];
+        auto index = d_ptr[getTileIndex(iv, valid_box, true, bin_size, tbx)];
 
         AMREX_ASSERT(index >= 0);
         AMREX_ASSERT(index < num_comms);
@@ -275,21 +279,23 @@ struct GetCommunityIndex {
     AMREX_GPU_HOST_DEVICE
     int max () { return num_comms; }
 
-  private:
     GpuArray<Real, AMREX_SPACEDIM> plo;
     GpuArray<Real, AMREX_SPACEDIM> dxi;
     Box domain;
     IntVect bin_size;
     Box valid_box;
     Gpu::DeviceVector<int> comm_to_local_index_d;
-    int* comm_to_local_index_d_ptr;
     int num_comms;
 };
 
 #ifdef AMREX_USE_CUDA
 #define devMemset cudaMemset
 #else
+#ifdef AMREX_USE_SYCL
+#define devMemset(p, v, s) (Gpu::Device::streamQueue().memset((p), (v), (s)).wait())
+#else
 #define devMemset memset
+#endif
 #endif
 
 #ifdef AMREX_USE_OMP

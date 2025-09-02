@@ -41,7 +41,7 @@ The following are inputs for the overall simulation:
     The path to the ``*.dat`` file containing the census data used to set initial conditions.
     Must be provided if ``ic_type = census``. Examples of these data files are provided
     in ``ExaEpi/data/CensusData``.
-* ``agent.worker_filename`` (`string`)
+* ``agent.workerflow_filename`` (`string`)
     The path to the ``*.bin`` file containing worker flow information.
     Must be provided if ``ic_type = census``. Examples of these data files are provided
     in ``ExaEpi/data/CensusData``.
@@ -130,7 +130,6 @@ The following inputs specify the disease parameters:
     The fraction of cases that are asymptomatic. There must be one entry for each disease strain.
 * ``disease.asymp_relative_inf`` (`float`, default ``0.75``)
     The relative infectiousness of asymptomatic individuals, from 0 to 1. There must be one entry for each disease strain.
-    `This is not yet implemented`.
 * ``disease.vac_eff`` (`float`, default ``0``)
     The vaccine efficacy - the probability of transmission will be multiplied by one minus this factor.
     `Vaccination is not yet implemented, so this factor must be left at 0`.
@@ -166,8 +165,23 @@ The following inputs specify the disease parameters:
 * ``disease.hospital_delay_length_beta`` (`float`, default ``1.0``)
     Beta parameter for the hospital_delay length Gamma distribution. The hospital_delay length is the length of time in days after agents develop symptoms that they seek treatment.
     For a Gamma distribution, the mean is alpha*beta and the variance is alpha*beta^2.
+* ``disease.hospital_stay_type`` (`string`, either ``constant`` or ``random``, default ``constant``)
+    If ``constant``, all the agents in an age group will be in the hospital for a fixed number of days.
+    This number is set by the `disease.hospitalization_days` parameter.
+    If ``random``, the agents will draw a number of days from a Gamma distribution, with the parameters
+    of that distribution depending on age. These parameters are set by ``disease.hospitalization_days_alpha``
+    and ``disease.hospitalization_days_beta``.
 * ``disease.hospitalization_days`` (`list of float`, default ``3.0 8.0 7.0``)
     Number of hospitalization days for age groups: under 50, 50-64, 65 and over.
+    This parameter is only used if ``disease.hospital_stay_type`` is ``constant``.
+* ``disease.hospitalization_days_alpha`` (`list of float`, default ``1.33333333 0.5 0.57142857``)
+    Alpha parameter for gamma distribution for hospital stay length. The age groups
+    are: under 50, 50-64, 65 and over. For a Gamma distribution, the mean is alpha*beta and the variance is alpha*beta^2.
+    This parameter is only used if ``disease.hospital_stay_type`` is ``random``.
+* ``disease.hospitalization_days_beta`` (`list of float`, default ``1.5 4.0 3.5``)
+    Beta parameter for gamma distribution for hospital stay length. The age groups
+    are: under 50, 50-64, 65 and over. For a Gamma distribution, the mean is alpha*beta and the variance is alpha*beta^2.
+    This parameter is only used if ``disease.hospital_stay_type`` is ``random``.
 * ``disease.xmit_work`` (`float`, default ``0.0575``)
     Transmission probability within a workgroup.
 * ``disease.xmit_hosp`` (`float`, default ``0.01*disease.xmit_work``)

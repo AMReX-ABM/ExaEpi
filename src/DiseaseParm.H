@@ -22,6 +22,13 @@ struct CaseTypes {
     };
 };
 
+struct HospitalStayType {
+    enum {
+        Constant = 0, /*!< Agents in the same age group all have the same hospital stay duration. */
+        Random        /*!< Agents have a random hospital day duration, with the distribution varying by age group. */
+    };
+};
+
 /*! \brief Disease parameters
 
     Structure containing disease parameters.
@@ -98,14 +105,25 @@ struct DiseaseParm {
     Real hospital_delay_length_alpha = Real(1.0); /*! alpha parameter for gamma distribution*/
     Real hospital_delay_length_beta = Real(1.0);  /*! beta parameter for gamma distribution*/
 
+    int m_hospital_stay_type = HospitalStayType::Constant;
+
     /*! number of hospitalization days by age group (#AgeGroups_Hosp); note that the
      *  age groups here are under 50, 50-64, and over 65, and *not* the age groups
      *  used in other parts of the code (#AgeGroups) */
     Real m_t_hosp[AgeGroups_Hosp::total] = {Real(3), Real(8), Real(7)};
     /*! Offset to separate the timers for hospital, ICU, and ventilator;
-     * needs to be greater than the maximum of #DiseaseParm::m_t_hosp
-     * Set automatically when the hospital days are set. */
-    Real m_t_hosp_offset = 10;
+     * Needs to be greater than the maximum of #DiseaseParm::m_t_hosp
+     * This will automatically be enforced when the hospital days are set.
+     * If using random hospital stays, this should be set large enough that
+       in practice it will not be smaller than the longest stay for an agent.
+       The default will probably be fine for most cases.
+    */
+    Real m_t_hosp_offset = 10000.0;
+
+    /*! Parameters for gamma distribution for hospital stay lengths. These are used if
+     *  m_hospital_stay_type = HospitalStayType::Random */
+    Real m_t_hosp_alpha[AgeGroups_Hosp::total] = {Real(1.33333333), Real(0.5), Real(0.57142857)};
+    Real m_t_hosp_beta[AgeGroups_Hosp::total] = {Real(1.5), Real(4.0), Real(3.5)};
 
     /*! sick -> hospital probabilities */
     Real m_CHR[AgeGroups::total] = {Real(.0104), Real(.0104), Real(.070), Real(.28), Real(.28), Real(1.0)};
@@ -142,12 +160,31 @@ struct DiseaseParm {
         *a_ICU = 0;
         *a_ventilator = 0;
         if (amrex::Random(a_reng) < m_CHR[a_age_group]) {
-            if (a_age_group == AgeGroups::o65) {
-                *a_t_hosp = m_t_hosp[AgeGroups_Hosp::o65];
-            } else if (a_age_group == AgeGroups::a50to64) {
-                *a_t_hosp = m_t_hosp[AgeGroups_Hosp::a50to64];
-            } else {
-                *a_t_hosp = m_t_hosp[AgeGroups_Hosp::u50];
+            if (m_hospital_stay_type == HospitalStayType::Constant) {
+                if (a_age_group == AgeGroups::o65) {
+                    *a_t_hosp = m_t_hosp[AgeGroups_Hosp::o65];
+                } else if (a_age_group == AgeGroups::a50to64) {
+                    *a_t_hosp = m_t_hosp[AgeGroups_Hosp::a50to64];
+                } else {
+                    *a_t_hosp = m_t_hosp[AgeGroups_Hosp::u50];
+                }
+            } else { // Random
+                if (a_age_group == AgeGroups::o65) {
+                    int num_days = static_cast<int>(
+                            amrex::RandomGamma(m_t_hosp_alpha[AgeGroups_Hosp::o65], m_t_hosp_beta[AgeGroups_Hosp::o65], a_reng));
+                    if (num_days < 0) { num_days = 0; }
+                    *a_t_hosp = static_cast<ParticleReal>(num_days);
+                } else if (a_age_group == AgeGroups::a50to64) {
+                    int num_days = static_cast<int>(amrex::RandomGamma(m_t_hosp_alpha[AgeGroups_Hosp::a50to64],
+                                                                       m_t_hosp_beta[AgeGroups_Hosp::a50to64], a_reng));
+                    if (num_days < 0) { num_days = 0; }
+                    *a_t_hosp = static_cast<ParticleReal>(num_days);
+                } else {
+                    int num_days = static_cast<int>(
+                            amrex::RandomGamma(m_t_hosp_alpha[AgeGroups_Hosp::u50], m_t_hosp_beta[AgeGroups_Hosp::u50], a_reng));
+                    if (num_days < 0) { num_days = 0; }
+                    *a_t_hosp = static_cast<ParticleReal>(num_days);
+                }
             }
             if (amrex::Random(a_reng) < m_CIC[a_age_group]) {
                 *a_t_hosp += m_t_hosp_offset;     // move to ICU, adds 10 days (m_t_hosp_offset)

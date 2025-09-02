@@ -9,7 +9,7 @@ agent.ic_type = census
 # agent.census_filename
 # The input worker flow filename for census ic_type.
 # no default, must be set when ic_type is census
-# agent.worker_filename
+# agent.workerflow_filename
 # The number of agents in a neighborhood.
 agent.nborhood_size = 500
 # The number of agents in a workgroup.
@@ -87,7 +87,7 @@ disease.num_initial_cases = 0
 disease.p_trans = 0.2
 # Probability of being asymptomatic.
 disease.p_asymp = 0.4
-# Relative infectiousness of asymptomatic indivudals. Curnently not implemented.
+# Relative infectiousness of asymptomatic individuals.
 disease.asymp_relative_inf = 0.75
 # Vaccine efficacy. Not yet implemented; leave at 0.
 disease.vac_eff = 0

@@ -37,9 +37,15 @@ using std::unordered_set;
 using ParallelDescriptor::MyProc;
 using ParallelDescriptor::NProcs;
 
-bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, Vector<int>& group_work_populations,
-                             Vector<int>& group_home_populations, const std::map<IntVect, BlockGroup>& xy_to_block_groups,
-                             const LngLatToGrid& lnglat_to_grid, const GridToLngLat& grid_to_lnglat) {
+template <typename T>
+void copyToDeviceAsync (const Vector<T>& h_vec, Gpu::DeviceVector<T>& d_vec) {
+    d_vec.resize(0);
+    d_vec.resize(h_vec.size());
+    Gpu::copyAsync(Gpu::hostToDevice, h_vec.begin(), h_vec.end(), d_vec.begin());
+}
+
+bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, amrex::Vector<AgentExtras>& agents_extras,
+                             const std::map<int64_t, int>& geoid_to_block_groups, const Vector<BlockGroup>& block_groups) {
     BL_PROFILE("BlockGroup::readAgents");
     string buf;
     num_households = 0;
@@ -48,8 +54,7 @@ bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, Vector<
     num_educators = 0;
     int start_i = agents.size();
     agents.resize(start_i + home_population);
-    group_work_populations.resize(start_i + home_population);
-    group_home_populations.resize(start_i + home_population);
+    agents_extras.resize(start_i + home_population);
     // used for counting up the number of unique households
     unordered_set<int> households;
     f.seekg(file_offset);
@@ -63,37 +68,33 @@ bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, Vector<
         }
         if (agent.id == -1) { Abort("File is corrupted: couldn't read agent p_id at offset " + to_string(file_offset) + "\n"); }
         if (agent.home_geoid != geoid) {
-            Abort("File is corrupted: wrong geoid, read " + to_string(agent.home_geoid) + " expected " + to_string(geoid) + "\n");
+            Abort("File is corrupted: wrong geoid, read " + to_string(agent.home_geoid) + " expected " + to_string(geoid) +
+                  " file offset " + to_string(file_offset) + " home pop " + to_string(home_population) + "\n");
         }
-        int home_x, home_y;
-        lnglat_to_grid(agent.home_lng, agent.home_lat, home_x, home_y);
-        Real home_lng, home_lat;
-        grid_to_lnglat(home_x, home_y, home_lng, home_lat);
-        agent.home_lng = static_cast<ParticleReal>(home_lng);
-        agent.home_lat = static_cast<ParticleReal>(home_lat);
-        AMREX_ASSERT(home_x == x && home_y == y);
-        AMREX_ASSERT(agent.home_lng == lng && agent.home_lat == lat);
-        AMREX_ASSERT(agent.work_lat != -1 && agent.work_lng != -1);
         households.insert(agent.household_id);
-        int work_x, work_y;
-        lnglat_to_grid(agent.work_lng, agent.work_lat, work_x, work_y);
-        Real work_lng, work_lat;
-        grid_to_lnglat(work_x, work_y, work_lng, work_lat);
-        agent.work_lng = static_cast<ParticleReal>(work_lng);
-        agent.work_lat = static_cast<ParticleReal>(work_lat);
-        if (agent.role == ROLE::worker && agent.naics != NAICS::wfh) {
+        agents_extras[i].home_xy = IntVect(x, y);
+        auto it = geoid_to_block_groups.find(agent.work_geoid);
+        if (it == geoid_to_block_groups.end()) { Abort("Cannot find block group for work location"); }
+        auto& work_block_group = block_groups[it->second];
+        agents_extras[i].work_xy = IntVect(work_block_group.x, work_block_group.y);
+        if (agent.naics != -1) {
             num_employed++;
-            auto it = xy_to_block_groups.find(IntVect(work_x, work_y));
-            if (it == xy_to_block_groups.end()) { Abort("Cannot find block group for work location"); }
-            group_work_populations[i] = it->second.work_populations[agent.naics + 1];
-            if (agent.naics != NAICS::wfh) { AMREX_ASSERT(group_work_populations[i] > 0 && group_work_populations[i] < 100000); }
+            agents_extras[i].naics_population = work_block_group.work_populations[agent.naics + 1];
+            AMREX_ASSERT(agents_extras[i].naics_population > 0 && agents_extras[i].naics_population < 100000);
+            agents_extras[i].work_population = work_block_group.work_populations[0];
+            if (agents_extras[i].work_population <= 0 || agents_extras[i].work_population >= 260000) {
+                Print() << "work pop " << agents_extras[i].work_population << "\n";
+            }
+            AMREX_ASSERT(agents_extras[i].work_population > 0 && agents_extras[i].work_population < 260000);
             if (agent.school_id != 0) { num_educators++; }
         } else {
-            group_work_populations[i] = 0;
-            if (agent.role == ROLE::nope) { AMREX_ASSERT(agent.work_lat == agent.home_lat && agent.work_lng == agent.home_lng); }
-            if (agent.role == ROLE::student) { num_students++; }
+            agents_extras[i].naics_population = 0;
+            agents_extras[i].work_population = 0;
+            if (agent.naics == -1 && agent.school_id == 0) { AMREX_ASSERT(agent.home_geoid == agent.work_geoid); }
+            if (agent.naics == -1 && agent.school_id != 0) { num_students++; }
         }
-        group_home_populations[i] = home_population;
+        agents_extras[i].home_population = home_population;
+        // Print() << "Agent " << i << " home " << agents_extras[i].home_xy << " work " << agents_extras[i].work_xy << "\n";
     }
     num_households = households.size();
 
@@ -102,7 +103,7 @@ bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, Vector<
 
 bool BlockGroup::read (istringstream& iss) {
     BL_PROFILE("BlockGroup::read");
-    const int NTOKS = 6 + NAICS_COUNT;
+    const int NTOKS = 4 + NAICS_COUNT;
 
     string buf;
     if (!getline(iss, buf)) { return false; }
@@ -112,24 +113,22 @@ bool BlockGroup::read (istringstream& iss) {
             throw runtime_error("Incorrect number of tokens, expected " + to_string(NTOKS) + " got " + to_string(tokens.size()));
         }
         geoid = stol(tokens[0]);
-        lat = stof(tokens[1]);
-        lng = stof(tokens[2]);
-        file_offset = stol(tokens[3]);
-        home_population = stoi(tokens[4]);
+        file_offset = stol(tokens[1]);
+        home_population = stoi(tokens[2]);
         for (int i = 0; i < NAICS_COUNT + 1; i++) {
-            work_populations.push_back(stoi(tokens[5 + i]));
+            work_populations.push_back(stoi(tokens[3 + i]));
         }
         AMREX_ASSERT(home_population > 0 || work_populations[0] > 0);
         AMREX_ASSERT(work_populations.size() == NAICS_COUNT + 1);
     } catch (const std::exception& ex) {
         std::ostringstream os;
-        os << "Error reading UrbanPop input file: " << ex.what() << ", line read: " << "'" << buf << "'";
+        os << "<" << __LINE__ << ">: Error reading UrbanPop input file: " << ex.what() << ", line read: " << "'" << buf << "'";
         Abort(os.str());
     }
     return true;
 }
 
-static Vector<BlockGroup> readBlockGroupsFile (const string& fname) {
+static void readBlockGroupsFile (const string& fname, Vector<BlockGroup>& block_groups) {
     BL_PROFILE("readBlockGroupsFile");
     // read in index file and broadcast
     Vector<char> idx_file_ptr;
@@ -137,16 +136,15 @@ static Vector<BlockGroup> readBlockGroupsFile (const string& fname) {
     string idx_file_ptr_string(idx_file_ptr.dataPtr());
     istringstream idx_file_iss(idx_file_ptr_string, istringstream::in);
 
-    Vector<BlockGroup> block_groups;
     string buf;
     // first line should be column labels
     getline(idx_file_iss, buf);
-    while (true) {
+    for (int block_i = 0;; block_i++) {
         BlockGroup block_group;
         if (!block_group.read(idx_file_iss)) { break; }
+        block_group.block_i = block_i;
         block_groups.push_back(block_group);
     }
-    return block_groups;
 }
 
 static std::pair<int, double> getAllLoadBalance (const long num) {
@@ -164,31 +162,18 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
     BL_PROFILE("UrbanPopData::init");
     std::string fname = params.urbanpop_filename;
     // every rank reads all the block groups from the index file
-    auto all_block_groups = readBlockGroupsFile(fname);
+    readBlockGroupsFile(fname, block_groups);
     // now sort block groups by geoid to make all FIPS units consecutively grouped
-    std::sort(all_block_groups.begin(), all_block_groups.end(), [] (const BlockGroup& bg1, const BlockGroup& bg2) {
+    std::sort(block_groups.begin(), block_groups.end(), [] (const BlockGroup& bg1, const BlockGroup& bg2) {
         return bg1.geoid < bg2.geoid;
     });
-
-    min_lat = 1000;
-    min_lng = 1000;
-    max_lat = -1000;
-    max_lng = -1000;
-    for (int i = 0; i < all_block_groups.size(); i++) {
-        auto& block_group = all_block_groups[i];
-        min_lng = min(block_group.lng, min_lng);
-        max_lng = max(block_group.lng, max_lng);
-        min_lat = min(block_group.lat, min_lat);
-        max_lat = max(block_group.lat, max_lat);
-        block_group.block_i = i;
-    }
 
     // get FIPS codes and block group start indices from block group array. These vectors are used when initializing infections
     // Each community is a block group
     int current_FIPS = -1;
-    num_communities = 0;
-    for (int i = 0; i < all_block_groups.size(); i++) {
-        auto& block_group = all_block_groups[i];
+    int num_communities = 0;
+    for (int i = 0; i < block_groups.size(); i++) {
+        auto& block_group = block_groups[i];
         // FIPS is the first 5 digits of the GEOID, which is 12 digits
         int64_t fips = static_cast<int64_t>(block_group.geoid / 1e7);
         if (current_FIPS != fips) {
@@ -197,122 +182,65 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
             current_FIPS = fips;
         }
         num_communities++;
+        if (geoid_to_block_groups.insert({block_group.geoid, i}).second == false) { Abort("Cannot insert new block group"); }
     }
     fips_community_start.push_back(num_communities);
 
     if (ParallelDescriptor::IOProcessor()) {
-        Print() << "Found " << FIPS_codes.size() << " demographic units:\n";
+        Print() << "Found " << FIPS_codes.size() << " FIPS demographic units\n";
         // for (int i = 0; i < FIPS_codes.size(); i++) {
         //     Print() << "    FIPS " << FIPS_codes[i] << " " << fips_community_start[i] << "\n";
         // }
     }
 
-    AMREX_ALWAYS_ASSERT(all_block_groups.size() == num_communities);
+    AMREX_ALWAYS_ASSERT(block_groups.size() == num_communities);
 
-    // grid spacing is 1/10th minute of arc at the equator, which is about 0.12 regular miles
-    Real gspacing = 0.1_prt / 60.0_prt;
-    // add a margin
-    min_lng -= gspacing;
-    max_lng += gspacing;
-    min_lat -= gspacing;
-    max_lat += gspacing;
+    // add in a buffer to ensure we can fit them all in a 2D grid
+    geom = getGeometry(num_communities);
 
-    // the boundaries of the problem in real coordinates, i.e. latitute and longitude.
-    RealBox rbox({AMREX_D_DECL(min_lng, min_lat, 0)}, {AMREX_D_DECL(max_lng, max_lat, 0)});
-    // the number of grid points in a direction
-    int grid_x = (int)((max_lng - min_lng) / gspacing) - 1;
-    int grid_y = (int)((max_lat - min_lat) / gspacing) - 1;
-    Print() << "gspacing " << gspacing << " grid " << grid_x << ", " << grid_y << "\n";
-    // the grid that overlays the domain, with the grid size in x and y directions
-    Box base_domain(IntVect(AMREX_D_DECL(0, 0, 0)), IntVect(AMREX_D_DECL(grid_x, grid_y, 0)));
-    // lat/long is a spherical coordinate system
-    geom.define(base_domain, &rbox, CoordSys::cartesian); // CoordSys::SPHERICAL);
-    // actual spacing (!= gspacing)
-    gspacing_x = geom.CellSizeArray()[0];
-    gspacing_y = geom.CellSizeArray()[1];
-    Print() << "Geographic area: (" << min_lng << ", " << min_lat << ") " << max_lng << ", " << max_lat << ")\n";
-    Print() << "Base domain: " << geom.Domain() << "\n";
-    // Print() << "Geometry: " << geom << "\n";
-    Print() << "Actual grid spacing: " << gspacing_x << ", " << gspacing_y << "\n";
-    Print() << "Max box size is: " << params.max_box_size << "\n";
-
-    LngLatToGrid lnglat_to_grid(min_lng, min_lat, gspacing_x, gspacing_y);
-    GridToLngLat grid_to_lnglat(min_lng, min_lat, gspacing_x, gspacing_y);
-
-    // create a box array with a single box representing the domain. Every process does this.
     ba.define(geom.Domain());
-    // split the box array by forcing the box size to be limited to a given number of grid points
     ba.maxSize(params.max_box_size);
-    // ba.maxSize(0.25 * grid_x / NProcs());
-    Print() << "Number of boxes: " << ba.size() << "\n";
-
-    std::ofstream geoid_coords_ofs;
-    if (ParallelDescriptor::IOProcessor()) {
-        // Write out the corrected coordinates. The process of rounding off to integer grid positions changes the lng/lat
-        // slightly. We need to record this for later use in plotting routines.
-        geoid_coords_ofs.open(params.urbanpop_filename + ".geoids.csv");
-        geoid_coords_ofs << "GEOID,lng,lat\n";
-        geoid_coords_ofs << std::fixed << std::setprecision(std::numeric_limits<amrex::Real>::digits10);
-    }
-    // weights set according to population in each box so that they can be uniformly distributed
-    // every process computes the same result - needed before distributing the boxes
-    Vector<Long> weights(ba.size(), 0);
-    for (auto& block_group : all_block_groups) {
-        lnglat_to_grid(block_group.lng, block_group.lat, block_group.x, block_group.y);
-        // reset lng/lat coords to account for int conversion
-        grid_to_lnglat(block_group.x, block_group.y, block_group.lng, block_group.lat);
-        if (ParallelDescriptor::IOProcessor()) {
-            geoid_coords_ofs << block_group.geoid << "," << block_group.lng << "," << block_group.lat << "\n";
-        }
-        auto xy = IntVect(block_group.x, block_group.y);
-        auto it = xy_to_block_groups.find(xy);
-        if (it != xy_to_block_groups.end()) {
-            Abort("Found duplicate x,y location; need to decrease gspacing\n");
-        } else {
-            xy_to_block_groups.insert({xy, block_group});
-        }
-
-        // check that conversions don't scramble grid coords
-        int x, y;
-        lnglat_to_grid(block_group.lng, block_group.lat, x, y);
-        if (x != block_group.x || y != block_group.y) {
-            Print() << "Conversion error " << x << "," << y << " " << block_group.x << "," << block_group.y << " "
-                    << block_group.lng << "," << block_group.lat << "\n";
-            Abort();
-        }
-
-        int bi_loc = -1;
-        for (int bi = 0; bi < ba.size(); bi++) {
-            auto bx = ba[bi];
-            if (bx.contains(xy)) {
-                bi_loc = bi;
-                weights[bi] += block_group.home_population;
-                break;
-            }
-        }
-        if (bi_loc == -1) {
-            AllPrint() << MyProc() << ": WARNING: could not find box for " << block_group.x << "," << block_group.y << "\n";
-        }
-    }
-    if (ParallelDescriptor::IOProcessor()) { geoid_coords_ofs.close(); }
-    // distribute the boxes in the array across the processors
     dm.define(ba);
-    dm.KnapSackProcessorMap(weights, NProcs());
+
+    Print() << "Base domain: " << geom.Domain() << "\n";
+    Print() << "Max box size: " << params.max_box_size << "\n";
+    Print() << "Number of boxes: " << ba.size() << " over " << ParallelDescriptor::NProcs() << " ranks. \n";
+    Print() << "Number of block groups (communities): " << block_groups.size() << "\n";
 
     geoid_mf.define(ba, dm, 2, 0);
     community_mf.define(ba, dm, 1, 0);
+
     geoid_mf.setVal(-1);
     community_mf.setVal(-1);
+
+    std::ofstream geoid_coords_ofs;
+    //  allocate block groups to x,y grid locations and use a map to keep track of them for later processing
+    int max_x = geom.Domain().bigEnd()[0];
+    int max_y = geom.Domain().bigEnd()[1];
+    Print() << " max " << max_x << "," << max_y << "\n";
+    int x = 0;
+    int y = 0;
+    for (int bi = 0; bi < block_groups.size(); bi++) {
+        auto& block_group = block_groups[bi];
+        block_group.x = x;
+        block_group.y = y;
+        auto xy = IntVect(x, y);
+        if (xy_to_block_groups.insert({xy, bi}).second == false) { Abort("Duplicate xy location found for block groups"); }
+        x++;
+        if (x > max_x) {
+            x = 0;
+            y++;
+            if (y > max_y) { Abort("Not enough grid points for all the block groups\n"); }
+        }
+        num_communities++;
+    }
 }
 
 void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& params) {
     BL_PROFILE("UrbanPopData::initAgents");
 
-    pc.lnglat_to_grid.init(min_lng, min_lat, gspacing_x, gspacing_y);
-    pc.grid_to_lnglat.init(min_lng, min_lat, gspacing_x, gspacing_y);
-
-    const auto& lnglat_to_grid = pc.lnglat_to_grid;
-    const auto& grid_to_lnglat = pc.grid_to_lnglat;
+    int myproc = ParallelDescriptor::MyProc();
+    auto dx = pc.ParticleGeom(0).CellSizeArray();
 
     int home_population = 0;
     int work_population = 0;
@@ -320,88 +248,65 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
     int num_employed = 0;
     int num_students = 0;
     int num_educators = 0;
-    num_communities = 0;
+    int num_communities = 0;
     ifstream f(params.urbanpop_filename + ".csv");
     if (!f) { Abort("Could not open file " + params.urbanpop_filename + ".csv" + "\n"); }
-
-    int num_tileboxes = 0;
     for (MFIter mfi = pc.MakeMFIter(0); mfi.isValid(); ++mfi) {
-        num_tileboxes++;
-    }
-    ParallelDescriptor::ReduceIntSum(num_tileboxes);
-    Print() << "Number of tileboxes " << num_tileboxes << "\n";
-
-    for (MFIter mfi = pc.MakeMFIter(0); mfi.isValid(); ++mfi) {
-        const Box& tilebox = mfi.tilebox();
+        Vector<UrbanPopAgent> agents;
+        Vector<AgentExtras> agents_extras;
 
         auto geoid_arr = geoid_mf[mfi].array();
-        auto block_group_indices_arr = community_mf[mfi].array();
+        auto community_indices_arr = community_mf[mfi].array();
 
-        int min_x = lbound(tilebox).x;
-        int max_x = ubound(tilebox).x + 1;
-        int min_y = lbound(tilebox).y;
-        int max_y = ubound(tilebox).y + 1;
+        const Box& tilebox = mfi.tilebox();
+        {
+            int min_x = lbound(tilebox).x;
+            int max_x = ubound(tilebox).x + 1;
+            int min_y = lbound(tilebox).y;
+            int max_y = ubound(tilebox).y + 1;
 
-        Vector<UrbanPopAgent> agents;
-        Vector<int> group_work_populations;
-        Vector<int> group_home_populations;
-        Vector<IntVect> xys;
-        Vector<int> fips_codes;
-        Vector<int> block_group_codes;
-        Vector<int> block_group_indices;
-        // can't read the agent data from disk on the GPU
-        for (int x = min_x; x < max_x; x++) {
-            for (int y = min_y; y < max_y; y++) {
-                auto xy = IntVect(x, y);
-                auto it = xy_to_block_groups.find(xy);
-                if (it != xy_to_block_groups.end()) {
-                    auto& block_group = it->second;
-                    num_communities++;
+            for (int x = min_x; x < max_x; x++) {
+                for (int y = min_y; y < max_y; y++) {
+                    auto xy = IntVect(x, y);
+                    auto it = xy_to_block_groups.find(xy);
+                    if (it == xy_to_block_groups.end()) { continue; }
+                    int bi = it->second;
+                    AMREX_ALWAYS_ASSERT(bi >= 0 && bi < block_groups.size());
+                    auto& block_group = block_groups[bi];
+                    AMREX_ASSERT(block_group.x >= min_x && block_group.x < max_x && block_group.y >= min_y &&
+                                 block_group.y < max_y);
                     home_population += block_group.home_population;
                     work_population += block_group.work_populations[0];
-                    // now read in the agents for this block group
-                    block_group.readAgents(f, agents, group_work_populations, group_home_populations, xy_to_block_groups,
-                                           lnglat_to_grid, grid_to_lnglat);
+                    block_group.readAgents(f, agents, agents_extras, geoid_to_block_groups, block_groups);
                     num_households += block_group.num_households;
                     num_employed += block_group.num_employed;
                     num_students += block_group.num_students;
                     num_educators += block_group.num_educators;
-
-                    // FIPS is the first 5 digits of the GEOID, which is 12 digits
+                    num_communities++;
+                    //  FIPS is the first 5 digits of the GEOID, which is 12 digits
                     int64_t fips = static_cast<int64_t>(block_group.geoid / 1e7);
+                    geoid_arr(x, y, 0, 0) = fips;
                     // Census tract is the 7 remaining digits after the FIPS code
-                    int64_t block_group_code = static_cast<int64_t>(block_group.geoid - fips * 1e7);
-                    xys.push_back(xy);
-                    fips_codes.push_back((int)fips);
-                    block_group_codes.push_back((int)block_group_code);
-                    block_group_indices.push_back(block_group.block_i);
+                    geoid_arr(x, y, 0, 1) = static_cast<int64_t>(block_group.geoid - fips * 1e7);
+                    community_indices_arr(x, y, 0) = bi;
                 }
             }
         }
 
-        auto xys_ptr = xys.data();
-        auto fips_codes_ptr = fips_codes.data();
-        auto block_group_codes_ptr = block_group_codes.data();
-        auto block_group_indices_ptr = block_group_indices.data();
-        int num_blocks = xys.size();
-        ParallelFor(num_blocks, [=] AMREX_GPU_DEVICE (int i) noexcept {
-            int x = xys_ptr[i][0];
-            int y = xys_ptr[i][1];
-            geoid_arr(x, y, 0, 0) = fips_codes_ptr[i];
-            geoid_arr(x, y, 0, 1) = block_group_codes_ptr[i];
-            block_group_indices_arr(x, y, 0) = block_group_indices_ptr[i];
-        });
-        Gpu::synchronize();
-
         if (num_communities == 0) { continue; }
 
-        int myproc = ParallelDescriptor::MyProc();
         auto& ptile = pc.DefineAndReturnParticleTile(0, mfi);
         ptile.resize(agents.size());
         auto aos = &ptile.GetArrayOfStructs()[0];
-        auto agents_ptr = agents.data();
-        auto group_work_populations_ptr = group_work_populations.data();
-        auto group_home_populations_ptr = group_home_populations.data();
+
+        Gpu::DeviceVector<UrbanPopAgent> agents_d;
+        Gpu::DeviceVector<AgentExtras> agents_extras_d;
+        copyToDeviceAsync(agents, agents_d);
+        copyToDeviceAsync(agents_extras, agents_extras_d);
+        Gpu::streamSynchronize();
+
+        auto agents_ptr = agents_d.data();
+        auto agents_extras_ptr = agents_extras_d.data();
 
         auto& soa = ptile.GetStructOfArrays();
         auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
@@ -437,6 +342,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             soa.GetRealData(r_RT + r0(d) + RealIdxDisease::latent_period).assign(0.0_rt);
             soa.GetRealData(r_RT + r0(d) + RealIdxDisease::infectious_period).assign(0.0_rt);
             soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).assign(0.0_rt);
+            soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_delay).assign(0.0_rt);
             soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).assign(0);
             soa.GetIntData(i_RT + i0(d) + IntIdxDisease::symptomatic).assign(0);
         }
@@ -456,10 +362,13 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             // agent ID in amrex must be > 0
             p.id() = agent.id + 1;
             p.cpu() = myproc;
-            p.pos(0) = agent.home_lng;
-            p.pos(1) = agent.home_lat;
-            lnglat_to_grid(agent.home_lng, agent.home_lat, home_i_ptr[i], home_j_ptr[i]);
-            AMREX_ASSERT(tilebox.contains(IntVect(home_i_ptr[i], home_j_ptr[i])));
+            AMREX_ASSERT(tilebox.contains(agents_extras_ptr[i].home_xy));
+            home_i_ptr[i] = agents_extras_ptr[i].home_xy[0];
+            home_j_ptr[i] = agents_extras_ptr[i].home_xy[1];
+            p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
+            p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
+            work_i_ptr[i] = agents_extras_ptr[i].work_xy[0];
+            work_j_ptr[i] = agents_extras_ptr[i].work_xy[1];
 #ifdef CHECK_PARTICLE_LOCATIONS
             // this is the code for checking particle locations within boxes that is called by Ok()
             AgentContainer::CellAssignor assignor;
@@ -481,25 +390,20 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                 age_group_ptr[i] = AgeGroups::o65;
             }
             family_ptr[i] = agent.household_id;
-            lnglat_to_grid(agent.work_lng, agent.work_lat, work_i_ptr[i], work_j_ptr[i]);
-            Real work_lng, work_lat;
-            grid_to_lnglat(work_i_ptr[i], work_j_ptr[i], work_lng, work_lat);
-            agent.work_lng = static_cast<ParticleReal>(work_lng);
-            agent.work_lat = static_cast<ParticleReal>(work_lat);
-            int max_nborhood = group_home_populations_ptr[i] / nborhood_size + 1;
+            int max_nborhood = agents_extras_ptr[i].home_population / nborhood_size + 1;
             nborhood_ptr[i] = Random_int(max_nborhood, engine) + 1;
             school_grade_ptr[i] = agent.grade;
             school_id_ptr[i] = agent.school_id;
             school_closed_ptr[i] = 0;
             naics_ptr[i] = agent.naics;
-            // set up workers, excluding wfh
-            if (agent.role == ROLE::worker && agent.naics != NAICS::wfh) {
+            // set up workers
+            if (agent.naics != -1) {
                 if (agent.school_id == 0) {
                     // the group work population for this agent is for the NAICS category for the agent
-                    int max_workgroup = group_work_populations_ptr[i] / workgroup_size + 1;
+                    int max_workgroup = agents_extras_ptr[i].naics_population / workgroup_size + 1;
                     workgroup_ptr[i] = Random_int(max_workgroup, engine) + 1;
                     AMREX_ASSERT(workgroup_ptr[i] > 0 && workgroup_ptr[i] < max_workgroup * (NAICS_COUNT + 1));
-                    int max_work_nborhood = group_work_populations_ptr[i] / nborhood_size + 1;
+                    int max_work_nborhood = agents_extras_ptr[i].work_population / nborhood_size + 1;
                     work_nborhood_ptr[i] = Random_int(max_work_nborhood, engine) + 1;
                     AMREX_ASSERT(work_nborhood_ptr[i] > 0 && work_nborhood_ptr[i] < 5000);
                 } else {
@@ -507,6 +411,8 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     workgroup_ptr[i] = school_id_ptr[i];
                     work_nborhood_ptr[i] = school_id_ptr[i];
                 }
+                work_i_ptr[i] = home_i_ptr[i];
+                work_j_ptr[i] = home_j_ptr[i];
             } else {
                 workgroup_ptr[i] = 0;
                 // everyone interacts in the work nborhood, even thoes that don't work (they interact during the day in their
@@ -538,7 +444,8 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
     pc.comm_mf.define(community_mf.boxArray(), community_mf.DistributionMap(), 1, 0);
     iMultiFab::Copy(pc.comm_mf, community_mf, 0, 0, 1, 0);
 
-    AllPrint() << "Process " << MyProc() << ": population " << home_population << " in " << num_communities << " communities\n";
+    // AllPrint() << "Process " << MyProc() << ": population " << home_population << " in " << num_communities << "
+    // communities\n";
     auto [all_num_communities, load_balance_communities] = getAllLoadBalance(num_communities);
     auto [all_num_agents, load_balance_agents] = getAllLoadBalance(home_population);
     ParallelContext::BarrierAll();
@@ -550,8 +457,6 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
     ParallelDescriptor::ReduceIntSum(num_students);
     ParallelDescriptor::ReduceIntSum(num_educators);
 
-    AMREX_ALWAYS_ASSERT(num_employed == work_population);
-
     Print() << std::fixed << std::setprecision(2) << "Population:  " << all_num_agents << " (balance " << load_balance_agents
             << ")\n"
             << "Employed:    " << num_employed << "\n"
@@ -559,6 +464,9 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             << "Educators:   " << num_educators << "\n"
             << "Households:  " << num_households << "\n"
             << "Communities: " << all_num_communities << " (balance " << load_balance_communities << ")\n";
+
+    // Print() << "Work population " << work_population << " home population " << home_population << "\n";
+    AMREX_ALWAYS_ASSERT(num_employed == work_population);
 
     num_communities = all_num_communities;
 }

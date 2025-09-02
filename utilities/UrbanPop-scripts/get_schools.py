@@ -1,0 +1,420 @@
+#!/usr/bin/env python
+
+import numpy as np
+import pandas as pd
+import geopandas as gpd
+import argparse
+import configparser
+import glob
+import time
+import psutil
+import os
+import censusgeocode as cg
+import sys
+import shapely.geometry
+from colorama import Fore
+
+
+def timer(func):
+    # @functools.wraps(func)
+    def wrapper_timer(*args, **kwargs):
+        process = psutil.Process(os.getpid())
+        mem_before = process.memory_info().rss
+        tic = time.perf_counter()
+        value = func(*args, **kwargs)
+        toc = time.perf_counter()
+        elapsed_time = toc - tic
+        mem_after = process.memory_info().rss
+        mem_used = float(mem_after - mem_before) / 1024 / 1024 / 1024
+        print(f"{Fore.BLUE}Elapsed time for {func.__name__}: {elapsed_time:0.2f} seconds, memory {mem_used:0.2f} G{Fore.RESET}")
+        return value
+
+    return wrapper_timer
+
+
+@timer
+def fetch_census_geographies(school_df):
+    start_t = time.time()
+    # fetch census geographies corresponding to addresses - unfortunately, about 15% of address don't get a match
+    school_df.rename(columns={"NCES ID": "id", "Address": "street", "City": "city", "State": "state", "Zip": "zip"}, inplace=True)
+    school_df.to_csv("school_df.csv", index=False)
+    addresses = school_df[["id", "street", "city", "state", "zip"]].to_dict("records")
+
+    print("Fetching census geographies...")
+    cg2010 = cg.CensusGeocode(benchmark="Public_AR_Current", vintage="Census2010_Current")
+    num_schools = len(school_df.index)
+    batch_size = 2000
+    dfs = []
+    for batch in np.arange(0, num_schools, step=batch_size):
+        print("Fetching from", batch, "out of", num_schools, end=": ", flush=True)
+        t = time.time()
+        df = pd.DataFrame(cg2010.addressbatch(addresses[batch : batch + batch_size], returntype="geographies"))
+        df.to_csv("batch." + str(batch) + ".csv", index=False)
+        dfs.append(df)
+        print(len(dfs[-1].index), "records in %.3f s" % (time.time() - t), flush=True)
+
+    geographies = pd.concat(dfs, ignore_index=True)
+    num_addresses = len(geographies.index)
+    not_found = geographies[(geographies.match == False)]
+    not_found.to_csv("unmatched_address_schools.csv", index=False)
+    geographies = geographies[(geographies.match == True)]
+    print("Found", len(geographies.index), "address matches out of", num_addresses)
+    geoids_df = pd.DataFrame()
+    geoids_df["id"] = geographies.id
+    # only need down to the census tract
+    geoids_df["GEOID"] = (geographies.statefp + geographies.countyfp + geographies.tract).astype("int64")
+    schools_geoids_df = school_df[["id", "Enrollment", "Start Grade", "End Grade", "Full Time Teachers"]].merge(
+        geoids_df, on="id"
+    )
+    schools_geoids_df.to_csv("schools_geoids.csv", index=False)
+
+    print("Processed", len(schools_geoids_df.index), "records in %.3f s" % (time.time() - start_t))
+
+
+@timer
+def get_census_bgs(args):
+    print("Reading Census bg files")
+    t = time.time()
+    census_bgs_df = pd.DataFrame()
+    for fname in args.census_bg_files:
+        census_bgs = gpd.read_file(fname)
+        census_bgs_df = pd.concat([census_bgs_df, census_bgs])
+    print("Read", len(census_bgs_df.index), "census bgs in %.3f s" % (time.time() - t))
+    # census_bgs_df.to_csv("census_bgs.csv", index=False)
+    return census_bgs_df
+
+
+PREK_SCHOOL_AGES = [0, 4]
+ELEM_SCHOOL_AGES = [5, 10]
+MID_SCHOOL_AGES = [11, 13]
+HIGH_SCHOOL_AGES = [14, 18]
+LEVEL_KEYS = {0: "P", 1: "E", 2: "M", 3: "H"}
+
+
+def get_level_from_age(start_age, end_age):
+    levels = ""
+    try:
+        start_age = int(start_age)
+        end_age = int(end_age)
+    except:
+        # if the age ranges are messed up, just use full range
+        start_age = ELEM_SCHOOL_AGES[0]
+        end_age = HIGH_SCHOOL_AGES[1]
+    for i, (low_age, high_age) in enumerate([PREK_SCHOOL_AGES, ELEM_SCHOOL_AGES, MID_SCHOOL_AGES, HIGH_SCHOOL_AGES]):
+        if start_age >= low_age and start_age <= high_age:
+            levels += LEVEL_KEYS[i]
+        elif end_age >= low_age and end_age <= high_age:
+            levels += LEVEL_KEYS[i]
+        elif start_age < low_age and end_age > high_age:
+            levels += LEVEL_KEYS[i]
+    # for those rare cases when no start and end grades are present, just assume the schools handles all levels
+    if levels == "":
+        levels = "PEMH"
+    return levels
+
+
+def get_age_from_grade(grade_str):
+    try:
+        return int(grade_str) + 5
+    except:
+        if grade_str == "KG":
+            return 5
+        if grade_str == "PK":
+            return 4
+    return -1
+
+
+def get_complete(schools_with_geoids):
+    num_schools = len(schools_with_geoids)
+    # we could have schools without geoids - missing lng/lat?
+    schools_with_geoids.dropna(inplace=True)
+    schools_complete = schools_with_geoids[(schools_with_geoids.teachers > 0) & (schools_with_geoids.students > 0)][
+        ["teachers", "students"]
+    ]
+    sum_students = schools_complete.students.sum()
+    sum_teachers = schools_complete.teachers.sum()
+    avg_school_size = sum_students / len(schools_complete)
+    avg_teacher_ratio = sum_students / sum_teachers
+    print("Found", sum_students, "students and", sum_teachers, "teachers in", len(schools_complete), "schools")
+    print("Avg school size %.0f and avg student/teacher ratio %.2f" % (avg_school_size, avg_teacher_ratio))
+    # Only keep the schools with complete records, or with only student counts, if those are above a certain level
+    to_fix = (schools_with_geoids.students >= 10) & (schools_with_geoids.teachers <= 0)
+    schools_with_geoids.loc[to_fix, "teachers"] = np.int32(np.ceil(schools_with_geoids[to_fix].students / avg_teacher_ratio))
+    to_keep = (schools_with_geoids.teachers > 0) & (schools_with_geoids.students > 0)
+    schools_with_geoids = schools_with_geoids[to_keep]
+    print("Dropped", num_schools - len(schools_with_geoids), "incomplete records")
+    return schools_with_geoids
+
+
+@timer
+def get_hifld_public_schools(args, census_bgs_df):
+    school_df = pd.DataFrame()
+    cols_to_read = ["NCES ID", "Latitude", "Longitude", "Enrollment", "Start Grade", "End Grade", "Full Time Teachers"]
+    for fname in args.public_school_files:
+        print("Reading data from", fname, end=": ")
+        t = time.time()
+        df = pd.read_csv(fname, low_memory=False)[cols_to_read]
+        df["Start Grade"] = list(map(get_age_from_grade, df["Start Grade"]))
+        df["End Grade"] = list(map(get_age_from_grade, df["End Grade"]))
+        df["level"] = list(map(get_level_from_age, df["Start Grade"], df["End Grade"]))
+        school_df = pd.concat([school_df, df], ignore_index=True)
+        print(len(df.index), "records in % .3f s" % (time.time() - t))
+
+    geometry = [shapely.geometry.Point(xy) for xy in zip(school_df.Longitude, school_df.Latitude)]
+    school_gdf = gpd.GeoDataFrame(school_df, crs="EPSG:4269", geometry=geometry)
+    schools_with_geoids = pd.DataFrame(gpd.sjoin(school_gdf, census_bgs_df, how="left", predicate="within"))
+    schools_with_geoids = schools_with_geoids.rename(
+        columns={
+            "NCES ID": "id",
+            "Enrollment": "students",
+            "Full Time Teachers": "teachers",
+            "GEOID10": "geoid",
+        }
+    )[["id", "students", "teachers", "level", "geoid"]]
+    schools_with_geoids = get_complete(schools_with_geoids)
+    schools_with_geoids.to_csv("non_college_schools_with_geoids.csv", index=False)
+    print("Wrote", len(schools_with_geoids), "schools to non_college_schools_with_geoids.csv")
+    return schools_with_geoids
+
+
+@timer
+def get_hifld_private_schools(args, census_bgs_df):
+    school_df = pd.DataFrame()
+    cols_to_read = ["NCES ID", "Latitude", "Longitude", "Enrollment", "Start Grade", "End Grade", "Full Time Teachers"]
+    for fname in args.private_school_files:
+        print("Reading data from", fname, end=": ")
+        t = time.time()
+        df = pd.read_csv(fname, low_memory=False)[cols_to_read]
+        # the grades are actually ages for these private schools
+        df["level"] = list(map(get_level_from_age, df["Start Grade"], df["End Grade"]))
+        school_df = pd.concat([school_df, df], ignore_index=True)
+        print(len(df.index), "records in % .3f s" % (time.time() - t))
+
+    geometry = [shapely.geometry.Point(xy) for xy in zip(school_df.Longitude, school_df.Latitude)]
+    school_gdf = gpd.GeoDataFrame(school_df, crs="EPSG:4269", geometry=geometry)
+    schools_with_geoids = pd.DataFrame(gpd.sjoin(school_gdf, census_bgs_df, how="left", predicate="within"))
+    schools_with_geoids = schools_with_geoids.rename(
+        columns={
+            "NCES ID": "id",
+            "Enrollment": "students",
+            "Full Time Teachers": "teachers",
+            "GEOID10": "geoid",
+        }
+    )[["id", "students", "teachers", "level", "geoid"]]
+    schools_with_geoids = get_complete(schools_with_geoids)
+    schools_with_geoids.to_csv("non_college_schools_with_geoids.csv", index=False)
+    print("Wrote", len(schools_with_geoids), "schools to non_college_schools_with_geoids.csv")
+    return schools_with_geoids
+
+
+@timer
+def get_hifld_childcare(args, census_bgs_df):
+    childcare_df = pd.DataFrame()
+    for fname in args.childcare_files:
+        print("Reading data from", fname, end=": ")
+        t = time.time()
+        df = pd.read_csv(fname, low_memory=False)[["ID", "LATITUDE", "LONGITUDE", "POPULATION"]]
+        childcare_df = pd.concat([childcare_df, df], ignore_index=True)
+        print(len(df.index), "records in % .3f s" % (time.time() - t))
+
+    geometry = [shapely.geometry.Point(xy) for xy in zip(childcare_df.LONGITUDE, childcare_df.LATITUDE)]
+    childcare_gdf = gpd.GeoDataFrame(childcare_df, crs="EPSG:4269", geometry=geometry)
+    childcare_with_geoids = pd.DataFrame(gpd.sjoin(childcare_gdf, census_bgs_df, how="left", predicate="within"))
+    childcare_with_geoids = childcare_with_geoids.rename(
+        columns={
+            "ID": "id",
+            "POPULATION": "students",
+            "GEOID10": "geoid",
+        }
+    )[["id", "students", "geoid"]]
+    num_childcare = len(childcare_with_geoids)
+    # we could have childcare without geoids - missing lng/lat?
+    childcare_with_geoids.dropna(inplace=True)
+    # only keep childcare with complete records
+    childcare_complete = childcare_with_geoids[childcare_with_geoids.students > 0]
+    avg_childcare = int(childcare_complete.students.sum() / len(childcare_complete))
+    print("Avg childcare size", avg_childcare)
+    childcare_with_geoids.loc[(childcare_with_geoids.students <= 0), "students"] = avg_childcare
+    # childcare_with_geoids = childcare_with_geoids[childcare_with_geoids.students > 0]
+    # assume 5 children per adult
+    childcare_with_geoids.insert(childcare_with_geoids.columns.get_loc("students") + 1, "teachers", int(0))
+    childcare_with_geoids.insert(childcare_with_geoids.columns.get_loc("teachers") + 1, "level", "C")
+    childcare_with_geoids.teachers = np.int32(np.ceil(childcare_with_geoids.students / 7))
+    sum_children = childcare_with_geoids.students.sum()
+    childcare_with_geoids.to_csv("childcare_with_geoids.csv", index=False)
+    print("Wrote", len(childcare_with_geoids), "childcare records to childcare_with_geoids.csv")
+    print("Total children:", sum_children)
+    print("Dropped", num_childcare - len(childcare_with_geoids), "incomplete records")
+    return childcare_with_geoids
+
+
+@timer
+def get_hifld_colleges(args):
+    start_t = time.time()
+    # we don't have lng/lat for colleges so we have to fetch with addresses
+    colleges_df = pd.DataFrame()
+    for fname in args.college_files:
+        print("Reading data from", fname, end=": ")
+        t = time.time()
+        df = pd.read_csv(fname, low_memory=False)[["UNIQUEID", "ADDRESS", "CITY", "STATE", "ZIP", "TOT_ENROLL", "TOT_EMP"]]
+        colleges_df = pd.concat([colleges_df, df], ignore_index=True)
+        print(len(df.index), "records in % .3f s" % (time.time() - t))
+
+    colleges_df.rename(
+        columns={
+            "UNIQUEID": "id",
+            "ADDRESS": "street",
+            "CITY": "city",
+            "STATE": "state",
+            "ZIP": "zip",
+            "TOT_ENROLL": "students",
+            "TOT_EMP": "teachers",
+        },
+        inplace=True,
+    )
+    colleges_df.to_csv("colleges_df.csv", index=False)
+    addresses = colleges_df[["id", "street", "city", "state", "zip"]].to_dict("records")
+    print("Fetching census geographies for college addresses...")
+    cg2010 = cg.CensusGeocode(benchmark="Public_AR_Current", vintage="Census2010_Current")
+    num_colleges = len(colleges_df)
+    batch_size = 1000
+    geo_df = pd.DataFrame()
+    for batch in np.arange(0, num_colleges, step=batch_size):
+        t = time.time()
+        print("Fetching from", batch, "out of", num_colleges, end=": ", flush=True)
+        batch_fname = "batch." + str(batch) + ".csv"
+        try:
+            # check to see if batch already exists
+            df = pd.read_csv(batch_fname, dtype={"statefp": str, "countyfp": str, "tract": str, "block": str})
+        except FileNotFoundError:
+            df = pd.DataFrame(cg2010.addressbatch(addresses[batch : batch + batch_size], returntype="geographies"))
+            # backup for resuming
+            df.to_csv(batch_fname, index=False)
+        geo_df = pd.concat([geo_df, df], ignore_index=True)
+        print(len(df), "records in %.3f s" % (time.time() - t), flush=True)
+
+    num_addresses = len(geo_df.index)
+    not_found = geo_df[(geo_df.match == False)]
+    not_found.to_csv("unmatched_address_colleges.csv", index=False)
+    geo_df = geo_df[(geo_df.match == True)]
+    print("Found", len(geo_df), "address matches out of", num_addresses)
+    geoids_df = pd.DataFrame()
+    geoids_df["id"] = geo_df.id.astype("int64")
+    # only need down to the census tract
+    geoids_df["geoid"] = (geo_df.statefp + geo_df.countyfp + geo_df.tract + geo_df.block).str[:12]
+    # add a college level indicator to fit with schools data
+    colleges_df["level"] = "U"
+    colleges_with_geoids = colleges_df[["id", "students", "teachers", "level"]].merge(geoids_df, on="id")
+    colleges_with_geoids = get_complete(colleges_with_geoids)
+    colleges_with_geoids.to_csv("colleges_with_geoids.csv", index=False)
+    print("Wrote", len(colleges_with_geoids), "colleges to colleges_with_geoids.csv")
+    return colleges_with_geoids
+
+
+@timer
+def get_nces_public_schools(args, census_bgs_df):
+    print(f"Reading from {args.public_nces_school_file}: ", end="")
+    t = time.time()
+    df = pd.read_csv(args.public_nces_school_file)[["NCESSCH", "TOTAL", "STUTERATIO", "LATCOD", "LONCOD", "GSLO", "GSHI"]]
+    print(len(df.index), "records in % .3f s" % (time.time() - t))
+    # drop schools without grade information or for adults - N = not available, UG = ungraded, AE = adult education, M = missing
+    no_grades = ["N ", "UG", "AE", "M "]
+    for no_grade in no_grades:
+        df = df.drop(df[df["GSLO"] == no_grade].index)
+
+    geometry = [shapely.geometry.Point(xy) for xy in zip(df.LONCOD, df.LATCOD)]
+    gdf = gpd.GeoDataFrame(df, crs="EPSG:4269", geometry=geometry)
+    geoids_df = pd.DataFrame(gpd.sjoin(gdf, census_bgs_df, how="left", predicate="within"))
+    geoids_df["teachers"] = np.ceil(geoids_df.TOTAL / geoids_df.STUTERATIO)
+    # avoid infinities
+    geoids_df.loc[geoids_df["STUTERATIO"] == 0, "teachers"] = 0
+    geoids_df.fillna(0, inplace=True)
+
+    grade_descr_to_num = {"PK": "-1", "KG": "0"}
+    for grade_descr, grade_num in grade_descr_to_num.items():
+        geoids_df.loc[geoids_df["GSLO"] == grade_descr, "GSLO"] = grade_num
+        geoids_df.loc[geoids_df["GSHI"] == grade_descr, "GSHI"] = grade_num
+    geoids_df = geoids_df.astype({"TOTAL": "int", "teachers": "int", "GSLO": "int", "GSHI": "int"})
+
+    geoids_df["GSLO"] = list(map(get_age_from_grade, geoids_df["GSLO"]))
+    geoids_df["GSHI"] = list(map(get_age_from_grade, geoids_df["GSHI"]))
+    geoids_df["level"] = list(map(get_level_from_age, geoids_df["GSLO"], geoids_df["GSHI"]))
+
+    geoids_df = geoids_df.rename(
+        columns={
+            "NCESSCH": "id",
+            "TOTAL": "students",
+            "GEOID10": "geoid",
+        }
+    )[
+        ["id", "students", "teachers", "level", "geoid"]
+    ]  # , "GSLO", "GSHI"]]
+    geoids_df = get_complete(geoids_df)
+    geoids_df.to_csv("non_college_schools_with_geoids.csv", index=False)
+    print("Wrote", len(geoids_df), "schools to non_college_schools_with_geoids.csv")
+    geoids_df.to_csv("schools_geoids_nces.csv", index=False)
+    return geoids_df
+
+
+@timer
+def main():
+    cfg_parser = argparse.ArgumentParser(
+        description="Generate school list with Census Block Group GEOID, using Census bg shapefiles and HIFLD data",
+        add_help=False,
+    )
+    cfg_parser.add_argument("-c", "--config", help="Config file", metavar="FILE")
+    args, remaining_argv = cfg_parser.parse_known_args()
+    main_args = {
+        "private_school_files": "",
+        "public_school_files": "",
+        "public_nces_school_files": "",
+        "college_files": "",
+        "childcare_files": "",
+        "census_bg_files": "",
+    }
+    if args.config:
+        cfg = configparser.ConfigParser()
+        cfg.read([args.config])
+        main_args.update(dict(cfg.items("main")))
+        for key in main_args.keys():
+            files = main_args[key].split()
+            file_list = []
+            for f in files:
+                file_list.extend(glob.glob(f))
+            main_args[key] = file_list
+    parser = argparse.ArgumentParser(parents=[cfg_parser])
+    parser.set_defaults(**main_args)
+    parser.add_argument("--private_school_files", "-p", nargs="+", help="HIFLD Private school CSV files")
+    parser.add_argument("--public_school_files", "-s", nargs="+", help="HIFLD Public school CSV files")
+    # NCES data is only available for public schools. It may be preferable because we have historical data, unlike HIFLD
+    # which is the latest data. However, using 2019 NCES vs 2024 HIFLD data appears to make no significant difference overall
+    parser.add_argument("--public_nces_school_file", help="NCES Public school CSV files - use instead of HIFLD")
+    parser.add_argument("--college_files", "-u", nargs="+", help="HIFLD College/University CSV files")
+    parser.add_argument("--childcare_files", "-a", nargs="+", help="HIFLD Childcare CSV files")
+    parser.add_argument("--census_bg_files", "-b", nargs="+", help="Census Block Group (bg) shape files")
+    args = parser.parse_args(remaining_argv)
+    print(Fore.CYAN, "Options:", sep="")
+    for arg, value in args.__dict__.items():
+        print(f"  {arg:20s} {value}")
+    print(Fore.RESET, end="")
+
+    start_t = time.time()
+    census_bgs_df = get_census_bgs(args)
+    childcare_geoids_df = get_hifld_childcare(args, census_bgs_df)
+    colleges_geoids_df = get_hifld_colleges(args)
+    private_schools_geoids_df = get_hifld_private_schools(args, census_bgs_df)
+    if args.public_nces_school_file:
+        public_schools_geoids_df = get_nces_public_schools(args, census_bgs_df)
+    else:
+        public_schools_geoids_df = get_hifld_public_schools(args, census_bgs_df)
+    schools_geoids_df = pd.concat(
+        [public_schools_geoids_df, private_schools_geoids_df, colleges_geoids_df, childcare_geoids_df], ignore_index=True
+    )
+    schools_geoids_df.to_csv("schools_with_geoids.csv", index=False)
+    print("Wrote", len(schools_geoids_df), "schools to schools_with_geoids.csv")
+
+    print("Finished in %.3f s" % (time.time() - start_t))
+
+
+if __name__ == "__main__":
+    main()

@@ -12,21 +12,11 @@ using namespace ExaEpi::Utils;
 /*! Add runtime SoA attributes */
 void AgentContainer::addAttributes () {
     const bool communicate_this_comp = true;
-    {
-        int count(0);
-        for (int i = 0; i < m_num_diseases * RealIdxDisease::nattribs; i++) {
-            AddRealComp(communicate_this_comp);
-            count++;
-        }
-        Print() << "Added " << count << " real-type run-time SoA attibute(s).\n";
+    for (int i = 0; i < m_num_diseases * RealIdxDisease::nattribs; i++) {
+        AddRealComp(communicate_this_comp);
     }
-    {
-        int count(0);
-        for (int i = 0; i < m_num_diseases * IntIdxDisease::nattribs; i++) {
-            AddIntComp(communicate_this_comp);
-            count++;
-        }
-        Print() << "Added " << count << " integer-type run-time SoA attibute(s).\n";
+    for (int i = 0; i < m_num_diseases * IntIdxDisease::nattribs; i++) {
+        AddIntComp(communicate_this_comp);
     }
 }
 
@@ -156,9 +146,6 @@ void AgentContainer::moveAgentsToWork () {
         const auto dx = Geom(lev).CellSizeArray();
         auto& plev = GetParticles(lev);
 
-        bool is_census = (ic_type == ExaEpi::ICType::Census);
-        auto grid_to_lnglat_ptr = &grid_to_lnglat;
-
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -178,15 +165,8 @@ void AgentContainer::moveAgentsToWork () {
             amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
                 if (!inHospital(ip, ptd)) {
                     ParticleType& p = pstruct[ip];
-                    if (is_census) { // using census data
-                        p.pos(0) = static_cast<ParticleReal>((work_i_ptr[ip] + 0.5_rt) * dx[0]);
-                        p.pos(1) = static_cast<ParticleReal>((work_j_ptr[ip] + 0.5_rt) * dx[1]);
-                    } else {
-                        Real lng, lat;
-                        (*grid_to_lnglat_ptr)(work_i_ptr[ip], work_j_ptr[ip], lng, lat);
-                        p.pos(0) = static_cast<ParticleReal>(lng);
-                        p.pos(1) = static_cast<ParticleReal>(lat);
-                    }
+                    p.pos(0) = static_cast<ParticleReal>((work_i_ptr[ip] + 0.5_rt) * dx[0]);
+                    p.pos(1) = static_cast<ParticleReal>((work_j_ptr[ip] + 0.5_rt) * dx[1]);
                 }
             });
         }
@@ -209,9 +189,6 @@ void AgentContainer::moveAgentsToHome () {
         const auto dx = Geom(lev).CellSizeArray();
         auto& plev = GetParticles(lev);
 
-        bool is_census = (ic_type == ExaEpi::ICType::Census);
-        auto grid_to_lnglat_ptr = &grid_to_lnglat;
-
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -231,15 +208,8 @@ void AgentContainer::moveAgentsToHome () {
             amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
                 if (!inHospital(ip, ptd)) {
                     ParticleType& p = pstruct[ip];
-                    if (is_census) { // using census data
-                        p.pos(0) = static_cast<ParticleReal>((home_i_ptr[ip] + 0.5_rt) * dx[0]);
-                        p.pos(1) = static_cast<ParticleReal>((home_j_ptr[ip] + 0.5_rt) * dx[1]);
-                    } else {
-                        Real lng, lat;
-                        (*grid_to_lnglat_ptr)(home_i_ptr[ip], home_j_ptr[ip], lng, lat);
-                        p.pos(0) = static_cast<ParticleReal>(lng);
-                        p.pos(1) = static_cast<ParticleReal>(lat);
-                    }
+                    p.pos(0) = static_cast<ParticleReal>((home_i_ptr[ip] + 0.5_rt) * dx[0]);
+                    p.pos(1) = static_cast<ParticleReal>((home_j_ptr[ip] + 0.5_rt) * dx[1]);
                 }
             });
         }
@@ -446,9 +416,6 @@ void AgentContainer::returnRandomTravel () {
         auto& plev = GetParticles(lev);
         const auto dx = Geom(lev).CellSizeArray();
 
-        bool is_census = (ic_type == ExaEpi::ICType::Census);
-        auto grid_to_lnglat_ptr = &grid_to_lnglat;
-
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -466,15 +433,8 @@ void AgentContainer::returnRandomTravel () {
                 if (random_travel_ptr[i] >= 0) {
                     ParticleType& p = pstruct[i];
                     random_travel_ptr[i] = -1;
-                    if (is_census) {
-                        p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
-                        p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
-                    } else {
-                        Real lng, lat;
-                        (*grid_to_lnglat_ptr)(home_i_ptr[i], home_j_ptr[i], lng, lat);
-                        p.pos(0) = static_cast<ParticleReal>(lng);
-                        p.pos(1) = static_cast<ParticleReal>(lat);
-                    }
+                    p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
+                    p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
                 }
             });
         }
@@ -491,9 +451,6 @@ void AgentContainer::returnAirTravel () {
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev = GetParticles(lev);
         const auto dx = Geom(lev).CellSizeArray();
-
-        bool is_census = (ic_type == ExaEpi::ICType::Census);
-        auto grid_to_lnglat_ptr = &grid_to_lnglat;
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -512,15 +469,8 @@ void AgentContainer::returnAirTravel () {
                 if (air_travel_ptr[i] >= 0) {
                     ParticleType& p = pstruct[i];
                     air_travel_ptr[i] = -1;
-                    if (is_census) { // using census data
-                        p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
-                        p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
-                    } else {
-                        Real lng, lat;
-                        (*grid_to_lnglat_ptr)(home_i_ptr[i], home_j_ptr[i], lng, lat);
-                        p.pos(0) = static_cast<ParticleReal>(lng);
-                        p.pos(1) = static_cast<ParticleReal>(lat);
-                    }
+                    p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
+                    p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
                 }
             });
         }
@@ -541,9 +491,6 @@ void AgentContainer::updateStatus (MFPtrVec& a_disease_stats, /*!< Community-wis
         const auto dx = Geom(lev).CellSizeArray();
         auto& plev = GetParticles(lev);
 
-        bool is_census = (ic_type == ExaEpi::ICType::Census);
-        auto grid_to_lnglat_ptr = &grid_to_lnglat;
-
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -563,15 +510,8 @@ void AgentContainer::updateStatus (MFPtrVec& a_disease_stats, /*!< Community-wis
             amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
                 if (inHospital(ip, ptd)) {
                     ParticleType& p = pstruct[ip];
-                    if (is_census) {
-                        p.pos(0) = static_cast<ParticleReal>((hosp_i_ptr[ip] + 0.5_prt) * dx[0]);
-                        p.pos(1) = static_cast<ParticleReal>((hosp_j_ptr[ip] + 0.5_prt) * dx[1]);
-                    } else {
-                        Real lng, lat;
-                        (*grid_to_lnglat_ptr)(hosp_i_ptr[ip], hosp_j_ptr[ip], lng, lat);
-                        p.pos(0) = static_cast<ParticleReal>(lng);
-                        p.pos(1) = static_cast<ParticleReal>(lat);
-                    }
+                    p.pos(0) = static_cast<ParticleReal>((hosp_i_ptr[ip] + 0.5_prt) * dx[0]);
+                    p.pos(1) = static_cast<ParticleReal>((hosp_j_ptr[ip] + 0.5_prt) * dx[1]);
                 }
             });
         }
@@ -760,54 +700,76 @@ void AgentContainer::generateCellData (MultiFab& mf, /*!< MultiFab with at least
             false);
 }
 
-/*! \brief Computes the total number of agents with each #Status
+/*! \brief Computes the total number of agents with each #OutputStatus
 
-    Returns a vector with 5 components corresponding to each value of #Status; each element is
-    the total number of agents at a step with the corresponding #Status (in that order).
-
-    Status list: 0 - never, 1 - infected, 2 - immune, 3 - susceptible, 4 - dead, 5 - exposed, 6 - asymptomatic,
-                 7 - presymptomatic, 8 - symptomatic
+    Returns a vector with 15 components corresponding to each value of #OutputStatus; each element is
+    the total number of agents at a step with the corresponding #OutputStatus (in that order).
 */
-std::array<Long, 9> AgentContainer::getTotals (const int a_d /*!< disease index */) {
+std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_d /*!< disease index */) {
     BL_PROFILE("getTotals");
     amrex::ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum,
-                     ReduceOpSum>
+                     ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum>
             reduce_ops;
-    auto r = amrex::ParticleReduce<ReduceData<int, int, int, int, int, int, int, int, int>>(
+    auto r = amrex::ParticleReduce<ReduceData<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int>>(
             *this,
-            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
-                                 const int i) noexcept -> amrex::GpuTuple<int, int, int, int, int, int, int, int, int> {
-                int s[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd, const int i) noexcept
+                    -> amrex::GpuTuple<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int> {
+                int s[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
                 auto status = ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][i];
 
                 AMREX_ALWAYS_ASSERT(status >= 0);
                 AMREX_ALWAYS_ASSERT(status <= 4);
 
-                s[status] = 1;
+                if (status == Status::never || status == Status::susceptible) { s[OutputStatus::Su] = 1; }
 
-                if (status == Status::infected) { // exposed
-                    if (notInfectiousButInfected(i, ptd, a_d)) {
-                        s[5] = 1;                 // exposed, but not infectious
-                    } else {                      // infectious
-                        if (ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][i] == SymptomStatus::asymptomatic) {
-                            s[6] = 1;             // asymptomatic and will remain so
-                        } else if (ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][i] ==
-                                   SymptomStatus::presymptomatic) {
-                            s[7] = 1;             // asymptomatic but will develop symptoms
-                        } else if (ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][i] == SymptomStatus::symptomatic) {
-                            s[8] = 1;             // Infectious and symptomatic
-                        } else {
-                            amrex::Abort("how did I get here?");
+                if (status == Status::immune) { s[OutputStatus::R] = 1; }
+
+                if (status == Status::dead) { s[OutputStatus::D] = 1; }
+
+                if (isNewlySymptomatic(i, ptd, a_d)) { s[OutputStatus::NewS] = 1; }
+
+                if (isNewlyHospitalized(i, ptd, a_d)) { s[OutputStatus::NewH] = 1; }
+
+                if (!inHospital(i, ptd)) {                           // do not include hospitalized agents in these counts
+                    if (status == Status::infected) {                // exposed
+                        if (notInfectiousButInfected(i, ptd, a_d)) { // exposed, but not infectious
+                            if (isAsymptomatic(i, ptd, a_d)) {
+                                s[OutputStatus::A_PI] = 1;
+                            } else if (isPresymptomatic(i, ptd, a_d)) {
+                                s[OutputStatus::PS_PI] = 1;
+                            } else if (isSymptomatic(i, ptd, a_d)) {
+                                s[OutputStatus::S_PI] = 1;
+                            } else {
+                                amrex::Abort("how did I get here?");
+                            }
+                        } else { // currently infectious
+                            if (isAsymptomatic(i, ptd, a_d)) {
+                                s[OutputStatus::A_I] = 1;
+                            } else if (isPresymptomatic(i, ptd, a_d)) {
+                                s[OutputStatus::PS_I] = 1;
+                            } else if (isSymptomatic(i, ptd, a_d)) {
+                                s[OutputStatus::S_I] = 1;
+                            } else {
+                                amrex::Abort("how did I get here?");
+                            }
                         }
                     }
+                } else { // now the hospitalized categories
+                    if (notInfectiousButInfected(i, ptd, a_d)) {
+                        s[OutputStatus::H_NI] = 1;
+                    } else {
+                        s[OutputStatus::H_I] = 1;
+                    }
                 }
-                return {s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8]};
+                return {s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8], s[9], s[10], s[11], s[12], s[13], s[14]};
             },
             reduce_ops);
 
-    std::array<Long, 9> counts = {amrex::get<0>(r), amrex::get<1>(r), amrex::get<2>(r), amrex::get<3>(r), amrex::get<4>(r),
-                                  amrex::get<5>(r), amrex::get<6>(r), amrex::get<7>(r), amrex::get<8>(r)};
-    ParallelDescriptor::ReduceLongSum(&counts[0], 9, ParallelDescriptor::IOProcessorNumber());
+    std::array<Long, OutputStatus::nattribs> counts = {amrex::get<0>(r),  amrex::get<1>(r),  amrex::get<2>(r),  amrex::get<3>(r),
+                                                       amrex::get<4>(r),  amrex::get<5>(r),  amrex::get<6>(r),  amrex::get<7>(r),
+                                                       amrex::get<8>(r),  amrex::get<9>(r),  amrex::get<10>(r), amrex::get<11>(r),
+                                                       amrex::get<12>(r), amrex::get<13>(r), amrex::get<14>(r)};
+    ParallelDescriptor::ReduceLongSum(&counts[0], OutputStatus::nattribs, ParallelDescriptor::IOProcessorNumber());
     return counts;
 }
 
@@ -940,7 +902,12 @@ void AgentContainer::printStudentTeacherCounts () const {
                 if (ptd.m_idata[IntIdx::school_id][i] > 0) {
                     int pos = (ptd.m_idata[IntIdx::workgroup][i] > 0 ? 0 : 5);
                     int grade = ptd.m_idata[IntIdx::school_grade][i];
-                    counts[pos + getSchoolType(grade) - SchoolType::college] = 1;
+                    int school_type = getSchoolType(grade);
+                    // always should have an allocated grade if we have a school
+                    AMREX_ASSERT(school_type != SchoolType::none);
+                    pos = pos + school_type - SchoolType::college;
+                    AMREX_ASSERT(pos >= 0 && pos < 10);
+                    counts[pos] = 1;
                 }
                 return {counts[0], counts[1], counts[2], counts[3], counts[4],
                         counts[5], counts[6], counts[7], counts[8], counts[9]};
