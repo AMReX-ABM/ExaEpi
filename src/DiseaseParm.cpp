@@ -89,9 +89,8 @@ void DiseaseParm::readInputs (const std::string& a_pp_str /*!< Parmparse string 
     pp.query("immune_length_alpha", immune_length_alpha);
     pp.query("immune_length_beta", immune_length_beta);
 
-    std::string hospital_stay_type = "constant";
+    std::string hospital_stay_type = m_hospital_stay_type == HospitalStayType::Constant ? "constant" : "random";
     pp.query("hospital_stay_type", hospital_stay_type);
-    pp.query("t_hosp_offset", m_t_hosp_offset);
 
     if (hospital_stay_type == "constant") {
         m_hospital_stay_type = HospitalStayType::Constant;
@@ -104,7 +103,7 @@ void DiseaseParm::readInputs (const std::string& a_pp_str /*!< Parmparse string 
     if (m_hospital_stay_type == HospitalStayType::Constant) {
         queryArray(pp, "hospitalization_days", m_t_hosp, AgeGroups_Hosp::total);
         for (int i = 0; i < AgeGroups_Hosp::total; i++) {
-            if (m_t_hosp[i] > m_t_hosp_offset) { m_t_hosp_offset = m_t_hosp[i] + 3; }
+            AMREX_ALWAYS_ASSERT(m_t_hosp[i] < m_t_hosp_offset);
         }
     } else if (m_hospital_stay_type == HospitalStayType::Random) {
         queryArray(pp, "hospitalization_days_alpha", m_t_hosp_alpha, AgeGroups_Hosp::total);

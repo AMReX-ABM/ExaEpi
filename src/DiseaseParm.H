@@ -112,13 +112,14 @@ struct DiseaseParm {
      *  used in other parts of the code (#AgeGroups) */
     Real m_t_hosp[AgeGroups_Hosp::total] = {Real(3), Real(8), Real(7)};
     /*! Offset to separate the timers for hospital, ICU, and ventilator;
-     * Needs to be greater than the maximum of #DiseaseParm::m_t_hosp
-     * This will automatically be enforced when the hospital days are set.
-     * If using random hospital stays, this should be set large enough that
-       in practice it will not be smaller than the longest stay for an agent.
-       The default will probably be fine for most cases.
-    */
-    Real m_t_hosp_offset = 10000.0;
+     * All agents just in hospital will have a timer counting up from 0, all agents in ICU will
+     * have a timer counting up from m_t_hosp_offset, and all agents ventilated will have a timer
+     * counting up from 2 * m_t_hosp_offset
+     * For this reason, this value needs to be greater than the maximum of #DiseaseParm::m_t_hosp,
+     * or whatvere value is generated from the gamma distribution for random length stays.
+     * The default here is greater than a human lifespan, and so never needs to be changed.
+     */
+    Real m_t_hosp_offset = 100000.0;
 
     /*! Parameters for gamma distribution for hospital stay lengths. These are used if
      *  m_hospital_stay_type = HospitalStayType::Random */
@@ -160,37 +161,27 @@ struct DiseaseParm {
         *a_ICU = 0;
         *a_ventilator = 0;
         if (amrex::Random(a_reng) < m_CHR[a_age_group]) {
+            int age_idx = AgeGroups_Hosp::u50;
+            if (a_age_group == AgeGroups::o65) {
+                age_idx = AgeGroups_Hosp::o65;
+            } else if (a_age_group == AgeGroups::a50to64) {
+                age_idx = AgeGroups_Hosp::a50to64;
+            }
             if (m_hospital_stay_type == HospitalStayType::Constant) {
-                if (a_age_group == AgeGroups::o65) {
-                    *a_t_hosp = m_t_hosp[AgeGroups_Hosp::o65];
-                } else if (a_age_group == AgeGroups::a50to64) {
-                    *a_t_hosp = m_t_hosp[AgeGroups_Hosp::a50to64];
-                } else {
-                    *a_t_hosp = m_t_hosp[AgeGroups_Hosp::u50];
-                }
+                *a_t_hosp = m_t_hosp[age_idx];
             } else { // Random
-                if (a_age_group == AgeGroups::o65) {
-                    int num_days = static_cast<int>(
-                            amrex::RandomGamma(m_t_hosp_alpha[AgeGroups_Hosp::o65], m_t_hosp_beta[AgeGroups_Hosp::o65], a_reng));
-                    if (num_days < 0) { num_days = 0; }
-                    *a_t_hosp = static_cast<ParticleReal>(num_days);
-                } else if (a_age_group == AgeGroups::a50to64) {
-                    int num_days = static_cast<int>(amrex::RandomGamma(m_t_hosp_alpha[AgeGroups_Hosp::a50to64],
-                                                                       m_t_hosp_beta[AgeGroups_Hosp::a50to64], a_reng));
-                    if (num_days < 0) { num_days = 0; }
-                    *a_t_hosp = static_cast<ParticleReal>(num_days);
-                } else {
-                    int num_days = static_cast<int>(
-                            amrex::RandomGamma(m_t_hosp_alpha[AgeGroups_Hosp::u50], m_t_hosp_beta[AgeGroups_Hosp::u50], a_reng));
-                    if (num_days < 0) { num_days = 0; }
-                    *a_t_hosp = static_cast<ParticleReal>(num_days);
-                }
+                int num_days = static_cast<int>(amrex::RandomGamma(m_t_hosp_alpha[age_idx], m_t_hosp_beta[age_idx], a_reng));
+                // the number of days must always be less than the offset, because the offset is used to separate out the
+                // only-hospitalized from ICU and ventilated
+                if (num_days > m_t_hosp_offset - 1.0) { num_days = (int)(m_t_hosp_offset - 1.0); }
+                if (num_days < 1) { num_days = 1; }
+                *a_t_hosp = static_cast<ParticleReal>(num_days);
             }
             if (amrex::Random(a_reng) < m_CIC[a_age_group]) {
-                *a_t_hosp += m_t_hosp_offset;     // move to ICU, adds 10 days (m_t_hosp_offset)
+                *a_t_hosp += m_t_hosp_offset;     // move to ICU, treatment timer now runs starting at m_t_hosp_offset
                 *a_ICU = 1;
                 if (amrex::Random(a_reng) < m_CVE[a_age_group]) {
-                    *a_t_hosp += m_t_hosp_offset; // put on ventilator, adds another 10 days
+                    *a_t_hosp += m_t_hosp_offset; // put on ventilator, treatment timer now runs starting at 2 * m_t_hosp_offset
                     *a_ventilator = 1;
                 }
             }
