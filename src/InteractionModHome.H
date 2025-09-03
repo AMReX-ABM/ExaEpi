@@ -134,15 +134,6 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
             int max_nborhood = agents.getMaxGroup(IntIdx::nborhood) + 1;
             int num_ncs = max_family / FAMILIES_PER_CLUSTER + 1;
 
-            /*
-            AllPrint() << "Thread " << omp_get_thread_num() << " "
-                       << mfi.tilebox() << " np " << np << " max communities " << max_communities
-                       << " max family " << max_family << " max nborhood " << max_nborhood << " max ncs " << num_ncs
-                       << " family vector size " << max_communities * max_family
-                       << " nc vector size " << max_communities * num_ncs * max_nborhood
-                       << "\n";
-            */
-
             // set vectors to store counts of infected agents for each group
             infected_family_d[OMP_THREAD_NUM].resize(max_communities * max_family);
             infected_family_not_withdrawn_d[OMP_THREAD_NUM].resize(max_communities * max_family);
