@@ -291,9 +291,8 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                     }
                     if (flag_status_ptr[i] > 0) {
                         // Check if hospitalized patient recovers or dies
-                        auto p_survive = 1.0_rt - disease_parm_d->m_hospToDeath[flag_status_ptr[i] - 1][age_group_ptr[i]];
-                        p_survive *= treat_q_ptrs[d][i];
-                        if (Random(engine) >= p_survive) {
+                        auto p_death = 1.0_rt - treat_q_ptrs[d][i]*(1.0_rt-disease_parm_d->m_hospToDeath[flag_status_ptr[i]-1][age_group_ptr[i]]);
+                        if (Random(engine) < p_death) {
                             // patient dies
                             is_alive_ptr[i] = 0;
                             flag_status_ptr[i] *= -1;
