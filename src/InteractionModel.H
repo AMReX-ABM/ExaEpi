@@ -294,7 +294,11 @@ struct GetCommunityIndex {
 #ifdef AMREX_USE_SYCL
 #define devMemset(p, v, s) (Gpu::Device::streamQueue().memset((p), (v), (s)).wait())
 #else
+#ifdef AMREX_USE_HIP
+#define devMemset(p, v, s) ((void)hipMemset((p), (v), (s)))
+#else
 #define devMemset memset
+#endif
 #endif
 #endif
 
