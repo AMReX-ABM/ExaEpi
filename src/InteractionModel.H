@@ -295,7 +295,7 @@ struct GetCommunityIndex {
 #define devMemset(p, v, s) (Gpu::Device::streamQueue().memset((p), (v), (s)).wait())
 #else
 #ifdef AMREX_USE_HIP
-#define devMemset hipMemset
+#define devMemset(p, v, s) {hipError_t err= hipMemset((p), (v), (s));}
 #else
 #define devMemset memset
 #endif
