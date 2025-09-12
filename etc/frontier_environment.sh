@@ -12,5 +12,4 @@ alias getNode="salloc -N 1 -t 1:00:00 -A $proj"
 export MPICH_GPU_SUPPORT_ENABLED=1
 
 #Enable automatic page migration
-export HSA_XNACK=1 
-
+export HSA_XNACK=1
