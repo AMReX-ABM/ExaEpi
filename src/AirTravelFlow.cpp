@@ -173,7 +173,7 @@ void AirTravelFlow::computeTravelProbs (DemographicData& demo) {
                 // "<< dest_airports_prob[curOffset]<<"\n";
                 curOffset++;
             }
-            dest_airports_prob[numDest - 1] = 1.0; // to avoid rounding error, we set the last option prob to 1.0
+            dest_airports_prob[curOffset - 1] = 1.0; // to avoid rounding error, we set the last option prob to 1.0
         }
         dest_airports_offset[nairports] = curOffset;
     }

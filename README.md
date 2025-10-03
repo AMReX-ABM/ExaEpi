@@ -14,7 +14,8 @@ This demo uses CMake version 3.14 or higher. To build it:
      make -j8
 
 To build with GPU support, use the CMake option `-DAMReX_GPU_BACKEND=CUDA` on NVIDIA GPU, 
-`-DAMReX_GPU_BACKEND=SYCL` on Intel GPU, and `-DAMReX_GPU_BACKEND=HIP` on AMD GPU.
+`-DAMReX_GPU_BACKEND=SYCL` on Intel GPU. 
+On AMD GPU, both GPU backend and GPU architecture should be provided, e.g. `-DAMReX_GPU_BACKEND=HIP -DAMReX_AMD_ARCH=gfx90a`.
 
 To write output as (compressed) HDF5, use the `-DAMReX_HDF5=TRUE` CMake option.
 Parallel HDF5 installation is required. On perlmutter, a conda environment is
@@ -31,6 +32,8 @@ for Perlmutter is provided in etc/perlmutter_environment.sh. To use it, do:
 
     source etc/perlmutter_environment.sh
 
+A similar script for setting up the environment for Frontier can be found in etc/frontier_environment.sh.
+
 ## Running the code
 
 Navigate to build/bin and run the executable using one of the "inputs" files in "examples".
@@ -44,9 +47,11 @@ On Aurora at ALCF, if compiled with SYCL be sure to add "agent.fast=1" at the en
 For example: mpirun -np 1 ./agent ../../examples/inputs.ca agent.fast=1
 
 If reproducibility is a must, we do a quick run for 0 day to checkpoint the initial condition.
+
 mpirun -np 1 ./agent ../../examples/inputs.ca agent.fast=1 agent.nsteps=0 agent.check_int=1 
 
 Subsequent runs will start from the checkpoint by adding "agent.restart=chk00000" to the end of the command line.
+
 mpirun -np 1 ./agent ../../examples/inputs.ca agent.restart=chk00000
 
 
