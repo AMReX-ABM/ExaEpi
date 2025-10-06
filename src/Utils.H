@@ -98,9 +98,9 @@ namespace Utils {
 void getTestParams(ExaEpi::TestParams& params, const std::string& prefix);
 
 /*! \brief returns whether day i is a work day */
-bool isWorkday (int i);
+bool isWorkday(int i);
 
-}
+} // namespace Utils
 } // namespace ExaEpi
 
 #endif

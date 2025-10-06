@@ -83,8 +83,7 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
     pp.query("fast", params.fast);
 }
 
-bool ExaEpi::Utils::isWorkday (int i)
-{
+bool ExaEpi::Utils::isWorkday (int i) {
     // right now we work on days 0-4, rest on 5-6
-    return ( (i % 7) < 5 );
+    return ((i % 7) < 5);
 }
