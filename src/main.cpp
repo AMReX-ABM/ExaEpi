@@ -494,10 +494,13 @@ void runAgent () {
                 pc.moveAirTravel(censusData.unit_mf, air, censusData.demo);
             }
 
-            // Typical day
-            pc.morningCommute(mask_behavior);
-            pc.interactDay(mask_behavior);
-            pc.eveningCommute(mask_behavior);
+            // Process daytime / nighttime interactions.
+            // Only do daytime interactions on weekdays
+            if (ExaEpi::Utils::isWorkday(i)) {
+                pc.morningCommute(mask_behavior);
+                pc.interactDay(mask_behavior);
+                pc.eveningCommute(mask_behavior);
+            }
             pc.interactEvening(mask_behavior);
             pc.interactNight(mask_behavior);
 
