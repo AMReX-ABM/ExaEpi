@@ -30,28 +30,6 @@ struct HospMod {
     };
 };
 
-#ifndef FAST_INTERACTIONS
-/*! \brief One-on-one interaction between an infectious agent and a susceptible agent.
- *
- * This function defines the one-on-one interaction between an infectious agent and a
- * susceptible agent in a hospital. */
-template <typename PTDType>
-struct BinaryInteractionHospWorkers {
-    AMREX_GPU_HOST_DEVICE
-    ParticleReal operator()(const int infectious_i, const int susceptible_i, const PTDType& a_ptd,
-                            const DiseaseParm* const a_lparm, const Real a_hosp_scale) const noexcept {
-        AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::naics][infectious_i] == a_ptd.m_idata[IntIdx::naics][susceptible_i]);
-        AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::naics][infectious_i] == NAICSCodes::NAICS::med_sca);
-        AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::workgroup][infectious_i] == a_ptd.m_idata[IntIdx::workgroup][susceptible_i]);
-        AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::work_i][infectious_i] == a_ptd.m_idata[IntIdx::work_i][susceptible_i] &&
-                            a_ptd.m_idata[IntIdx::work_j][infectious_i] == a_ptd.m_idata[IntIdx::work_j][susceptible_i]);
-        // infect *= i_mask;
-        // infect *= j_mask;
-        return a_lparm->xmit_hosp * a_hosp_scale;
-    }
-};
-#endif
-
 template <typename PTDType>
 struct HospWorkerCandidate {
     AMREX_GPU_HOST_DEVICE
@@ -61,6 +39,49 @@ struct HospWorkerCandidate {
                ptd.m_idata[IntIdx::air_travel][idx] < 0 && ptd.m_idata[IntIdx::random_travel][idx] < 0;
     }
 };
+
+template <typename PTDType>
+struct HospPatientCandidate {
+    AMREX_GPU_HOST_DEVICE
+    bool operator()(const int idx, const PTDType& ptd) const noexcept { return inHospital(idx, ptd); }
+};
+
+template <typename PTDType>
+struct HospAgentCandidate {
+    AMREX_GPU_HOST_DEVICE
+    bool operator()(const int idx, const PTDType& ptd) const noexcept {
+        HospWorkerCandidate<PTDType> isMW;
+        HospPatientCandidate<PTDType> isP;
+        return (isMW(idx,ptd) || isP(idx,ptd));
+    }
+};
+
+#ifndef FAST_INTERACTIONS
+/*! \brief One-on-one interaction between an infectious agent and a susceptible agent.
+ *
+ * This function defines the one-on-one interaction between an infectious agent and a
+ * susceptible agent in a hospital. */
+template <typename PTDType>
+struct BinaryInteractionHospAgents {
+    AMREX_GPU_HOST_DEVICE
+    ParticleReal operator()(const int infectious_i, const int susceptible_i, const PTDType& a_ptd,
+                            const DiseaseParm* const a_lparm, const Real a_hosp_scale) const noexcept {
+        // infect *= i_mask;
+        // infect *= j_mask;
+        HospWorkerCandidate<PTDType> isMW;
+        HospPatientCandidate<PTDType> isP;
+        if (isMW(infectious_i, a_ptd) && isMW(susceptible_i, a_ptd)) {
+            return a_lparm->xmit_hosp_d2d * a_hosp_scale;
+        } else if (isP(infectious_i, a_ptd) && isMW(susceptible_i, a_ptd)) {
+            return a_lparm->xmit_hosp_p2d * a_hosp_scale;
+        } else if (isMW(infectious_i, a_ptd) && isP(susceptible_i, a_ptd)) {
+            return a_lparm->xmit_hosp_d2p * a_hosp_scale;
+        } else if (isP(infectious_i, a_ptd) && isP(susceptible_i, a_ptd)) {
+            return a_lparm->xmit_hosp_p2p * a_hosp_scale;
+        }
+    }
+};
+#endif
 
 /*! \brief Class describing agent interactions and treatment at hospital */
 template <typename PCType, typename PTDType, typename PType>
@@ -93,10 +114,10 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
     /*! \brief Simulate agent interaction at hospital */
     virtual void interactAgents (PCType& a_agents, MultiFab&) override {
 #ifdef FAST_INTERACTIONS
-        fastInteractHospWorkers(a_agents);
+        fastInteractHospital(a_agents);
 #else
-        interactAgentsImpl<HospitalModel<PCType, PTDType, PType>, PCType, PTDType, HospWorkerCandidate<PTDType>,
-                           BinaryInteractionHospWorker<PTDType>>(*this, a_agents, IntIdx::workgroup);
+        interactAgentsImpl<HospitalModel<PCType, PTDType, PType>, PCType, PTDType, HospAgentCandidate<PTDType>,
+                           BinaryInteractionHospAgents<PTDType>>(*this, a_agents, IntIdx::workgroup);
 #endif
     }
 
@@ -106,8 +127,8 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
     /*! \brief Simulate treatment of agents in a hospital */
     virtual void treatAgents(PCType&, MFPtrVec&, int);
 
-    /*! \brief Interactions between hospital workers */
-    void fastInteractHospWorkers(PCType&);
+    /*! \brief Interactions between agents in hospital */
+    void fastInteractHospital(PCType&);
 
     /*! \brief Allocate hospital score multifab */
     void initHospitalScoreMF (const BoxArray& a_ba, const DistributionMapping& a_dm) {
@@ -372,13 +393,17 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
 
 /*! Interaction between medical workers at a hospital */
 template <typename PCType, typename PTDType, typename PType>
-void HospitalModel<PCType, PTDType, PType>::fastInteractHospWorkers (PCType& a_agents /*!< Agent container */) {
+void HospitalModel<PCType, PTDType, PType>::fastInteractHospital (PCType& a_agents /*!< Agent container */) {
     BL_PROFILE(__func__);
     int n_disease = a_agents.numDiseases();
 
-    HospWorkerCandidate<PTDType> isCandidate;
-    Vector<Gpu::DeviceVector<int>> infected_group_d(OMP_MAX_THREADS);
-    Vector<Gpu::DeviceVector<int>> infected_group_asymp_d(OMP_MAX_THREADS);
+    HospWorkerCandidate<PTDType> isMW; // is a medical worker
+    HospPatientCandidate<PTDType> isP; // is a patient
+
+    Vector<Gpu::DeviceVector<int>> inf_mw_d(OMP_MAX_THREADS);
+    Vector<Gpu::DeviceVector<int>> inf_mw_asymp_d(OMP_MAX_THREADS);
+    Vector<Gpu::DeviceVector<int>> inf_p_d(OMP_MAX_THREADS);
+    Vector<Gpu::DeviceVector<int>> inf_p_asymp_d(OMP_MAX_THREADS);
 
     for (int lev = 0; lev < a_agents.numLevels(); ++lev) {
 #ifdef AMREX_USE_OMP
@@ -407,52 +432,107 @@ void HospitalModel<PCType, PTDType, PType>::fastInteractHospWorkers (PCType& a_a
             int max_communities = getCommunityIndex.max();
             int max_group = a_agents.getMaxGroup(IntIdx::workgroup) + 1;
 
-            infected_group_d[OMP_THREAD_NUM].resize(max_communities * max_group);
-            auto infected_group_d_ptr = infected_group_d[OMP_THREAD_NUM].data();
+            inf_mw_d[OMP_THREAD_NUM].resize(max_communities * max_group);
+            auto inf_mw_d_ptr = inf_mw_d[OMP_THREAD_NUM].data();
 
-            infected_group_asymp_d[OMP_THREAD_NUM].resize(max_communities * max_group);
-            auto infected_group_asymp_d_ptr = infected_group_asymp_d[OMP_THREAD_NUM].data();
+            inf_mw_asymp_d[OMP_THREAD_NUM].resize(max_communities * max_group);
+            auto inf_mw_asymp_d_ptr = inf_mw_asymp_d[OMP_THREAD_NUM].data();
+
+            inf_p_d[OMP_THREAD_NUM].resize(max_communities);
+            auto inf_p_d_ptr = inf_p_d[OMP_THREAD_NUM].data();
+
+            inf_p_asymp_d[OMP_THREAD_NUM].resize(max_communities);
+            auto inf_p_asymp_d_ptr = inf_mw_asymp_d[OMP_THREAD_NUM].data();
 
             for (int d = 0; d < n_disease; d++) {
-                devMemset(infected_group_d_ptr, 0, infected_group_d[OMP_THREAD_NUM].size() * sizeof(int));
-                devMemset(infected_group_asymp_d_ptr, 0, infected_group_asymp_d[OMP_THREAD_NUM].size() * sizeof(int));
+                devMemset(inf_mw_d_ptr, 0, inf_mw_d[OMP_THREAD_NUM].size() * sizeof(int));
+                devMemset(inf_mw_asymp_d_ptr, 0, inf_mw_asymp_d[OMP_THREAD_NUM].size() * sizeof(int));
+                devMemset(inf_p_d_ptr, 0, inf_p_d[OMP_THREAD_NUM].size() * sizeof(int));
+                devMemset(inf_p_asymp_d_ptr, 0, inf_p_asymp_d[OMP_THREAD_NUM].size() * sizeof(int));
 
-                auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
-                auto lparm = a_agents.getDiseaseParameters_d(d);
-                auto lparm_h = a_agents.getDiseaseParameters_h(d);
-                Real scale = 1.0_rt; // TODO this should vary based on cell
-                Real infect = 1.0_rt - lparm_h->vac_eff;
                 auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
-                    if (isInfectious(i, ptd, d) && isCandidate(i, ptd)) {
+                    if (isInfectious(i, ptd, d) && isMW(i, ptd)) {
                         Box tbx;
                         auto iv = getParticleCell(ptd, i, plo, dxi, domain);
                         auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                         auto community = d_ptr[tidx];
                         int group_i = community * max_group + workgroup_ptr[i];
                         if (isAsymptomatic(i, ptd, d) || isPresymptomatic(i, ptd, d)) {
-                            Gpu::Atomic::AddNoRet(&infected_group_asymp_d_ptr[group_i], 1);
+                            Gpu::Atomic::AddNoRet(&inf_mw_asymp_d_ptr[group_i], 1);
                         } else {
-                            Gpu::Atomic::AddNoRet(&infected_group_d_ptr[group_i], 1);
+                            Gpu::Atomic::AddNoRet(&inf_mw_d_ptr[group_i], 1);
+                        }
+                    }
+                    if (isInfectious(i, ptd, d) && isP(i, ptd)) {
+                        Box tbx;
+                        auto iv = getParticleCell(ptd, i, plo, dxi, domain);
+                        auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
+                        auto community = d_ptr[tidx];
+                        if (isAsymptomatic(i, ptd, d) || isPresymptomatic(i, ptd, d)) {
+                            Gpu::Atomic::AddNoRet(&inf_p_asymp_d_ptr[community], 1);
+                        } else {
+                            Gpu::Atomic::AddNoRet(&inf_p_d_ptr[community], 1);
                         }
                     }
                 });
                 Gpu::synchronize();
 
+                auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
+                auto lparm = a_agents.getDiseaseParameters_d(d);
+                auto lparm_h = a_agents.getDiseaseParameters_h(d);
+                Real scale = 1.0_rt; // TODO this should vary based on cell
+                Real infect = 1.0_rt - lparm_h->vac_eff;
+
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
-                    if (isSusceptible(i, ptd, d) && isCandidate(i, ptd)) {
+                    if (isSusceptible(i, ptd, d) && isMW(i, ptd)) {
                         Box tbx;
                         auto iv = getParticleCell(ptd, i, plo, dxi, domain);
                         auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                         auto community = d_ptr[tidx];
                         int group_i = community * max_group + workgroup_ptr[i];
-                        int num_infected_group = infected_group_d_ptr[group_i];
-                        Real group_prob = 1.0_prt - infect * lparm->xmit_hosp * scale;
-                        prob_ptr[i] *= static_cast<ParticleReal>(std::pow(group_prob, num_infected_group));
-                        int num_infected_group_asymp = infected_group_asymp_d_ptr[group_i];
-                        Real group_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect * lparm->xmit_hosp * scale;
-                        prob_ptr[i] *= static_cast<ParticleReal>(std::pow(group_prob_asymp, num_infected_group_asymp));
+
+                        {
+                            int num_infected_group = inf_mw_d_ptr[group_i];
+                            Real group_prob = 1.0_prt - infect * lparm->xmit_hosp_d2d * scale;
+                            prob_ptr[i] *= static_cast<ParticleReal>(std::pow(group_prob, num_infected_group));
+                            int num_infected_group_asymp = inf_mw_asymp_d_ptr[group_i];
+                            Real group_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect * lparm->xmit_hosp_d2d * scale;
+                            prob_ptr[i] *= static_cast<ParticleReal>(std::pow(group_prob_asymp, num_infected_group_asymp));
+                        }
+                        {
+                            int num_infected_group = inf_p_d_ptr[community];
+                            Real group_prob = 1.0_prt - infect * lparm->xmit_hosp_p2d * scale;
+                            prob_ptr[i] *= static_cast<ParticleReal>(std::pow(group_prob, num_infected_group));
+                            int num_infected_group_asymp = inf_p_asymp_d_ptr[community];
+                            Real group_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect * lparm->xmit_hosp_p2d * scale;
+                            prob_ptr[i] *= static_cast<ParticleReal>(std::pow(group_prob_asymp, num_infected_group_asymp));
+                        }
+                    }
+                    if (isSusceptible(i, ptd, d) && isP(i, ptd)) {
+                        Box tbx;
+                        auto iv = getParticleCell(ptd, i, plo, dxi, domain);
+                        auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
+                        auto community = d_ptr[tidx];
+
+                        for (int wg = 0; wg < max_group; wg++ ) {
+                            int group_i = community * max_group + wg;
+                            int num_infected_group = inf_mw_d_ptr[group_i];
+                            Real group_prob = 1.0_prt - infect * lparm->xmit_hosp_d2p * scale;
+                            prob_ptr[i] *= static_cast<ParticleReal>(std::pow(group_prob, num_infected_group));
+                            int num_infected_group_asymp = inf_mw_asymp_d_ptr[group_i];
+                            Real group_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect * lparm->xmit_hosp_d2p * scale;
+                            prob_ptr[i] *= static_cast<ParticleReal>(std::pow(group_prob_asymp, num_infected_group_asymp));
+                        }
+                        {
+                            int num_infected_group = inf_p_d_ptr[community];
+                            Real group_prob = 1.0_prt - infect * lparm->xmit_hosp_p2p * scale;
+                            prob_ptr[i] *= static_cast<ParticleReal>(std::pow(group_prob, num_infected_group));
+                            int num_infected_group_asymp = inf_p_asymp_d_ptr[community];
+                            Real group_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect * lparm->xmit_hosp_p2p * scale;
+                            prob_ptr[i] *= static_cast<ParticleReal>(std::pow(group_prob_asymp, num_infected_group_asymp));
+                        }
                     }
                 });
                 Gpu::synchronize();

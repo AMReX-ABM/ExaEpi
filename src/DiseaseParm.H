@@ -78,8 +78,14 @@ struct DiseaseParm {
 
     /*! probability for transmission within a workgroup, independent of age group currently */
     Real xmit_work = Real(0.0575);
-    /*! probability for transmission within a hospital workgroup, independent of age group currently */
-    Real xmit_hosp = amrex::Real(0.01) * xmit_work;
+    /*! probability for transmission within a hospital workgroup (doctor-to-doctor), independent of age group currently */
+    Real xmit_hosp_d2d = amrex::Real(0.01) * xmit_work;
+    /*! probability for transmission within a hospital (patient-to-doctor), independent of age group currently */
+    Real xmit_hosp_p2d = Real(0.0);
+    /*! probability for transmission within a hospital (doctor-to-patient), independent of age group currently */
+    Real xmit_hosp_d2p = Real(0.0);
+    /*! probability for transmission within a hospital (patient-to-patient), independent of age group currently */
+    Real xmit_hosp_p2p = Real(0.0);
 
     Real p_trans = Real(0.20);                    /*!< probability of transimission given contact */
     Real p_asymp = Real(0.40);                    /*!< fraction of cases that are asymptomatic */

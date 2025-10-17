@@ -184,8 +184,14 @@ The following inputs specify the disease parameters:
     This parameter is only used if ``disease.hospital_stay_type`` is ``random``.
 * ``disease.xmit_work`` (`float`, default ``0.0575``)
     Transmission probability within a workgroup.
-* ``disease.xmit_hosp`` (`float`, default ``0.01*disease.xmit_work``)
+* ``disease.xmit_hosp_d2d`` (`float`, default ``0.01*disease.xmit_work``)
     Transmission probability within a hospital workgroup (between doctors/medical workers). Default value is 1/100th that of ``disease.xmit_work`` since medical workers take more precautions.
+* ``disease.xmit_hosp_p2d`` (`float`, default ``0.0``)
+    Transmission probability within a hospital  (from patient to doctors/medical workers).
+* ``disease.xmit_hosp_d2p`` (`float`, default ``0.0``)
+    Transmission probability within a hospital  (from doctors/medical workers to patient).
+* ``disease.xmit_hosp_p2p`` (`float`, default ``0.0``)
+    Transmission probability within a hospital  (between patients).
 * ``disease.xmit_comm`` (`list of float`, default ``0.000018125 0.000054375 0.000145 0.000145 0.000145 0.0002175``)
     Transmission probabilities at the community level, for both work and home locations,
     given the age group of the susceptible agent (0-4, 5-17, 18-29, 30-49, 50-64).
