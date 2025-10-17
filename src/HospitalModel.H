@@ -52,7 +52,7 @@ struct HospAgentCandidate {
     bool operator()(const int idx, const PTDType& ptd) const noexcept {
         HospWorkerCandidate<PTDType> isMW;
         HospPatientCandidate<PTDType> isP;
-        return (isMW(idx,ptd) || isP(idx,ptd));
+        return (isMW(idx, ptd) || isP(idx, ptd));
     }
 };
 
@@ -296,9 +296,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                     auto iv = getParticleCell(p, plo, dxi, domain);
                     AMREX_ALWAYS_ASSERT((iv[0] == ptd.m_idata[IntIdx::hosp_i][i]) && (iv[1] == ptd.m_idata[IntIdx::hosp_j][i]));
                     treat_q_ptrs[d][i] *= hosp_data_arr(iv, HospMod::score);
-                    if ((d == 0) && (treat_q_ptrs[d][i] < 1.0_prt)) {
-                        Gpu::Atomic::Add(underserved_agents_ptr, 1);
-                    }
+                    if ((d == 0) && (treat_q_ptrs[d][i] < 1.0_prt)) { Gpu::Atomic::Add(underserved_agents_ptr, 1); }
 
                     if (timer_ptrs[d][i] == 0) {
                         // finished hospitalization period
@@ -312,7 +310,9 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                     }
                     if (flag_status_ptr[i] > 0) {
                         // Check if hospitalized patient recovers or dies
-                        auto p_death = 1.0_rt - treat_q_ptrs[d][i]*(1.0_rt-disease_parm_d->m_hospToDeath[flag_status_ptr[i]-1][age_group_ptr[i]]);
+                        auto p_death = 1.0_rt -
+                                       treat_q_ptrs[d][i] *
+                                               (1.0_rt - disease_parm_d->m_hospToDeath[flag_status_ptr[i] - 1][age_group_ptr[i]]);
                         if (Random(engine) < p_death) {
                             // patient dies
                             is_alive_ptr[i] = 0;
@@ -385,10 +385,10 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
         }
     }
 
-    ParallelDescriptor::ReduceIntSum( &m_num_underserved_patients, 1 );
+    ParallelDescriptor::ReduceIntSum(&m_num_underserved_patients, 1);
 
-    amrex::Print() << "Day " << a_iter << ": " << m_num_overloaded_hospitals << " hospitals over capacity, " << m_num_underserved_patients << " underserved hospitalized agents\n";
-
+    amrex::Print() << "Day " << a_iter << ": " << m_num_overloaded_hospitals << " hospitals over capacity, "
+                   << m_num_underserved_patients << " underserved hospitalized agents\n";
 }
 
 /*! Interaction between medical workers at a hospital */
@@ -427,7 +427,6 @@ void HospitalModel<PCType, PTDType, PType>::fastInteractHospital (PCType& a_agen
             auto valid_box = getCommunityIndex.valid_box;
             auto bin_size = getCommunityIndex.bin_size;
             auto comm_to_local_index_d = getCommunityIndex.comm_to_local_index_d;
-
 
             int max_communities = getCommunityIndex.max();
             int max_group = a_agents.getMaxGroup(IntIdx::workgroup) + 1;
@@ -516,7 +515,7 @@ void HospitalModel<PCType, PTDType, PType>::fastInteractHospital (PCType& a_agen
                         auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                         auto community = d_ptr[tidx];
 
-                        for (int wg = 0; wg < max_group; wg++ ) {
+                        for (int wg = 0; wg < max_group; wg++) {
                             int group_i = community * max_group + wg;
                             int num_infected_group = inf_mw_d_ptr[group_i];
                             Real group_prob = 1.0_prt - infect * lparm->xmit_hosp_d2p * scale;
@@ -619,7 +618,7 @@ void HospitalModel<PCType, PTDType, PType>::computeHospitalScores (const PCType&
             // Compute load
             if (data_arr(i, j, k, HospMod::n_t_mw) == 0) {
                 data_arr(i, j, k, HospMod::load) = 0.0_prt; // exclude from hospital score modeling
-            } else  if (data_arr(i, j, k, HospMod::capacity) == 0) {
+            } else if (data_arr(i, j, k, HospMod::capacity) == 0) {
                 if (data_arr(i, j, k, HospMod::n_patients) == 0) {
                     data_arr(i, j, k, HospMod::load) = 0.0_prt;
                 } else {
@@ -644,7 +643,7 @@ void HospitalModel<PCType, PTDType, PType>::computeHospitalScores (const PCType&
     m_num_overloaded_hospitals = *(overloaded_hospitals.copyToHost());
     ParallelDescriptor::ReduceLongSum(&m_num_overloaded_hospitals, 1);
 
-    if (m_write_pltfiles && (a_iter%m_plot_int == 0)) {
+    if (m_write_pltfiles && (a_iter % m_plot_int == 0)) {
         char iter_str[12];
         sprintf(iter_str, "%05d", a_iter);
         {
