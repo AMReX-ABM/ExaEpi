@@ -146,6 +146,12 @@ struct DiseaseParm {
 
     void initialize();
 
+    AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+    bool checkHospitalization (const amrex::Real a_random_draw, /*!< random number */
+			       const int a_age_group /*!< age group */) const {
+	return (a_random_draw < m_CHR[a_age_group]);
+    }
+
     /*! \brief Given age group, decide if hospitalized or not;
      *  if so, compute number of hospitalization days and check if
      *  moved to ICU and ventilator */
@@ -154,11 +160,12 @@ struct DiseaseParm {
                                int* a_ICU,             /*!< moved to ICU ? */
                                int* a_ventilator,      /*!< moved to ventilator? */
                                const int a_age_group,  /*!< age group */
-                               const amrex::RandomEngine& a_reng /*!< random engine */) const {
+                               const amrex::Real a_random_draw, /*!< random number */
+			       const amrex::RandomEngine& a_reng /*!< random engine */) const {
         *a_t_hosp = ParticleReal(0);
         *a_ICU = 0;
         *a_ventilator = 0;
-        if (amrex::Random(a_reng) < m_CHR[a_age_group]) {
+        if (a_random_draw < m_CHR[a_age_group]) {
             int age_idx = AgeGroups_Hosp::u50;
             if (a_age_group == AgeGroups::o65) {
                 age_idx = AgeGroups_Hosp::o65;
@@ -186,6 +193,17 @@ struct DiseaseParm {
         }
     }
 };
+
+/*! \brief Will a symptomatic agent be hospitalized? */
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+bool willBeHospitalized (const int a_idx,      /*!< Agent index */
+			 const PTDType& a_ptd, /*!< Particle tile data */
+			 const int a_d, /*!< Disease index */
+			 const DiseaseParm& a_parm /*!< disease parameters*/) {
+    amrex::Real draw = a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::hospital_random][a_idx];
+    return a_parm.checkHospitalization(draw, a_ptd.m_idata[IntIdx::age_group][a_idx]);
+}
 
 /*! \brief Set this agent to infected status, and initialize disease periods. */
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE

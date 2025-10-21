@@ -192,21 +192,23 @@ void runAgent () {
                 if (!File.good()) { amrex::FileOpenFailed(output_filename[d]); }
 
                 File << std::setw(5) << "Day";
-                File << std::setw(12) << "Su";
-                File << std::setw(12) << "PS/PI";
-                File << std::setw(12) << "S/PI";
-                File << std::setw(12) << "PS/I";
-                File << std::setw(12) << "S/I";
-                File << std::setw(12) << "A/PI";
-                File << std::setw(12) << "A/I";
-                File << std::setw(12) << "H/NI";
-                File << std::setw(12) << "H/I";
-                File << std::setw(12) << "ICU";
-                File << std::setw(12) << "V";
-                File << std::setw(12) << "R";
-                File << std::setw(12) << "D";
-                File << std::setw(12) << "NewS";
-                File << std::setw(12) << "NewH\n";
+                File << std::setw(11) << "Su";
+                File << std::setw(11) << "PS/PI";
+                File << std::setw(11) << "S/PI/NH";
+                File << std::setw(11) << "S/PI/H";
+                File << std::setw(11) << "PS/I";
+                File << std::setw(11) << "S/I/NH";
+		File << std::setw(11) << "S/I/H";
+                File << std::setw(11) << "A/PI";
+                File << std::setw(11) << "A/I";
+                File << std::setw(11) << "H/NI";
+                File << std::setw(11) << "H/I";
+                File << std::setw(11) << "ICU";
+                File << std::setw(11) << "V";
+                File << std::setw(11) << "R";
+                File << std::setw(11) << "D";
+                File << std::setw(11) << "NewS";
+                File << std::setw(11) << "NewH\n";
 
                 File.flush();
 
@@ -460,18 +462,18 @@ void runAgent () {
                     File << std::setw(5) << i;
                     for (int j = 0; j < OutputStatus::ICU; ++j) {
                         AMREX_ALWAYS_ASSERT(counts[j] >= 0);
-                        File << std::setw(12) << counts[j];
+                        File << std::setw(11) << counts[j];
                     }
 
                     AMREX_ALWAYS_ASSERT(mmc[1] >= 0);
                     AMREX_ALWAYS_ASSERT(mmc[2] >= 0);
-                    File << std::setw(12) << mmc[1];
-                    File << std::setw(12) << mmc[2];
+                    File << std::setw(11) << mmc[1];
+                    File << std::setw(11) << mmc[2];
                     for (int j = OutputStatus::R; j < OutputStatus::nattribs; ++j) {
                         AMREX_ALWAYS_ASSERT(counts[j] >= 0);
-                        File << std::setw(12) << counts[j];
+                        File << std::setw(11) << counts[j];
                     }
-                    // File << std::setw(12) << mmc[4];
+                    // File << std::setw(11) << mmc[4];
                     File << "\n";
 
                     File.flush();
