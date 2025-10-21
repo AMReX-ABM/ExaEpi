@@ -148,20 +148,20 @@ struct DiseaseParm {
 
     AMREX_GPU_DEVICE AMREX_FORCE_INLINE
     bool checkHospitalization (const amrex::Real a_random_draw, /*!< random number */
-                   const int a_age_group /*!< age group */) const {
-    return (a_random_draw < m_CHR[a_age_group]);
+                               const int a_age_group /*!< age group */) const {
+        return (a_random_draw < m_CHR[a_age_group]);
     }
 
     /*! \brief Given age group, decide if hospitalized or not;
      *  if so, compute number of hospitalization days and check if
      *  moved to ICU and ventilator */
     AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-    void checkHospitalization (ParticleReal* a_t_hosp, /*!< number of hospitalization days */
-                               int* a_ICU,             /*!< moved to ICU ? */
-                               int* a_ventilator,      /*!< moved to ventilator? */
-                               const int a_age_group,  /*!< age group */
+    void checkHospitalization (ParticleReal* a_t_hosp,          /*!< number of hospitalization days */
+                               int* a_ICU,                      /*!< moved to ICU ? */
+                               int* a_ventilator,               /*!< moved to ventilator? */
+                               const int a_age_group,           /*!< age group */
                                const amrex::Real a_random_draw, /*!< random number */
-                   const amrex::RandomEngine& a_reng /*!< random engine */) const {
+                               const amrex::RandomEngine& a_reng /*!< random engine */) const {
         *a_t_hosp = ParticleReal(0);
         *a_ICU = 0;
         *a_ventilator = 0;
@@ -198,9 +198,9 @@ struct DiseaseParm {
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 bool willBeHospitalized (const int a_idx,      /*!< Agent index */
-             const PTDType& a_ptd, /*!< Particle tile data */
-             const int a_d, /*!< Disease index */
-             const DiseaseParm& a_parm /*!< disease parameters*/) {
+                         const PTDType& a_ptd, /*!< Particle tile data */
+                         const int a_d,        /*!< Disease index */
+                         const DiseaseParm& a_parm /*!< disease parameters*/) {
     amrex::Real draw = a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::hospital_random][a_idx];
     return a_parm.checkHospitalization(draw, a_ptd.m_idata[IntIdx::age_group][a_idx]);
 }

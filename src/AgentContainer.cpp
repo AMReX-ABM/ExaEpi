@@ -699,13 +699,15 @@ void AgentContainer::generateCellData (MultiFab& mf, /*!< MultiFab with at least
 std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_d /*!< disease index */) {
     BL_PROFILE("getTotals");
     amrex::ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum,
-                     ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum>
+                     ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum,
+                     ReduceOpSum>
             reduce_ops;
     const auto* disease_parm_d = getDiseaseParameters_d(a_d);
-    auto r = amrex::ParticleReduce<ReduceData<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int>>(
+    auto r = amrex::ParticleReduce<
+            ReduceData<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int>>(
             *this,
             [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd, const int i) noexcept
-            -> amrex::GpuTuple<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int> {
+                    -> amrex::GpuTuple<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int> {
                 int s[17] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
                 auto status = ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][i];
 
@@ -761,7 +763,8 @@ std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_
                         s[OutputStatus::H_I] = 1;
                     }
                 }
-                return {s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8], s[9], s[10], s[11], s[12], s[13], s[14], s[15], s[16]};
+                return {s[0], s[1],  s[2],  s[3],  s[4],  s[5],  s[6],  s[7], s[8],
+                        s[9], s[10], s[11], s[12], s[13], s[14], s[15], s[16]};
             },
             reduce_ops);
 

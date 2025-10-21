@@ -190,8 +190,9 @@ struct OutputStatus {
 /*! \brief Get the total number of exposed agents (in or out of hospital) */
 AMREX_FORCE_INLINE
 amrex::Long totalInfected (const std::array<amrex::Long, OutputStatus::nattribs> counts) {
-    return counts[OutputStatus::PS_PI] + counts[OutputStatus::S_PI_NH] + counts[OutputStatus::S_PI_H] + counts[OutputStatus::S_I_NH] +
-        counts[OutputStatus::S_I_H] + counts[OutputStatus::PS_I] + counts[OutputStatus::A_PI] + counts[OutputStatus::A_I] + counts[OutputStatus::H_NI] + counts[OutputStatus::H_I];
+    return counts[OutputStatus::PS_PI] + counts[OutputStatus::S_PI_NH] + counts[OutputStatus::S_PI_H] +
+           counts[OutputStatus::S_I_NH] + counts[OutputStatus::S_I_H] + counts[OutputStatus::PS_I] + counts[OutputStatus::A_PI] +
+           counts[OutputStatus::A_I] + counts[OutputStatus::H_NI] + counts[OutputStatus::H_I];
 }
 
 /*! \brief Is an agent symptomatic? */
