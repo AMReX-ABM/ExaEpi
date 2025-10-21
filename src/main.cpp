@@ -198,7 +198,7 @@ void runAgent () {
                 File << std::setw(11) << "S/PI/H";
                 File << std::setw(11) << "PS/I";
                 File << std::setw(11) << "S/I/NH";
-		File << std::setw(11) << "S/I/H";
+        File << std::setw(11) << "S/I/H";
                 File << std::setw(11) << "A/PI";
                 File << std::setw(11) << "A/I";
                 File << std::setw(11) << "H/NI";
