@@ -205,6 +205,7 @@ void runAgent () {
                 File << std::setw(12) << "V";
                 File << std::setw(12) << "R";
                 File << std::setw(12) << "D";
+                File << std::setw(12) << "NewI";
                 File << std::setw(12) << "NewS";
                 File << std::setw(12) << "NewH\n";
 

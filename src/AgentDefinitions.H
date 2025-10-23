@@ -178,6 +178,7 @@ struct OutputStatus {
         V,      /*!< On ventilator */
         R,      /*!< Recovered */
         D,      /*!< Dead */
+        NewI,   /*!< Became infected this step */
         NewS,   /*!< Became symptomatic this step */
         NewH,   /*!< Became hospitalized this step */
         nattribs
@@ -198,6 +199,16 @@ bool isSymptomatic (const int a_idx,      /*!< Agent index */
                     const PTDType& a_ptd, /*!< Particle tile data */
                     const int a_d /*!< Disease index */) {
     return a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx] == SymptomStatus::symptomatic;
+}
+
+/*! \brief Did the agent just become infected this step? */
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+bool isNewlyInfected (const int a_idx,      /*!< Agent index */
+                      const PTDType& a_ptd, /*!< Particle tile data */
+                      const int a_d /*!< Disease index */) {
+    return (a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx] == Status::infected) &&
+           (a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx] == 1);
 }
 
 /*! \brief Did the agent just become symptomatic this step? */
@@ -290,12 +301,15 @@ bool isNewlyHospitalized (const int a_idx,      /*!< Agent index */
                           const int a_d /*!< Disease index */) {
     amrex::Real delay = amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::hospital_delay][a_idx]);
     amrex::Real incub = amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
-    if (isNewlySymptomatic(a_idx, a_ptd, a_d) && (delay == 0) && inHospital(a_idx, a_ptd)) {
+    // if (isNewlySymptomatic(a_idx, a_ptd, a_d) && (delay == 0) && inHospital(a_idx, a_ptd)) {
+    if (inHospital(a_idx, a_ptd) && a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx] == incub + 1) {
         return true;
+        /*
     } else if ((a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx] == Status::infected) &&
                (a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx] == incub + delay) &&
                inHospital(a_idx, a_ptd)) {
         return true;
+        */
     } else {
         return false;
     }
