@@ -262,6 +262,8 @@ The following inputs specify parameters for the hospital model.
 
 * ``hospital_model.num_patients_per_doctor`` (`float`, default ``50``)
     The number of patients a doctor can see per day.
+* ``hospital_model.acute_medworkers_proportion`` (`float`, default ``0.2``)
+    The proportion of medical workers working with acute diseases.
 * ``hospital_model.score_minimum`` (`float`, default ``0.1``)
     The minimum hospital score (quality of treatment) when a hospital is overloaded (i.e., number of patients with
     respect to its capacity) to a very high degree.

@@ -91,6 +91,7 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
     HospitalModel (bool _fast_bin, const std::string& a_prefix) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {
         ParmParse pp(a_prefix);
         pp.query("num_patients_per_doctor", m_num_patients_per_doctor);
+        pp.query("acute_medworkers_proportion", m_acute_mw_prop);
         pp.query("score_minimum", m_sc_floor);
         pp.query("halfscore_load", m_sc_half_load);
         pp.query("write_pltfiles", m_write_pltfiles);
@@ -103,6 +104,7 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
 
         Print() << "Initialized hospital model...\n";
         Print() << "  Number of patients per doctor: " << m_num_patients_per_doctor << "\n";
+        Print() << "  Proportion of medical workers working with acute diseases: " << m_acute_mw_prop << "\n";
         Print() << "  Minimum score for overloaded hospitals: " << m_sc_floor << "\n";
         Print() << "  Load for score=0.5: " << m_sc_half_load << "\n";
         Print() << "  Write hospital data plotfiles: " << (m_write_pltfiles ? "yes" : "no") << "\n";
@@ -149,6 +151,9 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
 
     /*! Number of patients that a doctor can see in a day */
     Real m_num_patients_per_doctor = 50.0_rt;
+
+    /*! Proportion of medical workers working with acute diseases */
+    Real m_acute_mw_prop = 0.2_rt;
 
     /*! Minimum hospital score even at very high loading */
     Real m_sc_floor = 0.1_rt;
@@ -552,10 +557,11 @@ void HospitalModel<PCType, PTDType, PType>::updateCapacities (const MFPtr& a_num
         const auto n_mw_arr = a_num_medworkers->const_array(mfi);
         auto data_arr = m_data->array(mfi);
         auto p_per_d = m_num_patients_per_doctor;
+        auto acute_mw_prop = m_acute_mw_prop;
 
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-            data_arr(i, j, k, HospMod::n_t_mw) = n_mw_arr(i, j, k, 0);
-            data_arr(i, j, k, HospMod::n_a_mw) = n_mw_arr(i, j, k, 1);
+            data_arr(i, j, k, HospMod::n_t_mw) = acute_mw_prop * n_mw_arr(i, j, k, 0);
+            data_arr(i, j, k, HospMod::n_a_mw) = acute_mw_prop * n_mw_arr(i, j, k, 1);
             data_arr(i, j, k, HospMod::capacity) = n_mw_arr(i, j, k, 1) * p_per_d;
 
             if (n_mw_arr(i, j, k, 0) == 0) {
