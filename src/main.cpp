@@ -360,6 +360,7 @@ void runAgent () {
             auto start_time = std::chrono::high_resolution_clock::now();
 
             if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
+                pc.Redistribute();
                 if (params.ic_type == ICType::Census) {
                     ExaEpi::IO::writePlotFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf,
                                               params.num_diseases, params.disease_names, cur_time, i);
