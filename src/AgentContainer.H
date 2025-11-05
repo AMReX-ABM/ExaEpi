@@ -134,7 +134,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     std::map<ExaEpi::InteractionNames, IntModel*> m_interactions;      /*!< Map of interaction models */
     std::unique_ptr<HospitalModel<PCType, PTDType, PType>> m_hospital; /*!< hospital model */
-    amrex::MultiFab m_hosp_data; /*!< Hospital data */
+    amrex::MultiFab m_hosp_data;                                       /*!< Hospital data */
 
     /*! Flag to indicate if agents are at work */
     bool m_at_work;

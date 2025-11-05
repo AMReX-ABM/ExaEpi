@@ -939,22 +939,23 @@ void AgentContainer::printStudentTeacherCounts () const {
 /*! Print the number of medical workers */
 void AgentContainer::printMedicalWorkerCounts () const {
     ReduceOps<ReduceOpSum, ReduceOpSum> reduce_ops;
-    auto r = ParticleReduce<ReduceData<int,int>>(
-                *this,
-                [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
-                                      const int i) noexcept -> GpuTuple<int,int> {
-                                          int counts[2] = {0, 0};
-                                          int naics = ptd.m_idata[IntIdx::naics][i];
-                                          counts[0] = (naics == NAICSCodes::NAICS::med_sca ? 1 : 0);
-                                          counts[1] = (naics < 0 ? 0 : 1);
-                                          return {counts[0], counts[1]};
-                                      }, reduce_ops);
-    std::array<Long,2> counts = {amrex::get<0>(r), amrex::get<1>(r)};
+    auto r = ParticleReduce<ReduceData<int, int>>(
+            *this,
+            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
+                                 const int i) noexcept -> GpuTuple<int, int> {
+                int counts[2] = {0, 0};
+                int naics = ptd.m_idata[IntIdx::naics][i];
+                counts[0] = (naics == NAICSCodes::NAICS::med_sca ? 1 : 0);
+                counts[1] = (naics < 0 ? 0 : 1);
+                return {counts[0], counts[1]};
+            },
+            reduce_ops);
+    std::array<Long, 2> counts = {amrex::get<0>(r), amrex::get<1>(r)};
     ParallelDescriptor::ReduceLongSum(&counts[0], 2);
 
     Print() << std::fixed << std::setprecision(1) << "Medical worker counts:\n"
-            << "  Total: " << counts[0] << "  (" << (((double)counts[0]) / ((double)counts[1]) * 100) << "% of total " << counts[1]
-            << " workers)"
+            << "  Total: " << counts[0] << "  (" << (((double)counts[0]) / ((double)counts[1]) * 100) << "% of total "
+            << counts[1] << " workers)"
             << "\n";
 }
 
