@@ -98,7 +98,7 @@ The following are inputs for the overall simulation:
 * ``agent.student_teacher_ratio`` (`list of int`, default: ``0 15 15 15 15 15``)
     This option sets the desired student-teacher ratio for school levels (none, college, high, middle, elementary, daycare).
     The first entry is ignored and should always be set to 0. This option is only used with ``ic_type = census``.
-* ``agent.agent.med_workers_proportion`` (`float`, default ``0.0``)
+* ``agent.med_workers_proportion`` (`float`, default ``0.0``)
     Proportion of medical workers in total worker population (valid for census initialization only)
 * ``agent.max_box_size`` (`integer`, default ``16`` or ``500`` or ``100``)
     This option sets the maximum box size used for MPI domain decomposition. If set to
