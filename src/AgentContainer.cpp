@@ -73,7 +73,8 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
         m_interactions[InteractionNames::work_nborhood] = new InteractionModWorkNborhood<PCType, PTDType, PType>(fast);
 
         m_hospital = std::make_unique<HospitalModel<PCType, PTDType, PType>>(fast, "hospital_model");
-        m_hospital->initHospitalScoreMF(a_ba, a_dmap);
+        m_hosp_data.define(a_ba, a_dmap, HospMod::ncomps, 0);
+        m_hospital->initHospitalScoreMF(&m_hosp_data);
         // number of medical workers in each community: component 0 - total, component 1 - active
         m_num_medworkers = std::make_unique<MultiFab>(a_ba, a_dmap, 2, 0);
     }

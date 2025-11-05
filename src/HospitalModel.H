@@ -133,8 +133,9 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
     void fastInteractHospital(PCType&);
 
     /*! \brief Allocate hospital score multifab */
-    void initHospitalScoreMF (const BoxArray& a_ba, const DistributionMapping& a_dm) {
-        m_data = std::make_unique<MultiFab>(a_ba, a_dm, HospMod::ncomps, 0);
+    void initHospitalScoreMF (MultiFab* const a_data) {
+        AMREX_ASSERT(a_data != nullptr);
+        m_data = a_data;
         m_data->setVal(1.0, 0, 1);
         m_data->setVal(0.0, 1, m_data->nComp() - 1);
     }
@@ -147,7 +148,7 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
 
   protected:
     /*! MultiFab with hospital data - see HospMod for components */
-    MFPtr m_data;
+    MultiFab* m_data = nullptr;
 
     /*! Number of patients that a doctor can see in a day */
     Real m_num_patients_per_doctor = 50.0_rt;
