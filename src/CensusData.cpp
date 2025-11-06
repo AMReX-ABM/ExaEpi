@@ -306,7 +306,6 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
             int community = comm_arr(i, j, k);
             int family_id_start = fam_id_arr(i, j, k, n);
             int family_size = n + 1;
-            int num_to_add = family_size * nf;
 
             int community_size;
             if (Population[unit] < (1000 + DemographicData::COMMUNITY_SIZE * (community - Start[unit]))) {
@@ -326,11 +325,13 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
 
             int start = offset_arr(i, j, k, n);
             int nborhood = 0;
-            for (int ii = 0; ii < num_to_add; ++ii) {
+            for (int ifam = 0; ifam < nf; ++ifam) {
+                int family = family_id_start + ifam;
+                int ii = family_size*ifam;
                 int ip = start + ii;
-                auto& agent = aos[ip];
+
                 int il2 = Random_int(100, engine);
-                if (ii % family_size == 0) { nborhood = Random_int(DemographicData::COMMUNITY_SIZE / nborhood_size, engine); }
+                nborhood = Random_int(DemographicData::COMMUNITY_SIZE / nborhood_size, engine);
                 int age_group = -1;
 
                 if (family_size == 1) {
@@ -344,6 +345,7 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                         age_group = AgeGroups::a18to29; /* single adult age 19-29 */
                     }
                     nr_arr(i, j, k, age_group) += 1;
+                    setAgentData(ptd, ip, i, j, dx, pid+ip, my_proc, age_group, family, nborhood, n_disease);
                 } else if (family_size == 2) {
                     if (il2 == 0) {
                         /* 1% probability of one parent + one child */
@@ -358,12 +360,14 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                             age_group = AgeGroups::a18to29; /* one parent 19-29 */
                         }
                         nr_arr(i, j, k, age_group) += 1;
+                        setAgentData(ptd, ip, i, j, dx, pid+ip, my_proc, age_group, family, nborhood, n_disease);
                         if (((int)Random_int(100, engine)) < p_schoolage) {
                             age_group = AgeGroups::a5to17;
                         } else {
                             age_group = AgeGroups::u5;
                         }
                         nr_arr(i, j, k, age_group) += 1;
+                        setAgentData(ptd, ip+1, i, j, dx, pid+ip+1, my_proc, age_group, family, nborhood, n_disease);
                     } else {
                         /* 2 adults, 28% over 65 (ASSUME both same age group) */
                         if (il2 < 28) {
@@ -376,6 +380,8 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                             age_group = AgeGroups::a18to29; /* single adult age 19-29 */
                         }
                         nr_arr(i, j, k, age_group) += 2;
+                        setAgentData(ptd, ip, i, j, dx, pid+ip, my_proc, age_group, family, nborhood, n_disease);
+                        setAgentData(ptd, ip+1, i, j, dx, pid+ip+1, my_proc, age_group, family, nborhood, n_disease)
                     }
                 }
 
@@ -391,6 +397,8 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                         age_group = AgeGroups::a18to29; /* parents 19-29 */
                     }
                     nr_arr(i, j, k, age_group) += 2;
+                    setAgentData(ptd, ip, i, j, dx, pid+ip, my_proc, age_group, family, nborhood, n_disease);
+                    setAgentData(ptd, ip+1, i, j, dx, pid+ip+1, my_proc, age_group, family, nborhood, n_disease)
 
                     /* Now pick the children's age groups */
                     for (int nc = 2; nc < family_size; ++nc) {
@@ -400,35 +408,9 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                             age_group = AgeGroups::u5;
                         }
                         nr_arr(i, j, k, age_group) += 1;
+                        setAgentData(ptd, ip+nc, i, j, dx, pid+ip+nc, my_proc, age_group, family, nborhood, n_disease)
                     }
                 }
-
-                agent.pos(0) = static_cast<ParticleReal>((i + 0.5_rt) * dx[0]);
-                agent.pos(1) = static_cast<ParticleReal>((j + 0.5_rt) * dx[1]);
-                agent.id() = pid + ip;
-                agent.cpu() = my_proc;
-
-                for (int d = 0; d < n_disease; d++) {
-                    status_ptrs[d][ip] = 0;
-                    counter_ptrs[d][ip] = 0.0_prt;
-                    timer_ptrs[d][ip] = 0.0_prt;
-                }
-                age_group_ptr[ip] = age_group;
-                family_ptr[ip] = family_id_start + (ii / family_size);
-                home_i_ptr[ip] = i;
-                home_j_ptr[ip] = j;
-                work_i_ptr[ip] = i;
-                work_j_ptr[ip] = j;
-                trav_i_ptr[ip] = i;
-                trav_j_ptr[ip] = j;
-                hosp_i_ptr[ip] = -1;
-                hosp_j_ptr[ip] = -1;
-                nborhood_ptr[ip] = nborhood;
-                work_nborhood_ptr[ip] = nborhood;
-                workgroup_ptr[ip] = 0;
-                naics_ptr[ip] = 0;
-                random_travel_ptr[ip] = -1;
-                air_travel_ptr[ip] = -1;
 
                 assignSchool(&school_grade_ptr[ip], &school_id_ptr[ip], age_group, nborhood, engine);
 

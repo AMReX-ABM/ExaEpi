@@ -301,6 +301,41 @@ bool isNewlyHospitalized (const int a_idx,      /*!< Agent index */
     }
 }
 
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+void setAgentData (PTDType& ptd, int ip, int i, int j,
+                   const amrex::GpuArray<amrex::Real, 2>& dx, amrex::Long id, int cpu,
+                   int age_group, int family, int nborhood, int n_disease)
+{
+    ptd[ip].pos(0) = static_cast<amrex::ParticleReal>((i + 0.5_rt) * dx[0]);
+    ptd[ip].pos(1) = static_cast<amrex::ParticleReal>((j + 0.5_rt) * dx[1]);
+    ptd[ip].id() = id;
+    ptd[ip].cpu() = cpu;
+
+    for (int d = 0; d < n_disease; d++) {
+        ptd.m_runtime_idata[i0(d) + IntIdxDisease::status][ip] = 0;
+        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::disease_counter][ip] = 0.0_prt;
+        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::treatment_timer][ip] = 0.0_prt;
+    }
+
+    ptd.m_idata[IntIdx::age_group][ip] = age_group;
+    ptd.m_idata[IntIdx::family][ip] = family;
+    ptd.m_idata[IntIdx::home_i][ip] = i;
+    ptd.m_idata[IntIdx::home_j][ip] = j;
+    ptd.m_idata[IntIdx::work_i][ip] = i;
+    ptd.m_idata[IntIdx::work_j][ip] = j;
+    ptd.m_idata[IntIdx::trav_i][ip] = i;
+    ptd.m_idata[IntIdx::trav_j][ip] = j;
+    ptd.m_idata[IntIdx::hosp_i][ip] = -1;
+    ptd.m_idata[IntIdx::hosp_j][ip] = -1;
+    ptd.m_idata[IntIdx::nborhood][ip] = nborhood;
+    ptd.m_idata[IntIdx::work_nborhood][ip] = nborhood;
+    ptd.m_idata[IntIdx::workgroup][ip] = 0;
+    ptd.m_idata[IntIdx::naics][ip] = 0;
+    ptd.m_idata[IntIdx::random_travel][ip] = -1;
+    ptd.m_idata[IntIdx::air_travel][ip] = -1;
+}
+
 /*! \brief Is agent an adult? */
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
