@@ -307,6 +307,8 @@ void setAgentData (PTDType& ptd, int ip, int i, int j,
                    const amrex::GpuArray<amrex::Real, 2>& dx, amrex::Long id, int cpu,
                    int age_group, int family, int nborhood, int n_disease)
 {
+    using namespace amrex::literals;
+
     ptd[ip].pos(0) = static_cast<amrex::ParticleReal>((i + 0.5_rt) * dx[0]);
     ptd[ip].pos(1) = static_cast<amrex::ParticleReal>((j + 0.5_rt) * dx[1]);
     ptd[ip].id() = id;
