@@ -303,10 +303,8 @@ bool isNewlyHospitalized (const int a_idx,      /*!< Agent index */
 
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void setAgentData (PTDType& ptd, int ip, int i, int j,
-                   const amrex::GpuArray<amrex::Real, 2>& dx, amrex::Long id, int cpu,
-                   int age_group, int family, int nborhood, int n_disease)
-{
+void setAgentData (PTDType& ptd, int ip, int i, int j, const amrex::GpuArray<amrex::Real, 2>& dx, amrex::Long id, int cpu,
+                   int age_group, int family, int nborhood, int n_disease) {
     using namespace amrex::literals;
 
     ptd[ip].pos(0) = static_cast<amrex::ParticleReal>((i + 0.5_rt) * dx[0]);
