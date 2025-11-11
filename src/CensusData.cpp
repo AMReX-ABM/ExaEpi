@@ -248,10 +248,10 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
         auto student_counts_arr = pc.m_student_counts[mfi].array();
         auto& agents_tile = pc.DefineAndReturnParticleTile(0, mfi);
         agents_tile.resize(nagents);
-	auto ptd = agents_tile.getParticleTileData();
+    auto ptd = agents_tile.getParticleTileData();
         auto dx = pc.ParticleGeom(0).CellSizeArray();
         auto my_proc = ParallelDescriptor::MyProc();
-	int n_disease = pc.m_num_diseases;
+    int n_disease = pc.m_num_diseases;
 
         Long pid;
 #ifdef AMREX_USE_OMP
@@ -344,7 +344,7 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                         }
                         setAgentDataAndAssignSchool(ptd, ip, i, j, k, dx, pid+ip, my_proc, age_group, family, nborhood, n_disease, nr_arr, student_counts_arr, engine);
                         setAgentDataAndAssignSchool(ptd, ip+1, i, j, k, dx, pid+ip+1, my_proc, age_group, family, nborhood, n_disease, nr_arr, student_counts_arr, engine);
-		    }
+            }
                 }
 
                 if (family_size > 2) {
