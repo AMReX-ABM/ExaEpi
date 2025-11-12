@@ -30,6 +30,7 @@ struct RealIdxDisease {
         infectious_period,   /*!< Length of time infectious */
         incubation_period,   /*!< Time until symptoms appear */
         hospital_delay,      /*!< Delay after symptom onset until hospital treatment is sought */
+        hospital_random,     /*!< Random number that decides hospitaliation */
         nattribs             /*!< number of real-type attribute*/
     };
 };
@@ -165,21 +166,23 @@ struct SymptomStatus {
 struct OutputStatus {
     enum {
         /* Total number of agents in each category are written to summary table each step */
-        Su = 0, /*!< Susceptible */
-        PS_PI,  /*!< Presymptomatic/Preinfectious */
-        S_PI,   /*!< Symptomatic/Preinfectious */
-        PS_I,   /*!< Presymptomatic/Infectious */
-        S_I,    /*!< Symptomatic/Infectious */
-        A_PI,   /*!< Asymptomatic/Preinfectious */
-        A_I,    /*!< Asymptomatic/Infectious */
-        H_NI,   /*!< Hospitalized/Noninfectious */
-        H_I,    /*!< Hostitalized/Infectious */
-        ICU,    /*!< In the ICU */
-        V,      /*!< On ventilator */
-        R,      /*!< Recovered */
-        D,      /*!< Dead */
-        NewS,   /*!< Became symptomatic this step */
-        NewH,   /*!< Became hospitalized this step */
+        Su = 0,  /*!< Susceptible */
+        PS_PI,   /*!< Presymptomatic/Preinfectious */
+        S_PI_NH, /*!< Symptomatic/Preinfectious */
+        S_PI_H,  /*!< Symptomatic/Preinfectious */
+        PS_I,    /*!< Presymptomatic/Infectious */
+        S_I_NH,  /*!< Symptomatic/Infectious */
+        S_I_H,   /*!< Symptomatic/Infectious */
+        A_PI,    /*!< Asymptomatic/Preinfectious */
+        A_I,     /*!< Asymptomatic/Infectious */
+        H_NI,    /*!< Hospitalized/Noninfectious */
+        H_I,     /*!< Hostitalized/Infectious */
+        ICU,     /*!< In the ICU */
+        V,       /*!< On ventilator */
+        R,       /*!< Recovered */
+        D,       /*!< Dead */
+        NewS,    /*!< Became symptomatic this step */
+        NewH,    /*!< Became hospitalized this step */
         nattribs
     };
 };
@@ -187,8 +190,9 @@ struct OutputStatus {
 /*! \brief Get the total number of exposed agents (in or out of hospital) */
 AMREX_FORCE_INLINE
 amrex::Long totalInfected (const std::array<amrex::Long, OutputStatus::nattribs> counts) {
-    return counts[OutputStatus::PS_PI] + counts[OutputStatus::S_PI] + counts[OutputStatus::S_I] + counts[OutputStatus::PS_I] +
-           counts[OutputStatus::A_PI] + counts[OutputStatus::A_I] + counts[OutputStatus::H_NI] + counts[OutputStatus::H_I];
+    return counts[OutputStatus::PS_PI] + counts[OutputStatus::S_PI_NH] + counts[OutputStatus::S_PI_H] +
+           counts[OutputStatus::S_I_NH] + counts[OutputStatus::S_I_H] + counts[OutputStatus::PS_I] + counts[OutputStatus::A_PI] +
+           counts[OutputStatus::A_I] + counts[OutputStatus::H_NI] + counts[OutputStatus::H_I];
 }
 
 /*! \brief Is an agent symptomatic? */
