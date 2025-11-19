@@ -195,51 +195,15 @@ void setInfected (int* status, amrex::ParticleReal* counter, amrex::ParticleReal
     *status = Status::infected;
     *counter = ParticleReal(0);
 
-    // FIXME: Epicast HACK
-    /*
-    if (amrex::Random(engine) < 0.1) {
-        *latent_period = amrex::Real(1);
-    } else if (amrex::Random(engine) < 0.25) {
-        *latent_period = amrex::Real(2);
-    } else if (amrex::Random(engine) < 0.55) {
-        *latent_period = amrex::Real(3);
-    } else if (amrex::Random(engine) < 0.66) {
-        *latent_period = amrex::Real(4);
-    } else if (amrex::Random(engine) < 0.78) {
-        *latent_period = amrex::Real(5);
-    } else if (amrex::Random(engine) < 0.85) {
-        *latent_period = amrex::Real(6);
-    } else {
-        *latent_period = amrex::Real(7);
-    }
-    if (amrex::Random(engine) < 0.1) {
-        *infectious_period = amrex::Real(3);
-    } else if (amrex::Random(engine) < 0.3) {
-        *infectious_period = amrex::Real(4);
-    } else if (amrex::Random(engine) < 0.5) {
-        *infectious_period = amrex::Real(5);
-    } else if (amrex::Random(engine) < 0.7) {
-        *infectious_period = amrex::Real(6);
-    } else if (amrex::Random(engine) < 0.85) {
-        *infectious_period = amrex::Real(7);
-    } else if (amrex::Random(engine) < 0.95) {
-        *infectious_period = amrex::Real(8);
-    } else {
-        *infectious_period = amrex::Real(9);
-    }
-    // using parameters to avoid recompiling with hard-coded values
-    *latent_period = *latent_period * lparm->latent_length_beta + lparm->latent_length_alpha;
-    *incubation_period = *latent_period + amrex::Real(1);
-    *hospital_delay = 0;
-    */
+// #define USE_GAMMA
+#ifdef USE_GAMMA
     *latent_period = static_cast<ParticleReal>(amrex::RandomGamma(lparm->latent_length_alpha, lparm->latent_length_beta, engine));
     *incubation_period =
             static_cast<ParticleReal>(amrex::RandomGamma(lparm->incubation_length_alpha, lparm->incubation_length_beta, engine));
     *infectious_period =
             static_cast<ParticleReal>(amrex::RandomGamma(lparm->infectious_length_alpha, lparm->infectious_length_beta, engine));
-    //*hospital_delay = static_cast<ParticleReal>(
-    //        amrex::RandomGamma(lparm->hospital_delay_length_alpha, lparm->hospital_delay_length_beta, engine));
-    *hospital_delay = 0;
+    *hospital_delay = static_cast<ParticleReal>(
+            amrex::RandomGamma(lparm->hospital_delay_length_alpha, lparm->hospital_delay_length_beta, engine));
 
     if (*latent_period < 0) { *latent_period = amrex::Real(0); }
     if (*infectious_period < 0) { *infectious_period = amrex::Real(0); }
@@ -248,6 +212,40 @@ void setInfected (int* status, amrex::ParticleReal* counter, amrex::ParticleReal
     if (*incubation_period > (*infectious_period + *latent_period)) {
         *incubation_period = std::floor(*infectious_period + *latent_period);
     }
+    // FIXME: Epicast HACK
+    // epicast transition from exposed to presymptomatic is at least one day
+    if (*latent_period < 1) { *latent_period = 1; }
+    if (*latent_period > 7) { *latent_period = 7; }
+    // epicast infectious period is at least 4
+    if (*infectious_period < 3) { *infectious_period = 3; }
+    if (*infectious_period > 9) { *infectious_period = 9; }
+    // incubation is hacked to be 1 day more than the latent period (1 day of presymptomatic)
+    *incubation_period = *latent_period + 1;
+#else
+    // Using Epicast transition probs
+    // These are the CDF values
+    Real latent_probs[] = {0.0, 0.1, 0.25, 0.55, 0.66, 0.78, 0.85, 1.0};
+    constexpr int LATENT_DAYS = sizeof(latent_probs) / sizeof(latent_probs[0]);
+    auto rnd_val = amrex::Random(engine);
+    for (int i = 0; i < LATENT_DAYS; i++) {
+        if (rnd_val < latent_probs[i]) {
+            *latent_period = i;
+            break;
+        }
+    }
+    // incubation is one day more than the latent period
+    *incubation_period = *latent_period + 1;
+    // CDF values
+    Real infectious_probs[] = {0.0, 0.0, 0.0, 0.1, 0.3, 0.5, 0.7, 0.85, 0.95, 1};
+    constexpr int INFECTIOUS_DAYS = sizeof(infectious_probs) / sizeof(infectious_probs[0]);
+    rnd_val = amrex::Random(engine);
+    for (int i = 0; i < INFECTIOUS_DAYS; i++) {
+        if (rnd_val < infectious_probs[i]) {
+            *infectious_period = i;
+            break;
+        }
+    }
+#endif
 }
 
 void queryArray(amrex::ParmParse& pp, const std::string& s, amrex::Real* a, int n);

@@ -63,9 +63,8 @@ template <typename PTDType>
 struct HomeCandidate {
     AMREX_GPU_HOST_DEVICE
     bool operator()(const int idx, const PTDType& ptd) const noexcept {
-        // return !inHospital(idx, ptd) && ptd.m_idata[IntIdx::random_travel][idx] < 0 && ptd.m_idata[IntIdx::air_travel][idx] <
-        // 0;
-        //  FIXME: Epicast HACK
+        // return !inHospital(idx, ptd) && ptd.m_idata[IntIdx::random_travel][idx] < 0 && ptd.m_idata[IntIdx::air_travel][idx]<0;
+        // FIXME: Epicast HACK - hospitalized can transmit at home
         return ptd.m_idata[IntIdx::random_travel][idx] < 0 && ptd.m_idata[IntIdx::air_travel][idx] < 0;
     }
 };
@@ -217,7 +216,9 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
                     // Loop to compute infection probability for each susceptible agent.
                     // For each agent, find count of infectious agents in each group and use that as the exponent to compute
                     // the infection probability. In cases where there is an overlap (e.g. infectious agents in same family
-                    // and in neighborhood cluster, adjust the infected counts to avoid double-counting the overlap.
+                    // and in neighborhood cluster, adjust the infected counts to avoid double-counting the overlap. In this case,
+                    // those agents not withdrawn will appear both in the family and the cluster, and should only be counted in
+                    // the family
                     ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                         if (isSusceptible(i, ptd, d) && isHomeCandidate(i, ptd)) {
                             Real xmit_family_prob = 0;
@@ -250,7 +251,6 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
                                 AMREX_ALWAYS_ASSERT(num_infected_nc >= 0);
                                 Real nc_prob = 1.0_rt - infect * xmit_nc_prob * scale;
                                 prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nc_prob, num_infected_nc));
-
                                 // same for asymptomatic
                                 int num_infected_family_not_withdrawn_asymp = infected_family_not_withdrawn_asymp_d_ptr[family_i];
                                 AMREX_ALWAYS_ASSERT(num_infected_family_asymp >= num_infected_family_not_withdrawn_asymp);

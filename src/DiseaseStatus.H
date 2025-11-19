@@ -126,7 +126,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                 auto latent_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::latent_period).data();
                 auto infectious_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::infectious_period).data();
                 auto incubation_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).data();
-                // auto hospital_delay_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_delay).data();
+                auto hospital_delay_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_delay).data();
 
                 auto* disease_parm_d = a_agents.getDiseaseParameters_d(d);
                 auto* disease_parm_h = a_agents.getDiseaseParameters_h(d);
@@ -147,61 +147,51 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                         }
                     } else if (status_ptr[i] == Status::infected) {
                         counter_ptr[i] += 1;
-                        if (counter_ptr[i] == 1) {
-                            // just infected, check to see if this agent will be asymptomatic
+                        // FIXME: Epicast HACK
+                        int incb_period = amrex::Math::floor(incubation_period_ptr[i]);
+                        // check for symptomatic/asymp
+                        if (symptomatic_ptr[i] == SymptomStatus::presymptomatic && counter_ptr[i] == incb_period) {
+                            //   at end of incubation period, symptoms start to show unless asymptomatic
                             if (Random(engine) < disease_parm_d->p_asymp) {
                                 symptomatic_ptr[i] = SymptomStatus::asymptomatic;
                             } else {
-                                symptomatic_ptr[i] = SymptomStatus::presymptomatic;
-                            }
-                        } else if (counter_ptr[i] == Math::floor(incubation_period_ptr[i])) {
-                            AMREX_ASSERT(symptomatic_ptr[i] != SymptomStatus::symptomatic);
-                            // at end of incubation period, symptoms start to show unless asymptomatic
-                            if (symptomatic_ptr[i] == SymptomStatus::presymptomatic) {
                                 symptomatic_ptr[i] = SymptomStatus::symptomatic;
-                                //  day 1 probability
-                                if (Random(engine) < 0.3) { withdrawn_ptr[i] = 1; }
-                                // no hospitalization on the first day of symptoms
-                                /*
-                                disease_parm_d->checkHospitalization(&(timer_ptr[i]), &(marked_for_ICU_ptr[i]),
-                                                                     &(marked_for_vent_ptr[i]), age_group_ptr[i], engine);
-                                if ((timer_ptr[i] > 0) && (!inHospital(i, ptd))) { marked_for_hosp_ptr[i] = 1; }
-                                */
                             }
-                        } else if ((counter_ptr[i] == Math::floor(incubation_period_ptr[i]) + 1) && !inHospital(i, ptd) &&
-                                   symptomatic_ptr[i] == SymptomStatus::symptomatic) {
-                            //  on second day of symptoms, possibility of withdrawing and hospitalization
-                            if (withdrawn_ptr[i] == 0) {
-                                Real compliance = Real(0.8);
-                                if (age_group_ptr[i] == 1) {
-                                    compliance = Real(0.7);
-                                } else if (age_group_ptr[i] > 1) {
-                                    compliance = 0.5;
-                                }
-                                if (Random(engine) < compliance) { withdrawn_ptr[i] = 1; }
-                            }
-                            disease_parm_d->checkHospitalization(&(timer_ptr[i]), &(marked_for_ICU_ptr[i]),
-                                                                 &(marked_for_vent_ptr[i]), age_group_ptr[i], engine);
-                            if ((timer_ptr[i] > 0) && (!inHospital(i, ptd))) { marked_for_hosp_ptr[i] = 1; }
-                        } else if ((counter_ptr[i] == Math::floor(incubation_period_ptr[i]) + 2) && withdrawn_ptr[i] == 0 &&
-                                   !inHospital(i, ptd) && symptomatic_ptr[i] == SymptomStatus::symptomatic) {
-                            if (withdrawn_ptr[i] == 0) {
-                                // on the third day of symptoms, possibility of withdrawing, but no hospitalizatin
-                                Real compliance = Real(0.9);
-                                if (age_group_ptr[i] == 1) {
-                                    compliance = Real(0.8);
-                                } else if (age_group_ptr[i] > 1) {
-                                    compliance = Real(0.7);
-                                }
-                                if (Random(engine) < compliance) { withdrawn_ptr[i] = 1; }
-                            }
-                        } else if (!inHospital(i, ptd) && counter_ptr[i] >= (latent_period_ptr[i] + infectious_period_ptr[i])) {
-                            status_ptr[i] = Status::immune;
-                            counter_ptr[i] =
-                                    static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine));
-                            symptomatic_ptr[i] = SymptomStatus::presymptomatic;
-                            withdrawn_ptr[i] = 0;
                         }
+                        // check for withdrawn
+                        if (symptomatic_ptr[i] == SymptomStatus::symptomatic) {
+                            //  day 0 probability of withdrawing for all age groups
+                            if (counter_ptr[i] == incb_period) {
+                                if (Random(engine) < 0.3) { withdrawn_ptr[i] = 1; }
+                                // no hospitalization on day 0 of symptoms
+                            }
+                            //  on day 1 of symptoms, possibility of withdrawing and hospitalization
+                            if (counter_ptr[i] == incb_period + 1) {
+                                // epicast age group values: 0-5: 0.8, 6-17: 0.7, 18+: 0.5
+                                if (withdrawn_ptr[i] == 0) {
+                                    Real compliance[] = {Real(0.8), Real(0.7), Real(0.5), Real(0.5), Real(0.5)};
+                                    if (Random(engine) < compliance[age_group_ptr[i]]) { withdrawn_ptr[i] = 1; }
+                                }
+                                if (withdrawn_ptr[i] == 1) {
+                                    disease_parm_d->checkHospitalization(&(timer_ptr[i]), &(marked_for_ICU_ptr[i]),
+                                                                         &(marked_for_vent_ptr[i]), age_group_ptr[i], engine);
+                                    if (timer_ptr[i] > 0) { marked_for_hosp_ptr[i] = 1; }
+                                }
+                            }
+                            // on day 2 of symptoms, possibility of withdrawing, but no hospitalizatin
+                            if (counter_ptr[i] == incb_period + 2 && withdrawn_ptr[i] == 0) {
+                                // epicast age group values: 0-5: 0.9, 6-17: 0.8, 18+: 0.7
+                                Real compliance[] = {Real(0.9), Real(0.8), Real(0.7), Real(0.7), Real(0.7)};
+                                if (Random(engine) < compliance[age_group_ptr[i]]) { withdrawn_ptr[i] = 1; }
+                            }
+                        }
+                    }
+                    if (!marked_for_hosp_ptr[i] && !inHospital(i, ptd) &&
+                        counter_ptr[i] == amrex::Math::floor(latent_period_ptr[i] + infectious_period_ptr[i])) {
+                        status_ptr[i] = Status::immune;
+                        counter_ptr[i] = static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine));
+                        symptomatic_ptr[i] = SymptomStatus::presymptomatic;
+                        withdrawn_ptr[i] = 0;
                     }
                 });
 

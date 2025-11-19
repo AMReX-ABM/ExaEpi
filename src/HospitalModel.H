@@ -124,10 +124,11 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                         // agent is not in hospital
                         return;
                     }
+                    /*
                     if (counter_ptrs[d][i] == Math::floor(incubation_per_ptrs[d][i])) {
                         // agent just started treatment
                         return;
-                    }
+                    }*/
                     if (timer_ptrs[d][i] == 0) {
                         // agent has recovered/died from disease d
                         return;
