@@ -224,7 +224,7 @@ void setInfected (int* status, amrex::ParticleReal* counter, amrex::ParticleReal
 #else
     // Using Epicast transition probs
     // These are the CDF values
-    Real latent_probs[] = {0.0, 0.1, 0.25, 0.55, 0.66, 0.78, 0.85, 1.0};
+    Real latent_probs[] = {Real(0.0), Real(0.1), Real(0.25), Real(0.55), Real(0.66), Real(0.78), Real(0.85), Real(1.0)};
     constexpr int LATENT_DAYS = sizeof(latent_probs) / sizeof(latent_probs[0]);
     auto rnd_val = amrex::Random(engine);
     for (int i = 0; i < LATENT_DAYS; i++) {
@@ -236,7 +236,8 @@ void setInfected (int* status, amrex::ParticleReal* counter, amrex::ParticleReal
     // incubation is one day more than the latent period
     *incubation_period = *latent_period + 1;
     // CDF values
-    Real infectious_probs[] = {0.0, 0.0, 0.0, 0.1, 0.3, 0.5, 0.7, 0.85, 0.95, 1};
+    Real infectious_probs[] = {Real(0.0), Real(0.0), Real(0.0),  Real(0.1),  Real(0.3),
+                               Real(0.5), Real(0.7), Real(0.85), Real(0.95), Real(1.0)};
     constexpr int INFECTIOUS_DAYS = sizeof(infectious_probs) / sizeof(infectious_probs[0]);
     rnd_val = amrex::Random(engine);
     for (int i = 0; i < INFECTIOUS_DAYS; i++) {

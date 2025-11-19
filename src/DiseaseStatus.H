@@ -126,7 +126,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                 auto latent_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::latent_period).data();
                 auto infectious_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::infectious_period).data();
                 auto incubation_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).data();
-                auto hospital_delay_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_delay).data();
+                //auto hospital_delay_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_delay).data();
 
                 auto* disease_parm_d = a_agents.getDiseaseParameters_d(d);
                 auto* disease_parm_h = a_agents.getDiseaseParameters_h(d);
@@ -148,7 +148,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                     } else if (status_ptr[i] == Status::infected) {
                         counter_ptr[i] += 1;
                         // FIXME: Epicast HACK
-                        int incb_period = amrex::Math::floor(incubation_period_ptr[i]);
+                        int incb_period = (int)amrex::Math::floor(incubation_period_ptr[i]);
                         // check for symptomatic/asymp
                         if (symptomatic_ptr[i] == SymptomStatus::presymptomatic && counter_ptr[i] == incb_period) {
                             //   at end of incubation period, symptoms start to show unless asymptomatic

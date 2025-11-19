@@ -210,7 +210,7 @@ bool isNewlyInfected (const int a_idx,      /*!< Agent index */
                       const PTDType& a_ptd, /*!< Particle tile data */
                       const int a_d /*!< Disease index */) {
     int status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx];
-    int disease_counter = a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
+    int disease_counter = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
     return status == Status::infected && disease_counter <= 1;
 }
 
@@ -222,8 +222,8 @@ bool isNewlySymptomatic (const int a_idx,      /*!< Agent index */
                          const int a_d /*!< Disease index */) {
     int status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx];
     int symptom_status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx];
-    int disease_counter = a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
-    int incb_period = amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
+    int disease_counter = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
+    int incb_period = (int)amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
     return status == Status::infected && disease_counter == incb_period && symptom_status == SymptomStatus::symptomatic;
 }
 
@@ -235,8 +235,8 @@ bool isNewlyAsymptomatic (const int a_idx,      /*!< Agent index */
                           const int a_d /*!< Disease index */) {
     int status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx];
     int symptom_status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx];
-    int disease_counter = a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
-    int incb_period = amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
+    int disease_counter = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
+    int incb_period = (int)amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
     return status == Status::infected && disease_counter == incb_period && symptom_status == SymptomStatus::asymptomatic;
 }
 
@@ -248,8 +248,8 @@ bool isNewlyPresymptomatic (const int a_idx,      /*!< Agent index */
                             const int a_d /*!< Disease index */) {
     int status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx];
     int symptom_status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx];
-    int disease_counter = a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
-    int incb_period = amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
+    int disease_counter = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
+    int incb_period = (int)amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
     // presymptomatic for one day only, just before becoming asymp/symp
     return status == Status::infected && (disease_counter == incb_period - 1) && symptom_status == SymptomStatus::presymptomatic;
 }

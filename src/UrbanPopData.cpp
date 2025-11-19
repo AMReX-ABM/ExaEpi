@@ -391,7 +391,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             }
             family_ptr[i] = agent.household_id;
             int max_nborhood = agents_extras_ptr[i].home_population / nborhood_size + 1;
-            nborhood_ptr[i] = Random_int(max_nborhood, engine) + 1;
+            nborhood_ptr[i] = Random_int(max_nborhood, engine);
             school_grade_ptr[i] = agent.grade;
             school_id_ptr[i] = agent.school_id;
             school_closed_ptr[i] = 0;
@@ -401,11 +401,12 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                 if (agent.school_id == 0) {
                     // the group work population for this agent is for the NAICS category for the agent
                     int max_workgroup = agents_extras_ptr[i].naics_population / workgroup_size + 1;
+                    // a workgroup of 0 indicates not working
                     workgroup_ptr[i] = Random_int(max_workgroup, engine) + 1;
                     AMREX_ASSERT(workgroup_ptr[i] > 0 && workgroup_ptr[i] < max_workgroup * (NAICS_COUNT + 1));
                     int max_work_nborhood = agents_extras_ptr[i].work_population / nborhood_size + 1;
-                    work_nborhood_ptr[i] = Random_int(max_work_nborhood, engine) + 1;
-                    AMREX_ASSERT(work_nborhood_ptr[i] > 0 && work_nborhood_ptr[i] < 5000);
+                    work_nborhood_ptr[i] = Random_int(max_work_nborhood, engine);
+                    AMREX_ASSERT(work_nborhood_ptr[i] < 5000);
                 } else {
                     // educator, workgroup is school, as is nborhood
                     workgroup_ptr[i] = school_id_ptr[i];
