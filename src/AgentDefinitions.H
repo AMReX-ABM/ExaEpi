@@ -48,6 +48,7 @@ struct IntIdx {
         trav_i /*!< air travel location index */,
         trav_j /*!< air travel location index */,
         nborhood,      /*!< home neighborhood ID */
+        hh_cluster,    /*!< household cluster ID */
         school_grade,  /*!< school grade, including universities */
         school_id,     /*!< ID for a given school */
         school_closed, /*!< 0 for open, 1 for closed */

@@ -320,6 +320,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         soa.GetIntData(IntIdx::hosp_i).assign(-1);
         soa.GetIntData(IntIdx::hosp_j).assign(-1);
         auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
+        auto hh_cluster_ptr = soa.GetIntData(IntIdx::hh_cluster).data();
         auto school_grade_ptr = soa.GetIntData(IntIdx::school_grade).data();
         auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
         auto school_closed_ptr = soa.GetIntData(IntIdx::school_closed).data();
@@ -392,6 +393,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             family_ptr[i] = agent.household_id;
             int max_nborhood = agents_extras_ptr[i].home_population / nborhood_size + 1;
             nborhood_ptr[i] = Random_int(max_nborhood, engine);
+            hh_cluster_ptr[i] = agent.household_id / 4;
             school_grade_ptr[i] = agent.grade;
             school_id_ptr[i] = agent.school_id;
             school_closed_ptr[i] = 0;
