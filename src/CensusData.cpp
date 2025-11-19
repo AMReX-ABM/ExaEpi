@@ -261,6 +261,7 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
         auto hosp_i_ptr = soa.GetIntData(IntIdx::hosp_i).data();
         auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
         auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
+        auto hh_cluster_ptr = soa.GetIntData(IntIdx::hh_cluster).data();
         auto school_grade_ptr = soa.GetIntData(IntIdx::school_grade).data();
         auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
         auto school_closed_ptr = soa.GetIntData(IntIdx::school_closed).data();
@@ -424,6 +425,7 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                 hosp_i_ptr[ip] = -1;
                 hosp_j_ptr[ip] = -1;
                 nborhood_ptr[ip] = nborhood;
+                hh_cluster_ptr[ip] = family_ptr[ip] / 4;
                 work_nborhood_ptr[ip] = nborhood;
                 workgroup_ptr[ip] = 0;
                 naics_ptr[ip] = 0;
