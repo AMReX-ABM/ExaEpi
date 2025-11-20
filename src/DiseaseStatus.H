@@ -133,6 +133,10 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                 auto immune_length_alpha = disease_parm_h->immune_length_alpha;
                 auto immune_length_beta = disease_parm_h->immune_length_beta;
 
+                auto compliance_day_0 = a_agents.m_symptomatic_withdraw_compliance_day_0;
+                auto compliance_day_1 = a_agents.m_symptomatic_withdraw_compliance_day_1;
+                auto compliance_day_2 = a_agents.m_symptomatic_withdraw_compliance_day_2;
+
                 ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
                     if (status_ptr[i] == Status::dead) { return; }
                     prob_ptr[i] = 1.0_rt;
@@ -148,7 +152,6 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                         }
                     } else if (status_ptr[i] == Status::infected) {
                         counter_ptr[i] += 1;
-                        // FIXME: Epicast HACK
                         int incb_period = (int)amrex::Math::floor(incubation_period_ptr[i]);
                         // check for symptomatic/asymp
                         if (symptomatic_ptr[i] == SymptomStatus::presymptomatic && counter_ptr[i] == incb_period) {
@@ -161,25 +164,16 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                         }
                         // check for withdrawn
                         if (symptomatic_ptr[i] == SymptomStatus::symptomatic) {
-                            //  day 0 probability of withdrawing for all age groups
-                            if (counter_ptr[i] == incb_period) {
-                                if (Random(engine) < 0.3) { withdrawn_ptr[i] = 1; }
-                            }
-                            //  on day 1 of symptoms, possibility of withdrawing
-                            if (counter_ptr[i] == incb_period + 1) {
-                                // epicast age group values: 0-5: 0.8, 6-17: 0.7, 18+: 0.5
-                                if (withdrawn_ptr[i] == 0) {
-                                    Real compliance[] = {Real(0.8), Real(0.7), Real(0.5), Real(0.5), Real(0.5)};
-                                    if (Random(engine) < compliance[age_group_ptr[i]]) { withdrawn_ptr[i] = 1; }
+                            if (withdrawn_ptr[i] == 0) {
+                                amrex::Real withdraw_compliance = 0.0_rt;
+                                if (counter_ptr[i] == incb_period) {
+                                    withdraw_compliance = compliance_day_0[age_group_ptr[i]];
+                                } else if (counter_ptr[i] == incb_period + 1) {
+                                    withdraw_compliance = compliance_day_1[age_group_ptr[i]];
+                                } else if (counter_ptr[i] == incb_period + 2) {
+                                    withdraw_compliance = compliance_day_2[age_group_ptr[i]];
                                 }
-                            }
-                            // on day 2 of symptoms, possibility of withdrawing
-                            if (counter_ptr[i] == incb_period + 2) {
-                                // epicast age group values: 0-5: 0.9, 6-17: 0.8, 18+: 0.7
-                                if (withdrawn_ptr[i] == 0) {
-                                    Real compliance[] = {Real(0.9), Real(0.8), Real(0.7), Real(0.7), Real(0.7)};
-                                    if (Random(engine) < compliance[age_group_ptr[i]]) { withdrawn_ptr[i] = 1; }
-                                }
+                                if (Random(engine) < withdraw_compliance) { withdrawn_ptr[i] = 1; }
                             }
                             // chance of hospitalization on day indicated by delay ptr
                             if (counter_ptr[i] == incb_period + hospital_delay_ptr[i]) {
@@ -191,8 +185,8 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                             }
                         }
                     }
-                    if (!marked_for_hosp_ptr[i] && !inHospital(i, ptd) &&
-                        counter_ptr[i] == amrex::Math::floor(latent_period_ptr[i] + infectious_period_ptr[i])) {
+                    auto recovered_period = amrex::Math::floor(latent_period_ptr[i] + infectious_period_ptr[i]);
+                    if (!marked_for_hosp_ptr[i] && !inHospital(i, ptd) && counter_ptr[i] == recovered_period) {
                         status_ptr[i] = Status::immune;
                         counter_ptr[i] = static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine));
                         symptomatic_ptr[i] = SymptomStatus::presymptomatic;

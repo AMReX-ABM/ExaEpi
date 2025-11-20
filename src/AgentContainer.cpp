@@ -97,20 +97,14 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
 
     addAttributes();
 
-    {
-        amrex::ParmParse pp("agent");
-        pp.query("shelter_compliance", m_shelter_compliance);
-        pp.query("symptomatic_withdraw_compliance", m_symptomatic_withdraw_compliance);
-        int stratio[SchoolType::total];
-        for (unsigned int i = 0; i < SchoolType::total; i++) {
-            stratio[i] = m_student_teacher_ratio[i];
-        }
+    amrex::ParmParse pp("agent");
 
-        queryArray(pp, "student_teacher_ratio", stratio, SchoolType::total);
-        for (unsigned int i = 0; i < SchoolType::total; ++i) {
-            m_student_teacher_ratio[i] = stratio[i];
-        }
-    }
+    pp.query("shelter_compliance", m_shelter_compliance);
+    queryGpuArray<int, SchoolType::total>(pp, "student_teacher_ratio", m_student_teacher_ratio);
+
+    queryGpuArray<Real, AgeGroups::total>(pp, "symptomatic_withdraw_compliance_day_0", m_symptomatic_withdraw_compliance_day_0);
+    queryGpuArray<Real, AgeGroups::total>(pp, "symptomatic_withdraw_compliance_day_1", m_symptomatic_withdraw_compliance_day_1);
+    queryGpuArray<Real, AgeGroups::total>(pp, "symptomatic_withdraw_compliance_day_2", m_symptomatic_withdraw_compliance_day_2);
 
     {
         using namespace ExaEpi;

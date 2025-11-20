@@ -45,8 +45,10 @@ agent.shelter_start = -1
 agent.shelter_length = 0
 # The compliance rate for shelter-in-place, i.e. the probability of an agent actually sheltering.
 agent.shelter_compliance = 0.95
-# The probability of an agent withdrawing when first becoming symptomatic.
-agent.symptomatic_withdraw_compliance = 0.95
+# The probability of an agent withdrawing on day 0, day 1 and day 2 for age groups u5, 5-17, 18-29, 30-49, 50-64, 65+
+agent.symptomatic_withdraw_compliance_day_0 = 0.3 0.3 0.3 0.3 0.3 0.3
+agent.symptomatic_withdraw_compliance_day_1 = 0.8 0.6 0.5 0.5 0.5 0.5
+agent.symptomatic_withdraw_compliance_day_2 = 0.9 0.8 0.7 0.7 0.7 0.7
 # The compliance rate for children when schools are closed. This reduces the probability of transmission in the neighborhood.
 agent.child_compliance = 0.5
 # A factor for increasing transmission by children within households when schools are closed.

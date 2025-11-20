@@ -262,4 +262,17 @@ void queryArray (amrex::ParmParse& pp, const std::string& s, T* a, int n) {
     }
 }
 
+template <typename T, int N>
+void queryGpuArray (amrex::ParmParse& pp, const std::string& s, amrex::GpuArray<T, N>& a) {
+    T tmp_arr[N];
+    for (unsigned int i = 0; i < N; i++) {
+        tmp_arr[i] = a[i];
+    }
+
+    queryArray(pp, s, tmp_arr, N);
+    for (unsigned int i = 0; i < N; ++i) {
+        a[i] = tmp_arr[i];
+    }
+}
+
 #endif

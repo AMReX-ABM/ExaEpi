@@ -88,8 +88,15 @@ The following are inputs for the overall simulation:
     Number of days shelter-in-place is in effect.
 * ``agent.shelter_compliance`` (`float`, default ``0.95``)
     Fraction of agents that comply with shelter-in-place order.
-* ``agent.symptomatic_withdraw_compliance`` (`float`, default: ``0.95``)
-    Compliance rate for agents withdrawing when they have symptoms. Should be 0.0 to 1.0. Set it to 0 if not using withdrawal.
+* ``agent.symptomatic_withdraw_compliance_0`` (`float`, default: ``0.3 0.3 0.3 0.3 0.3 0.3``)
+    Compliance rate for agents withdrawing on day 0 when they have symptoms, per age groups u5, 6-17, 18-29, 30-49, 50-64, 64+.
+    Should be 0.0 to 1.0. Set it to 0 if not using withdrawal.
+* ``agent.symptomatic_withdraw_compliance_1`` (`float`, default: ``0.8 0.6 0.5 0.5 0.5 0.5``)
+    Compliance rate for agents withdrawing on day 1 when they have symptoms, per age groups u5, 6-17, 18-29, 30-49, 50-64, 64+.
+    Should be 0.0 to 1.0. Set it to 0 if not using withdrawal.
+* ``agent.symptomatic_withdraw_compliance_2`` (`float`, default: ``0.9 0.8 0.7 0.7 0.7 0.7``)
+    Compliance rate for agents withdrawing on day 2 when they have symptoms, per age groups u5, 6-17, 18-29, 30-49, 50-64, 64+.
+    Should be 0.0 to 1.0. Set it to 0 if not using withdrawal.
 * ``agent.child_compliance`` (`float`, default ``0.95``)
     Compliance rate for children when schools are closed. This reduces the probability of transmission within
     neighborhood clusters, neighborhoods and communities.

@@ -97,9 +97,6 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     /*! \brief Return the number of diseases */
     inline int numDiseases () const { return m_num_diseases; }
 
-    /*! \brief return the symptomatic withdrawal compliance */
-    inline amrex::Real symptomaticWithdrawCompliance () const { return m_symptomatic_withdraw_compliance; }
-
     void printStudentTeacherCounts() const;
 
     void printAgeGroupCounts() const;
@@ -108,6 +105,16 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     /// Used only for Census data. A ratio for each school type: none, college, high, middle, elem, daycare
     amrex::GpuArray<int, SchoolType::total> m_student_teacher_ratio = {0, 15, 15, 15, 15, 15};
 
+    /*!< Symptomatic withdrawal compliance rate, day 0, AgeGroups u5, 5-17, 18-29, 30-49, 50-64, 65+*/
+    amrex::GpuArray<amrex::Real, AgeGroups::total> m_symptomatic_withdraw_compliance_day_0 = {0.3_rt, 0.3_rt, 0.3_rt,
+                                                                                              0.3_rt, 0.3_rt, 0.3_rt};
+    /*!< Symptomatic withdrawal compliance rate, day 1 */
+    amrex::GpuArray<amrex::Real, AgeGroups::total> m_symptomatic_withdraw_compliance_day_1 = {0.8_rt, 0.7_rt, 0.5_rt,
+                                                                                              0.5_rt, 0.5_rt, 0.5_rt};
+    /*!< Symptomatic withdrawal compliance rate, day 2 */
+    amrex::GpuArray<amrex::Real, AgeGroups::total> m_symptomatic_withdraw_compliance_day_2 = {0.9_rt, 0.8_rt, 0.7_rt,
+                                                                                              0.7_rt, 0.7_rt, 0.7_rt};
+
     int m_num_diseases; /*!< Number of diseases */
 
     amrex::iMultiFab comm_mf;
@@ -115,11 +122,10 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     short ic_type;
 
   protected:
-    amrex::Real m_shelter_compliance = 0.95_rt;              /*!< Shelter-in-place compliance rate */
-    amrex::Real m_symptomatic_withdraw_compliance = 0.95_rt; /*!< Symptomatic withdrawal compliance rate */
+    amrex::Real m_shelter_compliance = 0.95_rt; /*!< Shelter-in-place compliance rate */
 
-    std::vector<DiseaseParm*> m_h_parm;                      /*!< Disease parameters */
-    std::vector<DiseaseParm*> m_d_parm;                      /*!< Disease parameters (GPU device) */
+    std::vector<DiseaseParm*> m_h_parm;         /*!< Disease parameters */
+    std::vector<DiseaseParm*> m_d_parm;         /*!< Disease parameters (GPU device) */
 
     std::unique_ptr<DiseaseCouplingParm<PTDType>> m_disease_coupling;
 
