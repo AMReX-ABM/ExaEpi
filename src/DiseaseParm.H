@@ -250,7 +250,16 @@ void setInfected (int* status, amrex::ParticleReal* counter, amrex::ParticleReal
 #endif
 }
 
-void queryArray(amrex::ParmParse& pp, const std::string& s, amrex::Real* a, int n);
-void queryArray(amrex::ParmParse& pp, const std::string& s, int* a, int n);
+template <typename T>
+void queryArray (amrex::ParmParse& pp, const std::string& s, T* a, int n) {
+    Vector<T> tmp(n, 0);
+    for (int i = 0; i < n; i++) {
+        tmp[i] = a[i];
+    }
+    pp.queryarr(s.c_str(), tmp, 0, n);
+    for (int i = 0; i < n; i++) {
+        a[i] = tmp[i];
+    }
+}
 
 #endif
