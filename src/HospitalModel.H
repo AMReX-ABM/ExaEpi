@@ -163,7 +163,8 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                             counter_ptrs[d][i] =
                                     static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine));
                             symptomatic_ptrs[d][i] = SymptomStatus::presymptomatic;
-                            withdrawn_ptr[i] = 0;
+                            // don't withdraw yet since the agent could still have another disease
+                            // withdrawn_ptr[i] = 0;
                             timer_ptrs[d][i] = 0.0_prt;
                         }
                     }
@@ -201,6 +202,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
             });
             Gpu::synchronize();
 
+            // accumulate statistics
             for (int d = 0; d < n_disease; d++) {
                 auto ds_arr = (*a_dstats[d])[mfi].array();
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
