@@ -110,16 +110,6 @@ struct AgeGroups {
     };
 };
 
-/*! \brief Age Groups for Hospitalization Days */
-struct AgeGroups_Hosp {
-    enum {
-        u50 = 0, /*!< Under 50 */
-        a50to64, /*!< Ages 50-64 */
-        o65,     /*!< 65 and over */
-        total    /*!< number of age groups */
-    };
-};
-
 /*! \brief Disease status */
 struct Status {
     enum {
@@ -331,8 +321,6 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 bool isNewlyHospitalized (const int a_idx,      /*!< Agent index */
                           const PTDType& a_ptd, /*!< Particle tile data */
                           const int a_d /*!< Disease index */) {
-    int status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx];
-    int symptom_status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx];
     int disease_counter = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
     int incb_period = (int)amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
     int hospital_delay = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::hospital_delay][a_idx];

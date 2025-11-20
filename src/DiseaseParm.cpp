@@ -78,13 +78,13 @@ void DiseaseParm::readInputs (const std::string& a_pp_str /*!< Parmparse string 
     }
 
     if (m_hospital_stay_type == HospitalStayType::Constant) {
-        queryArray(pp, "hospitalization_days", m_t_hosp, AgeGroups_Hosp::total);
-        for (int i = 0; i < AgeGroups_Hosp::total; i++) {
-            AMREX_ALWAYS_ASSERT(m_t_hosp[i] < m_t_hosp_offset);
+        queryArray(pp, "hospitalization_days", m_t_hosp_days, AgeGroups::total);
+        for (int i = 0; i < AgeGroups::total; i++) {
+            AMREX_ALWAYS_ASSERT(m_t_hosp_days[i] < m_t_hosp_offset);
         }
     } else if (m_hospital_stay_type == HospitalStayType::Random) {
-        queryArray(pp, "hospitalization_days_alpha", m_t_hosp_alpha, AgeGroups_Hosp::total);
-        queryArray(pp, "hospitalization_days_beta", m_t_hosp_beta, AgeGroups_Hosp::total);
+        queryArray(pp, "hospitalization_days_alpha", m_t_hosp_days_alpha, AgeGroups::total);
+        queryArray(pp, "hospitalization_days_beta", m_t_hosp_days_beta, AgeGroups::total);
     } else {
         amrex::Abort("Unrecognized hospital stay type!");
     }

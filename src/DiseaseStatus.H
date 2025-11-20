@@ -163,7 +163,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                             }
                         }
                         // check for withdrawn
-                        if (symptomatic_ptr[i] == SymptomStatus::symptomatic) {
+                        if (symptomatic_ptr[i] == SymptomStatus::symptomatic && !inHospital(i, ptd)) {
                             if (withdrawn_ptr[i] == 0) {
                                 amrex::Real withdraw_compliance = 0.0_rt;
                                 if (counter_ptr[i] == incb_period) {
@@ -175,13 +175,11 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                                 }
                                 if (Random(engine) < withdraw_compliance) { withdrawn_ptr[i] = 1; }
                             }
-                            // chance of hospitalization on day indicated by delay ptr
-                            if (counter_ptr[i] == incb_period + hospital_delay_ptr[i]) {
-                                if (withdrawn_ptr[i] == 1) {
-                                    disease_parm_d->checkHospitalization(&(timer_ptr[i]), &(marked_for_ICU_ptr[i]),
-                                                                         &(marked_for_vent_ptr[i]), age_group_ptr[i], engine);
-                                    if (timer_ptr[i] > 0) { marked_for_hosp_ptr[i] = 1; }
-                                }
+                            // for withdrawn, chance of hospitalization on day indicated by delay ptr
+                            if (withdrawn_ptr[i] == 1 && counter_ptr[i] == incb_period + hospital_delay_ptr[i]) {
+                                disease_parm_d->checkHospitalization(&(timer_ptr[i]), &(marked_for_ICU_ptr[i]),
+                                                                     &(marked_for_vent_ptr[i]), age_group_ptr[i], engine);
+                                if (timer_ptr[i] > 0) { marked_for_hosp_ptr[i] = 1; }
                             }
                         }
                     }
