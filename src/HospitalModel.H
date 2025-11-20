@@ -157,6 +157,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                             is_alive_ptr[i] = 0;
                             flag_status_ptr[i] *= -1;
                             status_ptrs[d][i] = Status::dead;
+                            amrex::AllPrint() << "agent " << i << " just died\n";
                         } else {
                             // If alive, hospitalized patient recovers
                             status_ptrs[d][i] = Status::immune;

@@ -26,50 +26,78 @@ def load_epicast(fname):
     days = len(exposed)
     print(f"Epicast has {days} days")
 
-    infected = [0] * days
-    in_hospital = [0] * days
-    infected[0] = exposed[0] - recovered[0]
-    for i in range(1, days):
-        infected[i] = infected[i - 1] + exposed[i] - recovered[i]
-        in_hospital[i] = (
-            in_hospital[i - 1]
-            + hospitalized[i]
-            + icu[i]
-            + vent[i]
-            - treatment_recovered[i]
-            - dead[i]
-        )
-
     converted_df = pd.DataFrame()
     converted_df["exposed"] = exposed
     converted_df["symptomatic"] = symptomatic
     converted_df["asymptomatic"] = asymptomatic
     converted_df["presymptomatic"] = presymptomatic
     converted_df["hospitalized"] = hospitalized
-    converted_df["infected"] = infected
-    converted_df["in_hospital"] = in_hospital
     converted_df["dead"] = dead
     converted_df.to_csv(fname + "-converted.csv")
+
     return converted_df
 
 
+def plot_series(ax, epicast_dfs, exaepi_vals, label):
+    # Define colors for multiple Epicast series
+    colors = ["blue", "green", "purple", "orange", "brown", "pink"]
+
+    # Extract column name from label
+    col_map = {
+        "Newly Infected": "exposed",
+        "Newly Symptomatic": "symptomatic",
+        "Newly Presymptomatic": "presymptomatic",
+        "Newly Asymptomatic": "asymptomatic",
+        "Newly Hospitalized": "hospitalized",
+        "Newly Dead": "dead",
+    }
+    col_name = col_map.get(label, label.lower())
+
+    # Plot each Epicast file
+    for i, (fname, df) in enumerate(epicast_dfs.items()):
+        # Get short filename for legend
+        short_name = fname.split("/")[-1].split(".")[0]
+        ax.plot(
+            df[col_name],
+            label=f"Epicast-{short_name}",
+            color=colors[i % len(colors)],
+            linewidth=2,
+            linestyle="--",
+        )
+
+    # Plot ExaEpi
+    ax.plot(exaepi_vals, label="ExaEpi", color="red", linewidth=2)
+    ax.set_xlabel("Days")
+    ax.set_ylabel("Number of " + label)
+    ax.set_xlim([0, args.xlimit])
+
+    # Calculate ylim from all series
+    max_vals = [df[col_name].max() for df in epicast_dfs.values()]
+    max_vals.append(exaepi_vals.max())
+    ax.set_ylim([0, max(max_vals)])
+
+    ax.set_title(label)
+    ax.grid(True, which="major")
+    ax.grid(True, which="minor", alpha=0.3)
+    ax.minorticks_on()
+
+
 parser = argparse.ArgumentParser()
-parser.add_argument("--epicast_file", "-e", required=True, help="Epicast csv file")
+parser.add_argument(
+    "--epicast_file", "-e", nargs="+", required=True, help="One or more Epicast csv files"
+)
 parser.add_argument("--exaepi_file", "-x", required=True, help="ExaEpi csv file")
 parser.add_argument("--xlimit", "-l", type=int, default=250, help="X-axis limit for plotting")
 args = parser.parse_args()
 
+epicast_dfs = {}
+for fname in args.epicast_file:
+    epicast_dfs[fname] = load_epicast(fname)
 
-epicast_df = load_epicast(args.epicast_file)
 exaepi_df = pd.read_csv(args.exaepi_file, sep="\\s+")
 print(f"Read {len(exaepi_df)} lines from the ExaEpi file {args.exaepi_file}")
 
-# print(exaepi_df.dtypes)
-# exaepi_df["infected"] = exaepi_df[
-#    ["PS/PI", "S/PI", "S/I", "PS/I", "A/PI", "A/I", "H/I"]
-# ].sum(axis=1)
 exaepi_df["in_hospital"] = exaepi_df[["H/NI", "H/I"]].sum(axis=1)
-# exaepi_df["NewI"] = exaepi_df["NewI"] * 2.0
 
 days = len(exaepi_df)
 delta_dead = [0] * days
@@ -79,75 +107,15 @@ exaepi_df["delta_dead"] = delta_dead
 
 exaepi_df.to_csv("exaepi.csv")
 
-maxy = max(max(epicast_df.exposed), max(exaepi_df.NewI))
-# fig, ((ax1, ax4), (ax2, ax5), (ax3, ax6)) = plt.subplots(3, 2, figsize=(12, 11))
-fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 11))
-# Plot infected cases
-# ax1.plot(epicast_df.infected, label="Epicast", color="blue", linewidth=2)
-# ax1.plot(exaepi_df.infected, label="ExaEpi", color="red", linewidth=2)
-ax1.plot(epicast_df.exposed, label="Epicast", color="blue", linewidth=2)
-ax1.plot(epicast_df.exposed, label="Epicast", color="blue", linewidth=2)
-ax1.plot(epicast_df.exposed, label="Epicast", color="blue", linewidth=2)
-ax1.plot(exaepi_df.NewI, label="ExaEpi", color="red", linewidth=2)
-ax1.set_xlabel("Days")
-ax1.set_ylabel("Number of Newly Infected")
-ax1.set_xlim([0, args.xlimit])
-ax1.set_title("Newly Infected Cases")
+fig, ((ax1, ax2), (ax3, ax4), (ax5, ax6)) = plt.subplots(3, 2, figsize=(12, 11))
+
+plot_series(ax1, epicast_dfs, exaepi_df.NewI, "Newly Infected")
+plot_series(ax2, epicast_dfs, exaepi_df.NewS, "Newly Symptomatic")
+plot_series(ax3, epicast_dfs, exaepi_df.NewP, "Newly Presymptomatic")
+plot_series(ax4, epicast_dfs, exaepi_df.NewA, "Newly Asymptomatic")
+plot_series(ax5, epicast_dfs, exaepi_df.NewH, "Newly Hospitalized")
+plot_series(ax6, epicast_dfs, exaepi_df.delta_dead, "Newly Dead")
 ax1.legend()
-ax1.grid(True, which="major")
-ax1.grid(True, which="minor", alpha=0.3)
-ax1.set_ylim([0, maxy])
-ax1.minorticks_on()
-
-# Plot hospitalized
-# ax2.plot(epicast_df.in_hospital, label="Epicast", color="blue", linewidth=2)
-# ax2.plot(exaepi_df.in_hospital, label="ExaEpi", color="red", linewidth=2)
-ax2.plot(epicast_df.symptomatic, label="Epicast Symp", color="blue", linewidth=2)
-# ax2.plot(epicast_df.hospitalized, label="Epicast", color="blue", linewidth=2)
-# ax2.plot(exaepi_df.NewH, label="ExaEpi", color="red", linewidth=2)
-ax2.plot(exaepi_df.NewS, label="ExaEpi", color="red", linewidth=2)
-ax2.set_xlabel("Days")
-# ax2.set_ylabel("Number of Newly Hospitalized")
-ax2.set_ylabel("Number of Newly Symptomatic")
-ax2.set_xlim([0, args.xlimit])
-ax2.set_ylim([0, maxy])
-# ax2.set_title("Comparison of Hospitalized")
-ax2.set_title("Newly Symptomatic")
-ax2.grid(True, which="major")
-ax2.grid(True, which="minor", alpha=0.3)
-ax2.minorticks_on()
-
-# Plot daily deaths
-ax3.plot(epicast_df.presymptomatic, label="Epicast Presymp", color="blue", linewidth=2)
-# ax3.plot(epicast_df.dead, label="Epicast", color="blue", linewidth=2)
-# ax3.plot(exaepi_df.delta_dead, label="ExaEpi", color="red", linewidth=2)
-ax3.plot(exaepi_df.NewP, label="ExaEpi", color="red", linewidth=2)
-ax3.set_xlabel("Days")
-# ax3.set_ylabel("Number of Newly Dead")
-ax3.set_ylabel("Number of Newly Presymptomatic")
-ax3.set_xlim([0, args.xlimit])
-ax3.set_ylim([0, maxy])
-# ax3.set_title("Comparison of Deaths")
-ax3.set_title("Newly Presymptomatic")
-ax3.grid(True, which="major")
-ax3.grid(True, which="minor", alpha=0.3)
-ax3.minorticks_on()
-
-# Plot daily deaths
-ax4.plot(epicast_df.asymptomatic, label="Epicast Asymp", color="blue", linewidth=2)
-# ax3.plot(epicast_df.dead, label="Epicast", color="blue", linewidth=2)
-# ax3.plot(exaepi_df.delta_dead, label="ExaEpi", color="red", linewidth=2)
-ax4.plot(exaepi_df.NewA, label="ExaEpi", color="red", linewidth=2)
-ax4.set_xlabel("Days")
-# ax3.set_ylabel("Number of Newly Dead")
-ax4.set_ylabel("Number of Newly Asymptomatic")
-ax4.set_xlim([0, args.xlimit])
-ax4.set_ylim([0, maxy])
-# ax3.set_title("Comparison of Deaths")
-ax4.set_title("Newly Asymptomatic")
-ax4.grid(True, which="major")
-ax4.grid(True, which="minor", alpha=0.3)
-ax4.minorticks_on()
 
 plt.suptitle("ExaEpi vs Epicast Comparison", y=1.05)
 plt.tight_layout()

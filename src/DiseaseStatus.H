@@ -126,7 +126,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                 auto latent_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::latent_period).data();
                 auto infectious_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::infectious_period).data();
                 auto incubation_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).data();
-                //auto hospital_delay_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_delay).data();
+                auto hospital_delay_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_delay).data();
 
                 auto* disease_parm_d = a_agents.getDiseaseParameters_d(d);
                 auto* disease_parm_h = a_agents.getDiseaseParameters_h(d);
@@ -163,26 +163,30 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                             //  day 0 probability of withdrawing for all age groups
                             if (counter_ptr[i] == incb_period) {
                                 if (Random(engine) < 0.3) { withdrawn_ptr[i] = 1; }
-                                // no hospitalization on day 0 of symptoms
                             }
-                            //  on day 1 of symptoms, possibility of withdrawing and hospitalization
+                            //  on day 1 of symptoms, possibility of withdrawing
                             if (counter_ptr[i] == incb_period + 1) {
                                 // epicast age group values: 0-5: 0.8, 6-17: 0.7, 18+: 0.5
                                 if (withdrawn_ptr[i] == 0) {
                                     Real compliance[] = {Real(0.8), Real(0.7), Real(0.5), Real(0.5), Real(0.5)};
                                     if (Random(engine) < compliance[age_group_ptr[i]]) { withdrawn_ptr[i] = 1; }
                                 }
+                            }
+                            // on day 2 of symptoms, possibility of withdrawing
+                            if (counter_ptr[i] == incb_period + 2) {
+                                // epicast age group values: 0-5: 0.9, 6-17: 0.8, 18+: 0.7
+                                if (withdrawn_ptr[i] == 0) {
+                                    Real compliance[] = {Real(0.9), Real(0.8), Real(0.7), Real(0.7), Real(0.7)};
+                                    if (Random(engine) < compliance[age_group_ptr[i]]) { withdrawn_ptr[i] = 1; }
+                                }
+                            }
+                            // chance of hospitalization on day indicated by delay ptr (2 for epicast)
+                            if (counter_ptr[i] == incb_period + hospital_delay_ptr[i]) {
                                 if (withdrawn_ptr[i] == 1) {
                                     disease_parm_d->checkHospitalization(&(timer_ptr[i]), &(marked_for_ICU_ptr[i]),
                                                                          &(marked_for_vent_ptr[i]), age_group_ptr[i], engine);
                                     if (timer_ptr[i] > 0) { marked_for_hosp_ptr[i] = 1; }
                                 }
-                            }
-                            // on day 2 of symptoms, possibility of withdrawing, but no hospitalizatin
-                            if (counter_ptr[i] == incb_period + 2 && withdrawn_ptr[i] == 0) {
-                                // epicast age group values: 0-5: 0.9, 6-17: 0.8, 18+: 0.7
-                                Real compliance[] = {Real(0.9), Real(0.8), Real(0.7), Real(0.7), Real(0.7)};
-                                if (Random(engine) < compliance[age_group_ptr[i]]) { withdrawn_ptr[i] = 1; }
                             }
                         }
                     }

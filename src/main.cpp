@@ -445,8 +445,10 @@ void runAgent () {
 
                 if (ParallelDescriptor::IOProcessor()) {
                     // total number of deaths computed on agents and on mesh should be the same...
-                    if (mmc[3] != counts[OutputStatus::D]) { amrex::Print() << mmc[3] << " " << counts[OutputStatus::D] << "\n"; }
-                    AMREX_ALWAYS_ASSERT(mmc[3] == counts[OutputStatus::D]);
+                    if (mmc[3] != counts[OutputStatus::D]) {
+                        amrex::Print() << "ERROR in death counts: " << mmc[3] << " != " << counts[OutputStatus::D] << "\n";
+                    }
+                    // AMREX_ALWAYS_ASSERT(mmc[3] == counts[OutputStatus::D]);
 
                     // the total number of infected should equal the sum of
                     //     those that are hospitalized

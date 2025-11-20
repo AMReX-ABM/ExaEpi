@@ -331,13 +331,12 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 bool isNewlyHospitalized (const int a_idx,      /*!< Agent index */
                           const PTDType& a_ptd, /*!< Particle tile data */
                           const int a_d /*!< Disease index */) {
-    amrex::Real delay = amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::hospital_delay][a_idx]);
-    // amrex::Real incub = amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
-    amrex::Real incub = a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx];
-    // if (isNewlySymptomatic(a_idx, a_ptd, a_d) && (delay == 0) && inHospital(a_idx, a_ptd)) {
-    // FIXME: Epicast HACK - newly hospitalized on the second day
-    if (inHospital(a_idx, a_ptd) && (a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx] >= incub + delay) &&
-        (a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx] < incub + delay + 1)) {
+    int status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx];
+    int symptom_status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx];
+    int disease_counter = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
+    int incb_period = (int)amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
+    int hospital_delay = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::hospital_delay][a_idx];
+    if (inHospital(a_idx, a_ptd) && disease_counter == incb_period + hospital_delay) {
         return true;
     } else {
         return false;

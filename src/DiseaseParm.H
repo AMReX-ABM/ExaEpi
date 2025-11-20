@@ -222,6 +222,7 @@ void setInfected (int* status, amrex::ParticleReal* counter, amrex::ParticleReal
     // incubation is hacked to be 1 day more than the latent period (1 day of presymptomatic)
     *incubation_period = *latent_period + 1;
 #else
+    // Epicast HACK
     // Using Epicast transition probs
     // These are the CDF values
     Real latent_probs[] = {Real(0.0), Real(0.1), Real(0.25), Real(0.55), Real(0.66), Real(0.78), Real(0.85), Real(1.0)};
@@ -246,6 +247,8 @@ void setInfected (int* status, amrex::ParticleReal* counter, amrex::ParticleReal
             break;
         }
     }
+    // only one shot at hospitalization and that is on day 2
+    *hospital_delay = amrex::Real(2);
 #endif
 }
 

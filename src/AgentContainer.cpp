@@ -714,19 +714,13 @@ std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_
                 AMREX_ALWAYS_ASSERT(status <= 4);
 
                 if (status == Status::never || status == Status::susceptible) { s[OutputStatus::Su] = 1; }
-
                 if (status == Status::immune) { s[OutputStatus::R] = 1; }
-
                 if (status == Status::dead) { s[OutputStatus::D] = 1; }
 
                 if (isNewlyInfected(i, ptd, a_d)) { s[OutputStatus::NewI] = 1; }
-
                 if (isNewlySymptomatic(i, ptd, a_d)) { s[OutputStatus::NewS] = 1; }
-
                 if (isNewlyAsymptomatic(i, ptd, a_d)) { s[OutputStatus::NewA] = 1; }
-
                 if (isNewlyPresymptomatic(i, ptd, a_d)) { s[OutputStatus::NewP] = 1; }
-
                 if (isNewlyHospitalized(i, ptd, a_d)) { s[OutputStatus::NewH] = 1; }
 
                 if (!inHospital(i, ptd)) {                           // do not include hospitalized agents in these counts
