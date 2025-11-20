@@ -181,7 +181,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                                     if (Random(engine) < compliance[age_group_ptr[i]]) { withdrawn_ptr[i] = 1; }
                                 }
                             }
-                            // chance of hospitalization on day indicated by delay ptr (2 for epicast)
+                            // chance of hospitalization on day indicated by delay ptr
                             if (counter_ptr[i] == incb_period + hospital_delay_ptr[i]) {
                                 if (withdrawn_ptr[i] == 1) {
                                     disease_parm_d->checkHospitalization(&(timer_ptr[i]), &(marked_for_ICU_ptr[i]),
