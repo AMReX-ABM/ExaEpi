@@ -134,6 +134,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                 auto immune_length_beta = disease_parm_h->immune_length_beta;
 
                 ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
+                    if (status_ptr[i] == Status::dead) { return; }
                     prob_ptr[i] = 1.0_rt;
                     if (status_ptr[i] == Status::never || status_ptr[i] == Status::susceptible) {
                         return;

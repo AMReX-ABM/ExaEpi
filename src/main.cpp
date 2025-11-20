@@ -448,7 +448,7 @@ void runAgent () {
                     if (mmc[3] != counts[OutputStatus::D]) {
                         amrex::Print() << "ERROR in death counts: " << mmc[3] << " != " << counts[OutputStatus::D] << "\n";
                     }
-                    // AMREX_ALWAYS_ASSERT(mmc[3] == counts[OutputStatus::D]);
+                    AMREX_ALWAYS_ASSERT(mmc[3] == counts[OutputStatus::D]);
 
                     // the total number of infected should equal the sum of
                     //     those that are hospitalized
