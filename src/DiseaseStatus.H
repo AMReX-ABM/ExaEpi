@@ -153,6 +153,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                     } else if (status_ptr[i] == Status::infected) {
                         counter_ptr[i] += 1;
                         int incb_period = (int)amrex::Math::floor(incubation_period_ptr[i]);
+                        int hospital_delay = (int)amrex::Math::floor(hospital_delay_ptr[i]);
                         // check for symptomatic/asymp
                         if (symptomatic_ptr[i] == SymptomStatus::presymptomatic && counter_ptr[i] == incb_period) {
                             //   at end of incubation period, symptoms start to show unless asymptomatic
@@ -176,7 +177,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                                 if (Random(engine) < withdraw_compliance) { withdrawn_ptr[i] = 1; }
                             }
                             // for withdrawn, chance of hospitalization on day indicated by delay ptr
-                            if (withdrawn_ptr[i] == 1 && counter_ptr[i] == incb_period + hospital_delay_ptr[i]) {
+                            if (withdrawn_ptr[i] == 1 && counter_ptr[i] == incb_period + hospital_delay) {
                                 disease_parm_d->checkHospitalization(&(timer_ptr[i]), &(marked_for_ICU_ptr[i]),
                                                                      &(marked_for_vent_ptr[i]), age_group_ptr[i], engine);
                                 if (timer_ptr[i] > 0) { marked_for_hosp_ptr[i] = 1; }

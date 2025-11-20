@@ -323,7 +323,7 @@ bool isNewlyHospitalized (const int a_idx,      /*!< Agent index */
                           const int a_d /*!< Disease index */) {
     int disease_counter = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
     int incb_period = (int)amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
-    int hospital_delay = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::hospital_delay][a_idx];
+    int hospital_delay = (int)amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::hospital_delay][a_idx]);
     if (inHospital(a_idx, a_ptd) && disease_counter == incb_period + hospital_delay) {
         return true;
     } else {

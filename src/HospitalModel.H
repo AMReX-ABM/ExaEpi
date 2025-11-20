@@ -80,13 +80,14 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
             int r_RT = RealIdx::nattribs;
 
             GpuArray<int*, ExaEpi::max_num_diseases> status_ptrs, symptomatic_ptrs;
-            GpuArray<ParticleReal*, ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs, incubation_per_ptrs;
+            GpuArray<ParticleReal*, ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs, incubation_per_ptrs, hospital_delay_ptrs;
             for (int d = 0; d < n_disease; d++) {
                 status_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
                 symptomatic_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::symptomatic).data();
                 counter_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::disease_counter).data();
                 timer_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::treatment_timer).data();
                 incubation_per_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).data();
+                hospital_delay_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_delay).data();
             }
 
             Gpu::DeviceVector<int> is_alive(np);
@@ -124,11 +125,10 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                         // agent is not in hospital
                         return;
                     }
-                    /*
-                    if (counter_ptrs[d][i] == Math::floor(incubation_per_ptrs[d][i])) {
+                    if (counter_ptrs[d][i] == Math::floor(incubation_per_ptrs[d][i]) + Math::floor(hospital_delay_ptrs[d][i])) {
                         // agent just started treatment
                         return;
-                    }*/
+                    }
                     if (timer_ptrs[d][i] == 0) {
                         // agent has recovered/died from disease d
                         return;
