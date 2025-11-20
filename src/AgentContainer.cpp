@@ -5,6 +5,59 @@
 #include "AgentContainer.H"
 #include "AgentDefinitions.H"
 
+// repeat macro for repeating identical tokens
+#define REPEAT_0(x)
+#define REPEAT_1(x) x
+#define REPEAT_2(x) REPEAT_1(x), x
+#define REPEAT_3(x) REPEAT_2(x), x
+#define REPEAT_4(x) REPEAT_3(x), x
+#define REPEAT_5(x) REPEAT_4(x), x
+#define REPEAT_6(x) REPEAT_5(x), x
+#define REPEAT_7(x) REPEAT_6(x), x
+#define REPEAT_8(x) REPEAT_7(x), x
+#define REPEAT_9(x) REPEAT_8(x), x
+#define REPEAT_10(x) REPEAT_9(x), x
+#define REPEAT_11(x) REPEAT_10(x), x
+#define REPEAT_12(x) REPEAT_11(x), x
+#define REPEAT_13(x) REPEAT_12(x), x
+#define REPEAT_14(x) REPEAT_13(x), x
+#define REPEAT_15(x) REPEAT_14(x), x
+#define REPEAT_16(x) REPEAT_15(x), x
+#define REPEAT_17(x) REPEAT_16(x), x
+#define REPEAT_18(x) REPEAT_17(x), x
+#define REPEAT(n, x) REPEAT_##n(x)
+
+// macro to create tuple from array elements
+#define ARRAY_TO_TUPLE_1(arr) arr[0]
+#define ARRAY_TO_TUPLE_2(arr) ARRAY_TO_TUPLE_1(arr), arr[1]
+#define ARRAY_TO_TUPLE_3(arr) ARRAY_TO_TUPLE_2(arr), arr[2]
+#define ARRAY_TO_TUPLE_4(arr) ARRAY_TO_TUPLE_3(arr), arr[3]
+#define ARRAY_TO_TUPLE_5(arr) ARRAY_TO_TUPLE_4(arr), arr[4]
+#define ARRAY_TO_TUPLE_6(arr) ARRAY_TO_TUPLE_5(arr), arr[5]
+#define ARRAY_TO_TUPLE_7(arr) ARRAY_TO_TUPLE_6(arr), arr[6]
+#define ARRAY_TO_TUPLE_8(arr) ARRAY_TO_TUPLE_7(arr), arr[7]
+#define ARRAY_TO_TUPLE_9(arr) ARRAY_TO_TUPLE_8(arr), arr[8]
+#define ARRAY_TO_TUPLE_10(arr) ARRAY_TO_TUPLE_9(arr), arr[9]
+#define ARRAY_TO_TUPLE_11(arr) ARRAY_TO_TUPLE_10(arr), arr[10]
+#define ARRAY_TO_TUPLE_12(arr) ARRAY_TO_TUPLE_11(arr), arr[11]
+#define ARRAY_TO_TUPLE_13(arr) ARRAY_TO_TUPLE_12(arr), arr[12]
+#define ARRAY_TO_TUPLE_14(arr) ARRAY_TO_TUPLE_13(arr), arr[13]
+#define ARRAY_TO_TUPLE_15(arr) ARRAY_TO_TUPLE_14(arr), arr[14]
+#define ARRAY_TO_TUPLE_16(arr) ARRAY_TO_TUPLE_15(arr), arr[15]
+#define ARRAY_TO_TUPLE_17(arr) ARRAY_TO_TUPLE_16(arr), arr[16]
+#define ARRAY_TO_TUPLE_18(arr) ARRAY_TO_TUPLE_17(arr), arr[17]
+#define ARRAY_TO_TUPLE(n, arr) ARRAY_TO_TUPLE_##n(arr)
+
+// macros to extract a tuple into an array
+template <std::size_t I = 0, typename TupleT, typename ArrayT>
+inline typename std::enable_if<I == std::tuple_size<TupleT>::value, void>::type extract_tuple_to_array (const TupleT&, ArrayT&) {}
+template <std::size_t I = 0, typename TupleT, typename ArrayT>
+        inline typename std::enable_if <
+        I<std::tuple_size<TupleT>::value, void>::type extract_tuple_to_array (const TupleT& t, ArrayT& arr) {
+    arr[I] = amrex::get<I>(t);
+    extract_tuple_to_array<I + 1, TupleT, ArrayT>(t, arr);
+}
+
 using namespace amrex;
 using namespace ExaEpi::Utils;
 
@@ -693,21 +746,19 @@ void AgentContainer::generateCellData (MultiFab& mf, /*!< MultiFab with at least
 
 /*! \brief Computes the total number of agents with each #OutputStatus
 
-    Returns a vector with 15 components corresponding to each value of #OutputStatus; each element is
+    Returns a vector with nattrib components corresponding to each value of #OutputStatus; each element is
     the total number of agents at a step with the corresponding #OutputStatus (in that order).
 */
 std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_d /*!< disease index */) {
     BL_PROFILE("getTotals");
-    amrex::ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum,
-                     ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum,
-                     ReduceOpSum, ReduceOpSum>
-            reduce_ops;
-    auto r = amrex::ParticleReduce<
-            ReduceData<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int>>(
+    static_assert(OutputStatus::nattribs == 18, "Expected nattribs == 18");
+
+    amrex::ReduceOps<REPEAT(18, ReduceOpSum)> reduce_ops;
+    auto r = amrex::ParticleReduce<ReduceData<REPEAT(18, int)>>(
             *this,
-            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd, const int i) noexcept
-                    -> amrex::GpuTuple<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int> {
-                int s[18] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
+                                 const int i) noexcept -> amrex::GpuTuple<REPEAT(18, int)> {
+                int s[OutputStatus::nattribs] = {};
                 auto status = ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][i];
 
                 AMREX_ALWAYS_ASSERT(status >= 0);
@@ -754,17 +805,13 @@ std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_
                         s[OutputStatus::H_I] = 1;
                     }
                 }
-                return {s[0], s[1],  s[2],  s[3],  s[4],  s[5],  s[6],  s[7],  s[8],
-                        s[9], s[10], s[11], s[12], s[13], s[14], s[15], s[16], s[17]};
+                return {ARRAY_TO_TUPLE(18, s)};
             },
             reduce_ops);
-
-    std::array<Long, OutputStatus::nattribs> counts = {amrex::get<0>(r),  amrex::get<1>(r),  amrex::get<2>(r),  amrex::get<3>(r),
-                                                       amrex::get<4>(r),  amrex::get<5>(r),  amrex::get<6>(r),  amrex::get<7>(r),
-                                                       amrex::get<8>(r),  amrex::get<9>(r),  amrex::get<10>(r), amrex::get<11>(r),
-                                                       amrex::get<12>(r), amrex::get<13>(r), amrex::get<14>(r), amrex::get<15>(r),
-                                                       amrex::get<16>(r), amrex::get<17>(r)};
+    std::array<Long, OutputStatus::nattribs> counts;
+    extract_tuple_to_array(r, counts);
     ParallelDescriptor::ReduceLongSum(&counts[0], OutputStatus::nattribs, ParallelDescriptor::IOProcessorNumber());
+
     return counts;
 }
 
@@ -846,14 +893,12 @@ void AgentContainer::interactNight (MultiFab& a_mask_behavior /*!< Masking behav
 }
 
 void AgentContainer::printStudentTeacherCounts () const {
-    ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum,
-              ReduceOpSum>
-            reduce_ops;
-    auto r = ParticleReduce<ReduceData<int, int, int, int, int, int, int, int, int, int>>(
+    ReduceOps<REPEAT(10, ReduceOpSum)> reduce_ops;
+    auto r = ParticleReduce<ReduceData<REPEAT(10, int)>>(
             *this,
             [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
-                                 const int i) noexcept -> GpuTuple<int, int, int, int, int, int, int, int, int, int> {
-                int counts[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+                                 const int i) noexcept -> GpuTuple<REPEAT(10, int)> {
+                int counts[10] = {};
                 if (ptd.m_idata[IntIdx::school_id][i] > 0) {
                     int pos = (ptd.m_idata[IntIdx::workgroup][i] > 0 ? 0 : 5);
                     int grade = ptd.m_idata[IntIdx::school_grade][i];
@@ -864,13 +909,11 @@ void AgentContainer::printStudentTeacherCounts () const {
                     AMREX_ASSERT(pos >= 0 && pos < 10);
                     counts[pos] = 1;
                 }
-                return {counts[0], counts[1], counts[2], counts[3], counts[4],
-                        counts[5], counts[6], counts[7], counts[8], counts[9]};
+                return {ARRAY_TO_TUPLE(10, counts)};
             },
             reduce_ops);
-
-    std::array<Long, 10> counts = {amrex::get<0>(r), amrex::get<1>(r), amrex::get<2>(r), amrex::get<3>(r), amrex::get<4>(r),
-                                   amrex::get<5>(r), amrex::get<6>(r), amrex::get<7>(r), amrex::get<8>(r), amrex::get<9>(r)};
+    std::array<Long, OutputStatus::nattribs> counts;
+    extract_tuple_to_array(r, counts);
     ParallelDescriptor::ReduceLongSum(&counts[0], 10, ParallelDescriptor::IOProcessorNumber());
     if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
         int total_educators = 0;
@@ -891,20 +934,20 @@ void AgentContainer::printStudentTeacherCounts () const {
 }
 
 void AgentContainer::printAgeGroupCounts () const {
-    ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum> reduce_ops;
-    auto r = ParticleReduce<ReduceData<int, int, int, int, int, int>>(
+    ReduceOps<REPEAT(6, ReduceOpSum)> reduce_ops;
+    auto r = ParticleReduce<ReduceData<REPEAT(6, int)>>(
             *this,
             [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
-                                 const int i) noexcept -> GpuTuple<int, int, int, int, int, int> {
-                int counts[6] = {0, 0, 0, 0, 0, 0};
+                                 const int i) noexcept -> GpuTuple<REPEAT(6, int)> {
+                int counts[6] = {};
                 int age_group = ptd.m_idata[IntIdx::age_group][i];
                 counts[age_group] = 1;
-                return {counts[0], counts[1], counts[2], counts[3], counts[4], counts[5]};
+                return {ARRAY_TO_TUPLE(6, counts)};
             },
             reduce_ops);
 
-    std::array<Long, 6> counts = {amrex::get<0>(r), amrex::get<1>(r), amrex::get<2>(r),
-                                  amrex::get<3>(r), amrex::get<4>(r), amrex::get<5>(r)};
+    std::array<Long, 6> counts;
+    extract_tuple_to_array(r, counts);
     ParallelDescriptor::ReduceLongSum(&counts[0], 6, ParallelDescriptor::IOProcessorNumber());
     if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
         int total_agents = 0;
