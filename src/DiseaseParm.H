@@ -227,10 +227,10 @@ void setInfected (int* status, amrex::ParticleReal* counter, amrex::ParticleReal
     *hospital_delay = static_cast<ParticleReal>(
             amrex::RandomGamma(lparm->hospital_delay_length_alpha, lparm->hospital_delay_length_beta, engine));
 
-    if (*latent_period < 0) { *latent_period = amrex::Real(0); }
-    if (*infectious_period < 0) { *infectious_period = amrex::Real(0); }
-    if (*incubation_period < 0) { *incubation_period = amrex::Real(0); }
-    if (*hospital_delay < 0) { *hospital_delay = amrex::Real(0); }
+    if (*latent_period < 1) { *latent_period = amrex::Real(1); }
+    if (*infectious_period < 1) { *infectious_period = amrex::Real(1); }
+    if (*incubation_period < 1) { *incubation_period = amrex::Real(1); }
+    if (*hospital_delay < 2) { *hospital_delay = amrex::Real(2); }
     if (*incubation_period > (*infectious_period + *latent_period)) {
         *incubation_period = std::floor(*infectious_period + *latent_period);
     }

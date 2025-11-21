@@ -18,10 +18,11 @@ def load_epicast(fname):
     symptomatic = df.groupby("day")["ctx_symptomatic"].sum().to_list()
     asymptomatic = df.groupby("day")["ctx_asymptomatic"].sum().to_list()
     presymptomatic = df.groupby("day")["ctx_presymptomatic"].sum().to_list()
-    hospitalized = df.groupby("day")["ctx_hospitalized"].sum().to_list()
-    icu = df.groupby("day")["ctx_icu"].sum().to_list()
-    vent = df.groupby("day")["ctx_ventilated"].sum().to_list()
-    treatment_recovered = df.groupby("day")["ctx_treatment_recovered"].sum().to_list()
+    icu = df.groupby("day")["ctx_icu"].sum()
+    vent = df.groupby("day")["ctx_ventilated"].sum()
+    hospitalized = df.groupby("day")["ctx_hospitalized"].sum() + icu + vent
+    hospitalized = hospitalized.to_list()
+    # treatment_recovered = df.groupby("day")["ctx_treatment_recovered"].sum().to_list()
 
     days = len(exposed)
     print(f"Epicast has {days} days")
