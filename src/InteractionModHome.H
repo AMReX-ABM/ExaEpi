@@ -61,12 +61,9 @@ template <typename PTDType>
 struct HomeCandidate {
     AMREX_GPU_HOST_DEVICE
     bool operator()(const int idx, const PTDType& ptd) const noexcept {
-#ifdef ENABLE_EPICAST_COMPARISON
-        // hospitalized can transmit at home
+        // FIXME: is this a valid assumption?
+        // like in Epicast, hospitalized can transmit at home - assumes that family visits the sick person
         return ptd.m_idata[IntIdx::random_travel][idx] < 0 && ptd.m_idata[IntIdx::air_travel][idx] < 0;
-#else
-        return !inHospital(idx, ptd) && ptd.m_idata[IntIdx::random_travel][idx] < 0 && ptd.m_idata[IntIdx::air_travel][idx] < 0;
-#endif
     }
 };
 

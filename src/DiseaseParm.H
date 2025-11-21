@@ -234,15 +234,6 @@ void setInfected (int* status, amrex::ParticleReal* counter, amrex::ParticleReal
     if (*incubation_period > (*infectious_period + *latent_period)) {
         *incubation_period = std::floor(*infectious_period + *latent_period);
     }
-    // FIXME: Epicast HACK
-    // epicast transition from exposed to presymptomatic is at least one day
-    if (*latent_period < 1) { *latent_period = 1; }
-    if (*latent_period > 7) { *latent_period = 7; }
-    // epicast infectious period is at least 4
-    if (*infectious_period < 3) { *infectious_period = 3; }
-    if (*infectious_period > 9) { *infectious_period = 9; }
-    // incubation is hacked to be 1 day more than the latent period (1 day of presymptomatic)
-    *incubation_period = *latent_period + 1;
 #endif
 }
 
