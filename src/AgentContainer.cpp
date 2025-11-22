@@ -832,9 +832,9 @@ int AgentContainer::getMaxGroup (const int group_idx) {
  */
 void AgentContainer::morningCommute (MultiFab& /*a_mask_behavior*/ /*!< Masking behavior */) {
     BL_PROFILE("AgentContainer::morningCommute");
-    if (haveInteractionModel(ExaEpi::InteractionNames::transit)) {
-        m_interactions[ExaEpi::InteractionNames::transit]->interactAgents(*this, a_mask_behavior);
-    }
+    // if (haveInteractionModel(ExaEpi::InteractionNames::transit)) {
+    //     m_interactions[ExaEpi::InteractionNames::transit]->interactAgents(*this, a_mask_behavior);
+    // }
     moveAgentsToWork();
 }
 
@@ -846,12 +846,12 @@ void AgentContainer::morningCommute (MultiFab& /*a_mask_behavior*/ /*!< Masking 
  */
 void AgentContainer::eveningCommute (MultiFab& /*a_mask_behavior*/ /*!< Masking behavior */) {
     BL_PROFILE("AgentContainer::eveningCommute");
-    if (haveInteractionModel(ExaEpi::InteractionNames::transit)) {
-        m_interactions[ExaEpi::InteractionNames::transit]->interactAgents(*this, a_mask_behavior);
-    }
-    if (haveInteractionModel(ExaEpi::InteractionNames::grocery_store)) {
-        m_interactions[ExaEpi::InteractionNames::grocery_store]->interactAgents(*this, a_mask_behavior);
-    }
+    // if (haveInteractionModel(ExaEpi::InteractionNames::transit)) {
+    //     m_interactions[ExaEpi::InteractionNames::transit]->interactAgents(*this, a_mask_behavior);
+    // }
+    // if (haveInteractionModel(ExaEpi::InteractionNames::grocery_store)) {
+    //    m_interactions[ExaEpi::InteractionNames::grocery_store]->interactAgents(*this, a_mask_behavior);
+    //}
     moveAgentsToHome();
 }
 
