@@ -114,6 +114,7 @@ void DiseaseParm::readInputs (const std::string& a_pp_str /*!< Parmparse string 
     queryArray(pp, "CHR", m_CHR, AgeGroups::total);
     queryArray(pp, "CIC", m_CIC, AgeGroups::total);
     queryArray(pp, "CVE", m_CVE, AgeGroups::total);
+    queryArray(pp, "unhospCVF", m_unhospToDeath, AgeGroups::total);
     queryArray(pp, "hospCVF", m_hospToDeath[DiseaseStats::hospitalization], AgeGroups::total);
     queryArray(pp, "icuCVF", m_hospToDeath[DiseaseStats::ICU], AgeGroups::total);
     queryArray(pp, "ventCVF", m_hospToDeath[DiseaseStats::ventilator], AgeGroups::total);
