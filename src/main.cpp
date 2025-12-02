@@ -324,8 +324,6 @@ void runAgent () {
         }
     }
 
-    // #define DUMP_INITIAL_AGENTS_ASCII
-    // #ifdef DUMP_INITIAL_AGENTS_ASCII
 #ifdef AMREX_DEBUG
     string agents_fname = std::string("agents.") + (params.ic_type == ICType::UrbanPop ? "urbanpop" : "census") + ".csv";
     pc.WriteAsciiFile(agents_fname);

@@ -249,6 +249,9 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
     int num_students = 0;
     int num_educators = 0;
     int num_communities = 0;
+    int nborhood_size = params.nborhood_size;
+    int num_nborhoods = 0;
+
     ifstream f(params.urbanpop_filename + ".csv");
     if (!f) { Abort("Could not open file " + params.urbanpop_filename + ".csv" + "\n"); }
     for (MFIter mfi = pc.MakeMFIter(0); mfi.isValid(); ++mfi) {
@@ -289,6 +292,8 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     // Census tract is the 7 remaining digits after the FIPS code
                     geoid_arr(x, y, 0, 1) = static_cast<int64_t>(block_group.geoid - fips * 1e7);
                     community_indices_arr(x, y, 0) = bi;
+                    int max_nborhood = block_group.home_population / nborhood_size + 1;
+                    num_nborhoods += max_nborhood;
                 }
             }
         }
@@ -328,7 +333,6 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
         auto work_nborhood_ptr = soa.GetIntData(IntIdx::work_nborhood).data();
         int workgroup_size = params.workgroup_size;
-        int nborhood_size = params.nborhood_size;
         soa.GetIntData(IntIdx::withdrawn).assign(0);
         soa.GetIntData(IntIdx::random_travel).assign(-1);
         soa.GetIntData(IntIdx::air_travel).assign(-1);
@@ -459,14 +463,16 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
     ParallelDescriptor::ReduceIntSum(num_employed);
     ParallelDescriptor::ReduceIntSum(num_students);
     ParallelDescriptor::ReduceIntSum(num_educators);
+    ParallelDescriptor::ReduceIntSum(num_nborhoods);
 
     Print() << std::fixed << std::setprecision(2) << "Population:  " << all_num_agents << " (balance " << load_balance_agents
             << ")\n"
-            << "Employed:    " << num_employed << "\n"
-            << "Students:    " << num_students << "\n"
-            << "Educators:   " << num_educators << "\n"
-            << "Households:  " << num_households << "\n"
-            << "Communities: " << all_num_communities << " (balance " << load_balance_communities << ")\n";
+            << "Employed:     " << num_employed << "\n"
+            << "Students:     " << num_students << "\n"
+            << "Educators:    " << num_educators << "\n"
+            << "Households:   " << num_households << "\n"
+            << "Neigborhoods: " << num_nborhoods << "\n"
+            << "Communities:  " << all_num_communities << " (balance " << load_balance_communities << ")\n";
 
     // Print() << "Work population " << work_population << " home population " << home_population << "\n";
     AMREX_ALWAYS_ASSERT(num_employed == work_population);

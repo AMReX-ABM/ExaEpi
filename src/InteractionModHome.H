@@ -117,7 +117,6 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
 
             auto& soa = ptile.GetStructOfArrays();
             auto family_ptr = soa.GetIntData(IntIdx::family).data();
-            auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
             auto hh_cluster_ptr = soa.GetIntData(IntIdx::hh_cluster).data();
 
             GetCommunityIndex<PTDType> getCommunityIndex;
@@ -132,10 +131,10 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
             // calculate the max group values for indexing
             int max_communities = getCommunityIndex.max();
             int max_family = agents.getMaxGroup(IntIdx::family) + 1;
-            int max_nborhood = agents.getMaxGroup(IntIdx::nborhood) + 1;
             int max_hcs = agents.getMaxGroup(IntIdx::hh_cluster) + 1;
 
             /*
+            int max_nborhood = agents.getMaxGroup(IntIdx::nborhood) + 1;
             AllPrint() << "Thread " << omp_get_thread_num() << " "
                        << mfi.tilebox() << " np " << np << " max communities " << max_communities
                        << " max family " << max_family << " max nborhood " << max_nborhood << " max ncs " << num_ncs

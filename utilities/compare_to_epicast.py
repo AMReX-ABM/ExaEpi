@@ -38,6 +38,8 @@ def load_epicast(fname):
 
     converted_df["cumulative_exposed"] = converted_df.exposed.cumsum()
 
+    print(f"Epicast total infected/exposed {converted_df.exposed.sum()}")
+
     return converted_df
 
 
@@ -66,8 +68,8 @@ def plot_series(ax, epicast_dfs, exaepi_vals, label):
     ax.set_xlim([0, args.xlimit])
 
     # Calculate ylim from all series
-    max_vals = [df[col_name].max() for df in epicast_dfs.values()]
-    max_vals.append(exaepi_vals.max())
+    max_vals = [df[col_name][: args.xlimit].max() for df in epicast_dfs.values()]
+    max_vals.append(exaepi_vals[: args.xlimit].max())
     ax.set_ylim([0, 1.1 * max(max_vals)])
 
     ax.set_title(label)
@@ -102,6 +104,8 @@ for i in range(1, days):
 exaepi_df["delta_dead"] = delta_dead
 exaepi_df["delta_recovered"] = delta_recovered
 exaepi_df["cum_exposed"] = exaepi_df.NewI.cumsum()
+
+print(f"ExaEpi total infected/exposed {exaepi_df.NewI.sum()}")
 
 exaepi_df.to_csv("exaepi.csv")
 
