@@ -103,8 +103,6 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
             auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
             auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
 
-            // auto symptomatic_withdraw_compliance = a_agents.symptomaticWithdrawCompliance();
-
             int i_RT = IntIdx::nattribs;
             int r_RT = RealIdx::nattribs;
 
