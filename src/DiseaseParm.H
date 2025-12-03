@@ -47,11 +47,10 @@ struct DiseaseParm {
 
     // Transmission probabilities based on age group of receiver (0-4, 5-17, 18-29, 30-49, 50-64, 65+)
     /*! community transmission, both home and work */
-    Real xmit_comm[AgeGroups::total] = {Real(0.000018125), Real(0.000054375), Real(0.000145),
-                                        Real(0.000145),    Real(0.000145),    Real(0.0002175)};
+    Real xmit_comm[AgeGroups::total] = {Real(0.000015), Real(0.000055), Real(0.00015),
+                                        Real(0.00015),  Real(0.00015),  Real(0.00025)};
     /*! neighborhood transmission, both home and work */
-    Real xmit_hood[AgeGroups::total] = {Real(0.000086), Real(0.00025), Real(0.00065),
-                                        Real(0.00065),   Real(0.00065),   Real(0.001)};
+    Real xmit_hood[AgeGroups::total] = {Real(0.000086), Real(0.00025), Real(0.00065), Real(0.00065), Real(0.00065), Real(0.001)};
     /*! within household transmission, where transmitter is an adult */
     Real xmit_hh_adult[AgeGroups::total] = {Real(0.3), Real(0.3), Real(0.4), Real(0.4), Real(0.4), Real(0.4)};
     /*! within household transmission, where transmitter is a child */
