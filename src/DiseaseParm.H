@@ -50,16 +50,16 @@ struct DiseaseParm {
     Real xmit_comm[AgeGroups::total] = {Real(0.000018125), Real(0.000054375), Real(0.000145),
                                         Real(0.000145),    Real(0.000145),    Real(0.0002175)};
     /*! neighborhood transmission, both home and work */
-    Real xmit_hood[AgeGroups::total] = {Real(0.0000725), Real(0.0002175), Real(0.00058),
-                                        Real(0.00058),   Real(0.00058),   Real(0.00087)};
+    Real xmit_hood[AgeGroups::total] = {Real(0.000086), Real(0.00025), Real(0.00065),
+                                        Real(0.00065),   Real(0.00065),   Real(0.001)};
     /*! within household transmission, where transmitter is an adult */
     Real xmit_hh_adult[AgeGroups::total] = {Real(0.3), Real(0.3), Real(0.4), Real(0.4), Real(0.4), Real(0.4)};
     /*! within household transmission, where transmitter is a child */
     Real xmit_hh_child[AgeGroups::total] = {Real(0.6), Real(0.6), Real(0.3), Real(0.3), Real(0.3), Real(0.3)};
     /*! neighborhood cluster transmission, where transmitter is an adult */
-    Real xmit_nc_adult[AgeGroups::total] = {Real(0.04), Real(0.04), Real(0.05), Real(0.05), Real(0.05), Real(0.05)};
+    Real xmit_nc_adult[AgeGroups::total] = {Real(0.0528), Real(0.0528), Real(0.066), Real(0.066), Real(0.066), Real(0.066)};
     /*! neighborhood cluster transmission, where transmitter is a child */
-    Real xmit_nc_child[AgeGroups::total] = {Real(0.075), Real(0.075), Real(0.04), Real(0.04), Real(0.04), Real(0.04)};
+    Real xmit_nc_child[AgeGroups::total] = {Real(0.1), Real(0.1), Real(0.0528), Real(0.0528), Real(0.0528), Real(0.0528)};
     /// probabilities for school groups: none, college, high, middle, elementary, and daycare
     /*! child-to-child */
     Real xmit_school[SchoolType::total] = {Real(0), Real(0.0315), Real(0.0315), Real(0.0375), Real(0.0435), Real(0.15)};
@@ -80,8 +80,8 @@ struct DiseaseParm {
     Real xmit_work = Real(0.0575);
 
     Real p_trans = Real(0.20);                    /*!< probability of transimission given contact */
-    Real p_asymp = Real(0.40);                    /*!< fraction of cases that are asymptomatic */
-    Real asymp_relative_inf = Real(0.75);         /*!< relative infectiousness of asymptomatic individuals */
+    Real p_asymp = Real(0.30);                    /*!< fraction of cases that are asymptomatic */
+    Real asymp_relative_inf = Real(0.7);          /*!< relative infectiousness of asymptomatic individuals */
 
     Real vac_eff = Real(0.0);                     /*!< Vaccine efficacy */
 
@@ -91,14 +91,14 @@ struct DiseaseParm {
     Real immune_length_alpha = Real(540.0);       /*! alpha parameter for gamma distribution*/
     Real immune_length_beta = Real(0.33);         /*! beta parameter for gamma distribution*/
 
-    Real latent_length_alpha = Real(9.0);         /*! alpha parameter for gamma distribution*/
-    Real latent_length_beta = Real(0.33);         /*! beta parameter for gamma distribution*/
+    Real latent_length_alpha = Real(5.2);         /*! alpha parameter for gamma distribution*/
+    Real latent_length_beta = Real(0.75);         /*! beta parameter for gamma distribution*/
 
-    Real infectious_length_alpha = Real(36.0);    /*! alpha parameter for gamma distribution*/
-    Real infectious_length_beta = Real(0.17);     /*! beta parameter for gamma distribution*/
+    Real infectious_length_alpha = Real(26.2);    /*! alpha parameter for gamma distribution*/
+    Real infectious_length_beta = Real(0.23);     /*! beta parameter for gamma distribution*/
 
-    Real incubation_length_alpha = Real(25.0);    /*! alpha parameter for gamma distribution*/
-    Real incubation_length_beta = Real(0.2);      /*! beta parameter for gamma distribution*/
+    Real incubation_length_alpha = Real(7.5);     /*! alpha parameter for gamma distribution*/
+    Real incubation_length_beta = Real(0.65);     /*! beta parameter for gamma distribution*/
 
     Real hospital_delay_length_alpha = Real(1.0); /*! alpha parameter for gamma distribution*/
     Real hospital_delay_length_beta = Real(1.0);  /*! beta parameter for gamma distribution*/
