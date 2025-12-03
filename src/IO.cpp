@@ -238,9 +238,11 @@ void readCheckpointFile (const std::string restart_chkfile, /*!< checkpoint file
         is >> step;
     }
 
-    auto unit = amrex::cast<MultiFab>(*unit_mf_ptr);
-    VisMF::Read(unit, amrex::MultiFabFileFullPrefix(lev, restart_chkfile, level_prefix, "unit"));
-    *unit_mf_ptr = amrex::cast<iMultiFab>(unit);
+    if (unit_mf_ptr != nullptr) {
+        auto unit = amrex::cast<MultiFab>(*unit_mf_ptr);
+        VisMF::Read(unit, amrex::MultiFabFileFullPrefix(lev, restart_chkfile, level_prefix, "unit"));
+        *unit_mf_ptr = amrex::cast<iMultiFab>(unit);
+    }
 
     auto fips = amrex::cast<MultiFab>(*FIPS_mf_ptr);
     VisMF::Read(fips, amrex::MultiFabFileFullPrefix(lev, restart_chkfile, level_prefix, "FIPS"));
@@ -303,8 +305,10 @@ void writeCheckpointFile (const AgentContainer& pc,                      /*!< Ag
         VisMF::Write(fips, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "FIPS"));
         auto comm = amrex::cast<MultiFab>(*comm_mf_ptr);
         VisMF::Write(comm, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "comm"));
-        auto unit = amrex::cast<MultiFab>(*unit_mf_ptr);
-        VisMF::Write(unit, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "unit"));
+        if (unit_mf_ptr != nullptr) {
+            auto unit = amrex::cast<MultiFab>(*unit_mf_ptr);
+            VisMF::Write(unit, amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix, "unit"));
+        }
         for (std::size_t i = 0; i < a_disease_stats.size(); ++i) {
             VisMF::Write(*a_disease_stats[i], amrex::MultiFabFileFullPrefix(lev, checkpointname, default_level_prefix,
                                                                             "disease_stats_" + std::to_string(i)));

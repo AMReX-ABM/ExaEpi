@@ -105,11 +105,8 @@ The following are inputs for the overall simulation:
 * ``agent.student_teacher_ratio`` (`list of int`, default: ``0 15 15 15 15 15``)
     This option sets the desired student-teacher ratio for school levels (none, college, high, middle, elementary, daycare).
     The first entry is ignored and should always be set to 0. This option is only used with ``ic_type = census``.
-* ``agent.max_box_size`` (`integer`, default ``16`` or ``500`` or ``100``)
-    This option sets the maximum box size used for MPI domain decomposition. If set to
-    ``16``, for example, for ``ic_type = census``, the domain will be broken up into boxes of `16^2` communities, and
-    these boxes will be assigned to different MPI ranks / GPUs.
-    The default for ``ictype = census`` is 16, and for ``ic_type = urbanpop`` it is 500 when using GPUs, and 100 otherwise.
+* ``agent.max_box_size`` (`integer`, default ``16``)
+    This option sets the maximum box size used for MPI domain decomposition.
 * ``diag.output_filename`` (`string`, default ``output.dat`` for a single disease,
     ``diag.output_[disease name].dat`` for multiple diseases)
     Filename for the output data; the number of list elements must be the same as ``agent.number_of_diseases``.

@@ -236,6 +236,12 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
     }
 }
 
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+static int get_max_nborhood (int nborhood_size, int community_size) {
+    int max_nborhood = Math::round(static_cast<Real>(community_size) / nborhood_size);
+    return max_nborhood > 0 ? max_nborhood : 1;
+}
+
 void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& params) {
     BL_PROFILE("UrbanPopData::initAgents");
 
@@ -292,8 +298,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     // Census tract is the 7 remaining digits after the FIPS code
                     geoid_arr(x, y, 0, 1) = static_cast<int64_t>(block_group.geoid - fips * 1e7);
                     community_indices_arr(x, y, 0) = bi;
-                    int max_nborhood = block_group.home_population / nborhood_size + 1;
-                    num_nborhoods += max_nborhood;
+                    num_nborhoods += get_max_nborhood(nborhood_size, block_group.home_population);
                 }
             }
         }
@@ -395,7 +400,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                 age_group_ptr[i] = AgeGroups::o65;
             }
             family_ptr[i] = agent.household_id;
-            int max_nborhood = agents_extras_ptr[i].home_population / nborhood_size + 1;
+            int max_nborhood = get_max_nborhood(nborhood_size, agents_extras_ptr[i].home_population);
             nborhood_ptr[i] = Random_int(max_nborhood, engine);
             hh_cluster_ptr[i] = agent.household_id / 4;
             school_grade_ptr[i] = agent.grade;
@@ -410,7 +415,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     // a workgroup of 0 indicates not working
                     workgroup_ptr[i] = Random_int(max_workgroup, engine) + 1;
                     AMREX_ASSERT(workgroup_ptr[i] > 0 && workgroup_ptr[i] < max_workgroup * (NAICS_COUNT + 1));
-                    int max_work_nborhood = agents_extras_ptr[i].work_population / nborhood_size + 1;
+                    int max_work_nborhood = get_max_nborhood(nborhood_size, agents_extras_ptr[i].work_population);
                     work_nborhood_ptr[i] = Random_int(max_work_nborhood, engine);
                     AMREX_ASSERT(work_nborhood_ptr[i] < 5000);
                 } else {
@@ -471,7 +476,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             << "Students:     " << num_students << "\n"
             << "Educators:    " << num_educators << "\n"
             << "Households:   " << num_households << "\n"
-            << "Neigborhoods: " << num_nborhoods << "\n"
+            << "Neigborhoods: " << num_nborhoods << " (avg " << (static_cast<Real>(all_num_agents) / num_nborhoods) << ")\n"
             << "Communities:  " << all_num_communities << " (balance " << load_balance_communities << ")\n";
 
     // Print() << "Work population " << work_population << " home population " << home_population << "\n";

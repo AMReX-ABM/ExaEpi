@@ -57,12 +57,7 @@ agent.child_HH_closure = 2
 # This is only used for the census data.
 agent.student_teacher_ratio = 0 15 15 15 15 15
 # The maximum grid size used for MPI domain decomposition. Adjusting this can change the computation time and load balance.
-# if ic_type is census
-# agent.max_box_size = 16
-# if ic_type is urbanpop and using GPUs
-# agent.max_box_size = 500
-# if ic_type is urbanpop and not using GPUs
-# agent.max_box_size = 100
+agent.max_box_size = 16
 
 # A list of file names, one per disease, each one of which will be the output for the counts of the statuses for that disease.
 # defalut for one disease

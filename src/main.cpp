@@ -276,8 +276,13 @@ void runAgent () {
                 pc.setAirTravel(censusData.unit_mf, air, censusData.demo);
             }
         } else {
-            IO::readCheckpointFile(params.restart_chkfile, pc, disease_stats, &(censusData.unit_mf), &(censusData.FIPS_mf),
-                                   &(censusData.comm_mf), cur_time, start_day);
+            if (params.ic_type == ICType::Census) {
+                IO::readCheckpointFile(params.restart_chkfile, pc, disease_stats, &(censusData.unit_mf), &(censusData.FIPS_mf),
+                                       &(censusData.comm_mf), cur_time, start_day);
+            } else {
+                IO::readCheckpointFile(params.restart_chkfile, pc, disease_stats, nullptr, &(urbanPopData.geoid_mf),
+                                       &(urbanPopData.community_mf), cur_time, start_day);
+            }
         }
     }
 
@@ -325,7 +330,8 @@ void runAgent () {
     }
 
 #ifdef AMREX_DEBUG
-    string agents_fname = std::string("agents.") + (params.ic_type == ICType::UrbanPop ? "urbanpop" : "census") + ".csv";
+    // dump a text file of the initial agent fields for debugging purposes
+    string agents_fname = std::string("initial_agents.") + (params.ic_type == ICType::UrbanPop ? "urbanpop" : "census") + ".csv";
     pc.WriteAsciiFile(agents_fname);
     if (ParallelDescriptor::IOProcessor()) {
         std::ofstream agents_f(agents_fname, std::ios_base::app);
