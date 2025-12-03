@@ -236,9 +236,9 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
     }
 }
 
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 static int get_max_nborhood (int nborhood_size, int community_size) {
-    int max_nborhood = Math::round(static_cast<Real>(community_size) / nborhood_size);
+    int max_nborhood = static_cast<int>(Math::round(static_cast<Real>(community_size) / nborhood_size));
     return max_nborhood > 0 ? max_nborhood : 1;
 }
 
