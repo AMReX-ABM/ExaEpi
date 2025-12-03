@@ -44,3 +44,26 @@ struct CensusData {
     // private:
     void assignTeachersAndWorkgroup(AgentContainer& pc, const int workgroup_size);
 };
+
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+void assignSchool(int* school_grade, int* school_id, const int age_group, const int nborhood, const RandomEngine& engine);
+
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+void setAgentDataAndAssignSchool (PTDType& ptd, int ip, int i, int j, int k, const amrex::GpuArray<amrex::Real, 2>& dx,
+                                  amrex::Long id, int cpu, int age_group, int family, int nborhood, int n_disease,
+                                  amrex::Array4<int> const& nr_arr, amrex::Array4<int> const& student_counts_arr,
+                                  const amrex::RandomEngine& engine) {
+    setAgentData(ptd, ip, i, j, dx, id, cpu, age_group, family, nborhood, n_disease);
+    Gpu::Atomic::AddNoRet(&nr_arr(i, j, k, age_group), 1);
+
+    assignSchool(&ptd.m_idata[IntIdx::school_grade][ip], &ptd.m_idata[IntIdx::school_id][ip], age_group, nborhood, engine);
+    ptd.m_idata[IntIdx::school_closed][ip] = 0;
+
+    // Increment the appropriate student counter based on the school assignment
+    if (ptd.m_idata[IntIdx::school_id][ip] >= SchoolCensusIDType::daycare_5) {
+        Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, SchoolCensusIDType::daycare_5 - 1), 1);
+    } else if (ptd.m_idata[IntIdx::school_id][ip] > SchoolCensusIDType::none) {
+        Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, ptd.m_idata[IntIdx::school_id][ip] - 1), 1);
+    }
+}
