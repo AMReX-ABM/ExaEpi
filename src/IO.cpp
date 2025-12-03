@@ -135,6 +135,8 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
         write_int_comp.push_back(static_cast<int>(step == 0));
         int_varnames.push_back("nborhood");
         write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("hh_cluster");
+        write_int_comp.push_back(static_cast<int>(step == 0));
         int_varnames.push_back("school_grade");
         write_int_comp.push_back(static_cast<int>(step == 0));
         int_varnames.push_back("school_id");
