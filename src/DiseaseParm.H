@@ -190,35 +190,6 @@ void setInfected (int* status, amrex::ParticleReal* counter, amrex::ParticleReal
                   amrex::ParticleReal* hospital_delay, amrex::RandomEngine const& engine, const DiseaseParm* lparm) {
     *status = Status::infected;
     *counter = ParticleReal(0);
-
-#ifdef ENABLE_EPICAST_COMPARISON
-    // Using Epicast transition probs
-    // These are the CDF values
-    Real latent_probs[] = {Real(0.0), Real(0.1), Real(0.25), Real(0.55), Real(0.66), Real(0.78), Real(0.85), Real(1.0)};
-    constexpr int LATENT_DAYS = sizeof(latent_probs) / sizeof(latent_probs[0]);
-    auto rnd_val = amrex::Random(engine);
-    for (int i = 0; i < LATENT_DAYS; i++) {
-        if (rnd_val < latent_probs[i]) {
-            *latent_period = i;
-            break;
-        }
-    }
-    // incubation is one day more than the latent period
-    *incubation_period = *latent_period + 1;
-    // CDF values
-    Real infectious_probs[] = {Real(0.0), Real(0.0), Real(0.0),  Real(0.1),  Real(0.3),
-                               Real(0.5), Real(0.7), Real(0.85), Real(0.95), Real(1.0)};
-    constexpr int INFECTIOUS_DAYS = sizeof(infectious_probs) / sizeof(infectious_probs[0]);
-    rnd_val = amrex::Random(engine);
-    for (int i = 0; i < INFECTIOUS_DAYS; i++) {
-        if (rnd_val < infectious_probs[i]) {
-            *infectious_period = i;
-            break;
-        }
-    }
-    // only one shot at hospitalization and that is on day 2
-    *hospital_delay = amrex::Real(2);
-#else
     *latent_period = static_cast<ParticleReal>(amrex::RandomGamma(lparm->latent_length_alpha, lparm->latent_length_beta, engine));
     *incubation_period =
             static_cast<ParticleReal>(amrex::RandomGamma(lparm->incubation_length_alpha, lparm->incubation_length_beta, engine));
@@ -234,7 +205,6 @@ void setInfected (int* status, amrex::ParticleReal* counter, amrex::ParticleReal
     if (*incubation_period > (*infectious_period + *latent_period)) {
         *incubation_period = std::floor(*infectious_period + *latent_period);
     }
-#endif
 }
 
 template <typename T>

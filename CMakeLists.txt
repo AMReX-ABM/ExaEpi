@@ -8,15 +8,13 @@ project(ExaEpi
 # Defines a DEBUG symbol for use in the code
 add_compile_options("$<$<CONFIG:DEBUG>:-DDEBUG>")
 
-# add_compile_definitions(ENABLE_EPICAST_COMPARISON)
-
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)
 
 set(AMReX_PARTICLES ON)
 set(AMReX_FORTRAN OFF)
 set(AMReX_LINEAR_SOLVERS OFF)
 set(AMReX_AMRLEVEL OFF)
-set(AMReX_TINY_PROFILE OFF)
+set(AMReX_TINY_PROFILE ON)
 set(AMReX_SPACEDIM
     2
     CACHE INTERNAL "")
