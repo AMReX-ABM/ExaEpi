@@ -17,7 +17,7 @@
 #include "IO.H"
 #include "InitializeInfections.H"
 #include "UrbanPopData.H"
-#include "Utils.H"
+#include "RuntimeParams.H"
 
 #include "version.h"
 

@@ -12,7 +12,7 @@
 
 #include "CaseData.H"
 #include "UrbanPopAgentStruct.H"
-#include "Utils.H"
+#include "RuntimeParams.H"
 
 struct AgentExtras {
     amrex::IntVect home_xy;

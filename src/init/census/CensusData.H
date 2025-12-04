@@ -13,7 +13,7 @@
 #include "AgentContainer.H"
 #include "CaseData.H"
 #include "DemographicData.H"
-#include "Utils.H"
+#include "RuntimeParams.H"
 
 /*! \brief A class encapsulating all data relevant to the ICType Census */
 struct CensusData {
