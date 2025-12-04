@@ -43,10 +43,10 @@ template <typename AC,   /*!< agent container type */
 class DiseaseStatus {
   public:
     /*! \brief constructor */
-    DiseaseStatus<AC, ACT, ACTD, A>() {}
+    DiseaseStatus () {}
 
     /*! \brief default destructor */
-    virtual ~DiseaseStatus<AC, ACT, ACTD, A>() = default;
+    virtual ~DiseaseStatus() = default;
 
     /*! \brief Updates disease status of each agent at a given step and
      *   also updates a MultiFab that tracks disease statistics (hospitalization,
