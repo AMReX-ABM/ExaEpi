@@ -42,10 +42,10 @@ template <typename PCType,  /*!< agent container type */
 class InteractionModel {
   public:
     /*! \brief null constructor */
-    InteractionModel<PCType, PTDType, PType>(bool _fast_bin) : fast_bin(_fast_bin) {}
+    InteractionModel(bool _fast_bin) : fast_bin(_fast_bin) {}
 
     /*! \brief default destructor */
-    virtual ~InteractionModel<PCType, PTDType, PType>() = default;
+    virtual ~InteractionModel() = default;
 
     /*! \brief Interact agents for a model */
     virtual void interactAgents(PCType&, MultiFab&) = 0;

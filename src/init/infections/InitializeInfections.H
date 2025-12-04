@@ -13,7 +13,7 @@
 #include "AgentContainer.H"
 #include "CaseData.H"
 #include "DemographicData.H"
-#include "Utils.H"
+#include "RuntimeParams.H"
 
 void setInitialCasesFromFile(AgentContainer& pc, CaseData& cases, const std::string& name, int d_idx,
                              const Vector<int>& FIPS_codes, const Vector<int>& unit_community_start, iMultiFab& comm_mf,

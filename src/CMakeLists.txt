@@ -1,36 +1,25 @@
-# List of source files
+# Automatically detect source files in subdirectories
+# Find all subdirectories in src/
+file(GLOB _subdirs RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} *)
+list(FILTER _subdirs INCLUDE REGEX "^[^.]+$")  # Exclude hidden files
+set(_subdir_sources "")
+
+# For each subdirectory, collect all .cpp and .H files
+foreach(_dir IN LISTS _subdirs)
+    if(IS_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${_dir})
+        file(GLOB_RECURSE _dir_sources
+            "${_dir}/*.cpp"
+            "${_dir}/*.H"
+        )
+        list(APPEND _subdir_sources ${_dir_sources})
+    endif()
+endforeach()
+
+# Main source file list includes main.cpp and all subdirectory sources
 set(_sources
     main.cpp
-    AgentDefinitions.H
-    AgentContainer.H
-    AgentContainer.cpp
-    AirTravelFlow.H
-    AirTravelFlow.cpp
-    CaseData.H
-    CaseData.cpp
-    DiseaseCoupling.H
-    CensusData.H
-    CensusData.cpp
-    DiseaseParm.H
-    DiseaseParm.cpp
-    DemographicData.H
-    DemographicData.cpp
-    IO.H
-    IO.cpp
-    InteractionModel.H
-    InteractionModHome.H
-    InteractionModHomeNborhood.H
-    InteractionModWorkNborhood.H
-    InteractionModSchool.H
-    InteractionModWork.H
-    InteractionModelLibrary.H
-    InitializeInfections.H
-    InitializeInfections.cpp
-    UrbanPopAgentStruct.H
-    UrbanPopData.H
-    UrbanPopData.cpp
-    Utils.H
-    Utils.cpp)
+    ${_subdir_sources}
+)
 
 # List of input files
 set(_input_files)

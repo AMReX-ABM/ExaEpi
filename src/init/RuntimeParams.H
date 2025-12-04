@@ -1,9 +1,9 @@
-/*! @file Utils.H
+/*! @file RuntimeParams.H
     \brief Defines the #ExaEpi::Utils namespace
 */
 
-#ifndef UTILS_H_
-#define UTILS_H_
+#ifndef RUNTIME_PARAMS_H_
+#define RUNTIME_PARAMS_H_
 
 #include <AMReX_Geometry.H>
 #include <AMReX_IntVect.H>

@@ -1,4 +1,4 @@
-/*! @file Utils.cpp
+/*! @file RuntimeParams.cpp
     \brief Contains function implementations for the #ExaEpi::Utils namespace
 */
 
@@ -11,7 +11,7 @@
 #include <AMReX_RealBox.H>
 
 #include "DemographicData.H"
-#include "Utils.H"
+#include "RuntimeParams.H"
 
 #include <cmath>
 #include <string>
