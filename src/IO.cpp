@@ -171,6 +171,8 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
             write_real_comp.push_back(static_cast<int>(step == 0));
             real_varnames.push_back("hospital_delay");
             write_real_comp.push_back(static_cast<int>(step == 0));
+            real_varnames.push_back("hospital_random");
+            write_real_comp.push_back(0);
             int_varnames.push_back("status");
             write_int_comp.push_back(1);
             int_varnames.push_back("symptomatic");
@@ -193,6 +195,8 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
                 write_real_comp.push_back(static_cast<int>(step == 0));
                 real_varnames.push_back(disease_names[d] + "_hospital_delay");
                 write_real_comp.push_back(static_cast<int>(step == 0));
+                real_varnames.push_back(disease_names[d] + "_hospital_random");
+                write_real_comp.push_back(0);
                 int_varnames.push_back(disease_names[d] + "_status");
                 write_int_comp.push_back(1);
                 int_varnames.push_back(disease_names[d] + "_symptomatic");
