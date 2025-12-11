@@ -823,7 +823,6 @@ std::array<Long, AgeGroups::total> AgentContainer::getNewStatusByAge (const int 
             [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
                                  const int i) noexcept -> amrex::GpuTuple<REPEAT(6, int)> {
                 int s[AgeGroups::total] = {};
-                auto status = ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][i];
                 auto age = ptd.m_idata[IntIdx::age_group][i];
 
                 if (output_status == OutputStatus::NewI && isNewlyInfected(i, ptd, a_d)) { s[age] = 1; }
