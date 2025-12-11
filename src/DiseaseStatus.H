@@ -174,11 +174,16 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                                 }
                                 if (Random(engine) < withdraw_compliance) { withdrawn_ptr[i] = 1; }
                             }
-                            // for withdrawn, chance of hospitalization on day indicated by delay ptr
-                            if (withdrawn_ptr[i] == 1 && counter_ptr[i] == incb_period + hospital_delay) {
+                            // chance of hospitalization on day indicated by delay
+                            if (counter_ptr[i] == incb_period + hospital_delay) {
                                 disease_parm_d->checkHospitalization(&(timer_ptr[i]), &(marked_for_ICU_ptr[i]),
                                                                      &(marked_for_vent_ptr[i]), age_group_ptr[i], engine);
-                                if (timer_ptr[i] > 0) { marked_for_hosp_ptr[i] = 1; }
+                                if (timer_ptr[i] > 0) {
+                                    // will be hospitalized
+                                    marked_for_hosp_ptr[i] = 1;
+                                    // make this withdrawn
+                                    withdrawn_ptr[i] = 1;
+                                }
                             }
                         }
                     }

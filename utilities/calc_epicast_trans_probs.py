@@ -16,9 +16,12 @@ infectious = [0.0] * 4
 infectious.extend([0.1, 0.3, 0.5, 0.7, 0.85, 0.95, 1.0])
 
 transitions = [
-    (exposed_to_presymp, 5.2, 0.75, "Exposed to Presymptomatic"),
-    (incubation, 7.5, 0.65, "Incubation Period"),
-    (infectious, 26.2, 0.23, "Infectious Period"),
+    # (exposed_to_presymp, 5.2, 0.75, "Exposed to Presymptomatic"),
+    # (incubation, 7.5, 0.65, "Incubation Period"),
+    # (infectious, 26.2, 0.23, "Infectious Period"),
+    (exposed_to_presymp, 6.0, 0.73, "Exposed to Presymptomatic"),
+    (incubation, 8.0, 0.65, "Incubation Period"),
+    (infectious, 27.0, 0.25, "Infectious Period"),
 ]
 
 fig, axes = plt.subplots(3, 1, figsize=(10, 14))
@@ -62,21 +65,21 @@ for idx, (trans_probs, shape, scale, title) in enumerate(transitions):
                 fontsize=12,
             )
 
-    x = np.linspace(0, days - 1, num_agents)
+    # x = np.linspace(0, days - 1, num_agents)
+    x = np.linspace(0, 10, num_agents)
 
     fshape, loc, fscale = gamma.fit(agent_days, floc=0)
-    print(f"Gamma fit:\n  shape {fshape:.3f}\n  loc {loc:.3f}\n  scale {fscale:.3f}")
+    print(f"  Gamma fit:\n  shape {fshape:.3f}\n  loc {loc:.3f}\n  scale {fscale:.3f}")
 
     # for alpha, beta, color in ((fshape, fscale, "r-"), (shape, scale, "g-")):
     for alpha, beta, color in [(shape, scale, "r-")]:
         fitted_gamma = gamma.cdf(x, a=alpha, loc=loc, scale=beta)  # * num_agents
         corr = pearsonr(sorted(fitted_gamma), sorted(agent_days))[0]
-        print(f"Correlation: {corr:.3f}")
-
-        print(f"\nGamma Distribution Parameters:")
-        print(f"Shape (α): {alpha:.2f}")
-        print(f"Rate (β): {beta:.2f}")
-        print(f"Mean: {fitted_gamma.mean():.2f}")
+        print(f"  Correlation: {corr:.3f}")
+        print(f"  Gamma Distribution Parameters:")
+        print(f"    Shape (α): {alpha:.2f}")
+        print(f"    Rate (β): {beta:.2f}")
+        print(f"    Mean: {fitted_gamma.mean():.2f}")
 
         # Plot fitted gamma distribution
         ax.plot(
@@ -86,6 +89,7 @@ for idx, (trans_probs, shape, scale, title) in enumerate(transitions):
             lw=2,
             label=f"Gamma fit (α={alpha:.2f}, β={beta:.2f}, $R^2={corr:.2f}$)",
         )
+        ax.set_xlim(0, 10)
 
     ax.set_xlabel("Days")
     ax.set_ylabel("Number of Transitions")
@@ -95,4 +99,4 @@ for idx, (trans_probs, shape, scale, title) in enumerate(transitions):
 
 plt.tight_layout()
 plt.savefig("epicast_transitions_comparison.png", bbox_inches="tight", dpi=300)
-plt.show()
+# plt.show()

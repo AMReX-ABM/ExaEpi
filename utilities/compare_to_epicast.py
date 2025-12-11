@@ -38,7 +38,12 @@ def load_epicast(fname):
 
     converted_df["cumulative_exposed"] = converted_df.exposed.cumsum()
 
-    print(f"Epicast total infected/exposed {converted_df.exposed.sum()}")
+    tot_exposed = converted_df.exposed.sum()
+    tot_symp = float(converted_df.symptomatic.sum())
+    tot_hosp = float(converted_df.hospitalized.sum())
+    print(f"Epicast total infected/exposed {tot_exposed}")
+    print(f"Epicast total symptomatic {tot_symp} {(tot_symp / tot_exposed):.2f}")
+    print(f"Epicast total hospitalized {tot_hosp} {(tot_hosp / tot_symp):.2f}")
 
     return converted_df
 
@@ -61,10 +66,53 @@ def load_exaepi(fname):
 
     print(f"ExaEpi total infected/exposed {df.NewI.sum()}")
 
+    print(f"ExaEpi hospitalized by age:")
+    ages = ["U5", "5to17", "18to29", "30to49", "50to64", "O64"]
+    for i in range(len(ages)):
+        num_symp = float(df["Symp" + ages[i]].sum())
+        num_hosp = float(df["Hosp" + ages[i]].sum())
+        frac_hosp = num_hosp / num_symp
+        print(f"  {ages[i]:8s}   {num_hosp:8.0f} {frac_hosp:.3f}")
+
+    tot_symp = float(df.NewS.sum())
+    tot_hosp = float(df.NewH.sum())
+    print(f"ExaEpi total symptomatic {tot_symp} {(tot_symp / df.NewI.sum()):.2f}")
+    print(f"ExaEpi total hospitalized {tot_hosp} {(tot_hosp / tot_symp):.2f}")
+
+    if not fname.startswith("adjusted"):
+        transformed_df = df.copy()
+        transformed_df.Day += 4
+        for col in transformed_df.columns:
+            if col != "Day":
+                transformed_df[col] *= 1
+        transformed_df.to_csv("adjusted-" + fname, index=False, sep=" ")
+
     return df
 
 
-def plot_series(ax, epicast_dfs, exaepi_dfs, label):
+def parse_file_with_label(file_spec):
+    """Parse a file specification like 'path/to/file.csv:MyLabel'
+
+    Returns:
+        tuple: (filename, label) where label is None if not specified
+    """
+    if ":" in file_spec:
+        parts = file_spec.split(":", 1)
+        return parts[0], parts[1]
+    else:
+        # Use short filename without extension as default label
+        short_name = file_spec.split("/")[-1].split(".")[0]
+        return file_spec, short_name
+
+
+def plot_series(ax, epicast_data, exaepi_data, label):
+    """Plot time series data from multiple files.
+
+    Args:
+        epicast_data: dict mapping filenames to (dataframe, label) tuples
+        exaepi_data: dict mapping filenames to (dataframe, label) tuples
+        label: the data series to plot (e.g., 'exposed', 'symptomatic')
+    """
     # Mapping from plot labels to ExaEpi column names
     col_mapping = {
         "exposed": "NewI",
@@ -84,23 +132,27 @@ def plot_series(ax, epicast_dfs, exaepi_dfs, label):
     exaepi_col = col_mapping.get(col_name, col_name)
 
     # Plot each Epicast file
-    for i, (fname, df) in enumerate(epicast_dfs.items()):
-        # Get short filename for legend
-        short_name = fname.split("/")[-1].split(".")[0]
+    for i, (fname, (df, file_label)) in enumerate(epicast_data.items()):
         ax.plot(
             df[col_name],
-            label=f"Epicast-{short_name}",
+            label=f"{file_label}",
             color=epicast_colors[i % len(epicast_colors)],
             linewidth=2,
             linestyle="--",
         )
 
     # Plot each ExaEpi file
-    for i, (fname, df) in enumerate(exaepi_dfs.items()):
-        short_name = fname.split("/")[-1].split(".")[0]
+    for i, (fname, (df, file_label)) in enumerate(exaepi_data.items()):
+        # x_vals = range(len(df[exaepi_col]))
+        x_vals = df["Day"]
+        y_vals = df[exaepi_col]
+        # x_vals = range(len(df[exaepi_col]))[4:]
+        # y_vals = df[exaepi_col] * 1.33
+        # y_vals = y_vals[:-4]
         ax.plot(
-            df[exaepi_col],
-            label=f"ExaEpi-{short_name}",
+            x_vals,
+            y_vals,
+            label=f"{file_label}",
             color=exaepi_colors[i % len(exaepi_colors)],
             linewidth=2,
         )
@@ -110,8 +162,8 @@ def plot_series(ax, epicast_dfs, exaepi_dfs, label):
     ax.set_xlim([0, args.xlimit])
 
     # Calculate ylim from all series
-    max_vals = [df[col_name][: args.xlimit].max() for df in epicast_dfs.values()]
-    max_vals.extend([df[exaepi_col][: args.xlimit].max() for df in exaepi_dfs.values()])
+    max_vals = [df[col_name][: args.xlimit].max() for df, _ in epicast_data.values()]
+    max_vals.extend([df[exaepi_col][: args.xlimit].max() for df, _ in exaepi_data.values()])
     ax.set_ylim([0, 1.1 * max(max_vals)])
 
     ax.set_title(label)
@@ -120,40 +172,57 @@ def plot_series(ax, epicast_dfs, exaepi_dfs, label):
     ax.minorticks_on()
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--epicast_file", "-e", nargs="+", required=True, help="One or more Epicast csv files"
+parser = argparse.ArgumentParser(
+    description="Compare ExaEpi and Epicast simulation outputs",
+    epilog="File specifications can include optional labels using the format: 'filename.csv:Label'",
 )
 parser.add_argument(
-    "--exaepi_file", "-x", nargs="+", required=True, help="One or more ExaEpi csv files"
+    "--epicast_file",
+    "-e",
+    nargs="+",
+    required=True,
+    help="One or more Epicast csv files, optionally with labels (e.g., 'file.csv:MyLabel')",
 )
-parser.add_argument("--xlimit", "-l", type=int, default=250, help="X-axis limit for plotting")
+parser.add_argument(
+    "--exaepi_file",
+    "-x",
+    nargs="+",
+    required=True,
+    help="One or more ExaEpi csv files, optionally with labels (e.g., 'file.csv:MyLabel')",
+)
+parser.add_argument(
+    "--xlimit", "-l", type=int, default=250, help="X-axis limit for plotting (default: 250)"
+)
 args = parser.parse_args()
 
-epicast_dfs = {}
-for fname in args.epicast_file:
-    epicast_dfs[fname] = load_epicast(fname)
+epicast_data = {}
+for file_spec in args.epicast_file:
+    fname, label = parse_file_with_label(file_spec)
+    df = load_epicast(fname)
+    epicast_data[fname] = (df, label)
 
-exaepi_dfs = {}
-for fname in args.exaepi_file:
+exaepi_data = {}
+for file_spec in args.exaepi_file:
+    fname, label = parse_file_with_label(file_spec)
     print(f"{fname}")
-    exaepi_dfs[fname] = load_exaepi(fname)
+    df = load_exaepi(fname)
 
-    # exaepi_dfs[fname].to_csv(fname + "-processed.csv")
+    exaepi_data[fname] = (df, label)
+
 
 fig, ((ax1, ax2), (ax3, ax4), (ax5, ax6), (ax7, ax8)) = plt.subplots(4, 2, figsize=(12, 11))
 
-plot_series(ax1, epicast_dfs, exaepi_dfs, "Exposed")
-plot_series(ax2, epicast_dfs, exaepi_dfs, "Symptomatic")
-plot_series(ax3, epicast_dfs, exaepi_dfs, "Presymptomatic")
-plot_series(ax4, epicast_dfs, exaepi_dfs, "Asymptomatic")
-plot_series(ax5, epicast_dfs, exaepi_dfs, "Hospitalized")
-plot_series(ax6, epicast_dfs, exaepi_dfs, "Dead")
-plot_series(ax7, epicast_dfs, exaepi_dfs, "Recovered")
-plot_series(ax8, epicast_dfs, exaepi_dfs, "Cumulative Exposed")
-ax1.legend()
+plot_series(ax1, epicast_data, exaepi_data, "Exposed")
+plot_series(ax2, epicast_data, exaepi_data, "Symptomatic")
+plot_series(ax3, epicast_data, exaepi_data, "Presymptomatic")
+plot_series(ax4, epicast_data, exaepi_data, "Asymptomatic")
+plot_series(ax5, epicast_data, exaepi_data, "Hospitalized")
+plot_series(ax6, epicast_data, exaepi_data, "Dead")
+plot_series(ax7, epicast_data, exaepi_data, "Recovered")
+plot_series(ax8, epicast_data, exaepi_data, "Cumulative Exposed")
+ax8.legend(loc="lower right")
 
 plt.suptitle("ExaEpi vs Epicast Comparison", y=1.05)
 plt.tight_layout()
 plt.savefig("exaepi_v_epicast_comparison.png", bbox_inches="tight")
-plt.show()
+# plt.show()

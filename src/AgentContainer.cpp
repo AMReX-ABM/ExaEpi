@@ -809,6 +809,39 @@ std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_
     return counts;
 }
 
+/*! \brief Computes the total number of agents with a requested status, by age
+
+    Returns a vector with counts by age.
+*/
+std::array<Long, AgeGroups::total> AgentContainer::getNewStatusByAge (const int a_d, const int output_status) {
+    BL_PROFILE("getNewStatusByAge");
+    static_assert(AgeGroups::total == 6, "Expected 6 total age groups");
+
+    amrex::ReduceOps<REPEAT(6, ReduceOpSum)> reduce_ops;
+    auto r = amrex::ParticleReduce<ReduceData<REPEAT(6, int)>>(
+            *this,
+            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
+                                 const int i) noexcept -> amrex::GpuTuple<REPEAT(6, int)> {
+                int s[AgeGroups::total] = {};
+                auto status = ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][i];
+                auto age = ptd.m_idata[IntIdx::age_group][i];
+
+                if (output_status == OutputStatus::NewI && isNewlyInfected(i, ptd, a_d)) { s[age] = 1; }
+                if (output_status == OutputStatus::NewS && isNewlySymptomatic(i, ptd, a_d)) { s[age] = 1; }
+                if (output_status == OutputStatus::NewH && isNewlyHospitalized(i, ptd, a_d)) { s[age] = 1; }
+                if (output_status == OutputStatus::NewA && isNewlyAsymptomatic(i, ptd, a_d)) { s[age] = 1; }
+                if (output_status == OutputStatus::NewP && isNewlyPresymptomatic(i, ptd, a_d)) { s[age] = 1; }
+
+                return {ARRAY_TO_TUPLE(6, s)};
+            },
+            reduce_ops);
+    std::array<Long, AgeGroups::total> counts;
+    extract_tuple_to_array(r, counts);
+    ParallelDescriptor::ReduceLongSum(&counts[0], AgeGroups::total, ParallelDescriptor::IOProcessorNumber());
+
+    return counts;
+}
+
 int AgentContainer::getMaxGroup (const int group_idx) {
     BL_PROFILE("getMaxGroup");
     if (max_attribute_values[group_idx] == -1) {

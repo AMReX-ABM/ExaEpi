@@ -77,6 +77,8 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     std::array<amrex::Long, OutputStatus::nattribs> getTotals(const int);
 
+    std::array<amrex::Long, AgeGroups::total> getNewStatusByAge(const int a_d, const int output_status);
+
     int getMaxGroup(const int group_idx);
 
     void moveAgentsToWork();
