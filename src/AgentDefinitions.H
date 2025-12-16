@@ -157,26 +157,26 @@ struct SymptomStatus {
 struct OutputStatus {
     enum {
         /* Total number of agents in each category are written to summary table each step */
-        Su = 0, /*!< Susceptible */
-        PS_PI,  /*!< Presymptomatic/Preinfectious */
+        Su = 0,  /*!< Susceptible */
+        PS_PI,   /*!< Presymptomatic/Preinfectious */
         S_PI_NH, /*!< Symptomatic/Preinfectious/Not Hospitalized */
         S_PI_H,  /*!< Symptomatic/Preinfectious/Hospitalized */
-        PS_I,   /*!< Presymptomatic/Infectious */
+        PS_I,    /*!< Presymptomatic/Infectious */
         S_I_NH,  /*!< Symptomatic/Infectious/Not Hospitalized */
         S_I_H,   /*!< Symptomatic/Infectious/Hospitalized */
-        A_PI,   /*!< Asymptomatic/Preinfectious */
-        A_I,    /*!< Asymptomatic/Infectious */
-        H_NI,   /*!< Hospitalized/Noninfectious */
-        H_I,    /*!< Hostitalized/Infectious */
-        ICU,    /*!< In the ICU */
-        V,      /*!< On ventilator */
-        R,      /*!< Recovered */
-        D,      /*!< Dead */
-        NewI,   /*!< Became infected this step */
-        NewS,   /*!< Became symptomatic this step */
-        NewH,   /*!< Became hospitalized this step */
-        NewA,   /*!< Became asymptomatic this step */
-        NewP,   /*!< Became presymptomatic this step */
+        A_PI,    /*!< Asymptomatic/Preinfectious */
+        A_I,     /*!< Asymptomatic/Infectious */
+        H_NI,    /*!< Hospitalized/Noninfectious */
+        H_I,     /*!< Hostitalized/Infectious */
+        ICU,     /*!< In the ICU */
+        V,       /*!< On ventilator */
+        R,       /*!< Recovered */
+        D,       /*!< Dead */
+        NewI,    /*!< Became infected this step */
+        NewS,    /*!< Became symptomatic this step */
+        NewH,    /*!< Became hospitalized this step */
+        NewA,    /*!< Became asymptomatic this step */
+        NewP,    /*!< Became presymptomatic this step */
         nattribs
     };
 };
