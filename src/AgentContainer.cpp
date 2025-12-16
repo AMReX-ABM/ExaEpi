@@ -25,6 +25,8 @@
 #define REPEAT_16(x) REPEAT_15(x), x
 #define REPEAT_17(x) REPEAT_16(x), x
 #define REPEAT_18(x) REPEAT_17(x), x
+#define REPEAT_19(x) REPEAT_18(x), x
+#define REPEAT_20(x) REPEAT_19(x), x
 #define REPEAT(n, x) REPEAT_##n(x)
 
 // macro to create tuple from array elements
@@ -46,6 +48,8 @@
 #define ARRAY_TO_TUPLE_16(arr) ARRAY_TO_TUPLE_15(arr), arr[15]
 #define ARRAY_TO_TUPLE_17(arr) ARRAY_TO_TUPLE_16(arr), arr[16]
 #define ARRAY_TO_TUPLE_18(arr) ARRAY_TO_TUPLE_17(arr), arr[17]
+#define ARRAY_TO_TUPLE_19(arr) ARRAY_TO_TUPLE_18(arr), arr[18]
+#define ARRAY_TO_TUPLE_20(arr) ARRAY_TO_TUPLE_19(arr), arr[19]
 #define ARRAY_TO_TUPLE(n, arr) ARRAY_TO_TUPLE_##n(arr)
 
 // macros to extract a tuple into an array
