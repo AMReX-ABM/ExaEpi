@@ -363,6 +363,7 @@ void setAgentData (PTDType& ptd, int ip, int i, int j, const amrex::GpuArray<amr
     ptd.m_idata[IntIdx::hosp_i][ip] = -1;
     ptd.m_idata[IntIdx::hosp_j][ip] = -1;
     ptd.m_idata[IntIdx::nborhood][ip] = nborhood;
+    ptd.m_idata[IntIdx::hh_cluster][ip] = family / 4;
     ptd.m_idata[IntIdx::work_nborhood][ip] = nborhood;
     ptd.m_idata[IntIdx::workgroup][ip] = 0;
     ptd.m_idata[IntIdx::naics][ip] = 0;
