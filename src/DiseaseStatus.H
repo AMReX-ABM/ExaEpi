@@ -125,6 +125,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                 auto infectious_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::infectious_period).data();
                 auto incubation_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).data();
                 auto hospital_delay_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_delay).data();
+                auto hospital_random_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_random).data();
 
                 auto* disease_parm_d = a_agents.getDiseaseParameters_d(d);
                 auto* disease_parm_h = a_agents.getDiseaseParameters_h(d);
@@ -177,7 +178,8 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                             // chance of hospitalization on day indicated by delay
                             if (counter_ptr[i] == incb_period + hospital_delay) {
                                 disease_parm_d->checkHospitalization(&(timer_ptr[i]), &(marked_for_ICU_ptr[i]),
-                                                                     &(marked_for_vent_ptr[i]), age_group_ptr[i], engine);
+                                                                     &(marked_for_vent_ptr[i]), age_group_ptr[i],
+                                                                     hospital_random_ptr[i], engine);
                                 if (timer_ptr[i] > 0) {
                                     // will be hospitalized
                                     marked_for_hosp_ptr[i] = 1;

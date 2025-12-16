@@ -245,48 +245,14 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
 
         auto offset_arr = fam_offsets[mfi].array();
         auto fam_id_arr = fam_id[mfi].array();
+        auto student_counts_arr = pc.m_student_counts[mfi].array();
         auto& agents_tile = pc.DefineAndReturnParticleTile(0, mfi);
         agents_tile.resize(nagents);
-        auto aos = &agents_tile.GetArrayOfStructs()[0];
-        auto& soa = agents_tile.GetStructOfArrays();
-
-        auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
-        auto family_ptr = soa.GetIntData(IntIdx::family).data();
-        auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
-        auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
-        auto work_i_ptr = soa.GetIntData(IntIdx::work_i).data();
-        auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
-        auto trav_i_ptr = soa.GetIntData(IntIdx::trav_i).data();
-        auto trav_j_ptr = soa.GetIntData(IntIdx::trav_j).data();
-        auto hosp_i_ptr = soa.GetIntData(IntIdx::hosp_i).data();
-        auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
-        auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
-        auto hh_cluster_ptr = soa.GetIntData(IntIdx::hh_cluster).data();
-        auto school_grade_ptr = soa.GetIntData(IntIdx::school_grade).data();
-        auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
-        auto school_closed_ptr = soa.GetIntData(IntIdx::school_closed).data();
-        auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
-        auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
-        auto work_nborhood_ptr = soa.GetIntData(IntIdx::work_nborhood).data();
-        auto random_travel_ptr = soa.GetIntData(IntIdx::random_travel).data();
-        auto air_travel_ptr = soa.GetIntData(IntIdx::air_travel).data();
-
-        int i_RT = IntIdx::nattribs;
-        int r_RT = RealIdx::nattribs;
-        int n_disease = pc.m_num_diseases;
-
-        GpuArray<int*, ExaEpi::max_num_diseases> status_ptrs;
-        GpuArray<ParticleReal*, ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs;
-        for (int d = 0; d < n_disease; d++) {
-            status_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
-            counter_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::disease_counter).data();
-            timer_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::treatment_timer).data();
-        }
+        auto ptd = agents_tile.getParticleTileData();
 
         auto dx = pc.ParticleGeom(0).CellSizeArray();
         auto my_proc = ParallelDescriptor::MyProc();
-
-        auto student_counts_arr = pc.m_student_counts[mfi].array();
+        int n_disease = pc.m_num_diseases;
 
         Long pid;
 #ifdef AMREX_USE_OMP
@@ -307,7 +273,6 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
             int community = comm_arr(i, j, k);
             int family_id_start = fam_id_arr(i, j, k, n);
             int family_size = n + 1;
-            int num_to_add = family_size * nf;
 
             int community_size;
             if (Population[unit] < (1000 + DemographicData::COMMUNITY_SIZE * (community - Start[unit]))) {
@@ -327,11 +292,13 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
 
             int start = offset_arr(i, j, k, n);
             int nborhood = 0;
-            for (int ii = 0; ii < num_to_add; ++ii) {
+            for (int ifam = 0; ifam < nf; ++ifam) {
+                int family = family_id_start + ifam;
+                int ii = family_size * ifam;
                 int ip = start + ii;
-                auto& agent = aos[ip];
+
                 int il2 = Random_int(100, engine);
-                if (ii % family_size == 0) { nborhood = Random_int(DemographicData::COMMUNITY_SIZE / nborhood_size, engine); }
+                nborhood = Random_int(DemographicData::COMMUNITY_SIZE / nborhood_size, engine);
                 int age_group = -1;
 
                 if (family_size == 1) {
@@ -344,7 +311,8 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                     } else {
                         age_group = AgeGroups::a18to29; /* single adult age 19-29 */
                     }
-                    nr_arr(i, j, k, age_group) += 1;
+                    setAgentDataAndAssignSchool(ptd, ip, i, j, k, dx, pid + ip, my_proc, age_group, family, nborhood, n_disease,
+                                                nr_arr, student_counts_arr, engine);
                 } else if (family_size == 2) {
                     if (il2 == 0) {
                         /* 1% probability of one parent + one child */
@@ -358,13 +326,15 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                         } else {
                             age_group = AgeGroups::a18to29; /* one parent 19-29 */
                         }
-                        nr_arr(i, j, k, age_group) += 1;
+                        setAgentDataAndAssignSchool(ptd, ip, i, j, k, dx, pid + ip, my_proc, age_group, family, nborhood,
+                                                    n_disease, nr_arr, student_counts_arr, engine);
                         if (((int)Random_int(100, engine)) < p_schoolage) {
                             age_group = AgeGroups::a5to17;
                         } else {
                             age_group = AgeGroups::u5;
                         }
-                        nr_arr(i, j, k, age_group) += 1;
+                        setAgentDataAndAssignSchool(ptd, ip + 1, i, j, k, dx, pid + ip + 1, my_proc, age_group, family, nborhood,
+                                                    n_disease, nr_arr, student_counts_arr, engine);
                     } else {
                         /* 2 adults, 28% over 65 (ASSUME both same age group) */
                         if (il2 < 28) {
@@ -376,7 +346,10 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                         } else {
                             age_group = AgeGroups::a18to29; /* single adult age 19-29 */
                         }
-                        nr_arr(i, j, k, age_group) += 2;
+                        setAgentDataAndAssignSchool(ptd, ip, i, j, k, dx, pid + ip, my_proc, age_group, family, nborhood,
+                                                    n_disease, nr_arr, student_counts_arr, engine);
+                        setAgentDataAndAssignSchool(ptd, ip + 1, i, j, k, dx, pid + ip + 1, my_proc, age_group, family, nborhood,
+                                                    n_disease, nr_arr, student_counts_arr, engine);
                     }
                 }
 
@@ -391,7 +364,10 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                     } else {
                         age_group = AgeGroups::a18to29; /* parents 19-29 */
                     }
-                    nr_arr(i, j, k, age_group) += 2;
+                    setAgentDataAndAssignSchool(ptd, ip, i, j, k, dx, pid + ip, my_proc, age_group, family, nborhood, n_disease,
+                                                nr_arr, student_counts_arr, engine);
+                    setAgentDataAndAssignSchool(ptd, ip + 1, i, j, k, dx, pid + ip + 1, my_proc, age_group, family, nborhood,
+                                                n_disease, nr_arr, student_counts_arr, engine);
 
                     /* Now pick the children's age groups */
                     for (int nc = 2; nc < family_size; ++nc) {
@@ -400,47 +376,9 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                         } else {
                             age_group = AgeGroups::u5;
                         }
-                        nr_arr(i, j, k, age_group) += 1;
+                        setAgentDataAndAssignSchool(ptd, ip + nc, i, j, k, dx, pid + ip + nc, my_proc, age_group, family,
+                                                    nborhood, n_disease, nr_arr, student_counts_arr, engine);
                     }
-                }
-
-                agent.pos(0) = static_cast<ParticleReal>((i + 0.5_rt) * dx[0]);
-                agent.pos(1) = static_cast<ParticleReal>((j + 0.5_rt) * dx[1]);
-                agent.id() = pid + ip;
-                agent.cpu() = my_proc;
-
-                for (int d = 0; d < n_disease; d++) {
-                    status_ptrs[d][ip] = 0;
-                    counter_ptrs[d][ip] = 0.0_prt;
-                    timer_ptrs[d][ip] = 0.0_prt;
-                }
-                age_group_ptr[ip] = age_group;
-                family_ptr[ip] = family_id_start + (ii / family_size);
-                home_i_ptr[ip] = i;
-                home_j_ptr[ip] = j;
-                work_i_ptr[ip] = i;
-                work_j_ptr[ip] = j;
-                trav_i_ptr[ip] = i;
-                trav_j_ptr[ip] = j;
-                hosp_i_ptr[ip] = -1;
-                hosp_j_ptr[ip] = -1;
-                nborhood_ptr[ip] = nborhood;
-                hh_cluster_ptr[ip] = family_ptr[ip] / 4;
-                work_nborhood_ptr[ip] = nborhood;
-                workgroup_ptr[ip] = 0;
-                naics_ptr[ip] = 0;
-                random_travel_ptr[ip] = -1;
-                air_travel_ptr[ip] = -1;
-
-                assignSchool(&school_grade_ptr[ip], &school_id_ptr[ip], age_group, nborhood, engine);
-
-                school_closed_ptr[ip] = 0;
-
-                // Increment the appropriate student counter based on the school assignment
-                if (school_id_ptr[ip] >= SchoolCensusIDType::daycare_5) {
-                    Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, SchoolCensusIDType::daycare_5 - 1), 1);
-                } else if (school_id_ptr[ip] > SchoolCensusIDType::none) {
-                    Gpu::Atomic::AddNoRet(&student_counts_arr(i, j, k, school_id_ptr[ip] - 1), 1);
                 }
             }
         });

@@ -189,7 +189,7 @@ void runAgent () {
                 std::ofstream File;
                 File.open(output_filename[d].c_str(), std::ios::out | std::ios::trunc);
                 if (!File.good()) { amrex::FileOpenFailed(output_filename[d]); }
-                Vector<string> headers = {"Day", "Su", "PS/PI", "S/PI", "PS/I", "S/I",  "A/PI", "A/I",  "H/NI", "H/I",
+                Vector<string> headers = {"Day", "Su", "PS/PI", "S/PI/NH", "S/PI/H", "PS/I", "S/I/NH", "S/I/H", "A/PI", "A/I",  "H/NI", "H/I",
                                           "ICU", "V",  "R",     "D",    "NewI", "NewS", "NewH", "NewA", "NewP"};
                 for (const auto& header : headers) {
                     File << std::setw(header == "Day" ? 5 : 12) << header;
@@ -202,6 +202,7 @@ void runAgent () {
                     File << std::setw(12) << "Hosp" + header;
                 }
                 File << "\n";
+
                 File.flush();
                 File.close();
 
@@ -463,16 +464,16 @@ void runAgent () {
                     File << std::setw(5) << i;
                     for (int j = 0; j < OutputStatus::ICU; ++j) {
                         AMREX_ALWAYS_ASSERT(counts[j] >= 0);
-                        File << std::setw(12) << counts[j];
+                        File << std::setw(11) << counts[j];
                     }
 
                     AMREX_ALWAYS_ASSERT(mmc[1] >= 0);
                     AMREX_ALWAYS_ASSERT(mmc[2] >= 0);
-                    File << std::setw(12) << mmc[1];
-                    File << std::setw(12) << mmc[2];
+                    File << std::setw(11) << mmc[1];
+                    File << std::setw(11) << mmc[2];
                     for (int j = OutputStatus::R; j < OutputStatus::nattribs; ++j) {
                         AMREX_ALWAYS_ASSERT(counts[j] >= 0);
-                        File << std::setw(12) << counts[j];
+                        File << std::setw(11) << counts[j];
                     }
                     for (int j = 0; j < AgeGroups::total; j++) {
                         File << std::setw(12) << symp_age_counts[j];
@@ -481,6 +482,7 @@ void runAgent () {
                         File << std::setw(12) << hosp_age_counts[j];
                     }
                     // File << std::setw(12) << mmc[4];
+
                     File << "\n";
 
                     File.flush();

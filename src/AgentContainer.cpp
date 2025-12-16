@@ -745,13 +745,13 @@ void AgentContainer::generateCellData (MultiFab& mf, /*!< MultiFab with at least
 */
 std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_d /*!< disease index */) {
     BL_PROFILE("getTotals");
-    static_assert(OutputStatus::nattribs == 18, "Expected nattribs == 18");
+    static_assert(OutputStatus::nattribs == 20, "Expected nattribs == 20");
 
     amrex::ReduceOps<REPEAT(18, ReduceOpSum)> reduce_ops;
-    auto r = amrex::ParticleReduce<ReduceData<REPEAT(18, int)>>(
+    auto r = amrex::ParticleReduce<ReduceData<REPEAT(20, int)>>(
             *this,
             [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
-                                 const int i) noexcept -> amrex::GpuTuple<REPEAT(18, int)> {
+                                 const int i) noexcept -> amrex::GpuTuple<REPEAT(20, int)> {
                 int s[OutputStatus::nattribs] = {};
                 auto status = ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][i];
 
@@ -776,7 +776,11 @@ std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_
                             } else if (isPresymptomatic(i, ptd, a_d)) {
                                 s[OutputStatus::PS_PI] = 1;
                             } else if (isSymptomatic(i, ptd, a_d)) {
-                                s[OutputStatus::S_PI] = 1;
+                                if (willBeHospitalized(i, ptd, a_d, *disease_parm_d)) {
+                                    s[OutputStatus::S_PI_H] = 1;
+                                } else {
+                                    s[OutputStatus::S_PI_NH] = 1;
+                                }
                             } else {
                                 amrex::Abort("how did I get here?");
                             }
@@ -786,7 +790,11 @@ std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_
                             } else if (isPresymptomatic(i, ptd, a_d)) {
                                 s[OutputStatus::PS_I] = 1;
                             } else if (isSymptomatic(i, ptd, a_d)) {
-                                s[OutputStatus::S_I] = 1;
+                                if (willBeHospitalized(i, ptd, a_d, *disease_parm_d)) {
+                                    s[OutputStatus::S_I_H] = 1;
+                                } else {
+                                    s[OutputStatus::S_I_NH] = 1;
+                                }
                             } else {
                                 amrex::Abort("how did I get here?");
                             }
@@ -799,7 +807,7 @@ std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_
                         s[OutputStatus::H_I] = 1;
                     }
                 }
-                return {ARRAY_TO_TUPLE(18, s)};
+                return {ARRAY_TO_TUPLE(20, s)};
             },
             reduce_ops);
     std::array<Long, OutputStatus::nattribs> counts;
