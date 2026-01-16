@@ -1,0 +1,139 @@
+#include <AMReX_ParticleUtil.H>
+#include "WeatherData.H"
+#include <cassert>
+
+
+using namespace amrex;
+using namespace ExaEpi;
+
+void WeatherData::readDataFromFile (const std::string& fname) {
+    Vector<char> fileCharPtr;
+    ParallelDescriptor::ReadAndBcastFile(fname, fileCharPtr);
+    std::string fileCharPtrString(fileCharPtr.dataPtr());
+    std::istringstream is(fileCharPtrString, std::istringstream::in);
+    std::string line;
+    if (!is.eof()) {
+        getline(is, line); //read header line
+        std::istringstream lis(line);
+    }
+    while (!is.eof()) {
+        std::getline(is, line);
+	if(line.size()==0) break;
+        std::istringstream lis(line);
+	std::string temp[17];
+	int i=0;
+	while(std::getline(lis, temp[i], ',')){i++;}
+	weatherVars vars;
+	int STATEFP= std::stoi(temp[1]);
+	int COUNTYFP= std::stoi(temp[2]);
+	vars.hurs= std::stod(temp[3]);
+	vars.huss= std::stod(temp[4]);
+	vars.pr= std::stod(temp[7]);
+	vars.rlds= std::stod(temp[8]);
+	vars.rsds= std::stod(temp[9]);
+	vars.sfcWind= std::stod(temp[11]);
+	vars.tas= std::stod(temp[12]);
+	vars.tasmax= std::stod(temp[13]);
+	vars.tasmin= std::stod(temp[14]);
+	varMap[STATEFP * 1000 + COUNTYFP].push_back(vars);
+	if(weekVec.size() < varMap[STATEFP * 1000 + COUNTYFP].size()){
+	    date d0, d1;
+	    char ch;
+	    std::string week= temp[15];
+	    std::istringstream iss(week);
+	    iss >> ch; iss >> ch; 
+  	    iss >> d0.year; iss >> ch; iss >> d0.month; iss >> ch; iss >> d0.day; iss >> ch; 
+  	    iss >> d1.year; iss >> ch; iss >> d1.month; iss >> ch; iss >> d1.day;
+	    weekVec.push_back({d0, d1});
+	}
+    }	
+    if (varMap.size()>0) {
+	numWeeks= varMap.begin()->second.size();
+	assert(numWeeks == weekVec.size());
+	firstWeek= weekVec[0];
+	lastWeek= weekVec.back();
+    }else numWeeks=0;
+}
+
+
+bool WeatherData::lookupIndex(date d, int& weekIndex, int& daysToWeatherWeekend){
+    if(d.year < firstWeek.begin.year || d.year > lastWeek.end.year)
+        return false;
+    else if (d.year == firstWeek.begin.year && d.month < firstWeek.begin.month || d.year == lastWeek.end.year && d.month > lastWeek.end.month)
+             return false;
+         else if(d.year == firstWeek.begin.year && d.month == firstWeek.begin.month && d.day < firstWeek.begin.day || d.year == lastWeek.end.year && d.month == lastWeek.end.month && d.day > lastWeek.end.day)
+                  return false;
+    int approxStartWeeks= std::max(d.year - 1 - firstWeek.begin.year, 0) * 52;
+    int i=approxStartWeeks;
+    for(; i<numWeeks; i++){
+        if (weekVec[i].begin.year == d.year){
+	    if(weekVec[i].begin.month == d.month){
+		if(weekVec[i].straddleMonths()){
+	            if(d.day >= weekVec[i].begin.day){
+			daysToWeatherWeekend= 7- (d.day - weekVec[i].begin.day);
+			weekIndex= i;
+			return true;
+		    }
+		}else{
+	            if(d.day >= weekVec[i].begin.day && d.day <= weekVec[i].end.day){
+			daysToWeatherWeekend= weekVec[i].end.day - d.day + 1;
+			weekIndex= i;
+			return true;
+		    }
+		}
+	    } else{
+		if(weekVec[i].straddleMonths()){
+                    if(weekVec[i].end.month == d.month){
+                        if(d.day <= weekVec[i].end.day){
+			    daysToWeatherWeekend= weekVec[i].end.day - d.day + 1;
+			    weekIndex= i;
+			    return true;
+                        }
+                    }
+		}
+	    }
+	}
+	else{
+            if(weekVec[i].straddleYears()){
+                if(d.month==1 && d.day <= weekVec[i].end.day){
+                    daysToWeatherWeekend= weekVec[i].end.day - d.day + 1;
+                    weekIndex= i;
+                    return true;
+		}
+	    }
+	}
+    }
+    return false; 
+}
+
+bool WeatherData::lookupWeatherVars(int stateFP, int countyFP, date d, int& weekIndex, weatherVars& vars){
+    int daysToWeatherWeekend;
+    bool found= lookupIndex(d, weekIndex, daysToWeatherWeekend);
+    if(found) {
+        vars= varMap[stateFP * 1000 + countyFP][weekIndex];
+#if 0
+	std::cout<<"STATEFP " <<"COUNTYFP " <<"hurs " <<"huss " <<"pr " <<"rlds " <<"rsds " <<"sfcWind "<< "tas "<< "tasmax "<< "tasmin "<<"WeekBeginDate\n";
+	std::cout<<stateFP<<" "<<countyFP <<" ";
+	std::cout<<vars.hurs <<" " <<vars.huss <<" " <<vars.pr <<" " <<vars.rlds <<" " <<vars.rsds <<" " <<vars.sfcWind <<" " <<vars.tas <<" " <<vars.tasmax <<" " <<vars.tasmin <<" ";
+#endif
+	return true;
+    }
+    return false; 
+}
+    
+void WeatherData::extractData(CensusData& census, int startWeek, int numWeeks){
+    int numUnitsOnThisProc=0;
+    for (int i=0; i< census.demo.Nunit; i++) if(census.demo.Unit_on_proc[i]) numUnitsOnThisProc++;
+    activeWeather.resize(numUnitsOnThisProc * numWeeks);
+    for (int week = startWeek; week < startWeek + numWeeks; week++) {
+        int offset= (week-startWeek) * numUnitsOnThisProc;
+	int idx=0;
+	for(int unit=0; unit<census.demo.Nunit; unit++){
+             if(census.demo.Unit_on_proc[unit]){
+		 int FIPS= census.demo.FIPS[unit];
+		 activeWeather[offset+idx]= varMap[FIPS][week];
+		 idx++;
+	     }
+	}
+    }
+}

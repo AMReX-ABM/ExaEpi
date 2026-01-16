@@ -13,6 +13,7 @@
 #include "AgentContainer.H"
 #include "AirTravelFlow.H"
 #include "CaseData.H"
+#include "WeatherData.H"
 #include "DemographicData.H"
 #include "IO.H"
 #include "InitializeInfections.H"
@@ -166,6 +167,11 @@ void runAgent () {
         air.readAirports(params.airports_filename, censusData.demo);
         air.readAirTravelFlow(params.air_traffic_filename);
         air.computeTravelProbs(censusData.demo);
+    }
+    
+    WeatherData wd;
+    if (params.weather_int > 0) {
+        wd.readDataFromFile(params.weather_filename);
     }
 
     // The default output filename is:
@@ -354,6 +360,21 @@ void runAgent () {
     Vector<Long> num_infected(params.num_diseases, 0);
 
     amrex::ParmParse::QueryUnusedInputs();
+    date startdate(params.startdate);
+    if(params.startdate.size()){
+	std::cout<<"SIMULATION START DATE ";
+        startdate.print();
+    }
+    int weatherWeekIndex=-1;
+    int daysToWeatherWeekend= -1;
+    if (params.weather_int > 0) {
+        wd.lookupIndex(startdate, weatherWeekIndex, daysToWeatherWeekend);
+	if(weatherWeekIndex >= 0){
+	    std::cout<<"Using Weather Data of the First Week ";
+	    std::cout<<" INDEX "<<weatherWeekIndex<<" Total Weeks"<<params.nsteps/7+1<<"\n";
+            wd.extractData(censusData, weatherWeekIndex, params.nsteps/7+1);
+	}
+    }
 
     {
         BL_PROFILE_REGION("Evolution");
@@ -390,6 +411,12 @@ void runAgent () {
                                                     params.disease_names, i);
                 }
             }
+	    if(weatherWeekIndex>=0 && (weatherWeekIndex+1) < wd.numWeeks)
+  	        if((i-start_day) % 7 == daysToWeatherWeekend){
+                    weatherWeekIndex++;
+	            std::cout<<"Using Weather Data of Week ";
+		    //wd.weekVec[weatherWeekIndex].print();
+	        }
 
             // Update agents' disease status
             pc.updateStatus(disease_stats);

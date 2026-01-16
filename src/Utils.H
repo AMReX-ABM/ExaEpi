@@ -30,6 +30,7 @@ struct TestParams {
     amrex::Real random_travel_prob = amrex::Real(0.0001); /*!< probability of an agent going on random travel */
     int air_travel_int = -1;
     short ic_type;                                        /*!< initialization type (see ExaEpi::ICType) */
+    int weather_int = -1;
 
     int num_diseases = 1;                                 /*!< Number of diseases to track */
     std::vector<std::string> disease_names;               /*!< Names of the diseases */
@@ -50,6 +51,8 @@ struct TestParams {
     std::string census_filename;
     std::string air_traffic_filename;
     std::string airports_filename;
+    std::string weather_filename;
+    std::string startdate;
 
     /*! UrbanPop data filename.
      */

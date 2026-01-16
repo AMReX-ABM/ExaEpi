@@ -4,8 +4,11 @@ agent.workerflow_filename = "../../data/CensusData/MA-wf.dat"
 
 
 agent.nsteps = 120
-agent.plot_int = 10
+agent.plot_int = -1
 agent.random_travel_int = 24
+agent.weather_int = 10
+agent.weather_filename = "../../data/climateDF.csv"
+agent.startdate="2025-1-1"
 
 agent.aggregated_diag_int = -1
 
