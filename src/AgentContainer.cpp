@@ -754,7 +754,7 @@ std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_
     static_assert(OutputStatus::nattribs == 20, "Expected nattribs == 20");
 
     const auto* disease_parm_d = getDiseaseParameters_d(a_d);
-    amrex::ReduceOps<REPEAT(18, ReduceOpSum)> reduce_ops;
+    amrex::ReduceOps<REPEAT(20, ReduceOpSum)> reduce_ops;
     auto r = amrex::ParticleReduce<ReduceData<REPEAT(20, int)>>(
             *this,
             [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
