@@ -660,6 +660,7 @@ void AgentContainer::infectAgents (MFPtrVec& a_disease_stats /*!< Community-wise
                 auto infectious_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::infectious_period).data();
                 auto incubation_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).data();
                 auto hospital_delay_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_delay).data();
+                auto hospital_random_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_random).data();
                 auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
                 auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
 
@@ -685,7 +686,8 @@ void AgentContainer::infectAgents (MFPtrVec& a_disease_stats /*!< Community-wise
                     if (status_ptr[i] == Status::never || status_ptr[i] == Status::susceptible) {
                         if (amrex::Random(engine) < prob_ptr[i]) {
                             setInfected(&(status_ptr[i]), &(counter_ptr[i]), &(latent_period_ptr[i]), &(infectious_period_ptr[i]),
-                                        &(incubation_period_ptr[i]), &(hospital_delay_ptr[i]), engine, lparm);
+                                        &(incubation_period_ptr[i]), &(hospital_delay_ptr[i]), &(hospital_random_ptr[i]), engine,
+                                        lparm);
                             Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::new_cases), 1.0_rt);
 
                             return;

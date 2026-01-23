@@ -204,7 +204,8 @@ bool willBeHospitalized (const int a_idx,      /*!< Agent index */
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 void setInfected (int* status, amrex::ParticleReal* counter, amrex::ParticleReal* latent_period,
                   amrex::ParticleReal* infectious_period, amrex::ParticleReal* incubation_period,
-                  amrex::ParticleReal* hospital_delay, amrex::RandomEngine const& engine, const DiseaseParm* lparm) {
+                  amrex::ParticleReal* hospital_delay, amrex::ParticleReal* hospital_random, amrex::RandomEngine const& engine,
+                  const DiseaseParm* lparm) {
     *status = Status::infected;
     *counter = ParticleReal(0);
     *latent_period = static_cast<ParticleReal>(amrex::RandomGamma(lparm->latent_length_alpha, lparm->latent_length_beta, engine));
@@ -214,6 +215,7 @@ void setInfected (int* status, amrex::ParticleReal* counter, amrex::ParticleReal
             static_cast<ParticleReal>(amrex::RandomGamma(lparm->infectious_length_alpha, lparm->infectious_length_beta, engine));
     *hospital_delay = static_cast<ParticleReal>(
             amrex::RandomGamma(lparm->hospital_delay_length_alpha, lparm->hospital_delay_length_beta, engine));
+    *hospital_random = static_cast<ParticleReal>(amrex::Random(engine));
 
     if (*latent_period < 1) { *latent_period = amrex::Real(1); }
     if (*infectious_period < 1) { *infectious_period = amrex::Real(1); }

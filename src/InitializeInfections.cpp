@@ -86,7 +86,7 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
         auto infectious_period_ptr = soa.GetRealData(r_RT + r0(d_idx) + RealIdxDisease::infectious_period).data();
         auto incubation_period_ptr = soa.GetRealData(r_RT + r0(d_idx) + RealIdxDisease::incubation_period).data();
         auto hospital_delay_ptr = soa.GetRealData(r_RT + r0(d_idx) + RealIdxDisease::hospital_delay).data();
-
+        auto hospital_random_ptr = soa.GetRealData(r_RT + r0(d_idx) + RealIdxDisease::hospital_random).data();
         auto comm_arr = comm_mf[mfi].array();
 
         const auto lparm = pc.getDiseaseParameters_d(d_idx);
@@ -117,7 +117,7 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
                 } else {
                     setInfected(&(status_ptr[pindex]), &(counter_ptr[pindex]), &(latent_period_ptr[pindex]),
                                 &(infectious_period_ptr[pindex]), &(incubation_period_ptr[pindex]), &(hospital_delay_ptr[pindex]),
-                                engine, lparm);
+                                &(hospital_random_ptr[pindex]), engine, lparm);
                     ++ni;
                 }
             }
