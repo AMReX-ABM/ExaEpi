@@ -325,14 +325,11 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 bool isNewlyHospitalized (const int a_idx,      /*!< Agent index */
                           const PTDType& a_ptd, /*!< Particle tile data */
                           const int a_d /*!< Disease index */) {
-    int disease_counter = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
-    int incb_period = (int)amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
-    int hospital_delay = (int)amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::hospital_delay][a_idx]);
-    if (inHospital(a_idx, a_ptd) && disease_counter == incb_period + hospital_delay) {
-        return true;
-    } else {
-        return false;
-    }
+    if (!inHospital(a_idx, a_ptd)) { return false; }
+    int disease_counter = (int)(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx]);
+    int incb_period = (int)(amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]));
+    int hospital_delay = (int)(amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::hospital_delay][a_idx]));
+    return disease_counter == incb_period + hospital_delay;
 }
 
 template <typename PTDType>
@@ -348,8 +345,14 @@ void setAgentData (PTDType& ptd, int ip, int i, int j, const amrex::GpuArray<amr
 
     for (int d = 0; d < n_disease; d++) {
         ptd.m_runtime_idata[i0(d) + IntIdxDisease::status][ip] = 0;
-        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::disease_counter][ip] = 0.0_prt;
         ptd.m_runtime_rdata[r0(d) + RealIdxDisease::treatment_timer][ip] = 0.0_prt;
+        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::disease_counter][ip] = 0.0_prt;
+        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::prob][ip] = 0.0_prt;
+        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::latent_period][ip] = 0.0_prt;
+        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::infectious_period][ip] = 0.0_prt;
+        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::incubation_period][ip] = 0.0_prt;
+        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::hospital_delay][ip] = 0.0_prt;
+        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::hospital_random][ip] = 0.0_prt;
     }
 
     ptd.m_idata[IntIdx::age_group][ip] = age_group;
