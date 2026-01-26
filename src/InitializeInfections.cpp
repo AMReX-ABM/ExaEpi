@@ -86,7 +86,7 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
         auto infectious_period_ptr = soa.GetRealData(r_RT + r0(d_idx) + RealIdxDisease::infectious_period).data();
         auto incubation_period_ptr = soa.GetRealData(r_RT + r0(d_idx) + RealIdxDisease::incubation_period).data();
         auto hospital_delay_ptr = soa.GetRealData(r_RT + r0(d_idx) + RealIdxDisease::hospital_delay).data();
-
+        auto hospital_random_ptr = soa.GetRealData(r_RT + r0(d_idx) + RealIdxDisease::hospital_random).data();
         auto comm_arr = comm_mf[mfi].array();
 
         const auto lparm = pc.getDiseaseParameters_d(d_idx);
@@ -117,7 +117,7 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
                 } else {
                     setInfected(&(status_ptr[pindex]), &(counter_ptr[pindex]), &(latent_period_ptr[pindex]),
                                 &(infectious_period_ptr[pindex]), &(incubation_period_ptr[pindex]), &(hospital_delay_ptr[pindex]),
-                                engine, lparm);
+                                &(hospital_random_ptr[pindex]), engine, lparm);
                     ++ni;
                 }
             }
@@ -131,8 +131,8 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
 
     ParallelDescriptor::ReduceIntSum(num_infected);
     // Print() << "Infecting unit " << unit << " out of " << unit_community_start.size() - 1 << " units, "
-    //         << "random community " << random_comm << " out of " << ncomms << " comms, ranging from "
-    //         << comm_offset << " to " << unit_community_start[unit + 1] << " and infected " << num_infected << "\n";
+    //         << "random community " << random_comm << " out of " << ncomms << " comms, ranging from " << comm_offset << " to "
+    //         << unit_community_start[unit + 1] << " and infected " << num_infected << "\n";
     return num_infected;
 }
 
@@ -160,7 +160,8 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
     std::map<std::pair<int, int>, amrex::DenseBins<AgentContainer::ParticleType>> bin_map;
 
     Print() << "Initializing infections for " << d_name << "\n";
-    int ntry = 5;
+    const int NTRY = 1;
+    int ntry = NTRY;
     int ninf = 0;
     for (int ihub = 0; ihub < cases.N_hubs; ++ihub) {
         if (cases.Size_hubs[ihub] > 0) {
@@ -177,7 +178,7 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
                 int i = 0;
                 while (i < cases.Size_hubs[ihub]) {
                     int diff = cases.Size_hubs[ihub] - i;
-                    ntry = diff > 5 ? 5 : diff;
+                    ntry = diff > NTRY ? NTRY : diff;
                     int nSuccesses =
                             infectRandomCommunity(pc, unit_community_start, comm_mf, bin_map, units[u], d_idx, ntry, fast_bin);
                     ninf += nSuccesses;

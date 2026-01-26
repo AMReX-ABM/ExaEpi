@@ -249,6 +249,7 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
         auto& agents_tile = pc.DefineAndReturnParticleTile(0, mfi);
         agents_tile.resize(nagents);
         auto ptd = agents_tile.getParticleTileData();
+
         auto dx = pc.ParticleGeom(0).CellSizeArray();
         auto my_proc = ParallelDescriptor::MyProc();
         int n_disease = pc.m_num_diseases;

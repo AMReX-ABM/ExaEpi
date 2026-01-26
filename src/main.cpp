@@ -188,30 +188,23 @@ void runAgent () {
             if (ParallelDescriptor::IOProcessor()) {
                 std::ofstream File;
                 File.open(output_filename[d].c_str(), std::ios::out | std::ios::trunc);
-
                 if (!File.good()) { amrex::FileOpenFailed(output_filename[d]); }
-
-                File << std::setw(5) << "Day";
-                File << std::setw(11) << "Su";
-                File << std::setw(11) << "PS/PI";
-                File << std::setw(11) << "S/PI/NH";
-                File << std::setw(11) << "S/PI/H";
-                File << std::setw(11) << "PS/I";
-                File << std::setw(11) << "S/I/NH";
-                File << std::setw(11) << "S/I/H";
-                File << std::setw(11) << "A/PI";
-                File << std::setw(11) << "A/I";
-                File << std::setw(11) << "H/NI";
-                File << std::setw(11) << "H/I";
-                File << std::setw(11) << "ICU";
-                File << std::setw(11) << "V";
-                File << std::setw(11) << "R";
-                File << std::setw(11) << "D";
-                File << std::setw(11) << "NewS";
-                File << std::setw(11) << "NewH\n";
+                Vector<string> headers = {"Day",   "Su",   "PS/PI", "S/PI/NH", "S/PI/H", "PS/I", "S/I/NH",
+                                          "S/I/H", "A/PI", "A/I",   "H/NI",    "H/I",    "ICU",  "V",
+                                          "R",     "D",    "NewI",  "NewS",    "NewH",   "NewA", "NewP"};
+                for (const auto& header : headers) {
+                    File << std::setw(header == "Day" ? 5 : 12) << header;
+                }
+                Vector<string> age_headers = {"U5", "5to17", "18to29", "30to49", "50to64", "O64"};
+                for (const auto& header : age_headers) {
+                    File << std::setw(12) << "Symp" + header;
+                }
+                for (const auto& header : age_headers) {
+                    File << std::setw(12) << "Hosp" + header;
+                }
+                File << "\n";
 
                 File.flush();
-
                 File.close();
 
                 if (!File.good()) { amrex::Abort("problem writing output file"); }
@@ -275,8 +268,13 @@ void runAgent () {
                 pc.setAirTravel(censusData.unit_mf, air, censusData.demo);
             }
         } else {
-            IO::readCheckpointFile(params.restart_chkfile, pc, disease_stats, &(censusData.unit_mf), &(censusData.FIPS_mf),
-                                   &(censusData.comm_mf), cur_time, start_day);
+            if (params.ic_type == ICType::Census) {
+                IO::readCheckpointFile(params.restart_chkfile, pc, disease_stats, &(censusData.unit_mf), &(censusData.FIPS_mf),
+                                       &(censusData.comm_mf), cur_time, start_day);
+            } else {
+                IO::readCheckpointFile(params.restart_chkfile, pc, disease_stats, nullptr, &(urbanPopData.geoid_mf),
+                                       &(urbanPopData.community_mf), cur_time, start_day);
+            }
         }
     }
 
@@ -323,16 +321,16 @@ void runAgent () {
         }
     }
 
-// #define DUMP_INITIAL_AGENTS_ASCII
-#ifdef DUMP_INITIAL_AGENTS_ASCII
-    string agents_fname = std::string("agents.") + (params.ic_type == ICType::UrbanPop ? "urbanpop" : "census") + ".csv";
+#ifdef AMREX_DEBUG
+    //  dump a text file of the initial agent fields for debugging purposes
+    string agents_fname = std::string("initial_agents.") + (params.ic_type == ICType::UrbanPop ? "urbanpop" : "census") + ".csv";
     pc.WriteAsciiFile(agents_fname);
     if (ParallelDescriptor::IOProcessor()) {
         std::ofstream agents_f(agents_fname, std::ios_base::app);
         agents_f << "#posx posy id cpu " << "treatment_timer " << "disease_counter " << "prob " << "latent_period "
                  << "infectious_period " << "incubation_period " << "hospital_delay " << "age_group " << "family " << "home_i "
                  << "home_j " << "work_i " << "work_j " << "hosp_i " << "hosp_j " << "trav_i " << "trav_j " << "nborhood "
-                 << "school_grade "
+                 << "hh_cluster " << "school_grade "
                  << "school_id " << "school_closed " << "naics " << "workgroup " << "work_nborhood " << "withdrawn "
                  << "random_travel " << "air_travel " << "status " << "symptomatic\n";
         agents_f.close();
@@ -441,9 +439,14 @@ void runAgent () {
 
                 ParallelDescriptor::ReduceRealSum(&mmc[0], 5, ParallelDescriptor::IOProcessorNumber());
 
+                auto symp_age_counts = pc.getNewStatusByAge(d, OutputStatus::NewS);
+                auto hosp_age_counts = pc.getNewStatusByAge(d, OutputStatus::NewH);
+
                 if (ParallelDescriptor::IOProcessor()) {
                     // total number of deaths computed on agents and on mesh should be the same...
-                    if (mmc[3] != counts[OutputStatus::D]) { amrex::Print() << mmc[3] << " " << counts[OutputStatus::D] << "\n"; }
+                    if (mmc[3] != counts[OutputStatus::D]) {
+                        amrex::Print() << "ERROR in death counts: " << mmc[3] << " != " << counts[OutputStatus::D] << "\n";
+                    }
                     AMREX_ALWAYS_ASSERT(mmc[3] == counts[OutputStatus::D]);
 
                     // the total number of infected should equal the sum of
@@ -473,7 +476,14 @@ void runAgent () {
                         AMREX_ALWAYS_ASSERT(counts[j] >= 0);
                         File << std::setw(11) << counts[j];
                     }
-                    // File << std::setw(11) << mmc[4];
+                    for (int j = 0; j < AgeGroups::total; j++) {
+                        File << std::setw(12) << symp_age_counts[j];
+                    }
+                    for (int j = 0; j < AgeGroups::total; j++) {
+                        File << std::setw(12) << hosp_age_counts[j];
+                    }
+                    // File << std::setw(12) << mmc[4];
+
                     File << "\n";
 
                     File.flush();

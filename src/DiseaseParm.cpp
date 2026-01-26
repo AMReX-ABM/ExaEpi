@@ -8,28 +8,6 @@
 
 using namespace amrex;
 
-void queryArray (ParmParse& pp, const std::string& s, Real* a, int n) {
-    Vector<Real> tmp(n, 0);
-    for (int i = 0; i < n; i++) {
-        tmp[i] = a[i];
-    }
-    pp.queryarr(s.c_str(), tmp, 0, n);
-    for (int i = 0; i < n; i++) {
-        a[i] = tmp[i];
-    }
-}
-
-void queryArray (ParmParse& pp, const std::string& s, int* a, int n) {
-    Vector<int> tmp(n, 0);
-    for (int i = 0; i < n; i++) {
-        tmp[i] = a[i];
-    }
-    pp.queryarr(s.c_str(), tmp, 0, n);
-    for (int i = 0; i < n; i++) {
-        a[i] = tmp[i];
-    }
-}
-
 /*! \brief Read disease inputs from input file */
 void DiseaseParm::readInputs (const std::string& a_pp_str /*!< Parmparse string */) {
     ParmParse pp(a_pp_str);
@@ -100,13 +78,13 @@ void DiseaseParm::readInputs (const std::string& a_pp_str /*!< Parmparse string 
     }
 
     if (m_hospital_stay_type == HospitalStayType::Constant) {
-        queryArray(pp, "hospitalization_days", m_t_hosp, AgeGroups_Hosp::total);
-        for (int i = 0; i < AgeGroups_Hosp::total; i++) {
-            AMREX_ALWAYS_ASSERT(m_t_hosp[i] < m_t_hosp_offset);
+        queryArray(pp, "hospitalization_days", m_t_hosp_days, AgeGroups::total);
+        for (int i = 0; i < AgeGroups::total; i++) {
+            AMREX_ALWAYS_ASSERT(m_t_hosp_days[i] < m_t_hosp_offset);
         }
     } else if (m_hospital_stay_type == HospitalStayType::Random) {
-        queryArray(pp, "hospitalization_days_alpha", m_t_hosp_alpha, AgeGroups_Hosp::total);
-        queryArray(pp, "hospitalization_days_beta", m_t_hosp_beta, AgeGroups_Hosp::total);
+        queryArray(pp, "hospitalization_days_alpha", m_t_hosp_days_alpha, AgeGroups::total);
+        queryArray(pp, "hospitalization_days_beta", m_t_hosp_days_beta, AgeGroups::total);
     } else {
         amrex::Abort("Unrecognized hospital stay type!");
     }
@@ -175,3 +153,6 @@ void DiseaseParm::initialize () {
         xmit_hood_SC[i] = xmit_hood[i];
     }
 }
+
+template void queryArray<int>(amrex::ParmParse& pp, const std::string& s, int* a, int n);
+template void queryArray<Real>(amrex::ParmParse& pp, const std::string& s, Real* a, int n);
