@@ -5,7 +5,8 @@
 #include <AMReX_iMultiFab.H>
 #include <string>
 #include "Utils.H"
-#include "CensusData.H"
+#include "DemographicData.H"
+//#include "CensusData.H"
 
 struct weatherVars{
     double hurs;
@@ -30,6 +31,7 @@ struct date{
         std::cout<<year <<"-" <<month <<"-" <<day <<"\n";
     }
     date():month(-1), day(-1), year(-1){}
+    //date format: year-month-day
     date(std::string s){
         std::istringstream iss(s);
 	char hyphen;
@@ -53,6 +55,33 @@ struct week{
     }
 };
 
+struct ActiveWeather{
+    amrex::Gpu::DeviceVector<weatherVars> varVec;
+    amrex::Gpu::DeviceVector<int> unitVec;
+    int numUnitsOnThisProc;
+    weatherVars& operator[](int index) {
+        return varVec[index];
+    }
+    weatherVars& nextWeekWeather(int curIdx){
+        return varVec[curIdx + numUnitsOnThisProc];
+    }
+    inline int computeIndex(int unit, int simWeek){
+	bool found=false;
+	int lunit=0;
+        for(; lunit<unitVec.size(); lunit++)
+		if(unitVec[lunit] == unit){
+			found=true;
+			break;
+		}
+	if(!found) return -1;
+        return simWeek * numUnitsOnThisProc + lunit;
+    }
+    weatherVars* lookupWeatherVars(int unit, int simWeek){
+	if (computeIndex(unit, simWeek) == -1) return NULL;
+	return &varVec[computeIndex(unit, simWeek)];
+    }
+};
+
 struct WeatherData {
     //keep a map on the host for quick data lookup
     std::map<int, std::vector<weatherVars> > varMap;
@@ -60,12 +89,12 @@ struct WeatherData {
     int numWeeks;
     week firstWeek; //first observation weeks
     week lastWeek; //last observation weeks
-    //WeatherData () {}
-    amrex::Gpu::DeviceVector<weatherVars> activeWeather;//part of the weather data affecting the simulation
+    week simStartWeek; //first simulation week
+    ActiveWeather activeWeather; //part of the weather data affecting the simulation
     void readDataFromFile(const std::string& weatherFilename);
     bool lookupIndex(date d, int& weekIndex, int& daysToWeatherWeekend);
-    bool lookupWeatherVars(int stateFP, int countyFP, date d, int& weekIndex, weatherVars& vars);
-    void extractData(CensusData& census, int startWeek, int numWeeks);
+    bool lookupWeatherVars(int stateFP, int countyFP, date d, int& weatherWeekIndex, weatherVars& vars);
+    void extractData(DemographicData& demo, int startWeek, int numWeeks);
     void print(){
         std::cout<<"STATEFP " <<"COUNTYFP " <<"hurs " <<"huss " <<"pr " <<"rlds " <<"rsds " <<"sfcWind "<< "tas "<< "tasmax "<< "tasmin "<<"Week\n";   
         std::map<int, std::vector<weatherVars> >::iterator it;

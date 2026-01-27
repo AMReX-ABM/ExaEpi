@@ -24,6 +24,7 @@
 #include "DiseaseStatus.H"
 #include "HospitalModel.H"
 #include "InteractionModelLibrary.H"
+#include "WeatherData.H"
 #include "Utils.H"
 
 /*! \brief Derived class from ParticleContainer that defines agents and their functions */
@@ -85,6 +86,10 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void setTileSize (IntVect newTileSize) { tile_size = newTileSize; }
 
+    void setActiveWeatherWeek(int week){ activeWeatherWeek= week; }
+    void initializeWeatherIndex(const iMultiFab&, ActiveWeather*);
+    void advanceWeatherIndex ();
+
     /*! \brief Return flag indicating if agents are at work */
     inline bool isAtWork () const { return m_at_work; }
 
@@ -113,6 +118,9 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     amrex::iMultiFab comm_mf;
 
     short ic_type;
+
+    int activeWeatherWeek;
+    ActiveWeather* awd;
 
   protected:
     amrex::Real m_shelter_compliance = 0.95_rt;              /*!< Shelter-in-place compliance rate */

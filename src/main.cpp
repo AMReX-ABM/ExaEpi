@@ -366,13 +366,17 @@ void runAgent () {
         startdate.print();
     }
     int weatherWeekIndex=-1;
+    int firstWeatherWeekIndex=-1;
     int daysToWeatherWeekend= -1;
     if (params.weather_int > 0) {
         wd.lookupIndex(startdate, weatherWeekIndex, daysToWeatherWeekend);
 	if(weatherWeekIndex >= 0){
+            firstWeatherWeekIndex= weatherWeekIndex;
 	    std::cout<<"Using Weather Data of the First Week ";
 	    std::cout<<" INDEX "<<weatherWeekIndex<<" Total Weeks"<<params.nsteps/7+1<<"\n";
-            wd.extractData(censusData, weatherWeekIndex, params.nsteps/7+1);
+	    //extract weather data for the simulation timeframe
+            wd.extractData(censusData.demo, weatherWeekIndex, params.nsteps/7+1);
+	    pc.initializeWeatherIndex(censusData.unit_mf, &wd.activeWeather);
 	}
     }
 
@@ -411,12 +415,9 @@ void runAgent () {
                                                     params.disease_names, i);
                 }
             }
-	    if(weatherWeekIndex>=0 && (weatherWeekIndex+1) < wd.numWeeks)
-  	        if((i-start_day) % 7 == daysToWeatherWeekend){
-                    weatherWeekIndex++;
-	            std::cout<<"Using Weather Data of Week ";
-		    //wd.weekVec[weatherWeekIndex].print();
-	        }
+	    if(weatherWeekIndex>=0){
+                pc.setActiveWeatherWeek(weatherWeekIndex - firstWeatherWeekIndex);
+	    }
 
             // Update agents' disease status
             pc.updateStatus(disease_stats);
@@ -549,6 +550,11 @@ void runAgent () {
             Print() << "; deaths: " << cumulative_deaths[0] << "\n";
 
             cur_time += 1.0_rt; // time step is one day
+	    if(weatherWeekIndex>=0 && (weatherWeekIndex+1) < wd.numWeeks)
+  	        if((i-start_day) % 7 == daysToWeatherWeekend){
+                    weatherWeekIndex++;
+	            pc.advanceWeatherIndex();
+	        }
         }
     }
 

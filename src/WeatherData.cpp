@@ -120,20 +120,29 @@ bool WeatherData::lookupWeatherVars(int stateFP, int countyFP, date d, int& week
     }
     return false; 
 }
-    
-void WeatherData::extractData(CensusData& census, int startWeek, int numWeeks){
+
+void WeatherData::extractData(DemographicData& demo, int startWeek, int numWeeks){
     int numUnitsOnThisProc=0;
-    for (int i=0; i< census.demo.Nunit; i++) if(census.demo.Unit_on_proc[i]) numUnitsOnThisProc++;
-    activeWeather.resize(numUnitsOnThisProc * numWeeks);
+    for (int i=0; i< demo.Nunit; i++) if(demo.Unit_on_proc[i]) numUnitsOnThisProc++;
+    activeWeather.varVec.resize(numUnitsOnThisProc * numWeeks);
+    activeWeather.unitVec.resize(numUnitsOnThisProc);
+    //set up the map from local unit index to global unit index
+    int idx=0;
+    for(int unit=0; unit<demo.Nunit; unit++){
+        if(demo.Unit_on_proc[unit]){
+            activeWeather.unitVec[idx]= unit;
+	    idx++;
+        }
+    }
     for (int week = startWeek; week < startWeek + numWeeks; week++) {
         int offset= (week-startWeek) * numUnitsOnThisProc;
 	int idx=0;
-	for(int unit=0; unit<census.demo.Nunit; unit++){
-             if(census.demo.Unit_on_proc[unit]){
-		 int FIPS= census.demo.FIPS[unit];
-		 activeWeather[offset+idx]= varMap[FIPS][week];
-		 idx++;
-	     }
+	for(int unit=0; unit<demo.Nunit; unit++){
+            if(demo.Unit_on_proc[unit]){
+		int FIPS= demo.FIPS[unit];
+		activeWeather.varVec[offset+idx]= varMap[FIPS][week];
+		idx++;
+	    }
 	}
     }
 }
