@@ -30,13 +30,14 @@ if __name__ == "__main__":
     px = 1.0 / plt.rcParams["figure.dpi"]
     _, axes = plt.subplots(3, 1, figsize=(1100 * px, 1600 * px))
     state_maps = {
-        "Infected": ["PS/PI", "S/PI", "S/I", "PS/I", "A/PI", "A/I", "H/I"],
+        "Infected": ["PS/PI", "S/PI/NH", "S/PI/H", "S/I/NH", "S/I/H", "PS/I", "A/PI", "A/I", "H/I"],
         "Hospitalized": ["H/NI", "H/I", "ICU", "V"],
         "Dead": ["D"],
     }
     for i, state in enumerate(state_maps.keys()):
         axes[i].set_xlabel("Days")
         axes[i].set_ylabel(state)
+        axes[i].set_yscale("log")
 
     for i, fname in enumerate(args.files):
         df = pd.read_csv(fname, delimiter=r"\s+")
@@ -83,3 +84,4 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.savefig(args.output)
     print(f"Saved plot to '{args.output}'")
+    plt.show()
