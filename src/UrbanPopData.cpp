@@ -44,6 +44,8 @@ void copyToDeviceAsync (const Vector<T>& h_vec, Gpu::DeviceVector<T>& d_vec) {
     Gpu::copyAsync(Gpu::hostToDevice, h_vec.begin(), h_vec.end(), d_vec.begin());
 }
 
+#define BIN_READ
+
 bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, amrex::Vector<AgentExtras>& agents_extras,
                              const std::map<int64_t, int>& geoid_to_block_groups, const Vector<BlockGroup>& block_groups) {
     BL_PROFILE("BlockGroup::readAgents");
@@ -58,11 +60,17 @@ bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, amrex::
     // used for counting up the number of unique households
     unordered_set<int> households;
     f.seekg(file_offset);
+#ifndef BIN_READ
     // skip the first line - contains the header
     if (file_offset == 0) { getline(f, buf); }
+#endif
     for (int i = start_i; i < agents.size(); i++) {
         auto& agent = agents[i];
+#ifdef BIN_READ
+        if (!agent.readBinary(f)) {
+#else
         if (!agent.readCsv(f)) {
+#endif
             Abort("File is corrupted: end of file before read for offset " + to_string(file_offset) + " geoid " +
                   to_string(geoid) + "\n");
         }
@@ -258,8 +266,13 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
     int nborhood_size = params.nborhood_size;
     int num_nborhoods = 0;
 
+#ifdef BIN_READ
+    ifstream f(params.urbanpop_filename + ".bin");
+    if (!f) { Abort("Could not open file " + params.urbanpop_filename + ".bin" + "\n"); }
+#else
     ifstream f(params.urbanpop_filename + ".csv");
     if (!f) { Abort("Could not open file " + params.urbanpop_filename + ".csv" + "\n"); }
+#endif
     for (MFIter mfi = pc.MakeMFIter(0); mfi.isValid(); ++mfi) {
         Vector<UrbanPopAgent> agents;
         Vector<AgentExtras> agents_extras;
