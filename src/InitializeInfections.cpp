@@ -160,7 +160,7 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
     std::map<std::pair<int, int>, amrex::DenseBins<AgentContainer::ParticleType>> bin_map;
 
     Print() << "Initializing infections for " << d_name << "\n";
-    const int NTRY = 1;
+    const int NTRY = 10;
     int ntry = NTRY;
     int ninf = 0;
     for (int ihub = 0; ihub < cases.N_hubs; ++ihub) {
