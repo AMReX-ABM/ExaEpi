@@ -410,18 +410,18 @@ struct UrbanPopAgent {
     }
 
     bool readBinary (std::ifstream& f) {
-        if (!f.read(reinterpret_cast<char*>(&id), sizeof(int64))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&home_geoid), sizeof(int64))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&work_geoid), sizeof(int64))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&naics), sizeof(int16))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&household_id), sizeof(int16))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&school_id), sizeof(int16))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&age), sizeof(int8))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&sex), sizeof(int8))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&race), sizeof(int8))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&travel), sizeof(int8))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&veh_occ), sizeof(int8))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&grade), sizeof(int8))) { return false; }
+        if (!f.read(reinterpret_cast<char*>(&id), sizeof(int64_t))) { return false; }
+        if (!f.read(reinterpret_cast<char*>(&home_geoid), sizeof(int64_t))) { return false; }
+        if (!f.read(reinterpret_cast<char*>(&work_geoid), sizeof(int64_t))) { return false; }
+        if (!f.read(reinterpret_cast<char*>(&naics), sizeof(int16_t))) { return false; }
+        if (!f.read(reinterpret_cast<char*>(&household_id), sizeof(int16_t))) { return false; }
+        if (!f.read(reinterpret_cast<char*>(&school_id), sizeof(int16_t))) { return false; }
+        if (!f.read(reinterpret_cast<char*>(&age), sizeof(int8_t))) { return false; }
+        if (!f.read(reinterpret_cast<char*>(&sex), sizeof(int8_t))) { return false; }
+        if (!f.read(reinterpret_cast<char*>(&race), sizeof(int8_t))) { return false; }
+        if (!f.read(reinterpret_cast<char*>(&travel), sizeof(int8_t))) { return false; }
+        if (!f.read(reinterpret_cast<char*>(&veh_occ), sizeof(int8_t))) { return false; }
+        if (!f.read(reinterpret_cast<char*>(&grade), sizeof(int8_t))) { return false; }
         return true;
     }
 

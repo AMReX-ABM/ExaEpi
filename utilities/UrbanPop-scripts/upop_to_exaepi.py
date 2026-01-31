@@ -1249,7 +1249,7 @@ static std::vector<string> splitString(const string &s, char delim) {{
 
     hdr += "\n    bool readBinary(std::ifstream &f) {\n"
     for i, col in enumerate(df.columns):
-        hdr += f"        if (!f.read(reinterpret_cast<char*>(&{col}), sizeof({df.dtypes.iloc[i]}))) return false;\n"
+        hdr += f"        if (!f.read(reinterpret_cast<char*>(&{col}), sizeof({df.dtypes.iloc[i]}_t))) return false;\n"
     hdr += "        return true;\n    }\n"
 
     hdr += f"""
