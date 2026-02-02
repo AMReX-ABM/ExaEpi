@@ -819,7 +819,7 @@ std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_
             reduce_ops);
     std::array<Long, OutputStatus::nattribs> counts;
     extract_tuple_to_array(r, counts);
-    ParallelDescriptor::ReduceLongSum(&counts[0], OutputStatus::nattribs, ParallelDescriptor::IOProcessorNumber());
+    ParallelDescriptor::ReduceLongSum(&counts[0], OutputStatus::nattribs);
 
     return counts;
 }

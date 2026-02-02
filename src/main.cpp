@@ -344,8 +344,9 @@ void runAgent () {
     std::vector<Long> cumulative_deaths(params.num_diseases, 0);
     for (int d = 0; d < params.num_diseases; d++) {
         auto counts = pc.getTotals(d);
-        if (totalInfected(counts) > num_infected_peak[d]) {
-            num_infected_peak[d] = totalInfected(counts);
+        auto total_infected = totalInfected(counts);
+        if (total_infected > num_infected_peak[d]) {
+            num_infected_peak[d] = total_infected;
             step_of_peak[d] = 0;
         }
         cumulative_deaths[d] = counts[OutputStatus::D];
@@ -534,6 +535,9 @@ void runAgent () {
             Print() << "; deaths: " << cumulative_deaths[0] << "\n";
 
             cur_time += 1.0_rt; // time step is one day
+
+            // early exit if no more spreading or deaths can occur
+            if (num_infected[0] == 0) { break; }
         }
     }
 
