@@ -232,7 +232,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
             int r_RT = RealIdx::nattribs;
 
             GpuArray<int*, ExaEpi::max_num_diseases> status_ptrs, symptomatic_ptrs;
-            GpuArray<ParticleReal*, ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs, incubation_per_ptrs, treat_q_ptrs;
+            GpuArray<ParticleReal*, ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs, incubation_per_ptrs, hospital_delay_ptrs, treat_q_ptrs;
             for (int d = 0; d < n_disease; d++) {
                 status_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
                 symptomatic_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::symptomatic).data();
@@ -240,6 +240,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                 timer_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::treatment_timer).data();
                 treat_q_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::treatment_quality).data();
                 incubation_per_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).data();
+                hospital_delay_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_delay).data();
             }
 
             Gpu::DeviceVector<int> is_alive(np);
@@ -280,7 +281,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                         // agent is not in hospital
                         return;
                     }
-                    if (counter_ptrs[d][i] == Math::floor(incubation_per_ptrs[d][i])) {
+                    if (counter_ptrs[d][i] == Math::floor(incubation_per_ptrs[d][i]) + Math::floor(hospital_delay_ptrs[d][i])) {
                         // agent just started treatment
                         return;
                     }
@@ -330,7 +331,8 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                             counter_ptrs[d][i] =
                                     static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine));
                             symptomatic_ptrs[d][i] = SymptomStatus::presymptomatic;
-                            withdrawn_ptr[i] = 0;
+                            // don't withdraw yet since the agent could still have another disease
+                            // withdrawn_ptr[i] = 0;
                             timer_ptrs[d][i] = 0.0_prt;
                         }
                     }
@@ -370,6 +372,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
             });
             Gpu::synchronize();
 
+            // accumulate statistics
             for (int d = 0; d < n_disease; d++) {
                 auto ds_arr = (*a_dstats[d])[mfi].array();
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {

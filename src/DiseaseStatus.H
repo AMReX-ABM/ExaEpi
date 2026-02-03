@@ -43,10 +43,10 @@ template <typename AC,   /*!< agent container type */
 class DiseaseStatus {
   public:
     /*! \brief constructor */
-    DiseaseStatus<AC, ACT, ACTD, A>() {}
+    DiseaseStatus () {}
 
     /*! \brief default destructor */
-    virtual ~DiseaseStatus<AC, ACT, ACTD, A>() = default;
+    virtual ~DiseaseStatus() = default;
 
     /*! \brief Updates disease status of each agent at a given step and
      *   also updates a MultiFab that tracks disease statistics (hospitalization,
@@ -103,8 +103,6 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
             auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
             auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
 
-            auto symptomatic_withdraw_compliance = a_agents.symptomaticWithdrawCompliance();
-
             int i_RT = IntIdx::nattribs;
             int r_RT = RealIdx::nattribs;
 
@@ -135,7 +133,12 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                 auto immune_length_alpha = disease_parm_h->immune_length_alpha;
                 auto immune_length_beta = disease_parm_h->immune_length_beta;
 
+                auto compliance_day_0 = a_agents.m_symptomatic_withdraw_compliance_day_0;
+                auto compliance_day_1 = a_agents.m_symptomatic_withdraw_compliance_day_1;
+                auto compliance_day_2 = a_agents.m_symptomatic_withdraw_compliance_day_2;
+
                 ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
+                    if (status_ptr[i] == Status::dead) { return; }
                     prob_ptr[i] = 1.0_rt;
                     if (status_ptr[i] == Status::never || status_ptr[i] == Status::susceptible) {
                         return;
@@ -149,54 +152,51 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                         }
                     } else if (status_ptr[i] == Status::infected) {
                         counter_ptr[i] += 1;
-                        if (counter_ptr[i] == 1) {
-                            // just infected, check to see if this agent will be asymptomatic
+                        int incb_period = (int)amrex::Math::floor(incubation_period_ptr[i]);
+                        int hospital_delay = (int)amrex::Math::floor(hospital_delay_ptr[i]);
+                        // check for symptomatic/asymp
+                        if (symptomatic_ptr[i] == SymptomStatus::presymptomatic && counter_ptr[i] == incb_period) {
+                            //   at end of incubation period, symptoms start to show unless asymptomatic
                             if (Random(engine) < disease_parm_d->p_asymp) {
                                 symptomatic_ptr[i] = SymptomStatus::asymptomatic;
                             } else {
-                                symptomatic_ptr[i] = SymptomStatus::presymptomatic;
-                            }
-                        } else if (counter_ptr[i] == Math::floor(incubation_period_ptr[i])) {
-                            AMREX_ASSERT(symptomatic_ptr[i] != SymptomStatus::symptomatic);
-                            // at end of incubation period, symptoms start to show unless asymptomatic
-                            if (symptomatic_ptr[i] == SymptomStatus::presymptomatic) {
                                 symptomatic_ptr[i] = SymptomStatus::symptomatic;
-                                if (symptomatic_withdraw_compliance > 0.0_rt &&
-                                    (Random(engine) < symptomatic_withdraw_compliance)) {
-                                    withdrawn_ptr[i] = 1;
-                                }
-                                hospital_random_ptr[i] = Random(engine);
-                                if (Math::floor(hospital_delay_ptr[i]) == 0) {
-                                    disease_parm_d->checkHospitalization(&(timer_ptr[i]), &(marked_for_ICU_ptr[i]),
-                                                                         &(marked_for_vent_ptr[i]), age_group_ptr[i],
-                                                                         hospital_random_ptr[i], engine);
-                                }
-                                if (timer_ptr[i] > 0) {
-                                    tq_ptr[i] = 1.0_prt; // initialize treatment quality to 1.0
-                                    if (!inHospital(i, ptd)) { marked_for_hosp_ptr[i] = 1; }
-                                }
                             }
-                        } else if ((Math::floor(hospital_delay_ptr[i]) > 0) &&
-                                   (Math::floor(counter_ptr[i]) ==
-                                    Math::floor(incubation_period_ptr[i]) + Math::floor(hospital_delay_ptr[i]))) {
-                            if (symptomatic_ptr[i] == SymptomStatus::symptomatic) {
+                        }
+                        // check for withdrawn
+                        if (symptomatic_ptr[i] == SymptomStatus::symptomatic && !inHospital(i, ptd)) {
+                            if (withdrawn_ptr[i] == 0) {
+                                amrex::Real withdraw_compliance = 0.0_rt;
+                                if (counter_ptr[i] == incb_period) {
+                                    withdraw_compliance = compliance_day_0[age_group_ptr[i]];
+                                } else if (counter_ptr[i] == incb_period + 1) {
+                                    withdraw_compliance = compliance_day_1[age_group_ptr[i]];
+                                } else if (counter_ptr[i] == incb_period + 2) {
+                                    withdraw_compliance = compliance_day_2[age_group_ptr[i]];
+                                }
+                                if (Random(engine) < withdraw_compliance) { withdrawn_ptr[i] = 1; }
+                            }
+                            // chance of hospitalization on day indicated by delay
+                            if (counter_ptr[i] == incb_period + hospital_delay) {
                                 disease_parm_d->checkHospitalization(&(timer_ptr[i]), &(marked_for_ICU_ptr[i]),
                                                                      &(marked_for_vent_ptr[i]), age_group_ptr[i],
                                                                      hospital_random_ptr[i], engine);
                                 if (timer_ptr[i] > 0) {
                                     tq_ptr[i] = 1.0_prt; // initialize treatment quality to 1.0
-                                    if (!inHospital(i, ptd)) { marked_for_hosp_ptr[i] = 1; }
+                                    // will be hospitalized
+                                    marked_for_hosp_ptr[i] = 1;
+                                    // make this withdrawn
+                                    withdrawn_ptr[i] = 1;
                                 }
                             }
-                        } else if (!inHospital(i, ptd)) {
-                            if (counter_ptr[i] >= (latent_period_ptr[i] + infectious_period_ptr[i])) {
-                                status_ptr[i] = Status::immune;
-                                counter_ptr[i] =
-                                        static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine));
-                                symptomatic_ptr[i] = SymptomStatus::presymptomatic;
-                                withdrawn_ptr[i] = 0;
-                            }
                         }
+                    }
+                    auto recovered_period = amrex::Math::floor(latent_period_ptr[i] + infectious_period_ptr[i]);
+                    if (!marked_for_hosp_ptr[i] && !inHospital(i, ptd) && counter_ptr[i] == recovered_period) {
+                        status_ptr[i] = Status::immune;
+                        counter_ptr[i] = static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine));
+                        symptomatic_ptr[i] = SymptomStatus::presymptomatic;
+                        withdrawn_ptr[i] = 0;
                     }
                 });
 

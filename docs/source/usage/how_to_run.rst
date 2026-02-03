@@ -88,8 +88,15 @@ The following are inputs for the overall simulation:
     Number of days shelter-in-place is in effect.
 * ``agent.shelter_compliance`` (`float`, default ``0.95``)
     Fraction of agents that comply with shelter-in-place order.
-* ``agent.symptomatic_withdraw_compliance`` (`float`, default: ``0.95``)
-    Compliance rate for agents withdrawing when they have symptoms. Should be 0.0 to 1.0. Set it to 0 if not using withdrawal.
+* ``agent.symptomatic_withdraw_compliance_0`` (`float`, default: ``0.3 0.3 0.3 0.3 0.3 0.3``)
+    Compliance rate for agents withdrawing on day 0 when they have symptoms, per age groups u5, 6-17, 18-29, 30-49, 50-64, 64+.
+    Should be 0.0 to 1.0. Set it to 0 if not using withdrawal.
+* ``agent.symptomatic_withdraw_compliance_1`` (`float`, default: ``0.8 0.6 0.5 0.5 0.5 0.5``)
+    Compliance rate for agents withdrawing on day 1 when they have symptoms, per age groups u5, 6-17, 18-29, 30-49, 50-64, 64+.
+    Should be 0.0 to 1.0. Set it to 0 if not using withdrawal.
+* ``agent.symptomatic_withdraw_compliance_2`` (`float`, default: ``0.9 0.8 0.7 0.7 0.7 0.7``)
+    Compliance rate for agents withdrawing on day 2 when they have symptoms, per age groups u5, 6-17, 18-29, 30-49, 50-64, 64+.
+    Should be 0.0 to 1.0. Set it to 0 if not using withdrawal.
 * ``agent.child_compliance`` (`float`, default ``0.95``)
     Compliance rate for children when schools are closed. This reduces the probability of transmission within
     neighborhood clusters, neighborhoods and communities.
@@ -100,11 +107,8 @@ The following are inputs for the overall simulation:
     The first entry is ignored and should always be set to 0. This option is only used with ``ic_type = census``.
 * ``agent.med_workers_proportion`` (`float`, default ``0.0``)
     Proportion of medical workers in total worker population (valid for census initialization only)
-* ``agent.max_box_size`` (`integer`, default ``16`` or ``500`` or ``100``)
-    This option sets the maximum box size used for MPI domain decomposition. If set to
-    ``16``, for example, for ``ic_type = census``, the domain will be broken up into boxes of `16^2` communities, and
-    these boxes will be assigned to different MPI ranks / GPUs.
-    The default for ``ictype = census`` is 16, and for ``ic_type = urbanpop`` it is 500 when using GPUs, and 100 otherwise.
+* ``agent.max_box_size`` (`integer`, default ``16``)
+    This option sets the maximum box size used for MPI domain decomposition.
 * ``diag.output_filename`` (`string`, default ``output.dat`` for a single disease,
     ``diag.output_[disease name].dat`` for multiple diseases)
     Filename for the output data; the number of list elements must be the same as ``agent.number_of_diseases``.
