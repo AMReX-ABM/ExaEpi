@@ -232,7 +232,8 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
             int r_RT = RealIdx::nattribs;
 
             GpuArray<int*, ExaEpi::max_num_diseases> status_ptrs, symptomatic_ptrs;
-            GpuArray<ParticleReal*, ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs, incubation_per_ptrs, hospital_delay_ptrs, treat_q_ptrs;
+            GpuArray<ParticleReal*, ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs, incubation_per_ptrs, hospital_delay_ptrs,
+                    treat_q_ptrs;
             for (int d = 0; d < n_disease; d++) {
                 status_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
                 symptomatic_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::symptomatic).data();
