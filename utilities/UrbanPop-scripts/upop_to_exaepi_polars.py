@@ -640,7 +640,7 @@ def alloc_workers(lodes_df: pl.DataFrame, workers_df: pl.DataFrame) -> pl.DataFr
         pl.col("w_geocode").is_in(worker_geoids) & pl.col("h_geocode").is_in(worker_geoids)
     )
     # Group by home geoid and LODES origin
-    worker_groups = workers_df.group_by("home_geoid", maintain_order=True)
+    worker_groups_dict = {geoid: group for geoid, group in workers_df.group_by("home_geoid")}
     lodes_groups_dict = {
         name: group for name, group in lodes_df.group_by("h_geocode", maintain_order=True)
     }
@@ -649,13 +649,16 @@ def alloc_workers(lodes_df: pl.DataFrame, workers_df: pl.DataFrame) -> pl.DataFr
 
     all_workers = []
     i = 0
-    for home_geoid, worker_group in worker_groups:
+    for home_geoid_tuple, worker_group in sorted(worker_groups_dict.items()):
+        home_geoid = (
+            home_geoid_tuple[0] if isinstance(home_geoid_tuple, tuple) else home_geoid_tuple
+        )
         i += 1
         if i % 100 == 0:
-            print(f"  {i} {home_geoid[0]}")
+            print(f"  {i} {home_geoid}")
         num_workers = len(worker_group)
         # Try to get matching LODES group
-        lodes_group = lodes_groups_dict.get(home_geoid)
+        lodes_group = lodes_groups_dict.get(home_geoid_tuple)
         if lodes_group is None:
             # the home geoid derived from the upop workers is not found in the home (origin) geoid
             # in the LODES data, so we have no flows from that geoid
@@ -779,7 +782,7 @@ def alloc_students_region(
     all_school_ids = []
     all_school_counts = []
     # Process all regions
-    for region, group in student_groups_dict.items():
+    for region, group in sorted(student_groups_dict.items()):
         result = process_students_region(region, group, school_groups_dict, alloc_all)
         if result is None:
             continue
@@ -1125,7 +1128,7 @@ def alloc_teachers_region(
     }
     missing_regions = 0
     tot_reqd_teachers = 0
-    for group_name, school_group in school_groups_dict.items():
+    for group_name, school_group in sorted(school_groups_dict.items()):
         num_teachers_reqd = int(school_group["adj_teachers"].sum())
         if num_teachers_reqd == 0:
             continue
@@ -1345,7 +1348,7 @@ def adjust_indexes(df: pl.DataFrame, output: str) -> pl.DataFrame:
     df = df.sort("id")
     orig_ids_df = df.select(
         [pl.col("id").alias("orig_id"), pl.arange(0, pl.len(), dtype=pl.Int64).alias("new_id")]
-    )
+    ).sort("orig_id")
     orig_ids_df.write_csv(output + ".idmap.csv", quote_style="necessary")
     # Replace ids with sequential integers
     df = df.with_columns([pl.arange(0, len(df), dtype=pl.Int64).alias("id")])
@@ -1540,7 +1543,7 @@ def print_agents_bin(df: pl.DataFrame, out_fname: str) -> tuple[list[int], list[
 @timer
 def compute_worker_populations(df: pl.DataFrame) -> tuple[pl.DataFrame, list[int]]:
     # Compute worker populations for each NAICS code
-    work_geoids = df["work_geoid"].unique().to_list()
+    work_geoids = sorted(df["work_geoid"].unique().to_list())
     # Get list of NAICS codes from categorical types
     naics_types = list(range(len(categ_types["pr_naics"].categories)))
     print(f"Found {len(work_geoids)} unique work GEOIDs and {len(naics_types)} unique NAICS codes")
@@ -1575,7 +1578,7 @@ def print_index(
 ):
     work_geoids_pops_df, naics_types = compute_worker_populations(df)
     dump_intermediate(work_geoids_pops_df, out_fname + "_work_geoids_pops")
-    work_geoids = df["work_geoid"].unique().to_list()
+    work_geoids = sorted(df["work_geoid"].unique().to_list())
     step = max(1, len(work_geoids) // 10)
     out_fname_idx = out_fname + ".idx"
     printgreen(f"Writing block group indexes to {out_fname_idx}")
