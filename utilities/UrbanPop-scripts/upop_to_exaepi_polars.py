@@ -10,6 +10,7 @@
 import gc
 import io
 import os
+import struct
 import sys
 import time
 import polars as pl
@@ -20,10 +21,9 @@ import glob
 from colorama import Fore
 import psutil
 from pandas.api.types import CategoricalDtype
-from typing import Any  # Add this import
 
 
-DUMP_INTERMEDIATES = True
+DUMP_INTERMEDIATES = False
 
 # note: missing category indexes are written as -1
 # we could extract these from the dataset, but then they will not be in a suitable order, even with
@@ -1467,6 +1467,52 @@ def print_agents(df: pl.DataFrame, out_fname: str) -> tuple[list[int], list[int]
 
 
 @timer
+def print_agents_bin(df: pl.DataFrame, out_fname: str) -> tuple[list[int], list[int], list[str]]:
+    # Sort by home_geoid to ensure consistent ordering
+    df = df.sort("home_geoid")
+    foffsets = []
+    home_pops = []
+    home_geoids = []
+    grouped = df.group_by("home_geoid", maintain_order=True)
+    num_geoids = df["home_geoid"].n_unique()
+    step = max(1, num_geoids // 10)
+    out_fname_bin = out_fname + ".bin"
+    printgreen(f"Writing binary data to {out_fname_bin}")
+
+    # Build struct format for entire row based on Polars dtypes
+    struct_formats = {
+        pl.Int64: "q",
+        pl.Int32: "i",
+        pl.Int16: "h",
+        pl.Int8: "b",
+        pl.Float32: "f",
+        pl.Float64: "d",
+    }
+
+    # Get column dtypes in order
+    dtypes = [df[col].dtype for col in df.columns]
+    row_format = "".join(struct_formats[dt] for dt in dtypes)
+    row_struct = struct.Struct(row_format)
+    with open(out_fname_bin, "wb") as f:
+        for i, (geoid_tuple, subset_df) in enumerate(grouped):
+            # Extract geoid from tuple
+            geoid = geoid_tuple[0] if isinstance(geoid_tuple, tuple) else geoid_tuple
+            if i % step == 0:
+                print(f"  GEOID {geoid} {i}/{num_geoids}", flush=True)
+            home_geoids.append(str(geoid))
+            foffsets.append(f.tell())
+            home_pops.append(len(subset_df))
+            # Convert subset to numpy array for efficient binary writing
+            data_array = subset_df.to_numpy()
+            for row in data_array:
+                f.write(row_struct.pack(*row))
+        file_size = f.tell()
+        print(f"Wrote {len(df)} records in {file_size:,} bytes")
+
+    return foffsets, home_pops, home_geoids
+
+
+@timer
 def compute_worker_populations(df: pl.DataFrame) -> tuple[pl.DataFrame, list[int]]:
     # Compute worker populations for each NAICS code
     work_geoids = df["work_geoid"].unique().to_list()
@@ -1701,6 +1747,9 @@ def main():
         print(f"  {name:12s}  {dtype}")
     sanity_checks(df)
     # print_cpp_header(df)
+    foffsets, home_pops, home_geoids = print_agents_bin(df, args.output + "-bin")
+    print_index(df, args.output + "-bin", foffsets, home_pops, home_geoids)
+
     foffsets, home_pops, home_geoids = print_agents(df, args.output)
     print_index(df, args.output, foffsets, home_pops, home_geoids)
 

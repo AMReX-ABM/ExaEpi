@@ -691,7 +691,7 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
             "school_counts": counts,
         }
 
-    with ThreadPool(processes=2) as pool:
+    with ThreadPool(processes=1) as pool:
         results = pool.map(process_region, [(region, group) for region, group in student_groups])
 
     for result in results:
@@ -788,7 +788,7 @@ def alloc_students(schools_df, students_df):
 
     elif USE_MULTIPROCS:
         levels = ["P", "E", "M", "H", "U", "C"]
-        with Pool(processes=6) as pool:
+        with Pool(processes=1) as pool:
             process_level_partial = partial(process_level, schools=schools_df, students=students_df)
             dfs = pool.map(process_level_partial, levels)
 
@@ -1494,10 +1494,10 @@ def main():
 
     check_flows_correlation(workers_df, lodes_df)
 
-    workers_df.to_pickle("workers_df.pkl")
-    students_df.to_pickle("students_df.pkl")
-    schools_df.to_pickle("schools_df.pkl")
-    unemp_df.to_pickle("unemp_df.pkl")
+    # workers_df.to_pickle("workers_df.pkl")
+    # students_df.to_pickle("students_df.pkl")
+    # schools_df.to_pickle("schools_df.pkl")
+    # unemp_df.to_pickle("unemp_df.pkl")
 
     allocate_teachers(workers_df, students_df, schools_df)
     teachers_df = workers_df[workers_df.grade != -1].copy()
@@ -1546,6 +1546,9 @@ def main():
     # print_index(df, args.output, foffsets, home_pops, home_geoids)
     foffsets, home_pops, home_geoids = print_agents_bin(df, args.output + "-bin")
     print_index(df, args.output + "-bin", foffsets, home_pops, home_geoids)
+
+    foffsets, home_pops, home_geoids = print_agents_csv(df, args.output)
+    print_index(df, args.output, foffsets, home_pops, home_geoids)
 
 
 if __name__ == "__main__":
