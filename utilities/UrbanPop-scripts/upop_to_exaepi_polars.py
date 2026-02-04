@@ -300,25 +300,26 @@ def dump_intermediate(df: pl.DataFrame, fname: str, override: bool = False):
 
 @timer
 def load_upop_feather_files(fnames: list[str], out_fname: str = "") -> pl.DataFrame:
-    printgreen(f"Reading UrbanPop data from {len(fnames)} files")
+    num_files = len(fnames)
+    printgreen(f"Reading UrbanPop data from {num_files} files")
     dfs = []
     df = pl.DataFrame()
-    chunk_size = int(len(fnames) / 10)
+    chunk_size = int(num_files // 10)
     for i, fname in enumerate(fnames):
         df_read = pl.read_ipc(fname, memory_map=False)
         dfs.append(df_read)
         # Concatenate and clean up at chunk boundaries or end
-        if i == len(fnames) - 1 or (chunk_size > 0 and (i + 1) % chunk_size == 0):
+        if i == num_files - 1 or (chunk_size > 0 and (i + 1) % chunk_size == 0):
             df = pl.concat(dfs)
             dfs = [df]  # Keep only the concatenated result
             gc.collect()
 
             mem_used = float(psutil.Process(os.getpid()).memory_info().rss) / 1024 / 1024 / 1024
             mem_of_df = float(df.estimated_size()) / 1024 / 1024 / 1024  # polars method
-
-            if chunk_size > 0:
-                print(f"  {int((i + 1) / chunk_size)}:", end="")
-            print(f" read {fname}, memory RSS {mem_used:0.2f} G, memory of df {mem_of_df:0.2f} G")
+            print(
+                f" read {i}/{num_files} files, "
+                + f"RSS {mem_used:0.2f} G, df memory {mem_of_df:0.2f} G"
+            )
 
     df = dfs[0]
     print(f"Read {len(df)} records")
@@ -565,10 +566,11 @@ def get_lodes_groups(lodes_fnames: list[str]) -> pl.DataFrame:
     for lodes_fname in lodes_fnames:
         print("Loading", lodes_fname)
         lodes_df = pl.read_csv(lodes_fname, columns=["w_geocode", "h_geocode", "S000"])
+        # ensure that the geocodes are zero padded to correspond to the values in the UrbanPop files
         lodes_df = lodes_df.with_columns(
             [
-                pl.col("w_geocode").cast(pl.Utf8),
-                pl.col("h_geocode").cast(pl.Utf8),
+                pl.col("w_geocode").cast(pl.Utf8).str.zfill(15),
+                pl.col("h_geocode").cast(pl.Utf8).str.zfill(15),
                 pl.col("S000").cast(pl.Int32),
             ]
         )
@@ -576,7 +578,6 @@ def get_lodes_groups(lodes_fnames: list[str]) -> pl.DataFrame:
         lodes_df = lodes_df.with_columns(
             [pl.col("h_geocode").str.slice(0, 12), pl.col("w_geocode").str.slice(0, 12)]
         )
-
         lodes_df = lodes_df.group_by(["w_geocode", "h_geocode"], maintain_order=True).agg(
             pl.col("S000").sum().alias("count")
         )
@@ -646,28 +647,31 @@ def alloc_workers(lodes_df: pl.DataFrame, workers_df: pl.DataFrame) -> pl.DataFr
     }
     num_geoids = workers_df["home_geoid"].n_unique()
     print(f"Assigning workers in {num_geoids} GEOIDS for {len(lodes_groups_dict)} LODES groups")
-
     all_workers = []
     i = 0
-    for home_geoid_tuple, worker_group in sorted(worker_groups_dict.items()):
+    missing_geoids = []
+    num_geoids = len(worker_groups_dict)
+    step = max(1, num_geoids // 10)
+    for i, (home_geoid_tuple, worker_group) in enumerate(sorted(worker_groups_dict.items())):
         home_geoid = (
             home_geoid_tuple[0] if isinstance(home_geoid_tuple, tuple) else home_geoid_tuple
         )
-        i += 1
-        if i % 100 == 0:
-            print(f"  {i} {home_geoid}")
+        if i % step == 0:
+            print(f"  GEOID {home_geoid} {i}/{num_geoids}", flush=True)
+
         num_workers = len(worker_group)
         # Try to get matching LODES group
         lodes_group = lodes_groups_dict.get(home_geoid_tuple)
         if lodes_group is None:
             # the home geoid derived from the upop workers is not found in the home (origin) geoid
             # in the LODES data, so we have no flows from that geoid
-            warn(
-                f"Could not find origin GEOID {home_geoid} in LODES data for {num_workers} workers"
-            )
+            # warn(
+            #    f"Could not find origin GEOID {home_geoid} in LODES data for {num_workers} workers"
+            # )
             lodes_group = pl.DataFrame(
                 {"w_geocode": [home_geoid], "h_geocode": [home_geoid], "count": [num_workers]}
             )
+            missing_geoids.append(home_geoid)
         sum_flows = lodes_group["count"].sum()
         flow_probs = (lodes_group["count"] / sum_flows).to_numpy()
         # Sample work locations based on flow probabilities
@@ -677,7 +681,12 @@ def alloc_workers(lodes_df: pl.DataFrame, workers_df: pl.DataFrame) -> pl.DataFr
         worker_ids = worker_group["id"].to_list()
         for worker_id, work_geoid in zip(worker_ids, sampled_work):
             all_workers.append({"id": worker_id, "work_geoid": work_geoid})
-
+    if len(missing_geoids) > 0:
+        num_missing = len(missing_geoids)
+        warn(
+            f"Could not find {num_missing} (out of {num_geoids}) origin GEOIDs in LODES:\n"
+            + f"{missing_geoids}"
+        )
     work_assignments = pl.DataFrame(all_workers)
     # Join with original workers
     workers_df = workers_df.join(work_assignments, on="id", how="left")
@@ -1447,7 +1456,7 @@ def polars_dtype_to_cpp(dtype: pl.DataType) -> str:
 
 
 @timer
-def print_agents(df: pl.DataFrame, out_fname: str) -> tuple[list[int], list[int], list[str]]:
+def print_agents_csv(df: pl.DataFrame, out_fname: str) -> tuple[list[int], list[int], list[str]]:
     df = df.sort("home_geoid")
     # Group by home_geoid and write to CSV
     buff = io.StringIO()
@@ -1465,7 +1474,7 @@ def print_agents(df: pl.DataFrame, out_fname: str) -> tuple[list[int], list[int]
         geoid = geoid_tuple[0] if isinstance(geoid_tuple, tuple) else geoid_tuple
         home_geoids.append(str(geoid))
         if i % step == 0:
-            print(f"  GEOID {geoid} {i}", flush=True)
+            print(f"  GEOID {geoid} {i}/{num_geoids}", flush=True)
         foffsets.append(buff.tell())
         home_pops.append(len(subset_df))
         # Add marker column for CSV
@@ -1590,7 +1599,7 @@ def print_index(
                 print(geoid, 0, 0, tot_work_pop, " ".join(map(str, work_pops)), file=f)
         for i, geoid in enumerate(home_geoids):
             if i % step == 0:
-                print(f"  GEOID {geoid} {i}", flush=True)
+                print(f"  GEOID {geoid} {i}/{len(work_geoids)}", flush=True)
             work_pops = (
                 work_geoids_pops_df.filter(pl.col("work_geoid") == int(geoid))
                 .sort("naics")
@@ -1766,9 +1775,8 @@ def main():
     # print_cpp_header(df)
     foffsets, home_pops, home_geoids = print_agents_bin(df, args.output + "-bin")
     print_index(df, args.output + "-bin", foffsets, home_pops, home_geoids)
-
-    foffsets, home_pops, home_geoids = print_agents(df, args.output)
-    print_index(df, args.output, foffsets, home_pops, home_geoids)
+    # foffsets, home_pops, home_geoids = print_agents_csv(df, args.output)
+    # print_index(df, args.output, foffsets, home_pops, home_geoids)
 
 
 if __name__ == "__main__":

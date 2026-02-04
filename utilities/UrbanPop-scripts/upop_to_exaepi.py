@@ -1547,8 +1547,8 @@ def main():
     foffsets, home_pops, home_geoids = print_agents_bin(df, args.output + "-bin")
     print_index(df, args.output + "-bin", foffsets, home_pops, home_geoids)
 
-    foffsets, home_pops, home_geoids = print_agents_csv(df, args.output)
-    print_index(df, args.output, foffsets, home_pops, home_geoids)
+    # foffsets, home_pops, home_geoids = print_agents_csv(df, args.output)
+    # print_index(df, args.output, foffsets, home_pops, home_geoids)
 
 
 if __name__ == "__main__":
