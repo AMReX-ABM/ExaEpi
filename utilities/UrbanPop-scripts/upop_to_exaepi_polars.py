@@ -586,27 +586,49 @@ def set_childcare(upop_df: pl.DataFrame, seed: int) -> pl.DataFrame:
     # UrbanPop doesn't have allocations to childcare outside of PK in schools, so we randomly
     # assign agents under age 5 not in PK to childcare. According to NCES, 32% of under 1 year,
     # 47% of 1-2 yrs and 83 of 3-5 yrs are in center-based care
-    PROBS = {0: 0.32, 1: 0.47, 2: 0.47, 3: 0.83, 4: 0.83}
-    # Create a list to collect row indices to update
-    indices_to_update = []
-    for age in range(0, 5):
-        # Filter candidates for this age
-        candidates = upop_df.filter((pl.col("grade") == -1) & (pl.col("age") == age))
-        num_candidates = int(len(candidates) * PROBS[age])
-        if num_candidates > 0:
-            # Sample random candidates - uses np random seed
-            sampled = candidates.sample(n=num_candidates, seed=seed)
-            indices_to_update.extend(sampled["id"].to_list())
-            print(f"  Age {age} set {len(sampled)} out of {len(candidates)}")
-    # Update grades for selected agents
+
+    # Create a probability column based on age
     upop_df = upop_df.with_columns(
         [
-            pl.when(pl.col("id").is_in(indices_to_update))
+            pl.when(pl.col("age") == 0)
+            .then(pl.lit(0.32))
+            .when(pl.col("age") == 1)
+            .then(pl.lit(0.47))
+            .when(pl.col("age") == 2)
+            .then(pl.lit(0.47))
+            .when(pl.col("age") == 3)
+            .then(pl.lit(0.83))
+            .when(pl.col("age") == 4)
+            .then(pl.lit(0.83))
+            .otherwise(pl.lit(0.0))
+            .alias("childcare_prob")
+        ]
+    )
+    # Filter eligible candidates (grade == -1 and age < 5)
+    eligible_mask = (pl.col("grade") == -1) & (pl.col("age") < 5)
+    # Generate random values for all rows
+    random_vals = np.random.uniform(size=len(upop_df))
+    upop_df = upop_df.with_columns([pl.Series("random_val", random_vals)])
+    # Update grade to 3 (childcare) based on probability
+    upop_df = upop_df.with_columns(
+        [
+            pl.when(eligible_mask & (pl.col("random_val") < pl.col("childcare_prob")))
             .then(pl.lit(3, dtype=pl.Int8))
             .otherwise(pl.col("grade"))
             .alias("grade")
         ]
     )
+    # Print statistics per age
+    for age in range(5):
+        # the total includes those without schools, and those that were allocated to childcare
+        total = len(upop_df.filter((pl.col("grade").is_in([-1, 3])) & (pl.col("age") == age)))
+        in_childcare = len(upop_df.filter((pl.col("grade") == 3) & (pl.col("age") == age)))
+        if total > 0:
+            print(
+                f"  Age {age} set {in_childcare} out of {total} ({in_childcare / total * 100:.0f}%)"
+            )
+    # Clean up temporary columns
+    upop_df = upop_df.drop(["childcare_prob", "random_val"])
     print(f"Set {len(upop_df.filter(pl.col('grade') == 3))} agents to childcare")
     dump_intermediate(upop_df, "childcare")
     return upop_df
