@@ -581,7 +581,7 @@ def get_lodes_groups(lodes_fnames: list[str]) -> pl.DataFrame:
 
 
 @timer
-def set_childcare(upop_df: pl.DataFrame) -> pl.DataFrame:
+def set_childcare(upop_df: pl.DataFrame, seed: int) -> pl.DataFrame:
     printgreen("Setting childcare")
     # UrbanPop doesn't have allocations to childcare outside of PK in schools, so we randomly
     # assign agents under age 5 not in PK to childcare. According to NCES, 32% of under 1 year,
@@ -595,7 +595,7 @@ def set_childcare(upop_df: pl.DataFrame) -> pl.DataFrame:
         num_candidates = int(len(candidates) * PROBS[age])
         if num_candidates > 0:
             # Sample random candidates - uses np random seed
-            sampled = candidates.sample(n=num_candidates, shuffle=True, seed=None)
+            sampled = candidates.sample(n=num_candidates, seed=seed)
             indices_to_update.extend(sampled["id"].to_list())
             print(f"  Age {age} set {len(sampled)} out of {len(candidates)}")
     # Update grades for selected agents
@@ -1063,10 +1063,10 @@ def print_school_counts(students_df: pl.DataFrame, workers_df: pl.DataFrame):
 
 @timer
 def generate_nt_dt(
-    schools_df: pl.DataFrame, upop_df: pl.DataFrame, lodes_df: pl.DataFrame
+    schools_df: pl.DataFrame, upop_df: pl.DataFrame, lodes_df: pl.DataFrame, seed: int
 ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     # randomly allocate some young agents to childcare
-    upop_df = set_childcare(upop_df)
+    upop_df = set_childcare(upop_df, seed)
     num_unique_ids = upop_df["id"].n_unique()
     # now split into students, workers and unemployed.
     # Note that the UrbanPop nt/dt data classifies mil as unemployed (nope); because they don't
@@ -1114,7 +1114,7 @@ def generate_nt_dt(
 
 
 def alloc_teachers_region(
-    teachers_df: pl.DataFrame, schools_df: pl.DataFrame, geoid_scaling: int
+    teachers_df: pl.DataFrame, schools_df: pl.DataFrame, geoid_scaling: int, seed: int
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     # Add region columns
     schools_df = schools_df.with_columns(
@@ -1148,7 +1148,7 @@ def alloc_teachers_region(
             continue
         num_teachers_reqd = min(num_teachers_reqd, len(teacher_group))
         # Sample teachers
-        teachers_selected = teacher_group.sample(n=num_teachers_reqd, shuffle=True, seed=None)
+        teachers_selected = teacher_group.sample(n=num_teachers_reqd, seed=seed)
         # Calculate probabilities and sample schools
         probs = (school_group["adj_teachers"] / school_group["adj_teachers"].sum()).to_numpy()
         probs = probs / probs.sum()
@@ -1222,7 +1222,11 @@ def alloc_teachers_region(
 
 @timer
 def alloc_teachers_for_school_type(
-    workers_df: pl.DataFrame, students_df: pl.DataFrame, schools_df: pl.DataFrame, school_type: str
+    workers_df: pl.DataFrame,
+    students_df: pl.DataFrame,
+    schools_df: pl.DataFrame,
+    school_type: str,
+    seed: int,
 ) -> pl.DataFrame:
     printgreen(f"Allocating teachers for {school_type}")
     naics_code: int = -1
@@ -1285,7 +1289,7 @@ def alloc_teachers_for_school_type(
     # close to home as possible
     for scale in scales:
         avail_teachers = teachers_df.filter(pl.col("grade") == -1)
-        teachers_df, schools_df = alloc_teachers_region(avail_teachers, schools_df, scale)
+        teachers_df, schools_df = alloc_teachers_region(avail_teachers, schools_df, scale, seed)
         assigned_df = teachers_df.filter(pl.col("grade") != -1)
         # dump_intermediate(assigned_df, "teachers_" + school_type + "_" + str(region_scales[scale]))
         # Update workers_df with assigned teachers
@@ -1316,7 +1320,7 @@ def alloc_teachers_for_school_type(
 
 @timer
 def allocate_teachers(
-    workers_df: pl.DataFrame, students_df: pl.DataFrame, schools_df: pl.DataFrame
+    workers_df: pl.DataFrame, students_df: pl.DataFrame, schools_df: pl.DataFrame, seed: int
 ) -> pl.DataFrame:
     printgreen("Allocating teachers")
     # Filter schools to only include those in worker home geoids
@@ -1330,7 +1334,7 @@ def allocate_teachers(
         )
     for school_type in ["childcare", "secondary", "university"]:
         workers_df = alloc_teachers_for_school_type(
-            workers_df, students_df, schools_df, school_type
+            workers_df, students_df, schools_df, school_type, seed
         )
     return workers_df
 
@@ -1835,14 +1839,16 @@ def main():
     schools_df = load_schools(args.schools_file)
     # filter out those schools that don't have the same geoid as the home geoids
     schools_df = schools_df.filter(pl.col("geoid").is_in(upop_df["home_geoid"].unique().to_list()))
-    workers_df, students_df, schools_df, unemp_df = generate_nt_dt(schools_df, upop_df, lodes_df)
+    workers_df, students_df, schools_df, unemp_df = generate_nt_dt(
+        schools_df, upop_df, lodes_df, args.rseed
+    )
     check_flows_correlation(workers_df, lodes_df)
     # workers_df.write_ipc("workers_df.feather")
     # students_df.write_ipc("students_df.feather")
     # schools_df.write_ipc("schools_df.feather")
     # unemp_df.write_ipc("unemp_df.feather")
     # Capture return values from allocate_teachers
-    workers_df = allocate_teachers(workers_df, students_df, schools_df)
+    workers_df = allocate_teachers(workers_df, students_df, schools_df, args.rseed)
     teachers_df = workers_df.filter(pl.col("grade") != -1)
     check_school_id_correlation(
         students_df.filter(pl.col("school_id") != ""), schools_df, "Students"
