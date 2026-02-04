@@ -1114,12 +1114,14 @@ def generate_nt_dt(
 def alloc_teachers_region(
     teachers_df: pl.DataFrame, schools_df: pl.DataFrame, geoid_scaling: int
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
+    # Add region columns
     schools_df = schools_df.with_columns(
         [pl.col("geoid").str.slice(0, geoid_scaling).alias("region")]
     )
     teachers_df = teachers_df.with_columns(
         [pl.col("work_geoid").str.slice(0, geoid_scaling).alias("region")]
     )
+    # Create dictionaries from group_by
     teacher_groups_dict = {
         name: group for name, group in teachers_df.group_by("region", maintain_order=True)
     }
@@ -1128,87 +1130,63 @@ def alloc_teachers_region(
     }
     missing_regions = 0
     tot_reqd_teachers = 0
-    for group_name, school_group in sorted(school_groups_dict.items()):
+    # Collect all teacher updates (can be batched - teachers don't affect each other)
+    all_teacher_updates = []
+    for group_name_tuple, school_group in sorted(school_groups_dict.items()):
         num_teachers_reqd = int(school_group["adj_teachers"].sum())
         if num_teachers_reqd == 0:
             continue
         tot_reqd_teachers += num_teachers_reqd
-        teacher_group = teacher_groups_dict.get(group_name)
+        group_name = (
+            group_name_tuple[0] if isinstance(group_name_tuple, tuple) else group_name_tuple
+        )
+        teacher_group = teacher_groups_dict.get(group_name_tuple)
         if teacher_group is None:
             missing_regions += 1
             continue
         num_teachers_reqd = min(num_teachers_reqd, len(teacher_group))
-        teachers_selected = teacher_group.sample(n=num_teachers_reqd, shuffle=True)
+        # Sample teachers
+        teachers_selected = teacher_group.sample(n=num_teachers_reqd, shuffle=True, seed=None)
+        # Calculate probabilities and sample schools
         probs = (school_group["adj_teachers"] / school_group["adj_teachers"].sum()).to_numpy()
-        probs = probs / probs.sum()  # Normalize
+        probs = probs / probs.sum()
         school_indices = np.random.choice(
             len(school_group), size=num_teachers_reqd, replace=True, p=probs
         )
         schools_selected = school_group[school_indices]
-        # Assign grades based on school level
+        # Vectorized grade assignment - combine all operations
         levels_array = schools_selected["level"].to_numpy()
         grades = np.zeros(len(levels_array), dtype=np.int8)
         for level, (min_age, max_age) in age_levels.items():
             mask = levels_array == level
             if mask.any():
                 grades[mask] = np.random.randint(min_age, max_age + 1, size=mask.sum())
-        # Check for unknown levels
         if np.any(grades == 0):
             unknown_levels = np.unique(levels_array[grades == 0])
             raise_err(f"Unknown school levels: {unknown_levels}")
-        schools_selected = schools_selected.with_columns(
-            [pl.Series("grade", grades, dtype=pl.Int8)]
+        # Adjust university teachers in one operation
+        rnd_vals = np.random.uniform(size=len(grades))
+        grades = np.where((grades == 19) & (rnd_vals < 0.5), 18, grades)
+        # Collect teacher updates (can batch these)
+        all_teacher_updates.append(
+            pl.DataFrame(
+                {
+                    "id": teachers_selected["id"].to_list(),
+                    "school_id": schools_selected["id"].cast(pl.Utf8).to_list(),
+                    "work_geoid": schools_selected["geoid"].to_list(),
+                    "grade": grades.tolist(),
+                }
+            )
         )
-        # Adjust university teachers: 50% undergrad (18), 50% grad (19) -> change to 80:20
-        grades_array = schools_selected["grade"].to_numpy()
-        rnd_vals = np.random.uniform(size=len(schools_selected))
-        adjusted_grades = np.where((grades_array == 19) & (rnd_vals < 0.5), 18, grades_array)
-        schools_selected = schools_selected.with_columns(
-            [pl.Series("grade", adjusted_grades, dtype=pl.Int8)]
-        )
-        # Convert school IDs to string
-        schools_selected = schools_selected.with_columns([pl.col("id").cast(pl.Utf8)])
-        teacher_ids = teachers_selected["id"].to_list()
-        school_ids = schools_selected["id"].to_list()
-        work_geoids = schools_selected["geoid"].to_list()
-        teacher_grades = schools_selected["grade"].to_list()
-        # Apply updates to teachers_df
-        updates_df = pl.DataFrame(
-            {
-                "id": teacher_ids,
-                "school_id": school_ids,
-                "work_geoid": work_geoids,
-                "grade": teacher_grades,
-            }
-        )
-        # Join and update in one operation
-        teachers_df = teachers_df.join(updates_df, on="id", how="left", suffix="_new")
-        teachers_df = teachers_df.with_columns(
-            [
-                pl.when(pl.col("school_id_new").is_not_null())
-                .then(pl.col("school_id_new"))
-                .otherwise(pl.col("school_id"))
-                .alias("school_id"),
-                pl.when(pl.col("work_geoid_new").is_not_null())
-                .then(pl.col("work_geoid_new"))
-                .otherwise(pl.col("work_geoid"))
-                .alias("work_geoid"),
-                pl.when(pl.col("grade_new").is_not_null())
-                .then(pl.col("grade_new"))
-                .otherwise(pl.col("grade"))
-                .alias("grade"),
-            ]
-        ).drop(["school_id_new", "work_geoid_new", "grade_new"])
-        # Count how many teachers were assigned to each school
+        # Update schools_df IMMEDIATELY (cannot batch - affects next iteration)
         school_counts = schools_selected.group_by("id", maintain_order=True).agg(
             pl.len().alias("count")
         )
-        # Join counts with schools_df
         schools_df = schools_df.join(school_counts, on="id", how="left")
         schools_df = schools_df.with_columns(
             [
                 pl.when(pl.col("count").is_not_null())
-                .then(pl.col("adj_teachers") - pl.col("count"))
+                .then((pl.col("adj_teachers") - pl.col("count")).clip(lower_bound=0))
                 .otherwise(pl.col("adj_teachers"))
                 .alias("adj_teachers"),
                 pl.when(pl.col("count").is_not_null())
@@ -1217,8 +1195,19 @@ def alloc_teachers_region(
                 .alias("alloc_teachers"),
             ]
         ).drop("count")
-        # Clip adj_teachers to minimum of 0
-        schools_df = schools_df.with_columns([pl.col("adj_teachers").clip(lower_bound=0)])
+        # Update the school_groups_dict entry for this region with new adj_teachers
+        school_groups_dict[group_name_tuple] = schools_df.filter(pl.col("region") == group_name)
+    # Apply all teacher updates in one batch (these don't affect each other)
+    if all_teacher_updates:
+        updates_df = pl.concat(all_teacher_updates)
+        teachers_df = teachers_df.join(updates_df, on="id", how="left", suffix="_new")
+        teachers_df = teachers_df.with_columns(
+            [
+                pl.coalesce([pl.col("school_id_new"), pl.col("school_id")]).alias("school_id"),
+                pl.coalesce([pl.col("work_geoid_new"), pl.col("work_geoid")]).alias("work_geoid"),
+                pl.coalesce([pl.col("grade_new"), pl.col("grade")]).alias("grade"),
+            ]
+        ).drop(["school_id_new", "work_geoid_new", "grade_new"])
     # Drop the region column
     teachers_df = teachers_df.drop("region")
     num_allocated = len(teachers_df.filter(pl.col("grade") != -1))
