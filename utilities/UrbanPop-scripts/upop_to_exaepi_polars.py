@@ -148,6 +148,16 @@ teacher_ratios = {
 }
 
 
+def format_bytes(bytes: int) -> str:
+    """Format bytes into human-readable string (KB, MB, GB, etc.)"""
+    b = float(bytes)
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if b < 1024.0:
+            return f"{b:.2f} {unit}"
+        b /= 1024.0
+    return f"{b:.2f} PB"
+
+
 def timer(func):
     # @functools.wraps(func)
     def wrapper_timer(*args, **kwargs):
@@ -1703,7 +1713,7 @@ def print_agents_bin(df: pl.DataFrame, out_fname: str) -> tuple[list[int], list[
             for row in data_array:
                 f.write(row_struct.pack(*row))
         file_size = f.tell()
-        print(f"Wrote {len(df)} records in {file_size:,} bytes")
+        print(f"Wrote {len(df)} records, file size {format_bytes(file_size)}")
     return foffsets, home_pops, home_geoids
 
 
@@ -1798,6 +1808,91 @@ def print_index(
                 " ".join(map(str, work_pops)),
                 file=f,
             )
+
+
+@timer
+def print_index_bin(
+    df: pl.DataFrame,
+    out_fname: str,
+    foffsets: list[int],
+    home_pops: list[int],
+    home_geoids: list[str],
+):
+    work_geoids_pops_df, naics_types = compute_worker_populations(df)
+    dump_intermediate(work_geoids_pops_df, out_fname + "_work_geoids_pops")
+    work_geoids = sorted(df["work_geoid"].unique().to_list())
+    out_fname_idx = out_fname + ".idx.bin"
+    printgreen(f"Writing block group indexes to {out_fname_idx}")
+    naics_descrs = list(categ_types["pr_naics"].categories)
+    # Pre-compute work populations dictionary for O(1) lookups
+    work_pops_dict = {}
+    for geoid_tuple, group in work_geoids_pops_df.group_by("work_geoid"):
+        geoid = geoid_tuple[0] if isinstance(geoid_tuple, tuple) else geoid_tuple
+        # Sort by naics and extract counts
+        counts = group.sort("naics").select("num").to_series().to_list()
+        work_pops_dict[int(geoid)] = counts
+    # Identify work-only GEOIDs
+    work_only_geoids = sorted(set(int(g) for g in work_geoids) - set(int(g) for g in home_geoids))
+    # Prepare binary format
+    # Format:
+    # - geoid: uint64 (8 bytes)
+    # - foff: uint64 (8 bytes)
+    # - h_pop: uint32 (4 bytes)
+    # - w_pop: uint32 (4 bytes)
+    # - naics counts: uint32 * len(naics_types) (4 bytes each)
+    num_naics = len(naics_types)
+    index_struct = struct.Struct(f"<QQI I {num_naics}I")  # Little-endian
+    with open(out_fname_idx, mode="wb") as f:
+        # Write header
+        # - magic number: uint32 (to identify file format)
+        # - version: uint32
+        # - num_naics: uint32
+        # - num_geoids: uint32 (total including work-only)
+        header_struct = struct.Struct("<4I")
+        magic_number = 0x55504F50  # "UPOP" in hex
+        version = 1
+        num_geoids = len(home_geoids) + len(work_only_geoids)
+        f.write(header_struct.pack(magic_number, version, num_naics, num_geoids))
+        # Write work-only GEOIDs first
+        if work_only_geoids:
+            warn(f"Found {len(work_only_geoids)} work-only geoids out of {len(work_geoids)}")
+            for geoid in work_only_geoids:
+                work_pops = work_pops_dict.get(geoid, [0] * num_naics)
+                tot_work_pop = sum(work_pops)
+                # Validation check
+                if len(work_pops) != num_naics:
+                    raise_err(
+                        f"For work-only geoid {geoid}, work pops != NAICS types, "
+                        f"{len(work_pops)} != {num_naics}"
+                    )
+                # Pack: geoid, foff=0, h_pop=0, w_pop, naics_counts
+                f.write(index_struct.pack(geoid, 0, 0, tot_work_pop, *work_pops))
+        # Write home GEOIDs
+        step = max(1, len(home_geoids) // 10)
+        for i, geoid in enumerate(home_geoids):
+            if i % step == 0:
+                print(f"  GEOID {geoid} {i}/{len(home_geoids)}", flush=True)
+            geoid_int = int(geoid)
+            work_pops = work_pops_dict.get(geoid_int, [0] * num_naics)
+            tot_work_pop = sum(work_pops)
+            # Validation check
+            if len(work_pops) != num_naics:
+                print(f"len work_pops {len(work_pops)} != len naics_types {num_naics}")
+                print(f"len naics_descrs {len(naics_descrs)}")
+                for idx, p in enumerate(work_pops):
+                    if p > 0:
+                        print(idx, p, naics_descrs[idx])
+                print(f"Total work pop: {sum(work_pops)}")
+                raise_err(
+                    f"For geoid {geoid}, work pops != NAICS types, "
+                    f"{len(work_pops)} != {num_naics}"
+                )
+            # Pack: geoid, foff, h_pop, w_pop, naics_counts
+            f.write(
+                index_struct.pack(geoid_int, foffsets[i], home_pops[i], tot_work_pop, *work_pops)
+            )
+        file_size = f.tell()
+        print(f"Wrote index for {num_geoids} geoids, file size {format_bytes(file_size)}")
 
 
 def sanity_checks(df: pl.DataFrame):
@@ -1944,7 +2039,7 @@ def main():
     sanity_checks(df)
     print_cpp_header(df)
     foffsets, home_pops, home_geoids = print_agents_bin(df, args.output)
-    print_index(df, args.output, foffsets, home_pops, home_geoids)
+    print_index_bin(df, args.output, foffsets, home_pops, home_geoids)
     # foffsets, home_pops, home_geoids = print_agents_csv(df, args.output + "_text")
     # print_index(df, args.output + "_text", foffsets, home_pops, home_geoids)
 
