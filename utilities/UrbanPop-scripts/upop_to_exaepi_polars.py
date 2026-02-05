@@ -302,26 +302,39 @@ def dump_intermediate(df: pl.DataFrame, fname: str, override: bool = False):
 def load_upop_feather_files(fnames: list[str], out_fname: str = "") -> pl.DataFrame:
     num_files = len(fnames)
     printgreen(f"Reading UrbanPop data from {num_files} files")
-    dfs = []
-    df = pl.DataFrame()
-    chunk_size = int(num_files // 20)
-    for i, fname in enumerate(fnames):
-        df_read = pl.read_ipc(fname, memory_map=False)
-        dfs.append(df_read)
-        # Concatenate and clean up at chunk boundaries or end
-        if i == num_files - 1 or (chunk_size > 0 and (i + 1) % chunk_size == 0):
-            df = pl.concat(dfs)
-            dfs = [df]  # Keep only the concatenated result
-            gc.collect()
 
-            mem_used = float(psutil.Process(os.getpid()).memory_info().rss) / 1024 / 1024 / 1024
-            mem_of_df = float(df.estimated_size()) / 1024 / 1024 / 1024  # polars method
-            print(
-                f" read {i}/{num_files} files, "
-                + f"RSS {mem_used:0.2f} G, df memory {mem_of_df:0.2f} G"
-            )
-
-    df = dfs[0]
+    try:
+        # Try lazy loading with scan_ipc
+        lazy_frames = []
+        step = max(1, num_files // 10)
+        for i, fname in enumerate(fnames):
+            if i % step == 0:
+                print(f"  Scanning file {i + 1}/{num_files}", flush=True)
+            lazy_frames.append(pl.scan_ipc(fname))
+        print("Collecting lazy frames...")
+        df = pl.concat(lazy_frames).collect()
+        mem_used = float(psutil.Process(os.getpid()).memory_info().rss) / 1024 / 1024 / 1024
+        mem_of_df = float(df.estimated_size()) / 1024 / 1024 / 1024
+        print(f"Read {num_files} files, " + f"RSS {mem_used:0.2f} G, df memory {mem_of_df:0.2f} G")
+    except Exception as e:
+        dfs = []
+        df = pl.DataFrame()
+        chunk_size = int(num_files // 20)
+        for i, fname in enumerate(fnames):
+            df_read = pl.read_ipc(fname, memory_map=False)
+            dfs.append(df_read)
+            # Concatenate and clean up at chunk boundaries or end
+            if i == num_files - 1 or (chunk_size > 0 and (i + 1) % chunk_size == 0):
+                df = pl.concat(dfs)
+                dfs = [df]  # Keep only the concatenated result
+                gc.collect()
+                mem_used = float(psutil.Process(os.getpid()).memory_info().rss) / 1024 / 1024 / 1024
+                mem_of_df = float(df.estimated_size()) / 1024 / 1024 / 1024  # polars method
+                print(
+                    f" read {i}/{num_files} files, "
+                    + f"RSS {mem_used:0.2f} G, df memory {mem_of_df:0.2f} G"
+                )
+        df = dfs[0]
     print(f"Read {len(df)} records")
     if out_fname != "":
         dump_intermediate(df, out_fname + ".upop")
@@ -968,7 +981,8 @@ def alloc_students(schools_df: pl.DataFrame, students_df: pl.DataFrame) -> pl.Da
     # set all unallocated students
     unalloc_count = len(students_df.filter(pl.col("school_id") == ""))
     if unalloc_count > 0:
-        warn(f"Found {unalloc_count} unallocated students")
+        perc_unalloc = 100.0 * unalloc_count / len(students_df)
+        warn(f"Found {unalloc_count} unallocated students ({perc_unalloc:.1f}%%)")
         students_df = students_df.with_columns(
             [
                 pl.when(pl.col("school_id") == "")
@@ -1335,8 +1349,10 @@ def alloc_teachers_for_school_type(
             ]
         ).drop(["school_id_new", "work_geoid_new", "grade_new"])
     num_alloced = len(workers_df.filter(pl.col("grade") != -1))
-    if (num_reqd_teachers - num_alloced) > 0:
-        warn(f"Failed to allocate {num_reqd_teachers - num_alloced} teachers")
+    num_unalloc = num_reqd_teachers - num_alloced
+    if (num_unalloc) > 0:
+        perc_unalloc = 100.0 * num_unalloc / (num_reqd_teachers)
+        warn(f"Failed to allocate {num_unalloc} teachers ({perc_unalloc:.1f}%%)")
     return workers_df
 
 
@@ -1931,10 +1947,10 @@ def main():
         print(f"  {name:12s}  {dtype}")
     sanity_checks(df)
     print_cpp_header(df)
-    foffsets, home_pops, home_geoids = print_agents_bin(df, args.output + "-bin")
-    print_index(df, args.output + "-bin", foffsets, home_pops, home_geoids)
-    # foffsets, home_pops, home_geoids = print_agents_csv(df, args.output)
-    # print_index(df, args.output, foffsets, home_pops, home_geoids)
+    foffsets, home_pops, home_geoids = print_agents_bin(df, args.output)
+    print_index(df, args.output, foffsets, home_pops, home_geoids)
+    # foffsets, home_pops, home_geoids = print_agents_csv(df, args.output + "_text")
+    # print_index(df, args.output + "_text", foffsets, home_pops, home_geoids)
 
 
 if __name__ == "__main__":
