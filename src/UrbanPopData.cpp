@@ -109,47 +109,64 @@ bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, amrex::
     return true;
 }
 
-bool BlockGroup::read (istringstream& iss) {
+bool BlockGroup::read (std::istream& f) {
     BL_PROFILE("BlockGroup::read");
-    const int NTOKS = 4 + NAICS_COUNT;
+    // Read binary format:
+    // - geoid: uint64 (8 bytes)
+    // - foff: uint64 (8 bytes)
+    // - h_pop: uint32 (4 bytes)
+    // - w_pop: uint32 (4 bytes)
+    // - naics counts: uint32 * NAICS_COUNT (4 bytes each)
+    if (!f.read(reinterpret_cast<char*>(&geoid), sizeof(uint64_t))) { return false; }
+    if (!f.read(reinterpret_cast<char*>(&file_offset), sizeof(uint64_t))) { return false; }
+    if (!f.read(reinterpret_cast<char*>(&home_population), sizeof(uint32_t))) { return false; }
+    uint32_t total_work_pop;
+    if (!f.read(reinterpret_cast<char*>(&total_work_pop), sizeof(uint32_t))) { return false; }
+    // Read NAICS counts (NAICS_COUNT values)
+    work_populations.clear();
+    work_populations.push_back(total_work_pop); // First element is total
 
-    string buf;
-    if (!getline(iss, buf)) { return false; }
-    try {
-        std::vector<string> tokens = splitString(buf, ' ');
-        if (tokens.size() != NTOKS) {
-            throw runtime_error("Incorrect number of tokens, expected " + to_string(NTOKS) + " got " + to_string(tokens.size()));
-        }
-        geoid = stol(tokens[0]);
-        file_offset = stol(tokens[1]);
-        home_population = stoi(tokens[2]);
-        for (int i = 0; i < NAICS_COUNT + 1; i++) {
-            work_populations.push_back(stoi(tokens[3 + i]));
-        }
-        AMREX_ASSERT(home_population > 0 || work_populations[0] > 0);
-        AMREX_ASSERT(work_populations.size() == NAICS_COUNT + 1);
-    } catch (const std::exception& ex) {
-        std::ostringstream os;
-        os << "<" << __LINE__ << ">: Error reading UrbanPop input file: " << ex.what() << ", line read: " << "'" << buf << "'";
-        Abort(os.str());
+    for (int i = 0; i < NAICS_COUNT; i++) {
+        uint32_t naics_count;
+        if (!f.read(reinterpret_cast<char*>(&naics_count), sizeof(uint32_t))) { return false; }
+        work_populations.push_back(naics_count);
     }
+    AMREX_ASSERT(home_population > 0 || work_populations[0] > 0);
+    AMREX_ASSERT(work_populations.size() == NAICS_COUNT + 1);
     return true;
 }
 
 static void readBlockGroupsFile (const string& fname, Vector<BlockGroup>& block_groups) {
     BL_PROFILE("readBlockGroupsFile");
-    // read in index file and broadcast
+    // Read binary index file and broadcast
     Vector<char> idx_file_ptr;
-    ParallelDescriptor::ReadAndBcastFile(fname + ".idx", idx_file_ptr);
-    string idx_file_ptr_string(idx_file_ptr.dataPtr());
-    istringstream idx_file_iss(idx_file_ptr_string, istringstream::in);
+    ParallelDescriptor::ReadAndBcastFile(fname + ".idx.bin", idx_file_ptr);
+    // Create a stringstream from the broadcasted data
+    std::string idx_file_string(idx_file_ptr.dataPtr(), idx_file_ptr.size());
+    std::istringstream idx_file_iss(idx_file_string, std::ios::binary);
+    // Read header
+    uint32_t magic_number, version, num_naics, num_geoids;
+    idx_file_iss.read(reinterpret_cast<char*>(&magic_number), sizeof(uint32_t));
+    idx_file_iss.read(reinterpret_cast<char*>(&version), sizeof(uint32_t));
+    idx_file_iss.read(reinterpret_cast<char*>(&num_naics), sizeof(uint32_t));
+    idx_file_iss.read(reinterpret_cast<char*>(&num_geoids), sizeof(uint32_t));
+    // Validate magic number
+    if (magic_number != 0x55504F50) { Abort("Invalid index file format: magic number mismatch"); }
 
-    string buf;
-    // first line should be column labels
-    getline(idx_file_iss, buf);
-    for (int block_i = 0;; block_i++) {
+    if (ParallelDescriptor::IOProcessor()) {
+        Print() << "Reading index file version " << version << "\n";
+        Print() << "Number of NAICS codes: " << num_naics << "\n";
+        Print() << "Number of GEOIDs: " << num_geoids << "\n";
+    }
+    // Verify NAICS count matches expected
+    if (num_naics != NAICS_COUNT) {
+        Abort("NAICS count mismatch: file has " + to_string(num_naics) + " but code expects " + to_string(NAICS_COUNT));
+    }
+    block_groups.reserve(num_geoids);
+    // Read each block group entry
+    for (uint32_t block_i = 0; block_i < num_geoids; block_i++) {
         BlockGroup block_group;
-        if (!block_group.read(idx_file_iss)) { break; }
+        if (!block_group.read(idx_file_iss)) { Abort("Failed to read block group " + to_string(block_i)); }
         block_group.block_i = block_i;
         block_groups.push_back(block_group);
     }
