@@ -1379,10 +1379,10 @@ def allocate_teachers(
 
 def adjust_indexes(df: pl.DataFrame, output: str) -> pl.DataFrame:
     df = df.sort("id")
-    orig_ids_df = df.select(
-        [pl.col("id").alias("orig_id"), pl.arange(0, pl.len(), dtype=pl.Int64).alias("new_id")]
-    ).sort("orig_id")
-    orig_ids_df.write_csv(output + ".idmap.csv", quote_style="necessary")
+    # orig_ids_df = df.select(
+    #    [pl.col("id").alias("orig_id"), pl.arange(0, pl.len(), dtype=pl.Int64).alias("new_id")]
+    # ).sort("orig_id")
+    # orig_ids_df.write_csv(output + ".idmap.csv", quote_style="necessary")
     # Replace ids with sequential integers
     df = df.with_columns([pl.arange(0, len(df), dtype=pl.Int64).alias("id")])
     # Convert school ids to unique integers
@@ -1676,7 +1676,6 @@ def print_agents_bin(df: pl.DataFrame, out_fname: str) -> tuple[list[int], list[
     step = max(1, num_geoids // 10)
     out_fname_bin = out_fname + ".bin"
     printgreen(f"Writing binary data to {out_fname_bin}")
-
     # Build struct format for entire row based on Polars dtypes
     struct_formats = {
         pl.Int64: "q",
@@ -1686,7 +1685,6 @@ def print_agents_bin(df: pl.DataFrame, out_fname: str) -> tuple[list[int], list[
         pl.Float32: "f",
         pl.Float64: "d",
     }
-
     # Get column dtypes in order
     dtypes = [df[col].dtype for col in df.columns]
     row_format = "".join(struct_formats[dt] for dt in dtypes)
@@ -1706,7 +1704,6 @@ def print_agents_bin(df: pl.DataFrame, out_fname: str) -> tuple[list[int], list[
                 f.write(row_struct.pack(*row))
         file_size = f.tell()
         print(f"Wrote {len(df)} records in {file_size:,} bytes")
-
     return foffsets, home_pops, home_geoids
 
 
@@ -1749,46 +1746,45 @@ def print_index(
     work_geoids_pops_df, naics_types = compute_worker_populations(df)
     dump_intermediate(work_geoids_pops_df, out_fname + "_work_geoids_pops")
     work_geoids = sorted(df["work_geoid"].unique().to_list())
-    step = max(1, len(work_geoids) // 10)
+    home_geoids_set = set(home_geoids)
     out_fname_idx = out_fname + ".idx"
     printgreen(f"Writing block group indexes to {out_fname_idx}")
+    naics_descrs = list(categ_types["pr_naics"].categories)
+    # Pre-compute work populations dictionary for O(1) lookups
+    # Group by work_geoid and create a dictionary mapping geoid -> list of counts
+    work_pops_dict = {}
+    for geoid_tuple, group in work_geoids_pops_df.group_by("work_geoid"):
+        geoid = geoid_tuple[0] if isinstance(geoid_tuple, tuple) else geoid_tuple
+        # Sort by naics and extract counts
+        counts = group.sort("naics").select("num").to_series().to_list()
+        work_pops_dict[int(geoid)] = counts
+    # Identify work-only GEOIDs once
+    work_only_geoids = sorted(set(int(g) for g in work_geoids) - set(int(g) for g in home_geoids))
     with open(out_fname_idx, mode="w") as f:
-        naics_descrs = list(categ_types["pr_naics"].categories)
+        # Write header
         print("geoid foff h_pop w_pop", " ".join(naics_descrs), file=f)
-        # print work-only GEOIDs
-        if len(work_geoids) > len(home_geoids):
-            only_work_geoids = list(set(work_geoids) - set(home_geoids))
-            warn(f"Found {len(only_work_geoids)} work-only geoids out of {len(work_geoids)}")
-            for geoid in only_work_geoids:
-                work_pops = (
-                    work_geoids_pops_df.filter(pl.col("work_geoid") == geoid)
-                    .sort("naics")
-                    .select("num")
-                    .to_series()
-                    .to_list()
-                )
+        # Write work-only GEOIDs
+        if work_only_geoids:
+            warn(f"Found {len(work_only_geoids)} work-only geoids out of {len(work_geoids)}")
+            for geoid in work_only_geoids:
+                work_pops = work_pops_dict.get(int(geoid), [0] * len(naics_types))
                 tot_work_pop = sum(work_pops)
                 print(geoid, 0, 0, tot_work_pop, " ".join(map(str, work_pops)), file=f)
+        # Write home GEOIDs with progress reporting
+        step = max(1, len(home_geoids) // 10)
         for i, geoid in enumerate(home_geoids):
             if i % step == 0:
-                print(f"  GEOID {geoid} {i}/{len(work_geoids)}", flush=True)
-            work_pops = (
-                work_geoids_pops_df.filter(pl.col("work_geoid") == int(geoid))
-                .sort("naics")
-                .select("num")
-                .to_series()
-                .to_list()
-            )
+                print(f"  GEOID {geoid} {i}/{len(home_geoids)}", flush=True)
+            geoid_int = int(geoid)
+            work_pops = work_pops_dict.get(geoid_int, [0] * len(naics_types))
             tot_work_pop = sum(work_pops)
-            if tot_work_pop == 0:
-                work_pops = [0] * len(naics_types)
+            # Validation check
             if len(work_pops) != len(naics_types):
                 print(f"len work_pops {len(work_pops)} != len naics_types {len(naics_types)}")
                 print(f"len naics_descrs {len(naics_descrs)}")
                 for idx, p in enumerate(work_pops):
                     if p > 0:
                         print(idx, p, naics_descrs[idx])
-                print("")
                 print(f"Total work pop: {sum(work_pops)}")
                 raise_err(
                     f"For geoid {geoid}, work pops != NAICS types, "
