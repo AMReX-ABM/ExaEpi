@@ -58,4 +58,5 @@ struct UrbanPopData {
   private:
     std::map<int64_t, int> geoid_to_block_groups;
     std::map<amrex::IntVect, int> xy_to_block_groups;
+    std::ifstream urbanpop_file;
 };

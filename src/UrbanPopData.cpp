@@ -126,22 +126,20 @@ bool BlockGroup::read (std::istream& f) {
     return true;
 }
 
-static void readBlockGroupsFile (const string& fname, Vector<BlockGroup>& block_groups) {
+static void readBlockGroupsFile (std::ifstream& urbanpop_file, Vector<BlockGroup>& block_groups) {
     BL_PROFILE("readBlockGroupsFile");
     // Each process opens the file separately
-    std::ifstream file_stream(fname, std::ios::binary);
-    if (!file_stream) { Abort("Failed to open file: " + fname); }
     // Read file header
     uint32_t magic_number, version, num_naics, num_geoids, agent_record_size;
     uint64_t num_agents, index_end_offset;
-    file_stream.read(reinterpret_cast<char*>(&magic_number), sizeof(uint32_t));
-    file_stream.read(reinterpret_cast<char*>(&version), sizeof(uint32_t));
-    file_stream.read(reinterpret_cast<char*>(&num_naics), sizeof(uint32_t));
-    file_stream.read(reinterpret_cast<char*>(&num_geoids), sizeof(uint32_t));
-    file_stream.read(reinterpret_cast<char*>(&num_agents), sizeof(uint64_t));
-    file_stream.read(reinterpret_cast<char*>(&agent_record_size), sizeof(uint32_t));
-    file_stream.read(reinterpret_cast<char*>(&index_end_offset), sizeof(uint64_t));
-    if (!file_stream) { Abort("Failed to read header from file: " + fname); }
+    urbanpop_file.read(reinterpret_cast<char*>(&magic_number), sizeof(uint32_t));
+    urbanpop_file.read(reinterpret_cast<char*>(&version), sizeof(uint32_t));
+    urbanpop_file.read(reinterpret_cast<char*>(&num_naics), sizeof(uint32_t));
+    urbanpop_file.read(reinterpret_cast<char*>(&num_geoids), sizeof(uint32_t));
+    urbanpop_file.read(reinterpret_cast<char*>(&num_agents), sizeof(uint64_t));
+    urbanpop_file.read(reinterpret_cast<char*>(&agent_record_size), sizeof(uint32_t));
+    urbanpop_file.read(reinterpret_cast<char*>(&index_end_offset), sizeof(uint64_t));
+    if (!urbanpop_file) { Abort("Failed to read UrbanPop header"); }
     // Validate magic number
     if (magic_number != 0x55504F50) { Abort("Invalid index file format: magic number mismatch"); }
     // Verify NAICS count matches expected
@@ -160,7 +158,7 @@ static void readBlockGroupsFile (const string& fname, Vector<BlockGroup>& block_
     // Read each block group entry
     for (uint32_t block_i = 0; block_i < num_geoids; block_i++) {
         BlockGroup block_group;
-        if (!block_group.read(file_stream)) { Abort("Failed to read block group " + to_string(block_i)); }
+        if (!block_group.read(urbanpop_file)) { Abort("Failed to read block group " + to_string(block_i)); }
         block_group.block_i = block_i;
         block_groups.push_back(block_group);
     }
@@ -180,8 +178,12 @@ static std::pair<int, double> getAllLoadBalance (const long num) {
 void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& ba, DistributionMapping& dm) {
     BL_PROFILE("UrbanPopData::init");
     std::string fname = params.urbanpop_filename;
+
+    urbanpop_file.open(fname, std::ios::binary);
+    if (!urbanpop_file) { Abort("Failed to open file: " + fname); }
+
     // every rank reads all the block groups from the index file
-    readBlockGroupsFile(fname, block_groups);
+    readBlockGroupsFile(urbanpop_file, block_groups);
     // now sort block groups by geoid to make all FIPS units consecutively grouped
     std::sort(block_groups.begin(), block_groups.end(), [] (const BlockGroup& bg1, const BlockGroup& bg2) {
         return bg1.geoid < bg2.geoid;
@@ -277,8 +279,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
     int nborhood_size = params.nborhood_size;
     int num_nborhoods = 0;
 
-    ifstream f(params.urbanpop_filename);
-    if (!f) { Abort("Could not open file " + params.urbanpop_filename + "\n"); }
+    if (!urbanpop_file) { Abort("File " + params.urbanpop_filename + " is not open\n"); }
     for (MFIter mfi = pc.MakeMFIter(0); mfi.isValid(); ++mfi) {
         Vector<UrbanPopAgent> agents;
         Vector<AgentExtras> agents_extras;
@@ -305,7 +306,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                                  block_group.y < max_y);
                     home_population += block_group.home_population;
                     work_population += block_group.work_populations[0];
-                    block_group.readAgents(f, agents, agents_extras, geoid_to_block_groups, block_groups);
+                    block_group.readAgents(urbanpop_file, agents, agents_extras, geoid_to_block_groups, block_groups);
                     num_households += block_group.num_households;
                     num_employed += block_group.num_employed;
                     num_students += block_group.num_students;
@@ -477,6 +478,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         Gpu::synchronize();
     }
 
+    urbanpop_file.close();
     AMREX_ALWAYS_ASSERT(pc.OK());
 
     pc.comm_mf.define(community_mf.boxArray(), community_mf.DistributionMap(), 1, 0);
