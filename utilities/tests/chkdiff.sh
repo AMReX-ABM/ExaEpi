@@ -66,8 +66,20 @@ compare_amrex_files() {
         ((n_fail+=1))
         echo $result
     fi
+
+    # Check if plotfiles agree - if so, it's a pass
+    chk_agree=$(grep "PLOTFILE AGREE" $diff_fname 2>/dev/null)
+    if [ ! -z "$chk_agree" ]; then
+        echo "    passed"
+        return
+    fi
+
+    # Extract only the comparison section (before TinyProfiler output)
+    # This avoids false positives from profiling statistics
+    comparison_output=$(sed -n '1,/^TinyProfiler\|^Pinned Memory\|^Cpu Memory/p' $diff_fname | head -n -1)
+
     for var in ${var_list[@]}; do
-        diff_var=$(cat $diff_fname |grep "\b$var\b")
+        diff_var=$(echo "$comparison_output" | grep "\b$var\b")
         for i in {1..9}; do
             tmp=$(echo $diff_var |grep "$i")
             if [ ! -z "$tmp" ]; then
