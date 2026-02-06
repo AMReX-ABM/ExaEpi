@@ -138,35 +138,40 @@ bool BlockGroup::read (std::istream& f) {
 
 static void readBlockGroupsFile (const string& fname, Vector<BlockGroup>& block_groups) {
     BL_PROFILE("readBlockGroupsFile");
-    // Read binary index file and broadcast
-    Vector<char> idx_file_ptr;
-    ParallelDescriptor::ReadAndBcastFile(fname + ".idx.bin", idx_file_ptr);
-    // Create a stringstream from the broadcasted data
-    std::string idx_file_string(idx_file_ptr.dataPtr(), idx_file_ptr.size());
-    std::istringstream idx_file_iss(idx_file_string, std::ios::binary);
-    // Read header
-    uint32_t magic_number, version, num_naics, num_geoids;
-    idx_file_iss.read(reinterpret_cast<char*>(&magic_number), sizeof(uint32_t));
-    idx_file_iss.read(reinterpret_cast<char*>(&version), sizeof(uint32_t));
-    idx_file_iss.read(reinterpret_cast<char*>(&num_naics), sizeof(uint32_t));
-    idx_file_iss.read(reinterpret_cast<char*>(&num_geoids), sizeof(uint32_t));
+    // Read binary file and broadcast
+    Vector<char> file_data;
+    ParallelDescriptor::ReadAndBcastFile(fname + ".bin", file_data);
+    std::string file_string(file_data.dataPtr(), file_data.size());
+    std::istringstream file_stream(file_string, std::ios::binary);
+    // Read file header
+    uint32_t magic_number, version, num_naics, num_geoids, agent_record_size;
+    uint64_t num_agents, index_end_offset;
+    file_stream.read(reinterpret_cast<char*>(&magic_number), sizeof(uint32_t));
+    file_stream.read(reinterpret_cast<char*>(&version), sizeof(uint32_t));
+    file_stream.read(reinterpret_cast<char*>(&num_naics), sizeof(uint32_t));
+    file_stream.read(reinterpret_cast<char*>(&num_geoids), sizeof(uint32_t));
+    file_stream.read(reinterpret_cast<char*>(&num_agents), sizeof(uint64_t));
+    file_stream.read(reinterpret_cast<char*>(&agent_record_size), sizeof(uint32_t));
+    file_stream.read(reinterpret_cast<char*>(&index_end_offset), sizeof(uint64_t));
     // Validate magic number
     if (magic_number != 0x55504F50) { Abort("Invalid index file format: magic number mismatch"); }
-
-    if (ParallelDescriptor::IOProcessor()) {
-        Print() << "Reading index file version " << version << "\n";
-        Print() << "Number of NAICS codes: " << num_naics << "\n";
-        Print() << "Number of GEOIDs: " << num_geoids << "\n";
-    }
     // Verify NAICS count matches expected
     if (num_naics != NAICS_COUNT) {
         Abort("NAICS count mismatch: file has " + to_string(num_naics) + " but code expects " + to_string(NAICS_COUNT));
+    }
+
+    if (ParallelDescriptor::IOProcessor()) {
+        Print() << "Reading combined binary file version " << version << "\n";
+        Print() << "  Index section: " << index_end_offset << " bytes\n";
+        Print() << "  GEOIDs: " << num_geoids << "\n";
+        Print() << "  Agents: " << num_agents << "\n";
+        Print() << "  Agent record size: " << agent_record_size << " bytes\n";
     }
     block_groups.reserve(num_geoids);
     // Read each block group entry
     for (uint32_t block_i = 0; block_i < num_geoids; block_i++) {
         BlockGroup block_group;
-        if (!block_group.read(idx_file_iss)) { Abort("Failed to read block group " + to_string(block_i)); }
+        if (!block_group.read(file_stream)) { Abort("Failed to read block group " + to_string(block_i)); }
         block_group.block_i = block_i;
         block_groups.push_back(block_group);
     }

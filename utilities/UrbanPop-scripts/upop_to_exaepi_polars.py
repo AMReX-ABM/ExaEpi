@@ -148,6 +148,53 @@ teacher_ratios = {
 }
 
 
+class ProgressTicker:
+    """Print progress updates on the same line with a message prefix"""
+
+    def __init__(self, message: str, total: int, steps: int = 10):
+        """
+        Args:
+            message: Prefix message to display
+            total: Total number of items to process
+            steps: Number of progress updates to show (default: 10)
+        """
+        self.message = message
+        self.total = total
+        self.step = max(1, total // steps)
+        self.width = 0
+        self.started = False
+
+    def update(self, current: int):
+        """Update progress display
+
+        Args:
+            current: Current item number (0-indexed)
+        """
+        if not self.started:
+            print(self.message, end="", flush=True)
+            self.started = True
+        if current % self.step == 0 or current == self.total - 1:
+            # Erase previous progress
+            print("\b" * self.width, end="", flush=True)
+            # Format and print new progress
+            # progress = f"{current}/{self.total}"
+            perc_progress = 100.0 * current / self.total
+            progress = f"{perc_progress:.0f}%"
+            self.width = len(progress)
+            print(f"{progress}", end="", flush=True)
+
+    def finish(self):
+        """Complete the progress line with a newline"""
+        if self.started:
+            # Erase progress counter
+            print("\b" * self.width, end="", flush=True)
+            # Print final count
+            final = f"{self.total}/{self.total}"
+            print(final)
+        self.started = False
+        self.width = 0
+
+
 def format_bytes(bytes: int) -> str:
     """Format bytes into human-readable string (KB, MB, GB, etc.)"""
     b = float(bytes)
@@ -316,12 +363,9 @@ def load_upop_feather_files(fnames: list[str], out_fname: str = "") -> pl.DataFr
     try:
         # Try lazy loading with scan_ipc
         lazy_frames = []
-        step = max(1, num_files // 10)
         for i, fname in enumerate(fnames):
-            if i % step == 0:
-                print(f"  Scanning file {i + 1}/{num_files}", flush=True)
             lazy_frames.append(pl.scan_ipc(fname))
-        print("Collecting lazy frames...")
+        print(f"Collecting {len(lazy_frames)} lazy frames...")
         df = pl.concat(lazy_frames).collect()
         mem_used = float(psutil.Process(os.getpid()).memory_info().rss) / 1024 / 1024 / 1024
         mem_of_df = float(df.estimated_size()) / 1024 / 1024 / 1024
@@ -684,19 +728,18 @@ def alloc_workers(lodes_df: pl.DataFrame, workers_df: pl.DataFrame) -> pl.DataFr
         name: group for name, group in lodes_df.group_by("h_geocode", maintain_order=True)
     }
     num_geoids = workers_df["home_geoid"].n_unique()
-    print(f"Assigning workers in {num_geoids} GEOIDS for {len(lodes_groups_dict)} LODES groups")
     all_workers = []
-    i = 0
     missing_geoids = []
     num_geoids = len(worker_groups_dict)
-    step = max(1, num_geoids // 10)
+    ticker = ProgressTicker(
+        f"Assigning workers in {num_geoids} GEOIDS for {len(lodes_groups_dict)} LODES groups: ",
+        num_geoids,
+    )
     for i, (home_geoid_tuple, worker_group) in enumerate(sorted(worker_groups_dict.items())):
         home_geoid = (
             home_geoid_tuple[0] if isinstance(home_geoid_tuple, tuple) else home_geoid_tuple
         )
-        if i % step == 0:
-            print(f"  GEOID {home_geoid} {i}/{num_geoids}", flush=True)
-
+        ticker.update(i)
         num_workers = len(worker_group)
         # Try to get matching LODES group
         lodes_group = lodes_groups_dict.get(home_geoid_tuple)
@@ -719,6 +762,7 @@ def alloc_workers(lodes_df: pl.DataFrame, workers_df: pl.DataFrame) -> pl.DataFr
         worker_ids = worker_group["id"].to_list()
         for worker_id, work_geoid in zip(worker_ids, sampled_work):
             all_workers.append({"id": worker_id, "work_geoid": work_geoid})
+    ticker.finish()
     if len(missing_geoids) > 0:
         num_missing = len(missing_geoids)
         warn(
@@ -1638,86 +1682,6 @@ static std::vector<string> splitString(const string &s, char delim) {{
 
 
 @timer
-def print_agents_csv(df: pl.DataFrame, out_fname: str) -> tuple[list[int], list[int], list[str]]:
-    df = df.sort("home_geoid")
-    # Group by home_geoid and write to CSV
-    buff = io.StringIO()
-    foffsets = []
-    home_pops = []
-    home_geoids = []
-    num_geoids = df["home_geoid"].n_unique()
-    step = max(1, num_geoids // 10)
-    out_fname_csv = out_fname + ".csv"
-    printgreen(f"Writing CSV text data to {out_fname_csv}")
-    # Group by home_geoid
-    grouped = df.group_by("home_geoid", maintain_order=True)
-    for i, (geoid_tuple, subset_df) in enumerate(grouped):
-        # Extract geoid from tuple
-        geoid = geoid_tuple[0] if isinstance(geoid_tuple, tuple) else geoid_tuple
-        home_geoids.append(str(geoid))
-        if i % step == 0:
-            print(f"  GEOID {geoid} {i}/{num_geoids}", flush=True)
-        foffsets.append(buff.tell())
-        home_pops.append(len(subset_df))
-        # Add marker column for CSV
-        subset_with_marker = subset_df.with_columns([pl.lit("*").alias("marker")])
-        # Reorder to put marker first
-        cols = ["marker"] + [c for c in subset_df.columns]
-        subset_with_marker = subset_with_marker.select(cols)
-        # Write to buffer
-        subset_with_marker.write_csv(buff, include_header=(i == 0), quote_style="necessary")
-    # Write buffer to file
-    with open(out_fname_csv, "w") as f:
-        f.write(buff.getvalue())
-        print(f"Wrote {len(df)} records in {buff.tell()} bytes")
-    buff.close()
-    return foffsets, home_pops, home_geoids
-
-
-@timer
-def print_agents_bin(df: pl.DataFrame, out_fname: str) -> tuple[list[int], list[int], list[str]]:
-    # Sort by home_geoid to ensure consistent ordering
-    df = df.sort("home_geoid")
-    foffsets = []
-    home_pops = []
-    home_geoids = []
-    grouped = df.group_by("home_geoid", maintain_order=True)
-    num_geoids = df["home_geoid"].n_unique()
-    step = max(1, num_geoids // 10)
-    out_fname_bin = out_fname + ".bin"
-    printgreen(f"Writing binary data to {out_fname_bin}")
-    # Build struct format for entire row based on Polars dtypes
-    struct_formats = {
-        pl.Int64: "q",
-        pl.Int32: "i",
-        pl.Int16: "h",
-        pl.Int8: "b",
-        pl.Float32: "f",
-        pl.Float64: "d",
-    }
-    # Get column dtypes in order
-    dtypes = [df[col].dtype for col in df.columns]
-    row_format = "".join(struct_formats[dt] for dt in dtypes)
-    row_struct = struct.Struct(row_format)
-    with open(out_fname_bin, "wb") as f:
-        for i, (geoid_tuple, subset_df) in enumerate(grouped):
-            # Extract geoid from tuple
-            geoid = geoid_tuple[0] if isinstance(geoid_tuple, tuple) else geoid_tuple
-            if i % step == 0:
-                print(f"  GEOID {geoid} {i}/{num_geoids}", flush=True)
-            home_geoids.append(str(geoid))
-            foffsets.append(f.tell())
-            home_pops.append(len(subset_df))
-            # Convert subset to numpy array for efficient binary writing
-            data_array = subset_df.to_numpy()
-            for row in data_array:
-                f.write(row_struct.pack(*row))
-        file_size = f.tell()
-        print(f"Wrote {len(df)} records, file size {format_bytes(file_size)}")
-    return foffsets, home_pops, home_geoids
-
-
-@timer
 def compute_worker_populations(df: pl.DataFrame) -> tuple[pl.DataFrame, list[int]]:
     # Compute worker populations for each NAICS code
     work_geoids = sorted(df["work_geoid"].unique().to_list())
@@ -1746,120 +1710,81 @@ def compute_worker_populations(df: pl.DataFrame) -> tuple[pl.DataFrame, list[int
 
 
 @timer
-def print_index(
+def print_agents(
     df: pl.DataFrame,
     out_fname: str,
-    foffsets: list[int],
-    home_pops: list[int],
-    home_geoids: list[str],
 ):
+    printgreen(f"Writing agents to {out_fname}.bin")
+    # Sort by home_geoid for consistent ordering
+    df = df.sort("home_geoid")
+    # Get unique home geoids in sorted order
+    home_geoids = sorted(df["home_geoid"].unique().to_list())
+    # Compute work populations
     work_geoids_pops_df, naics_types = compute_worker_populations(df)
     dump_intermediate(work_geoids_pops_df, out_fname + "_work_geoids_pops")
     work_geoids = sorted(df["work_geoid"].unique().to_list())
-    home_geoids_set = set(home_geoids)
-    out_fname_idx = out_fname + ".idx"
-    printgreen(f"Writing block group indexes to {out_fname_idx}")
-    naics_descrs = list(categ_types["pr_naics"].categories)
-    # Pre-compute work populations dictionary for O(1) lookups
-    # Group by work_geoid and create a dictionary mapping geoid -> list of counts
-    work_pops_dict = {}
-    for geoid_tuple, group in work_geoids_pops_df.group_by("work_geoid"):
-        geoid = geoid_tuple[0] if isinstance(geoid_tuple, tuple) else geoid_tuple
-        # Sort by naics and extract counts
-        counts = group.sort("naics").select("num").to_series().to_list()
-        work_pops_dict[int(geoid)] = counts
-    # Identify work-only GEOIDs once
-    work_only_geoids = sorted(set(int(g) for g in work_geoids) - set(int(g) for g in home_geoids))
-    with open(out_fname_idx, mode="w") as f:
-        # Write header
-        print("geoid foff h_pop w_pop", " ".join(naics_descrs), file=f)
-        # Write work-only GEOIDs
-        if work_only_geoids:
-            warn(f"Found {len(work_only_geoids)} work-only geoids out of {len(work_geoids)}")
-            for geoid in work_only_geoids:
-                work_pops = work_pops_dict.get(int(geoid), [0] * len(naics_types))
-                tot_work_pop = sum(work_pops)
-                print(geoid, 0, 0, tot_work_pop, " ".join(map(str, work_pops)), file=f)
-        # Write home GEOIDs with progress reporting
-        step = max(1, len(home_geoids) // 10)
-        for i, geoid in enumerate(home_geoids):
-            if i % step == 0:
-                print(f"  GEOID {geoid} {i}/{len(home_geoids)}", flush=True)
-            geoid_int = int(geoid)
-            work_pops = work_pops_dict.get(geoid_int, [0] * len(naics_types))
-            tot_work_pop = sum(work_pops)
-            # Validation check
-            if len(work_pops) != len(naics_types):
-                print(f"len work_pops {len(work_pops)} != len naics_types {len(naics_types)}")
-                print(f"len naics_descrs {len(naics_descrs)}")
-                for idx, p in enumerate(work_pops):
-                    if p > 0:
-                        print(idx, p, naics_descrs[idx])
-                print(f"Total work pop: {sum(work_pops)}")
-                raise_err(
-                    f"For geoid {geoid}, work pops != NAICS types, "
-                    f"{len(work_pops)} != {len(naics_types)}"
-                )
-            print(
-                geoid,
-                foffsets[i],
-                home_pops[i],
-                tot_work_pop,
-                " ".join(map(str, work_pops)),
-                file=f,
-            )
-
-
-@timer
-def print_index_bin(
-    df: pl.DataFrame,
-    out_fname: str,
-    foffsets: list[int],
-    home_pops: list[int],
-    home_geoids: list[str],
-):
-    work_geoids_pops_df, naics_types = compute_worker_populations(df)
-    dump_intermediate(work_geoids_pops_df, out_fname + "_work_geoids_pops")
-    work_geoids = sorted(df["work_geoid"].unique().to_list())
-    out_fname_idx = out_fname + ".idx.bin"
-    printgreen(f"Writing block group indexes to {out_fname_idx}")
     naics_descrs = list(categ_types["pr_naics"].categories)
     # Pre-compute work populations dictionary for O(1) lookups
     work_pops_dict = {}
     for geoid_tuple, group in work_geoids_pops_df.group_by("work_geoid"):
         geoid = geoid_tuple[0] if isinstance(geoid_tuple, tuple) else geoid_tuple
-        # Sort by naics and extract counts
         counts = group.sort("naics").select("num").to_series().to_list()
         work_pops_dict[int(geoid)] = counts
     # Identify work-only GEOIDs
     work_only_geoids = sorted(set(int(g) for g in work_geoids) - set(int(g) for g in home_geoids))
-    # Prepare binary format
-    # Format:
-    # - geoid: uint64 (8 bytes)
-    # - foff: uint64 (8 bytes)
-    # - h_pop: uint32 (4 bytes)
-    # - w_pop: uint32 (4 bytes)
-    # - naics counts: uint32 * len(naics_types) (4 bytes each)
+    # Prepare binary formats
     num_naics = len(naics_types)
-    index_struct = struct.Struct(f"<QQI I {num_naics}I")  # Little-endian
-    with open(out_fname_idx, mode="wb") as f:
-        # Write header
-        # - magic number: uint32 (to identify file format)
+    # Index entry format
+    index_struct = struct.Struct(f"<QQI I {num_naics}I")  # geoid, foff, h_pop, w_pop, naics_counts
+    # Agent entry format (based on df columns)
+    agent_fields = df.columns
+    agent_format = ""
+    dtype_codes = {
+        pl.Int64: "q",
+        pl.UInt64: "Q",
+        pl.Int32: "i",
+        pl.UInt32: "I",
+        pl.Int16: "h",
+        pl.UInt16: "H",
+        pl.Int8: "b",
+        pl.UInt64: "B",
+    }
+    for col in agent_fields:
+        dtype = df[col].dtype
+        dtype_code = dtype_codes.get(dtype)
+        if dtype_code == None:
+            raise_err(f"Unsupported dtype {dtype} for column {col}")
+        else:
+            agent_format += dtype_code
+
+    agent_struct = struct.Struct(f"<{agent_format}")
+    # Write to single binary file
+    with open(out_fname + ".bin", mode="wb") as f:
+        # ========== WRITE FILE HEADER ==========
+        # Format:
+        # - magic_number: uint32 (0x55504F50 = "UPOP")
         # - version: uint32
         # - num_naics: uint32
         # - num_geoids: uint32 (total including work-only)
-        header_struct = struct.Struct("<4I")
+        # - num_agents: uint64
+        # - agent_record_size: uint32
+        # - index_end_offset: uint64 (byte offset where agent data starts)
+        header_struct = struct.Struct("<2I 2I Q I Q")
         magic_number = 0x55504F50  # "UPOP" in hex
         version = 1
         num_geoids = len(home_geoids) + len(work_only_geoids)
-        f.write(header_struct.pack(magic_number, version, num_naics, num_geoids))
+        num_agents = len(df)
+        agent_record_size = agent_struct.size
+        # Reserve space for header (will write index_end_offset later)
+        header_offset = f.tell()
+        f.write(b"\x00" * header_struct.size)  # Placeholder
+        # ========== WRITE INDEX DATA ==========
         # Write work-only GEOIDs first
         if work_only_geoids:
             warn(f"Found {len(work_only_geoids)} work-only geoids out of {len(work_geoids)}")
             for geoid in work_only_geoids:
                 work_pops = work_pops_dict.get(geoid, [0] * num_naics)
                 tot_work_pop = sum(work_pops)
-                # Validation check
                 if len(work_pops) != num_naics:
                     raise_err(
                         f"For work-only geoid {geoid}, work pops != NAICS types, "
@@ -1867,14 +1792,20 @@ def print_index_bin(
                     )
                 # Pack: geoid, foff=0, h_pop=0, w_pop, naics_counts
                 f.write(index_struct.pack(geoid, 0, 0, tot_work_pop, *work_pops))
-        # Write home GEOIDs
-        step = max(1, len(home_geoids) // 10)
+        # Write home GEOIDs with file offsets
+        home_pops = []
+        foffsets = []
+        ticker = ProgressTicker(f"Writing {len(home_geoids)} indexes: ", len(home_geoids))
         for i, geoid in enumerate(home_geoids):
-            if i % step == 0:
-                print(f"  GEOID {geoid} {i}/{len(home_geoids)}", flush=True)
+            ticker.update(i)
             geoid_int = int(geoid)
             work_pops = work_pops_dict.get(geoid_int, [0] * num_naics)
             tot_work_pop = sum(work_pops)
+            # Get home population for this geoid
+            h_pop = len(df.filter(pl.col("home_geoid") == geoid))
+            home_pops.append(h_pop)
+            # File offset will be calculated after index is complete
+            foffsets.append(0)  # Placeholder
             # Validation check
             if len(work_pops) != num_naics:
                 print(f"len work_pops {len(work_pops)} != len naics_types {num_naics}")
@@ -1887,12 +1818,67 @@ def print_index_bin(
                     f"For geoid {geoid}, work pops != NAICS types, "
                     f"{len(work_pops)} != {num_naics}"
                 )
-            # Pack: geoid, foff, h_pop, w_pop, naics_counts
-            f.write(
-                index_struct.pack(geoid_int, foffsets[i], home_pops[i], tot_work_pop, *work_pops)
+            # Pack: geoid, foff (placeholder), h_pop, w_pop, naics_counts
+            f.write(index_struct.pack(geoid_int, 0, h_pop, tot_work_pop, *work_pops))
+        ticker.finish()
+        # Record where index ends and agent data begins
+        index_end_offset = f.tell()
+        # ========== WRITE AGENT DATA ==========
+        # Group by home_geoid
+        grouped = list(df.group_by("home_geoid", maintain_order=True))
+        current_offset = index_end_offset
+        ticker = ProgressTicker(
+            f"Writing {len(df)} agents in {len(grouped)} GEOIDs: ", len(grouped)
+        )
+        for i, (geoid_tuple, subset_df) in enumerate(grouped):
+            ticker.update(i)
+            geoid = geoid_tuple[0] if isinstance(geoid_tuple, tuple) else geoid_tuple
+            # Find index in home_geoids list
+            try:
+                geoid_idx = home_geoids.index(geoid)
+                foffsets[geoid_idx] = current_offset
+            except ValueError:
+                warn(f"GEOID {geoid} not found in home_geoids list")
+                continue
+            # Convert to numpy array for faster iteration
+            data_array = subset_df.to_numpy()
+            # Write each agent record
+            for row in data_array:
+                f.write(agent_struct.pack(*row))
+                current_offset += agent_record_size
+        ticker.finish()
+        agent_data_end = f.tell()
+        # ========== UPDATE HEADER WITH FINAL VALUES ==========
+        f.seek(header_offset)
+        f.write(
+            header_struct.pack(
+                magic_number,
+                version,
+                num_naics,
+                num_geoids,
+                num_agents,
+                agent_record_size,
+                index_end_offset,
             )
+        )
+        # ========== UPDATE INDEX WITH FILE OFFSETS ==========
+        # Seek to start of home geoid entries (after work-only geoids)
+        index_offset = header_struct.size + len(work_only_geoids) * index_struct.size
+        for i, (geoid, foff, h_pop) in enumerate(zip(home_geoids, foffsets, home_pops)):
+            geoid_int = int(geoid)
+            work_pops = work_pops_dict.get(geoid_int, [0] * num_naics)
+            tot_work_pop = sum(work_pops)
+            # Seek to this entry's position in index
+            f.seek(index_offset + i * index_struct.size)
+            # Write updated entry with correct file offset
+            f.write(index_struct.pack(geoid_int, foff, h_pop, tot_work_pop, *work_pops))
+        # Seek to end
+        f.seek(agent_data_end)
         file_size = f.tell()
-        print(f"Wrote index for {num_geoids} geoids, file size {format_bytes(file_size)}")
+        print(f"Wrote agents to binary file:")
+        print(f"  Index: {format_bytes(index_end_offset)} ({num_geoids} geoids)")
+        print(f"  Agents: {format_bytes(file_size - index_end_offset)} ({num_agents} agents)")
+        print(f"  Total: {format_bytes(file_size)}")
 
 
 def sanity_checks(df: pl.DataFrame):
@@ -2038,10 +2024,7 @@ def main():
         print(f"  {name:12s}  {dtype}")
     sanity_checks(df)
     print_cpp_header(df)
-    foffsets, home_pops, home_geoids = print_agents_bin(df, args.output)
-    print_index_bin(df, args.output, foffsets, home_pops, home_geoids)
-    # foffsets, home_pops, home_geoids = print_agents_csv(df, args.output + "_text")
-    # print_index(df, args.output + "_text", foffsets, home_pops, home_geoids)
+    print_agents(df, args.output)
 
 
 if __name__ == "__main__":
