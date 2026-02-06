@@ -509,11 +509,13 @@ void runAgent () {
                 pc.moveAirTravel(censusData.unit_mf, air, censusData.demo);
             }
 
-            // Typical day
+// Typical day
+#ifndef COMPARE_TO_EPICAST
             pc.morningCommute(mask_behavior);
             pc.interactDay(mask_behavior);
             pc.eveningCommute(mask_behavior);
             pc.interactEvening(mask_behavior);
+#endif
             pc.interactNight(mask_behavior);
 
             if ((params.random_travel_int > 0) && (i % params.random_travel_int == 0)) { pc.returnRandomTravel(); }
