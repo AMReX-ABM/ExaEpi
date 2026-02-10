@@ -234,13 +234,13 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                     if (flag_status_ptr[i] < 0) {
                         Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::death), 1.0_rt);
                     }
-                    if (released_from_hosp[i]) {
+                    if (released_from_hosp_ptr[i]) {
                         Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::hospitalization), -1.0_rt);
                     }
-                    if (released_from_ICU[i]) {
+                    if (released_from_ICU_ptr[i]) {
                         Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::ICU), -1.0_rt);
                     }
-                    if (released_from_vent[i]) {
+                    if (released_from_vent_ptr[i]) {
                         Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::ventilator), -1.0_rt);
                     }
                 });
