@@ -93,9 +93,11 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
             Gpu::DeviceVector<int> is_alive(np);
             auto is_alive_ptr = is_alive.data();
 
+            Gpu::DeviceVector<int> died_today(np, 0);
             Gpu::DeviceVector<int> exit_hosp(np*n_disease, -1);
             Gpu::DeviceVector<int> exit_ICU(np*n_disease, -1);
             Gpu::DeviceVector<int> exit_vent(np*n_disease, -1);
+            auto died_today_ptr = died_today.data();
             auto exit_hosp_ptr = exit_hosp.data();
             auto exit_ICU_ptr  = exit_ICU.data();
             auto exit_vent_ptr = exit_vent.data();
@@ -180,6 +182,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                         // Check if hospitalized patient recovers or dies
                         if (Random(engine) < disease_parm_d->m_hospToDeath[status_d-1][age_group_ptr[i]]) {
                             is_alive_ptr[i] = 0;
+                            died_today_ptr[i] = 1;
                             status_ptrs[d][i] = Status::dead;
                         } else {
                             // If alive, hospitalized patient recovers
@@ -254,7 +257,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
             for (int d = 0; d < n_disease; d++) {
                 auto ds_arr = (*a_dstats[d])[mfi].array();
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
-                    if (is_alive_ptr[i] == 0) {
+                    if (died_today_ptr[i]) {
                         Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::death), 1.0_rt);
                     }
                     if (rm_from_hosp_ptr[i]) {
