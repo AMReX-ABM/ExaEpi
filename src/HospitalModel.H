@@ -172,6 +172,13 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                 Gpu::synchronize();
             }
 
+            Gpu::DeviceVector<int> released_from_hosp(np, 0);
+            Gpu::DeviceVector<int> released_from_ICU(np, 0);
+            Gpu::DeviceVector<int> released_from_vent(np, 0);
+            auto released_from_hosp_ptr = released_from_hosp.data();
+            auto released_from_ICU_ptr  = released_from_ICU.data();
+            auto released_from_vent_ptr = released_from_vent.data();
+
             ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                 if (!inHospital(i, ptd)) { return; }
 
@@ -183,6 +190,15 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                     hosp_i_ptr[i] = -1;
                     hosp_j_ptr[i] = -1;
                     withdrawn_ptr[i] = 0;
+                    if (std::abs(flag_status_ptr[i]) > DiseaseStats::hospitalization) {
+                        released_from_hosp_ptr[i] = 1;
+                    }
+                    if (std::abs(flag_status_ptr[i]) > DiseaseStats::ICU) {
+                        released_from_ICU_ptr[i] = 1;
+                    }
+                    if (std::abs(flag_status_ptr[i]) > DiseaseStats::ventilator) {
+                        released_from_vent_ptr[i] = 1;
+                    }
                 } else {
                     // check if agent can be discharged from hospital
                     ParticleReal sum_timers = 0;
@@ -197,6 +213,15 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                         PType& p = pstruct[i];
                         p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
                         p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
+                        if (std::abs(flag_status_ptr[i]) > DiseaseStats::hospitalization) {
+                            released_from_hosp_ptr[i] = 1;
+                        }
+                        if (std::abs(flag_status_ptr[i]) > DiseaseStats::ICU) {
+                            released_from_ICU_ptr[i] = 1;
+                        }
+                        if (std::abs(flag_status_ptr[i]) > DiseaseStats::ventilator) {
+                            released_from_vent_ptr[i] = 1;
+                        }
                     }
                 }
             });
@@ -209,13 +234,13 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                     if (flag_status_ptr[i] < 0) {
                         Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::death), 1.0_rt);
                     }
-                    if (std::abs(flag_status_ptr[i]) > DiseaseStats::hospitalization) {
+                    if (released_from_hosp[i]) {
                         Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::hospitalization), -1.0_rt);
                     }
-                    if (std::abs(flag_status_ptr[i]) > DiseaseStats::ICU) {
+                    if (released_from_ICU[i]) {
                         Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::ICU), -1.0_rt);
                     }
-                    if (std::abs(flag_status_ptr[i]) > DiseaseStats::ventilator) {
+                    if (released_from_vent[i]) {
                         Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::ventilator), -1.0_rt);
                     }
                 });
