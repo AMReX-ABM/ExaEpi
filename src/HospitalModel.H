@@ -155,10 +155,13 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                     } else if (timer_ptrs[d][i] == disease_parm_d->m_t_hosp_offset) {
                         // finished ICU hospitalization period, counted down to m_t_hosp_offset
                         flag_status_ptr[i] = DiseaseStats::ICU + 1;
+                        released_from_hosp_ptr[i] = 1;
                         released_from_ICU_ptr[i] = 1;
                     } else if (timer_ptrs[d][i] == 2 * disease_parm_d->m_t_hosp_offset) {
                         // finished ventilator hospitalization period, counted down to 2 * m_t_hosp_offset
                         flag_status_ptr[i] = DiseaseStats::ventilator + 1;
+                        released_from_hosp_ptr[i] = 1;
+                        released_from_ICU_ptr[i] = 1;
                         released_from_vent_ptr[i] = 1;
                     }
                     if (flag_status_ptr[i] > 0) {
