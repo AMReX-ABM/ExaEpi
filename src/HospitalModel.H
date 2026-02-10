@@ -96,12 +96,12 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
             Gpu::DeviceVector<int> flag_status(np);
             auto flag_status_ptr = flag_status.data();
 
-            Gpu::DeviceVector<int> released_from_hosp(np, 0);
-            Gpu::DeviceVector<int> released_from_ICU(np, 0);
-            Gpu::DeviceVector<int> released_from_vent(np, 0);
-            auto released_from_hosp_ptr = released_from_hosp.data();
-            auto released_from_ICU_ptr  = released_from_ICU.data();
-            auto released_from_vent_ptr = released_from_vent.data();
+            Gpu::DeviceVector<int> exit_hosp(np*n_disease, 1);
+            Gpu::DeviceVector<int> exit_ICU(np*n_disease, 1);
+            Gpu::DeviceVector<int> exit_vent(np*n_disease, 1);
+            auto exit_hosp_ptr = exit_hosp.data();
+            auto exit_ICU_ptr  = exit_ICU.data();
+            auto exit_vent_ptr = exit_vent.data();
 
             ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                 // if status_ptr for any one disease is dead, they should all be dead
@@ -130,18 +130,30 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                 ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
                     if (!inHospital(i, ptd)) {
                         // agent is not in hospital
+                        exit_hosp_ptr[d*np+i] = 0;
+                        exit_ICU_ptr[d*np+i] = 0;
+                        exit_vent_ptr[d*np+i] = 0;
                         return;
                     }
                     if (counter_ptrs[d][i] == Math::floor(incubation_per_ptrs[d][i]) + Math::floor(hospital_delay_ptrs[d][i])) {
                         // agent just started treatment
+                        exit_hosp_ptr[d*np+i] = 0;
+                        exit_ICU_ptr[d*np+i] = 0;
+                        exit_vent_ptr[d*np+i] = 0;
                         return;
                     }
                     if (timer_ptrs[d][i] == 0) {
                         // agent has recovered/died from disease d
+                        exit_hosp_ptr[d*np+i] = 0;
+                        exit_ICU_ptr[d*np+i] = 0;
+                        exit_vent_ptr[d*np+i] = 0;
                         return;
                     }
                     if (is_alive_ptr[i] == 0) {
                         // agent is dead
+                        exit_hosp_ptr[d*np+i] = 0;
+                        exit_ICU_ptr[d*np+i] = 0;
+                        exit_vent_ptr[d*np+i] = 0;
                         return;
                     }
 
@@ -151,19 +163,24 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                     if (timer_ptrs[d][i] == 0) {
                         // finished hospitalization period
                         flag_status_ptr[i] = DiseaseStats::hospitalization + 1;
-                        released_from_hosp_ptr[i] = 1;
                     } else if (timer_ptrs[d][i] == disease_parm_d->m_t_hosp_offset) {
                         // finished ICU hospitalization period, counted down to m_t_hosp_offset
                         flag_status_ptr[i] = DiseaseStats::ICU + 1;
-                        released_from_hosp_ptr[i] = 1;
-                        released_from_ICU_ptr[i] = 1;
                     } else if (timer_ptrs[d][i] == 2 * disease_parm_d->m_t_hosp_offset) {
                         // finished ventilator hospitalization period, counted down to 2 * m_t_hosp_offset
                         flag_status_ptr[i] = DiseaseStats::ventilator + 1;
-                        released_from_hosp_ptr[i] = 1;
-                        released_from_ICU_ptr[i] = 1;
-                        released_from_vent_ptr[i] = 1;
                     }
+                    // check for exit conditions
+                    if (timer_ptrs[d][i] != 2 * disease_parm_d->m_t_hosp_offset) {
+                        exit_vent_ptr[d*np+i] = 0;
+                    }
+                    if (timer_ptrs[d][i] != disease_parm_d->m_t_hosp_offset) {
+                        exit_ICU_ptr[d*np+i] = 0;
+                    }
+                    if (timer_ptrs[d][i] != 0) {
+                        exit_hosp_ptr[d*np+i] = 0;
+                    }
+
                     if (flag_status_ptr[i] > 0) {
                         // Check if hospitalized patient recovers or dies
                         if (Random(engine) < disease_parm_d->m_hospToDeath[flag_status_ptr[i] - 1][age_group_ptr[i]]) {
@@ -185,8 +202,24 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                 Gpu::synchronize();
             }
 
+            Gpu::DeviceVector<int> released_from_hosp(np, 0);
+            Gpu::DeviceVector<int> released_from_ICU(np, 0);
+            Gpu::DeviceVector<int> released_from_vent(np, 0);
+            auto released_from_hosp_ptr = released_from_hosp.data();
+            auto released_from_ICU_ptr  = released_from_ICU.data();
+            auto released_from_vent_ptr = released_from_vent.data();
+
             ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                 if (!inHospital(i, ptd)) { return; }
+
+                released_from_hosp_ptr[i] = 1;
+                released_from_ICU_ptr[i] = 1;
+                released_from_vent_ptr[i] = 1;
+                for (int d = 0; d < n_disease; d++) {
+                    released_from_hosp_ptr[i] *= exit_hosp_ptr[d*np+i];
+                    released_from_ICU_ptr[i] *= exit_ICU_ptr[d*np+i];
+                    released_from_vent_ptr[i] *= exit_vent_ptr[d*np+i];
+                }
 
                 if (is_alive_ptr[i] == 0) {
                     // agent has died
@@ -211,10 +244,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                         p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
                         p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
                     } else {
-                        // do not release from hosp/ICU/vent
-                        released_from_hosp_ptr[i] = 0;
-                        released_from_ICU_ptr[i] = 0;
-                        released_from_vent_ptr[i] = 0;
+                      AMREX_ALWAYS_ASSERT(!released_from_hosp_ptr[i]);
                     }
                 }
             });
