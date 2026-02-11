@@ -476,13 +476,13 @@ void AgentContainer::returnAirTravel () {
 
 void AgentContainer::initializeWeatherIndex (const iMultiFab& unit_mf, ActiveWeather* activeWeatherdata){
     BL_PROFILE("AgentContainer::initializeWeatherIndex");
-    awd= activeWeatherdata; 
+    awd= activeWeatherdata;
 
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev = GetParticles(lev);
 #ifdef AMREX_USE_OMP
-#pragma omp parallel if (Gpu::notInLaunchRegion()) 
-#endif  
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
         for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
             auto& ptile = plev[{mfi.index(), mfi.LocalTileIndex()}];
             auto& aos = ptile.GetArrayOfStructs();
@@ -492,16 +492,21 @@ void AgentContainer::initializeWeatherIndex (const iMultiFab& unit_mf, ActiveWea
             const auto unit_arr = unit_mf[mfi].array();
             auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
             auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
-	    auto unitVec= awd->unitVec.data();
+            auto unitVec= awd->unitVec.data();
 	    int nUnits= awd->unitVec.size();
             auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
-            
+
             amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
                 int unit = unit_arr(home_i_ptr[i], home_j_ptr[i], 0);
 		int lunit=0;
-		for(; lunit<nUnits; lunit++) 
-		    if(unitVec[lunit] == lunit) break;
-		weatherIdxPtr[i]= lunit;
+                bool found=false;
+		for(; lunit<nUnits; lunit++)
+		    if(unitVec[lunit] == unit){
+                        found= true;
+                        break;
+                    }
+		if(found) weatherIdxPtr[i]= lunit;
+                else  weatherIdxPtr[i]= -1;
             });
         }
     }
@@ -511,7 +516,7 @@ void AgentContainer::advanceWeatherIndex (){
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev = GetParticles(lev);
 #ifdef AMREX_USE_OMP
-#pragma omp parallel if (Gpu::notInLaunchRegion()) 
+#pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
         for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
             auto& ptile = plev[{mfi.index(), mfi.LocalTileIndex()}];
@@ -522,8 +527,11 @@ void AgentContainer::advanceWeatherIndex (){
             auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
 	    int nUnits= awd->unitVec.size();
 
+            //if(soa.GetIntData(IntIdx::weatherLookup).size() != np)
+		//std::cout<<"VEC SIZE "<< soa.GetIntData(IntIdx::weatherLookup).size()<<" np "<<np<<"\n";
             amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
-                weatherIdxPtr[i]+= nUnits ;
+                if(weatherIdxPtr[i] != -1)
+                    weatherIdxPtr[i]+= nUnits ;
             });
         }
     }

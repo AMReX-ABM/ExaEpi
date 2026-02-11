@@ -6,7 +6,6 @@
 #include <string>
 #include "Utils.H"
 #include "DemographicData.H"
-//#include "CensusData.H"
 
 struct weatherVars{
     double hurs;
@@ -34,7 +33,7 @@ struct date{
     //date format: year-month-day
     date(std::string s){
         std::istringstream iss(s);
-	char hyphen;
+        char hyphen;
         iss >> year; iss >> hyphen; iss >> month; iss >> hyphen; iss >> day;
     }
 };
@@ -42,11 +41,11 @@ struct date{
 struct week{
     date begin;
     date end;
-    bool straddleYears(){
+    bool straddle2Years(){
         return end.year - begin.year == 1;
     }
-    bool straddleMonths(){
-        if (straddleYears()) return true;
+    bool straddle2Months(){
+        if (straddle2Years()) return true;
         return end.month - begin.month ==1;
     }
     void print(){
@@ -56,7 +55,7 @@ struct week{
 };
 
 struct ActiveWeather{
-    amrex::Gpu::DeviceVector<weatherVars> varVec;
+    amrex::Gpu::DeviceVector<weatherVars> varVec; //keep weather variables during the simulation time
     amrex::Gpu::DeviceVector<int> unitVec;
     int numUnitsOnThisProc;
     weatherVars& operator[](int index) {
@@ -92,11 +91,11 @@ struct WeatherData {
     week simStartWeek; //first simulation week
     ActiveWeather activeWeather; //part of the weather data affecting the simulation
     void readDataFromFile(const std::string& weatherFilename);
-    bool lookupIndex(date d, int& weekIndex, int& daysToWeatherWeekend);
+    bool computeIndex(date d, int& weekIndex, int& daysToWeatherWeekend);
     bool lookupWeatherVars(int stateFP, int countyFP, date d, int& weatherWeekIndex, weatherVars& vars);
-    void extractData(DemographicData& demo, int startWeek, int numWeeks);
+    void extractActiveData(DemographicData& demo, int startWeek, int numWeeks);
     void print(){
-        std::cout<<"STATEFP " <<"COUNTYFP " <<"hurs " <<"huss " <<"pr " <<"rlds " <<"rsds " <<"sfcWind "<< "tas "<< "tasmax "<< "tasmin "<<"Week\n";   
+        std::cout<<"STATEFP " <<"COUNTYFP " <<"hurs " <<"huss " <<"pr " <<"rlds " <<"rsds " <<"sfcWind "<< "tas "<< "tasmax "<< "tasmin "<<"Week\n";
         std::map<int, std::vector<weatherVars> >::iterator it;
         for(it= varMap.begin(); it!= varMap.end(); it++){
             for(int i=0; i<it->second.size(); i++){

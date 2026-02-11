@@ -6,9 +6,13 @@ agent.air_traffic_filename= "../../data/US_CY20AirTraffic.dat"
 
 agent.nsteps = 120
 agent.max_box_size = 16
-agent.plot_int = 10
+agent.plot_int = -1
 agent.random_travel_int = 24
 agent.air_travel_int = 1
+agent.weather_int = 1
+agent.weather_filename = "../../data/usClimateDF.csv"
+agent.startdate="2018-1-1"
+
 
 agent.aggregated_diag_int = -1
 

@@ -26,27 +26,27 @@ void WeatherData::readDataFromFile (const std::string& fname) {
 	weatherVars vars;
 	int STATEFP= std::stoi(temp[1]);
 	int COUNTYFP= std::stoi(temp[2]);
-	vars.hurs= std::stod(temp[3]);
-	vars.huss= std::stod(temp[4]);
-	vars.pr= std::stod(temp[7]);
-	vars.rlds= std::stod(temp[8]);
-	vars.rsds= std::stod(temp[9]);
-	vars.sfcWind= std::stod(temp[11]);
-	vars.tas= std::stod(temp[12]);
-	vars.tasmax= std::stod(temp[13]);
-	vars.tasmin= std::stod(temp[14]);
+	vars.hurs= temp[3].empty()? 0. : std::stod(temp[3]);
+	vars.huss= temp[4].empty()? 0. : std::stod(temp[4]);
+	vars.pr= temp[7].empty()? 0. : std::stod(temp[7]);
+	vars.rlds= temp[8].empty()? 0. : std::stod(temp[8]);
+	vars.rsds= temp[9].empty()? 0. : std::stod(temp[9]);
+	vars.sfcWind= temp[11].empty()? 0. : std::stod(temp[11]);
+	vars.tas= temp[12].empty()? 0. : std::stod(temp[12]);
+	vars.tasmax= temp[13].empty()? 0. : std::stod(temp[13]);
+	vars.tasmin= temp[14].empty()? 0. : std::stod(temp[14]);
 	varMap[STATEFP * 1000 + COUNTYFP].push_back(vars);
 	if(weekVec.size() < varMap[STATEFP * 1000 + COUNTYFP].size()){
 	    date d0, d1;
 	    char ch;
 	    std::string week= temp[15];
 	    std::istringstream iss(week);
-	    iss >> ch; iss >> ch; 
-  	    iss >> d0.year; iss >> ch; iss >> d0.month; iss >> ch; iss >> d0.day; iss >> ch; 
+	    iss >> ch; iss >> ch;
+  	    iss >> d0.year; iss >> ch; iss >> d0.month; iss >> ch; iss >> d0.day; iss >> ch;
   	    iss >> d1.year; iss >> ch; iss >> d1.month; iss >> ch; iss >> d1.day;
 	    weekVec.push_back({d0, d1});
 	}
-    }	
+    }
     if (varMap.size()>0) {
 	numWeeks= varMap.begin()->second.size();
 	assert(numWeeks == weekVec.size());
@@ -56,7 +56,7 @@ void WeatherData::readDataFromFile (const std::string& fname) {
 }
 
 
-bool WeatherData::lookupIndex(date d, int& weekIndex, int& daysToWeatherWeekend){
+bool WeatherData::computeIndex(date d, int& weekIndex, int& daysToWeatherWeekend){
     if(d.year < firstWeek.begin.year || d.year > lastWeek.end.year)
         return false;
     else if (d.year == firstWeek.begin.year && d.month < firstWeek.begin.month || d.year == lastWeek.end.year && d.month > lastWeek.end.month)
@@ -68,7 +68,7 @@ bool WeatherData::lookupIndex(date d, int& weekIndex, int& daysToWeatherWeekend)
     for(; i<numWeeks; i++){
         if (weekVec[i].begin.year == d.year){
 	    if(weekVec[i].begin.month == d.month){
-		if(weekVec[i].straddleMonths()){
+		if(weekVec[i].straddle2Months()){
 	            if(d.day >= weekVec[i].begin.day){
 			daysToWeatherWeekend= 7- (d.day - weekVec[i].begin.day);
 			weekIndex= i;
@@ -82,7 +82,7 @@ bool WeatherData::lookupIndex(date d, int& weekIndex, int& daysToWeatherWeekend)
 		    }
 		}
 	    } else{
-		if(weekVec[i].straddleMonths()){
+		if(weekVec[i].straddle2Months()){
                     if(weekVec[i].end.month == d.month){
                         if(d.day <= weekVec[i].end.day){
 			    daysToWeatherWeekend= weekVec[i].end.day - d.day + 1;
@@ -94,7 +94,7 @@ bool WeatherData::lookupIndex(date d, int& weekIndex, int& daysToWeatherWeekend)
 	    }
 	}
 	else{
-            if(weekVec[i].straddleYears()){
+            if(weekVec[i].straddle2Years()){
                 if(d.month==1 && d.day <= weekVec[i].end.day){
                     daysToWeatherWeekend= weekVec[i].end.day - d.day + 1;
                     weekIndex= i;
@@ -103,12 +103,12 @@ bool WeatherData::lookupIndex(date d, int& weekIndex, int& daysToWeatherWeekend)
 	    }
 	}
     }
-    return false; 
+    return false;
 }
 
 bool WeatherData::lookupWeatherVars(int stateFP, int countyFP, date d, int& weekIndex, weatherVars& vars){
     int daysToWeatherWeekend;
-    bool found= lookupIndex(d, weekIndex, daysToWeatherWeekend);
+    bool found= computeIndex(d, weekIndex, daysToWeatherWeekend);
     if(found) {
         vars= varMap[stateFP * 1000 + countyFP][weekIndex];
 #if 0
@@ -118,29 +118,38 @@ bool WeatherData::lookupWeatherVars(int stateFP, int countyFP, date d, int& week
 #endif
 	return true;
     }
-    return false; 
+    return false;
 }
 
-void WeatherData::extractData(DemographicData& demo, int startWeek, int numWeeks){
+void WeatherData::extractActiveData(DemographicData& demo, int startWeek, int numWeeks){
     int numUnitsOnThisProc=0;
     for (int i=0; i< demo.Nunit; i++) if(demo.Unit_on_proc[i]) numUnitsOnThisProc++;
     activeWeather.varVec.resize(numUnitsOnThisProc * numWeeks);
     activeWeather.unitVec.resize(numUnitsOnThisProc);
     //set up the map from local unit index to global unit index
     int idx=0;
+    int numUnitsWithDataOnThisProc=0; //we are going to ignore units that don't have weather data
     for(int unit=0; unit<demo.Nunit; unit++){
         if(demo.Unit_on_proc[unit]){
-            activeWeather.unitVec[idx]= unit;
-	    idx++;
+            int FIPS= demo.FIPS[unit];
+            if(varMap.find(FIPS) != varMap.end()){
+                activeWeather.unitVec[idx]= unit;
+                numUnitsWithDataOnThisProc++;
+	        idx++;
+            }
         }
     }
     for (int week = startWeek; week < startWeek + numWeeks; week++) {
-        int offset= (week-startWeek) * numUnitsOnThisProc;
+        int offset= (week-startWeek) * numUnitsWithDataOnThisProc;
 	int idx=0;
 	for(int unit=0; unit<demo.Nunit; unit++){
             if(demo.Unit_on_proc[unit]){
 		int FIPS= demo.FIPS[unit];
-		activeWeather.varVec[offset+idx]= varMap[FIPS][week];
+                if(varMap.find(FIPS) != varMap.end())
+		    activeWeather.varVec[offset+idx]= varMap[FIPS][week];
+                else{
+                     //std::cout<<"Weather data NOT available in county with FIPS code "<<FIPS<<"\n";
+                }
 		idx++;
 	    }
 	}

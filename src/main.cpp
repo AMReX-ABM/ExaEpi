@@ -168,7 +168,7 @@ void runAgent () {
         air.readAirTravelFlow(params.air_traffic_filename);
         air.computeTravelProbs(censusData.demo);
     }
-    
+
     WeatherData wd;
     if (params.weather_int > 0) {
         wd.readDataFromFile(params.weather_filename);
@@ -362,20 +362,24 @@ void runAgent () {
     amrex::ParmParse::QueryUnusedInputs();
     date startdate(params.startdate);
     if(params.startdate.size()){
-	std::cout<<"SIMULATION START DATE ";
-        startdate.print();
+        if (ParallelDescriptor::IOProcessor()) {
+            std::cout<<"SIMULATION START DATE ";
+            startdate.print();
+        }
     }
     int weatherWeekIndex=-1;
     int firstWeatherWeekIndex=-1;
     int daysToWeatherWeekend= -1;
     if (params.weather_int > 0) {
-        wd.lookupIndex(startdate, weatherWeekIndex, daysToWeatherWeekend);
+        wd.computeIndex(startdate, weatherWeekIndex, daysToWeatherWeekend);
 	if(weatherWeekIndex >= 0){
             firstWeatherWeekIndex= weatherWeekIndex;
-	    std::cout<<"Using Weather Data of the First Week ";
-	    std::cout<<" INDEX "<<weatherWeekIndex<<" Total Weeks"<<params.nsteps/7+1<<"\n";
+            if (ParallelDescriptor::IOProcessor()) {
+	        std::cout<<"Using Weather Data of the First Week ";
+	        std::cout<<" INDEX "<<weatherWeekIndex<<" Total Weeks"<<params.nsteps/7+1<<"\n";
+            }
 	    //extract weather data for the simulation timeframe
-            wd.extractData(censusData.demo, weatherWeekIndex, params.nsteps/7+1);
+            wd.extractActiveData(censusData.demo, weatherWeekIndex, params.nsteps/7+1);
 	    pc.initializeWeatherIndex(censusData.unit_mf, &wd.activeWeather);
 	}
     }

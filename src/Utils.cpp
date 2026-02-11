@@ -41,7 +41,7 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
     pp.queryarr("disease_names", params.disease_names, 0, params.num_diseases);
 
     if(params.weather_int > 0) {
-	pp.get("weather_filename", params.weather_filename);
+        pp.get("weather_filename", params.weather_filename);
     }
 
     std::string ic_type = "urbanpop";
