@@ -550,7 +550,7 @@ void CensusData::readWorkerflow (AgentContainer& pc, /*!< Agent container (parti
             /* Check working-age population */
             if (age_group >= AgeGroups::a18to29 && age_group <= AgeGroups::a50to64) {
                 unsigned int irnd = Random_int(nwork, engine);
-                int to = from;  // Default: work in home unit
+                int to = from; // Default: work in home unit
                 int comm_to = 0;
                 if (irnd < d_flow[from][Nunit - 1]) {
                     /* Choose a random destination unit */
