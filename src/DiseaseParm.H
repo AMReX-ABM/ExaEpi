@@ -159,8 +159,6 @@ struct DiseaseParm {
                                const amrex::Real a_random_draw, /*!< random number */
                                const amrex::RandomEngine& a_reng /*!< random engine */) const {
         *a_t_hosp_days = ParticleReal(0);
-        *a_ICU = 0;
-        *a_ventilator = 0;
         // check the agent will be hospitalized (m_CHR prob)
         if (a_random_draw < m_CHR[a_age_group]) {
             // determine how long agent will stay in hospital
