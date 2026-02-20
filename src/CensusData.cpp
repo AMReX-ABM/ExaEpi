@@ -254,11 +254,13 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
         auto my_proc = ParallelDescriptor::MyProc();
         int n_disease = pc.m_num_diseases;
 
-        // Get disease parameters for GPU
-        const DiseaseParm** disease_parms_d = new const DiseaseParm*[n_disease];
+        // Get disease parameters for GPU - use AsyncArray for device access
+        Gpu::AsyncArray<const DiseaseParm*> disease_parms_arr(n_disease);
+        auto* disease_parms_ptr = disease_parms_arr.data();
         for (int d = 0; d < n_disease; d++) {
-            disease_parms_d[d] = pc.getDiseaseParameters_d(d);
+            disease_parms_ptr[d] = pc.getDiseaseParameters_d(d);
         }
+        const DiseaseParm** disease_parms_d = disease_parms_ptr;
 
         Long pid;
 #ifdef AMREX_USE_OMP
@@ -388,8 +390,6 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                 }
             }
         });
-
-        delete[] disease_parms_d;
     }
 
     demo.copyToHostAsync(demo.Unit_on_proc_d, demo.Unit_on_proc);

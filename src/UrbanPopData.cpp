@@ -366,11 +366,13 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         int r_RT = RealIdx::nattribs;
         int n_disease = pc.m_num_diseases;
 
-        // Get disease parameters for GPU
-        const DiseaseParm** disease_parms_d = new const DiseaseParm*[n_disease];
+        // Get disease parameters for GPU - use AsyncArray for device access
+        Gpu::AsyncArray<const DiseaseParm*> disease_parms_arr(n_disease);
+        auto* disease_parms_ptr = disease_parms_arr.data();
         for (int d = 0; d < n_disease; d++) {
-            disease_parms_d[d] = pc.getDiseaseParameters_d(d);
+            disease_parms_ptr[d] = pc.getDiseaseParameters_d(d);
         }
+        const DiseaseParm** disease_parms_d = disease_parms_ptr;
 
         for (int d = 0; d < n_disease; d++) {
             soa.GetRealData(r_RT + r0(d) + RealIdxDisease::treatment_timer).assign(0.0_rt);
@@ -462,9 +464,11 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         });
         Gpu::synchronize();
 
-        // Set initial disease status and immunity
-        auto status_ptrs = new int*[n_disease];
-        auto disease_counter_ptrs = new ParticleReal*[n_disease];
+        // Set initial disease status and immunity - use AsyncArray for device access
+        Gpu::AsyncArray<int*> status_ptrs_arr(n_disease);
+        Gpu::AsyncArray<ParticleReal*> disease_counter_ptrs_arr(n_disease);
+        auto* status_ptrs = status_ptrs_arr.data();
+        auto* disease_counter_ptrs = disease_counter_ptrs_arr.data();
         for (int d = 0; d < n_disease; d++) {
             status_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
             disease_counter_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::disease_counter).data();
@@ -489,10 +493,6 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             }
         });
         Gpu::synchronize();
-
-        delete[] status_ptrs;
-        delete[] disease_counter_ptrs;
-        delete[] disease_parms_d;
 
         // now ensure that all members of the same family have the same home nborhood
         // and ensure all members of the same hh cluster have the same home neighborhood
