@@ -335,7 +335,8 @@ bool isNewlyHospitalized (const int a_idx,      /*!< Agent index */
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 void setAgentData (PTDType& ptd, int ip, int i, int j, const amrex::GpuArray<amrex::Real, 2>& dx, amrex::Long id, int cpu,
-                   int age_group, int family, int nborhood, int n_disease) {
+                   int age_group, int family, int nborhood, int n_disease, const DiseaseParm** disease_parms,
+                   const amrex::RandomEngine& engine) {
     using namespace amrex::literals;
 
     ptd[ip].pos(0) = static_cast<amrex::ParticleReal>((i + 0.5_rt) * dx[0]);
@@ -344,9 +345,18 @@ void setAgentData (PTDType& ptd, int ip, int i, int j, const amrex::GpuArray<amr
     ptd[ip].cpu() = cpu;
 
     for (int d = 0; d < n_disease; d++) {
-        ptd.m_runtime_idata[i0(d) + IntIdxDisease::status][ip] = 0;
+        // Check if agent should be initially immune for this disease
+        if (amrex::Random(engine) < disease_parms[d]->initial_immunity_fraction) {
+            ptd.m_runtime_idata[i0(d) + IntIdxDisease::status][ip] = Status::immune;
+            // Set immune counter using gamma distribution
+            ptd.m_runtime_rdata[r0(d) + RealIdxDisease::disease_counter][ip] =
+                static_cast<amrex::ParticleReal>(amrex::RandomGamma(disease_parms[d]->immune_length_alpha,
+                                                                     disease_parms[d]->immune_length_beta, engine));
+        } else {
+            ptd.m_runtime_idata[i0(d) + IntIdxDisease::status][ip] = Status::never;
+            ptd.m_runtime_rdata[r0(d) + RealIdxDisease::disease_counter][ip] = 0.0_prt;
+        }
         ptd.m_runtime_rdata[r0(d) + RealIdxDisease::treatment_timer][ip] = 0.0_prt;
-        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::disease_counter][ip] = 0.0_prt;
         ptd.m_runtime_rdata[r0(d) + RealIdxDisease::prob][ip] = 0.0_prt;
         ptd.m_runtime_rdata[r0(d) + RealIdxDisease::latent_period][ip] = 0.0_prt;
         ptd.m_runtime_rdata[r0(d) + RealIdxDisease::infectious_period][ip] = 0.0_prt;

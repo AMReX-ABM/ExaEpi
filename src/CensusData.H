@@ -53,8 +53,8 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 void setAgentDataAndAssignSchool (PTDType& ptd, int ip, int i, int j, int k, const amrex::GpuArray<amrex::Real, 2>& dx,
                                   amrex::Long id, int cpu, int age_group, int family, int nborhood, int n_disease,
                                   amrex::Array4<int> const& nr_arr, amrex::Array4<int> const& student_counts_arr,
-                                  const amrex::RandomEngine& engine) {
-    setAgentData(ptd, ip, i, j, dx, id, cpu, age_group, family, nborhood, n_disease);
+                                  const DiseaseParm** disease_parms, const amrex::RandomEngine& engine) {
+    setAgentData(ptd, ip, i, j, dx, id, cpu, age_group, family, nborhood, n_disease, disease_parms, engine);
     Gpu::Atomic::AddNoRet(&nr_arr(i, j, k, age_group), 1);
 
     assignSchool(&ptd.m_idata[IntIdx::school_grade][ip], &ptd.m_idata[IntIdx::school_id][ip], age_group, nborhood, engine);

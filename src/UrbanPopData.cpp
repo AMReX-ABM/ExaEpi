@@ -365,15 +365,20 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         int i_RT = IntIdx::nattribs;
         int r_RT = RealIdx::nattribs;
         int n_disease = pc.m_num_diseases;
+
+        // Get disease parameters for GPU
+        const DiseaseParm** disease_parms_d = new const DiseaseParm*[n_disease];
+        for (int d = 0; d < n_disease; d++) {
+            disease_parms_d[d] = pc.getDiseaseParameters_d(d);
+        }
+
         for (int d = 0; d < n_disease; d++) {
             soa.GetRealData(r_RT + r0(d) + RealIdxDisease::treatment_timer).assign(0.0_rt);
-            soa.GetRealData(r_RT + r0(d) + RealIdxDisease::disease_counter).assign(0.0_rt);
             soa.GetRealData(r_RT + r0(d) + RealIdxDisease::prob).assign(0.0_rt);
             soa.GetRealData(r_RT + r0(d) + RealIdxDisease::latent_period).assign(0.0_rt);
             soa.GetRealData(r_RT + r0(d) + RealIdxDisease::infectious_period).assign(0.0_rt);
             soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).assign(0.0_rt);
             soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_delay).assign(0.0_rt);
-            soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).assign(0);
             soa.GetIntData(i_RT + i0(d) + IntIdxDisease::symptomatic).assign(0);
         }
         auto np = soa.numParticles();
@@ -456,6 +461,35 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             trav_j_ptr[i] = home_j_ptr[i];
         });
         Gpu::synchronize();
+
+        // Set initial disease status and immunity
+        auto status_ptrs = new int*[n_disease];
+        auto disease_counter_ptrs = new ParticleReal*[n_disease];
+        for (int d = 0; d < n_disease; d++) {
+            status_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
+            disease_counter_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::disease_counter).data();
+        }
+
+        ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
+            for (int d = 0; d < n_disease; d++) {
+                // Check if agent should be initially immune for this disease
+                if (amrex::Random(engine) < disease_parms_d[d]->initial_immunity_fraction) {
+                    status_ptrs[d][i] = Status::immune;
+                    // Set immune counter using gamma distribution
+                    disease_counter_ptrs[d][i] = static_cast<ParticleReal>(
+                        amrex::RandomGamma(disease_parms_d[d]->immune_length_alpha,
+                                          disease_parms_d[d]->immune_length_beta, engine));
+                } else {
+                    status_ptrs[d][i] = Status::never;
+                    disease_counter_ptrs[d][i] = 0.0_prt;
+                }
+            }
+        });
+        Gpu::synchronize();
+
+        delete[] status_ptrs;
+        delete[] disease_counter_ptrs;
+        delete[] disease_parms_d;
 
         // now ensure that all members of the same family have the same home nborhood
         // and ensure all members of the same hh cluster have the same home neighborhood
