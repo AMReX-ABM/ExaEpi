@@ -6,10 +6,11 @@
 #define DISEASE_PARM_H_
 
 #include <AMReX_GpuMemory.H>
+#include <AMReX_ParmParse.H>
 #include <AMReX_REAL.H>
 #include <AMReX_Random.H>
 
-#include "AgentDefinitions.H"
+#include "AgentEnums.H"
 
 using amrex::ParticleReal;
 using amrex::Real;
