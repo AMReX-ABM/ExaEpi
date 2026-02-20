@@ -236,13 +236,15 @@ void setAgentData (PTDType& ptd, int ip, int i, int j, const amrex::GpuArray<amr
 
     for (int d = 0; d < n_disease; d++) {
         // Check if agent should be initially immune for this disease
-        if (amrex::Random(engine) < disease_parms[d]->initial_immunity_fraction) {
+        if (disease_parms[d]->initial_immunity_fraction > 0.0_prt
+            && amrex::Random(engine) < disease_parms[d]->initial_immunity_fraction) {
             ptd.m_runtime_idata[i0(d) + IntIdxDisease::status][ip] = Status::immune;
             // Set immune counter to random point in immunity period
             // Sample full immune duration, then pick random point within it
             amrex::ParticleReal full_immune_duration = static_cast<amrex::ParticleReal>(
                     amrex::RandomGamma(disease_parms[d]->immune_length_alpha, disease_parms[d]->immune_length_beta, engine));
-            ptd.m_runtime_rdata[r0(d) + RealIdxDisease::disease_counter][ip] = amrex::Random(engine) * full_immune_duration;
+            ptd.m_runtime_rdata[r0(d) + RealIdxDisease::disease_counter][ip] =
+                    amrex::Random(engine) * full_immune_duration;
         } else {
             ptd.m_runtime_idata[i0(d) + IntIdxDisease::status][ip] = Status::never;
             ptd.m_runtime_rdata[r0(d) + RealIdxDisease::disease_counter][ip] = 0.0_prt;

@@ -473,7 +473,8 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
             for (int d = 0; d < n_disease; d++) {
                 // Check if agent should be initially immune for this disease
-                if (amrex::Random(engine) < disease_parms_d[d]->initial_immunity_fraction) {
+                if (disease_parms_d[d]->initial_immunity_fraction > 0.0_prt
+                    && amrex::Random(engine) < disease_parms_d[d]->initial_immunity_fraction) {
                     status_ptrs[d][i] = Status::immune;
                     // Set immune counter to random point in immunity period
                     // Sample full immune duration, then pick random point within it
