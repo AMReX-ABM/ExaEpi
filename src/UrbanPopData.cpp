@@ -476,9 +476,9 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                 if (amrex::Random(engine) < disease_parms_d[d]->initial_immunity_fraction) {
                     status_ptrs[d][i] = Status::immune;
                     // Set immune counter using gamma distribution
-                    disease_counter_ptrs[d][i] = static_cast<ParticleReal>(
-                        amrex::RandomGamma(disease_parms_d[d]->immune_length_alpha,
-                                          disease_parms_d[d]->immune_length_beta, engine));
+                    disease_counter_ptrs[d][i] =
+                            static_cast<ParticleReal>(amrex::RandomGamma(disease_parms_d[d]->immune_length_alpha,
+                                                                         disease_parms_d[d]->immune_length_beta, engine));
                 } else {
                     status_ptrs[d][i] = Status::never;
                     disease_counter_ptrs[d][i] = 0.0_prt;

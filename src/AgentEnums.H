@@ -121,4 +121,3 @@ int r0 (const int a_d /*!< Disease index */) {
 }
 
 #endif
-
