@@ -475,10 +475,12 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                 // Check if agent should be initially immune for this disease
                 if (amrex::Random(engine) < disease_parms_d[d]->initial_immunity_fraction) {
                     status_ptrs[d][i] = Status::immune;
-                    // Set immune counter using gamma distribution
-                    disease_counter_ptrs[d][i] =
+                    // Set immune counter to random point in immunity period
+                    // Sample full immune duration, then pick random point within it
+                    ParticleReal full_immune_duration =
                             static_cast<ParticleReal>(amrex::RandomGamma(disease_parms_d[d]->immune_length_alpha,
                                                                          disease_parms_d[d]->immune_length_beta, engine));
+                    disease_counter_ptrs[d][i] = amrex::Random(engine) * full_immune_duration;
                 } else {
                     status_ptrs[d][i] = Status::never;
                     disease_counter_ptrs[d][i] = 0.0_prt;
