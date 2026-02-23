@@ -49,6 +49,7 @@ struct IntIdx {
         trav_i /*!< air travel location index */,
         trav_j /*!< air travel location index */,
         nborhood,      /*!< home neighborhood ID */
+        hh_cluster,    /*!< household cluster ID */
         school_grade,  /*!< school grade, including universities */
         school_id,     /*!< ID for a given school */
         school_closed, /*!< 0 for open, 1 for closed */
@@ -111,16 +112,6 @@ struct AgeGroups {
     };
 };
 
-/*! \brief Age Groups for Hospitalization Days */
-struct AgeGroups_Hosp {
-    enum {
-        u50 = 0, /*!< Under 50 */
-        a50to64, /*!< Ages 50-64 */
-        o65,     /*!< 65 and over */
-        total    /*!< number of age groups */
-    };
-};
-
 /*! \brief Disease status */
 struct Status {
     enum {
@@ -169,11 +160,11 @@ struct OutputStatus {
         /* Total number of agents in each category are written to summary table each step */
         Su = 0,  /*!< Susceptible */
         PS_PI,   /*!< Presymptomatic/Preinfectious */
-        S_PI_NH, /*!< Symptomatic/Preinfectious */
-        S_PI_H,  /*!< Symptomatic/Preinfectious */
+        S_PI_NH, /*!< Symptomatic/Preinfectious/Not Hospitalized */
+        S_PI_H,  /*!< Symptomatic/Preinfectious/Hospitalized */
         PS_I,    /*!< Presymptomatic/Infectious */
-        S_I_NH,  /*!< Symptomatic/Infectious */
-        S_I_H,   /*!< Symptomatic/Infectious */
+        S_I_NH,  /*!< Symptomatic/Infectious/Not Hospitalized */
+        S_I_H,   /*!< Symptomatic/Infectious/Hospitalized */
         A_PI,    /*!< Asymptomatic/Preinfectious */
         A_I,     /*!< Asymptomatic/Infectious */
         H_NI,    /*!< Hospitalized/Noninfectious */
@@ -182,8 +173,11 @@ struct OutputStatus {
         V,       /*!< On ventilator */
         R,       /*!< Recovered */
         D,       /*!< Dead */
+        NewI,    /*!< Became infected this step */
         NewS,    /*!< Became symptomatic this step */
         NewH,    /*!< Became hospitalized this step */
+        NewA,    /*!< Became asymptomatic this step */
+        NewP,    /*!< Became presymptomatic this step */
         nattribs
     };
 };
@@ -205,16 +199,55 @@ bool isSymptomatic (const int a_idx,      /*!< Agent index */
     return a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx] == SymptomStatus::symptomatic;
 }
 
+/*! \brief Did the agent just become infected this step? */
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+bool isNewlyInfected (const int a_idx,      /*!< Agent index */
+                      const PTDType& a_ptd, /*!< Particle tile data */
+                      const int a_d /*!< Disease index */) {
+    int status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx];
+    int disease_counter = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
+    return status == Status::infected && disease_counter <= 1;
+}
+
 /*! \brief Did the agent just become symptomatic this step? */
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 bool isNewlySymptomatic (const int a_idx,      /*!< Agent index */
                          const PTDType& a_ptd, /*!< Particle tile data */
                          const int a_d /*!< Disease index */) {
-    return (a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx] == Status::infected) &&
-           (a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx] ==
-            amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx])) &&
-           (a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx] == SymptomStatus::symptomatic);
+    int status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx];
+    int symptom_status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx];
+    int disease_counter = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
+    int incb_period = (int)amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
+    return status == Status::infected && disease_counter == incb_period && symptom_status == SymptomStatus::symptomatic;
+}
+
+/*! \brief Did the agent just become asymptomatic this step? */
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+bool isNewlyAsymptomatic (const int a_idx,      /*!< Agent index */
+                          const PTDType& a_ptd, /*!< Particle tile data */
+                          const int a_d /*!< Disease index */) {
+    int status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx];
+    int symptom_status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx];
+    int disease_counter = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
+    int incb_period = (int)amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
+    return status == Status::infected && disease_counter == incb_period && symptom_status == SymptomStatus::asymptomatic;
+}
+
+/*! \brief Did the agent just become presymptomatic this step? */
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+bool isNewlyPresymptomatic (const int a_idx,      /*!< Agent index */
+                            const PTDType& a_ptd, /*!< Particle tile data */
+                            const int a_d /*!< Disease index */) {
+    int status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx];
+    int symptom_status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx];
+    int disease_counter = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
+    int incb_period = (int)amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
+    // presymptomatic for one day only, just before becoming asymp/symp
+    return status == Status::infected && (disease_counter == incb_period - 1) && symptom_status == SymptomStatus::presymptomatic;
 }
 
 /*! \brief Is an agent asymptomatic (does not currently have symptoms and will not develop them)? */
@@ -243,7 +276,7 @@ bool notInfectiousButInfected (const int a_idx,      /*!< Agent index */
                                const int a_d /*!< Disease index */) {
     return ((a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx] == Status::infected) &&
             (a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx] <=
-             a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::latent_period][a_idx]));
+             amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::latent_period][a_idx])));
 }
 
 /*! \brief Is an agent infectious? */
@@ -254,7 +287,7 @@ bool isInfectious (const int a_idx,      /*!< Agent index */
                    const int a_d /*!< Disease index */) {
     return ((a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx] == Status::infected) &&
             (a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx] >=
-             a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::latent_period][a_idx]));
+             amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::latent_period][a_idx])));
 }
 
 /*! \brief Is an agent susceptible? */
@@ -293,17 +326,11 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 bool isNewlyHospitalized (const int a_idx,      /*!< Agent index */
                           const PTDType& a_ptd, /*!< Particle tile data */
                           const int a_d /*!< Disease index */) {
-    amrex::Real delay = amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::hospital_delay][a_idx]);
-    amrex::Real incub = amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
-    if (isNewlySymptomatic(a_idx, a_ptd, a_d) && (delay == 0) && inHospital(a_idx, a_ptd)) {
-        return true;
-    } else if ((a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx] == Status::infected) &&
-               (a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx] == incub + delay) &&
-               inHospital(a_idx, a_ptd)) {
-        return true;
-    } else {
-        return false;
-    }
+    if (!inHospital(a_idx, a_ptd)) { return false; }
+    int disease_counter = (int)(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx]);
+    int incb_period = (int)(amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]));
+    int hospital_delay = (int)(amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::hospital_delay][a_idx]));
+    return disease_counter == incb_period + hospital_delay;
 }
 
 template <typename PTDType>
@@ -319,8 +346,14 @@ void setAgentData (PTDType& ptd, int ip, int i, int j, const amrex::GpuArray<amr
 
     for (int d = 0; d < n_disease; d++) {
         ptd.m_runtime_idata[i0(d) + IntIdxDisease::status][ip] = 0;
-        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::disease_counter][ip] = 0.0_prt;
         ptd.m_runtime_rdata[r0(d) + RealIdxDisease::treatment_timer][ip] = 0.0_prt;
+        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::disease_counter][ip] = 0.0_prt;
+        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::prob][ip] = 0.0_prt;
+        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::latent_period][ip] = 0.0_prt;
+        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::infectious_period][ip] = 0.0_prt;
+        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::incubation_period][ip] = 0.0_prt;
+        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::hospital_delay][ip] = 0.0_prt;
+        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::hospital_random][ip] = 0.0_prt;
     }
 
     ptd.m_idata[IntIdx::age_group][ip] = age_group;
@@ -334,6 +367,7 @@ void setAgentData (PTDType& ptd, int ip, int i, int j, const amrex::GpuArray<amr
     ptd.m_idata[IntIdx::hosp_i][ip] = -1;
     ptd.m_idata[IntIdx::hosp_j][ip] = -1;
     ptd.m_idata[IntIdx::nborhood][ip] = nborhood;
+    ptd.m_idata[IntIdx::hh_cluster][ip] = family / 4;
     ptd.m_idata[IntIdx::work_nborhood][ip] = nborhood;
     ptd.m_idata[IntIdx::workgroup][ip] = 0;
     ptd.m_idata[IntIdx::naics][ip] = 0;

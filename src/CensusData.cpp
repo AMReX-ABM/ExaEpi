@@ -249,6 +249,7 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
         auto& agents_tile = pc.DefineAndReturnParticleTile(0, mfi);
         agents_tile.resize(nagents);
         auto ptd = agents_tile.getParticleTileData();
+
         auto dx = pc.ParticleGeom(0).CellSizeArray();
         auto my_proc = ParallelDescriptor::MyProc();
         int n_disease = pc.m_num_diseases;
@@ -550,7 +551,7 @@ void CensusData::readWorkerflow (AgentContainer& pc, /*!< Agent container (parti
             /* Check working-age population */
             if (age_group >= AgeGroups::a18to29 && age_group <= AgeGroups::a50to64) {
                 unsigned int irnd = Random_int(nwork, engine);
-                int to = 0;
+                int to = from; // Default: work in home unit
                 int comm_to = 0;
                 if (irnd < d_flow[from][Nunit - 1]) {
                     /* Choose a random destination unit */
@@ -559,6 +560,7 @@ void CensusData::readWorkerflow (AgentContainer& pc, /*!< Agent container (parti
                         to++;
                     }
                 }
+                // else: irnd >= d_flow[from][Nunit - 1], stay in home unit (to = from)
 
                 /*If from=to unit, 25% EXTRA chance of working in home community*/
                 if ((from == to) && (Random(engine) < 0.25)) {

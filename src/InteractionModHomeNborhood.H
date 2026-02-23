@@ -123,16 +123,12 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
             infected_nborhood_asymp_d[OMP_THREAD_NUM].resize(max_communities * max_nborhood);
             auto infected_community_d_ptr = infected_community_d[OMP_THREAD_NUM].data();
             auto infected_nborhood_d_ptr = infected_nborhood_d[OMP_THREAD_NUM].data();
-
             auto infected_community_asymp_d_ptr = infected_community_asymp_d[OMP_THREAD_NUM].data();
             auto infected_nborhood_asymp_d_ptr = infected_nborhood_asymp_d[OMP_THREAD_NUM].data();
 
-            /*
-            Print() << mfi.tilebox() << " np " << np << " max communities " << max_communities
-                    << " max nborhood " << max_nborhood
-                    << " nborhood vector size " << max_communities * max_nborhood
-                    << "\n";
-            */
+            // Print() << mfi.tilebox() << " np " << np << " max communities " << max_communities << " max nborhood " <<
+            // max_nborhood << " nborhood vector size " << max_communities * max_nborhood << "\n";
+
             for (int d = 0; d < n_disease; d++) {
                 devMemset(infected_community_d_ptr, 0, infected_community_d[OMP_THREAD_NUM].size() * sizeof(int));
                 devMemset(infected_nborhood_d_ptr, 0, infected_nborhood_d[OMP_THREAD_NUM].size() * sizeof(int));
@@ -152,13 +148,13 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
                         auto iv = getParticleCell(ptd, i, plo, dxi, domain);
                         auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                         auto community = d_ptr[tidx];
-                        auto nborhood = nborhood_ptr[i];
+                        auto nborhood_i = community * max_nborhood + nborhood_ptr[i];
                         if (isAsymptomatic(i, ptd, d) || isPresymptomatic(i, ptd, d)) {
                             Gpu::Atomic::AddNoRet(&infected_community_asymp_d_ptr[community], 1);
-                            Gpu::Atomic::AddNoRet(&infected_nborhood_asymp_d_ptr[community * max_nborhood + nborhood], 1);
+                            Gpu::Atomic::AddNoRet(&infected_nborhood_asymp_d_ptr[nborhood_i], 1);
                         } else {
                             Gpu::Atomic::AddNoRet(&infected_community_d_ptr[community], 1);
-                            Gpu::Atomic::AddNoRet(&infected_nborhood_d_ptr[community * max_nborhood + nborhood], 1);
+                            Gpu::Atomic::AddNoRet(&infected_nborhood_d_ptr[nborhood_i], 1);
                         }
                     }
                 });
@@ -170,23 +166,26 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
                         auto iv = getParticleCell(ptd, i, plo, dxi, domain);
                         auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                         auto community = d_ptr[tidx];
-                        auto nborhood = nborhood_ptr[i];
-                        int num_infected_nborhood = infected_nborhood_d_ptr[community * max_nborhood + nborhood];
-                        int num_infected_community = infected_community_d_ptr[community];
-                        int num_infected_nborhood_asymp = infected_nborhood_asymp_d_ptr[community * max_nborhood + nborhood];
-                        int num_infected_community_asymp = infected_community_asymp_d_ptr[community];
-                        AMREX_ALWAYS_ASSERT(num_infected_community >= num_infected_nborhood);
+                        auto nborhood_i = community * max_nborhood + nborhood_ptr[i];
+
+                        int num_infected_nborhood = infected_nborhood_d_ptr[nborhood_i];
+                        int num_infected_nborhood_asymp = infected_nborhood_asymp_d_ptr[nborhood_i];
+
+                        int num_infected_community = infected_community_d_ptr[community] - num_infected_nborhood;
+                        int num_infected_community_asymp =
+                                infected_community_asymp_d_ptr[community] - num_infected_nborhood_asymp;
+
+                        AMREX_ALWAYS_ASSERT(num_infected_community >= 0);
                         Real comm_prob = 1.0_prt - infect * lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * scale;
-                        prob_ptr[i] *=
-                                static_cast<ParticleReal>(std::pow(comm_prob, num_infected_community - num_infected_nborhood));
-                        Real nborhood_prob = 1.0_prt - infect * lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * scale;
-                        prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nborhood_prob, num_infected_nborhood));
                         Real comm_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect *
                                                                  lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * scale;
-                        prob_ptr[i] *= static_cast<ParticleReal>(
-                                std::pow(comm_prob_asymp, num_infected_community_asymp - num_infected_nborhood_asymp));
+                        prob_ptr[i] *= static_cast<ParticleReal>(std::pow(comm_prob, num_infected_community));
+                        prob_ptr[i] *= static_cast<ParticleReal>(std::pow(comm_prob_asymp, num_infected_community_asymp));
+
+                        Real nborhood_prob = 1.0_prt - infect * lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * scale;
                         Real nborhood_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect *
                                                                      lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * scale;
+                        prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nborhood_prob, num_infected_nborhood));
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nborhood_prob_asymp, num_infected_nborhood_asymp));
                     }
                 });
