@@ -1,6 +1,5 @@
 #include <AMReX_ParticleUtil.H>
 #include "WeatherData.H"
-#include <cassert>
 
 using namespace amrex;
 using namespace ExaEpi;
@@ -60,7 +59,6 @@ void WeatherData::readDataFromFile (const std::string& fname) {
     }
     if (varMap.size() > 0) {
         numWeeks = varMap.begin()->second.size();
-        assert(numWeeks == weekVec.size());
         firstWeek = weekVec[0];
         lastWeek = weekVec.back();
     } else {
