@@ -10,7 +10,7 @@ agent.plot_int = -1
 agent.random_travel_int = 24
 agent.air_travel_int = 1
 agent.weather_int = 1
-agent.weather_filename = "../../data/usClimateDF.csv"
+agent.weather_filename = "../../data/weatherData_US.csv"
 agent.startdate="2018-1-1"
 
 

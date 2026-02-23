@@ -372,16 +372,15 @@ void runAgent () {
     int daysToWeatherWeekend= -1;
     if (params.weather_int > 0) {
         wd.computeIndex(startdate, weatherWeekIndex, daysToWeatherWeekend);
-	if(weatherWeekIndex >= 0){
+        if (weatherWeekIndex >= 0) {
             firstWeatherWeekIndex= weatherWeekIndex;
             if (ParallelDescriptor::IOProcessor()) {
-	        std::cout<<"Using Weather Data of the First Week ";
-	        std::cout<<" INDEX "<<weatherWeekIndex<<" Total Weeks"<<params.nsteps/7+1<<"\n";
+                std::cout<<"Extracting "<<params.nsteps/7+1<<" Weeks of Weather Data \n";
             }
-	    //extract weather data for the simulation timeframe
+            //extract weather data for the simulation timeframe
             wd.extractActiveData(censusData.demo, weatherWeekIndex, params.nsteps/7+1);
-	    pc.initializeWeatherIndex(censusData.unit_mf, &wd.activeWeather);
-	}
+            pc.initializeWeatherIndex(censusData.unit_mf, &wd.activeWeather);
+        }
     }
 
     {
@@ -419,9 +418,14 @@ void runAgent () {
                                                     params.disease_names, i);
                 }
             }
-	    if(weatherWeekIndex>=0){
+            if (weatherWeekIndex>=0) {
+                if ((weatherWeekIndex+1) < wd.numWeeks)
+                    if ((i-start_day) % 7 == daysToWeatherWeekend) {
+                        weatherWeekIndex++;
+                        pc.advanceWeatherIndex();
+                    }
                 pc.setActiveWeatherWeek(weatherWeekIndex - firstWeatherWeekIndex);
-	    }
+            }
 
             // Update agents' disease status
             pc.updateStatus(disease_stats);
@@ -554,11 +558,6 @@ void runAgent () {
             Print() << "; deaths: " << cumulative_deaths[0] << "\n";
 
             cur_time += 1.0_rt; // time step is one day
-	    if(weatherWeekIndex>=0 && (weatherWeekIndex+1) < wd.numWeeks)
-  	        if((i-start_day) % 7 == daysToWeatherWeekend){
-                    weatherWeekIndex++;
-	            pc.advanceWeatherIndex();
-	        }
         }
     }
 

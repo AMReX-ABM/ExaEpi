@@ -7,7 +7,7 @@
 #include "Utils.H"
 #include "DemographicData.H"
 
-struct weatherVars{
+struct weatherVars {
     double hurs;
     double huss;
     double pr;
@@ -17,67 +17,70 @@ struct weatherVars{
     double tas;
     double tasmax;
     double tasmin;
-    void print(){
+    void print () {
         std::cout<<hurs <<" " <<huss <<" " <<pr <<" " <<rlds <<" " <<rsds <<" " <<sfcWind <<" " <<tas <<" " <<tasmax <<" " <<tasmin <<" ";
     }
 };
 
-struct date{
+struct date {
     int month;
     int day;
     int year;
-    void print(){
+    void print () {
         std::cout<<year <<"-" <<month <<"-" <<day <<"\n";
     }
-    date():month(-1), day(-1), year(-1){}
+    date () : month(-1), day(-1), year(-1) {}
     //date format: year-month-day
-    date(std::string s){
+    date (std::string s) {
         std::istringstream iss(s);
         char hyphen;
         iss >> year; iss >> hyphen; iss >> month; iss >> hyphen; iss >> day;
     }
 };
 
-struct week{
+struct week {
     date begin;
     date end;
-    bool straddle2Years(){
+    bool straddle2Years () {
         return end.year - begin.year == 1;
     }
-    bool straddle2Months(){
+    bool straddle2Months () {
         if (straddle2Years()) return true;
         return end.month - begin.month ==1;
     }
-    void print(){
+    void print () {
         std::cout<<begin.year <<"-" <<begin.month <<"-" <<begin.day <<"/";
         std::cout<<end.year <<"-" <<end.month <<"-" <<end.day <<"\n";
     }
 };
 
-struct ActiveWeather{
+struct ActiveWeather {
     amrex::Gpu::DeviceVector<weatherVars> varVec; //keep weather variables during the simulation time
     amrex::Gpu::DeviceVector<int> unitVec;
-    int numUnitsOnThisProc;
-    weatherVars& operator[](int index) {
+    int numUnitsWithDataOnThisProc;
+    weatherVars& operator[] (int index) {
         return varVec[index];
     }
-    weatherVars& nextWeekWeather(int curIdx){
-        return varVec[curIdx + numUnitsOnThisProc];
+    weatherVars& nextWeekWeather (int curIdx) {
+        return varVec[curIdx + numUnitsWithDataOnThisProc];
     }
-    inline int computeIndex(int unit, int simWeek){
-	bool found=false;
-	int lunit=0;
-        for(; lunit<unitVec.size(); lunit++)
-		if(unitVec[lunit] == unit){
-			found=true;
-			break;
-		}
-	if(!found) return -1;
-        return simWeek * numUnitsOnThisProc + lunit;
+    inline int computeIndex (int unit, int simWeek) {
+        bool found=false;
+        int lunit=0;
+        for (; lunit < unitVec.size(); lunit++)
+            if (unitVec[lunit] == unit) {
+                found=true;
+                break;
+            }
+        if (!found) return -1;
+        return simWeek * numUnitsWithDataOnThisProc + lunit;
     }
-    weatherVars* lookupWeatherVars(int unit, int simWeek){
-	if (computeIndex(unit, simWeek) == -1) return NULL;
-	return &varVec[computeIndex(unit, simWeek)];
+    weatherVars* lookupWeatherVars (int unit, int simWeek) {
+        if (computeIndex(unit, simWeek) == -1) return NULL;
+        return &varVec[computeIndex(unit, simWeek)];
+    }
+    void print (int unit, int simWeek) { //gpu
+        lookupWeatherVars(unit, simWeek)->print();
     }
 };
 
@@ -90,20 +93,20 @@ struct WeatherData {
     week lastWeek; //last observation weeks
     week simStartWeek; //first simulation week
     ActiveWeather activeWeather; //part of the weather data affecting the simulation
-    void readDataFromFile(const std::string& weatherFilename);
-    bool computeIndex(date d, int& weekIndex, int& daysToWeatherWeekend);
-    bool lookupWeatherVars(int stateFP, int countyFP, date d, int& weatherWeekIndex, weatherVars& vars);
-    void extractActiveData(DemographicData& demo, int startWeek, int numWeeks);
-    void print(){
+    void readDataFromFile (const std::string& weatherFilename);
+    bool computeIndex (date d, int& weekIndex, int& daysToWeatherWeekend);
+    bool lookupWeatherVars (int stateFP, int countyFP, date d, int& weatherWeekIndex, weatherVars& vars);
+    void extractActiveData (DemographicData& demo, int startWeek, int numWeeks);
+    void print () {
         std::cout<<"STATEFP " <<"COUNTYFP " <<"hurs " <<"huss " <<"pr " <<"rlds " <<"rsds " <<"sfcWind "<< "tas "<< "tasmax "<< "tasmin "<<"Week\n";
         std::map<int, std::vector<weatherVars> >::iterator it;
-        for(it= varMap.begin(); it!= varMap.end(); it++){
-            for(int i=0; i<it->second.size(); i++){
-	        std::cout<<it->first/1000 <<" "<<it->first%1000<<" ";
-	        weatherVars vars= it->second[i];
-	        std::cout<<vars.hurs <<" " <<vars.huss <<" " <<vars.pr <<" " <<vars.rlds <<" " <<vars.rsds <<" " <<vars.sfcWind <<" " <<vars.tas <<" " <<vars.tasmax <<" " <<vars.tasmin <<" ";
+        for (it= varMap.begin(); it!= varMap.end(); it++) {
+            for (int i=0; i<it->second.size(); i++) {
+                std::cout<<it->first/1000 <<" " <<it->first%1000 <<" ";
+                weatherVars vars= it->second[i];
+                std::cout<<vars.hurs <<" " <<vars.huss <<" " <<vars.pr <<" " <<vars.rlds <<" " <<vars.rsds <<" " <<vars.sfcWind <<" " <<vars.tas <<" " <<vars.tasmax <<" " <<vars.tasmin <<" ";
                 weekVec[i].print();
-	    }
+            }
         }
     }
 };
