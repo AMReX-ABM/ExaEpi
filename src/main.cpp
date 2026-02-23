@@ -170,9 +170,7 @@ void runAgent () {
     }
 
     WeatherData wd;
-    if (params.weather_int > 0) {
-        wd.readDataFromFile(params.weather_filename);
-    }
+    if (params.weather_int > 0) { wd.readDataFromFile(params.weather_filename); }
 
     // The default output filename is:
     // output.dat for a single disease
@@ -361,24 +359,24 @@ void runAgent () {
 
     amrex::ParmParse::QueryUnusedInputs();
     date startdate(params.startdate);
-    if(params.startdate.size()){
+    if (params.startdate.size()) {
         if (ParallelDescriptor::IOProcessor()) {
-            std::cout<<"SIMULATION START DATE ";
+            amrex::Print() << "SIMULATION START DATE ";
             startdate.print();
         }
     }
-    int weatherWeekIndex=-1;
-    int firstWeatherWeekIndex=-1;
-    int daysToWeatherWeekend= -1;
+    int weatherWeekIndex = -1;
+    int firstWeatherWeekIndex = -1;
+    int daysToWeatherWeekend = -1;
     if (params.weather_int > 0) {
         wd.computeIndex(startdate, weatherWeekIndex, daysToWeatherWeekend);
         if (weatherWeekIndex >= 0) {
-            firstWeatherWeekIndex= weatherWeekIndex;
+            firstWeatherWeekIndex = weatherWeekIndex;
             if (ParallelDescriptor::IOProcessor()) {
-                std::cout<<"Extracting "<<params.nsteps/7+1<<" Weeks of Weather Data \n";
+                amrex::Print() << "Extracting " << params.nsteps/7+1 << " Weeks of Weather Data \n";
             }
             //extract weather data for the simulation timeframe
-            wd.extractActiveData(censusData.demo, weatherWeekIndex, params.nsteps/7+1);
+            wd.extractActiveData(censusData.demo, weatherWeekIndex, params.nsteps / 7 + 1);
             pc.initializeWeatherIndex(censusData.unit_mf, &wd.activeWeather);
         }
     }
@@ -418,9 +416,9 @@ void runAgent () {
                                                     params.disease_names, i);
                 }
             }
-            if (weatherWeekIndex>=0) {
-                if ((weatherWeekIndex+1) < wd.numWeeks)
-                    if ((i-start_day) % 7 == daysToWeatherWeekend) {
+            if (weatherWeekIndex >= 0) {
+                if ((weatherWeekIndex + 1) < wd.numWeeks)
+                    if ((i - start_day) % 7 == daysToWeatherWeekend) {
                         weatherWeekIndex++;
                         pc.advanceWeatherIndex();
                     }
