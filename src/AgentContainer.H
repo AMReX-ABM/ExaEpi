@@ -86,9 +86,9 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void setTileSize (IntVect newTileSize) { tile_size = newTileSize; }
 
-    void setActiveWeatherWeek (int week) { activeWeatherWeek= week; }
-    void initializeWeatherIndex (const iMultiFab&, ActiveWeather*);
-    void advanceWeatherIndex ();
+    void setActiveWeatherWeek (int week) { activeWeatherWeek = week; }
+    void initializeWeatherIndex(const iMultiFab&, ActiveWeather*);
+    void advanceWeatherIndex();
 
     /*! \brief Return flag indicating if agents are at work */
     inline bool isAtWork () const { return m_at_work; }

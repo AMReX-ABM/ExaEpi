@@ -72,12 +72,12 @@ bool WeatherData::computeIndex (date d, int& weekIndex, int& daysToWeatherWeeken
     if ((d.year < firstWeek.begin.year) || (d.year > lastWeek.end.year)) {
         return false;
     } else {
-        if ((d.year == firstWeek.begin.year) && (d.month < firstWeek.begin.month) ||
-            (d.year == lastWeek.end.year) && (d.month > lastWeek.end.month)) {
-             return false;
+        if (((d.year == firstWeek.begin.year) && (d.month < firstWeek.begin.month)) ||
+            ((d.year == lastWeek.end.year) && (d.month > lastWeek.end.month))) {
+            return false;
         } else {
-            if ((d.year == firstWeek.begin.year) && (d.month == firstWeek.begin.month) && (d.day < firstWeek.begin.day) ||
-                (d.year == lastWeek.end.year) && (d.month == lastWeek.end.month) && (d.day > lastWeek.end.day)) {
+            if (((d.year == firstWeek.begin.year) && (d.month == firstWeek.begin.month) && (d.day < firstWeek.begin.day)) ||
+                ((d.year == lastWeek.end.year) && (d.month == lastWeek.end.month) && (d.day > lastWeek.end.day))) {
                 return false;
             }
         }
@@ -141,7 +141,7 @@ bool WeatherData::lookupWeatherVars (int stateFP, int countyFP, date d, int& wee
 
 void WeatherData::extractActiveData (DemographicData& demo, int startWeek, int numSimWeeks) {
     int numUnitsOnThisProc = 0;
-    for (int i = 0; i< demo.Nunit; i++) {
+    for (int i = 0; i < demo.Nunit; i++) {
         if (demo.Unit_on_proc[i]) { numUnitsOnThisProc++; }
     }
     activeWeather.unitVec.resize(numUnitsOnThisProc);
@@ -166,8 +166,7 @@ void WeatherData::extractActiveData (DemographicData& demo, int startWeek, int n
         for (int unit = 0; unit < demo.Nunit; unit++) {
             if (demo.Unit_on_proc[unit]) {
                 int FIPS = demo.FIPS[unit];
-                if (varMap.find(FIPS) != varMap.end())
-                {
+                if (varMap.find(FIPS) != varMap.end()) {
                     activeWeather.varVec[offset + idx1] = varMap[FIPS][week];
                     idx1++;
                 } else {

@@ -103,9 +103,8 @@ struct WeatherData {
             for (size_t i = 0; i < it->second.size(); i++) {
                 amrex::Print() << it->first / 1000 << " " << it->first % 1000 << " ";
                 weatherVars vars = it->second[i];
-                amrex::Print() << vars.hurs << " " << vars.huss << " " << vars.pr << " " << vars.rlds << " " << vars.rsds
-                               << " " << vars.sfcWind << " " << vars.tas << " " << vars.tasmax
-                               << " " << vars.tasmin << " ";
+                amrex::Print() << vars.hurs << " " << vars.huss << " " << vars.pr << " " << vars.rlds << " " << vars.rsds << " "
+                               << vars.sfcWind << " " << vars.tas << " " << vars.tasmax << " " << vars.tasmin << " ";
                 weekVec[i].print();
             }
         }
