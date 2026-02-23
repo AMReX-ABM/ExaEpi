@@ -373,9 +373,9 @@ void runAgent () {
         if (weatherWeekIndex >= 0) {
             firstWeatherWeekIndex = weatherWeekIndex;
             if (ParallelDescriptor::IOProcessor()) {
-                amrex::Print() << "Extracting " << params.nsteps/7+1 << " Weeks of Weather Data \n";
+                amrex::Print() << "Extracting " << params.nsteps / 7 + 1 << " Weeks of Weather Data \n";
             }
-            //extract weather data for the simulation timeframe
+            // extract weather data for the simulation timeframe
             wd.extractActiveData(censusData.demo, weatherWeekIndex, params.nsteps / 7 + 1);
             pc.initializeWeatherIndex(censusData.unit_mf, &wd.activeWeather);
         }
@@ -417,11 +417,12 @@ void runAgent () {
                 }
             }
             if (weatherWeekIndex >= 0) {
-                if ((weatherWeekIndex + 1) < wd.numWeeks)
+                if ((weatherWeekIndex + 1) < wd.numWeeks) {
                     if ((i - start_day) % 7 == daysToWeatherWeekend) {
                         weatherWeekIndex++;
                         pc.advanceWeatherIndex();
                     }
+                }
                 pc.setActiveWeatherWeek(weatherWeekIndex - firstWeatherWeekIndex);
             }
 

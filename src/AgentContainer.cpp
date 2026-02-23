@@ -500,7 +500,7 @@ void AgentContainer::initializeWeatherIndex (const iMultiFab& unit_mf, ActiveWea
                 int lunit = 0;
                 bool found = false;
                 for (; lunit < nUnits; lunit++) {
-                    if(unitVec[lunit] == unit) {
+                    if (unitVec[lunit] == unit) {
                         found = true;
                         break;
                     }
@@ -529,8 +529,11 @@ void AgentContainer::advanceWeatherIndex () {
             auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
             int nUnits = awd->unitVec.size();
 
-            // if (soa.GetIntData(IntIdx::weatherLookup).size() != np)
-                // amrex::Print() << "VEC SIZE " << soa.GetIntData(IntIdx::weatherLookup).size()<< " np " << np << "\n";
+#if 0
+            if (soa.GetIntData(IntIdx::weatherLookup).size() != np) {
+                amrex::Print() << "VEC SIZE " << soa.GetIntData(IntIdx::weatherLookup).size()<< " np " << np << "\n";
+            }
+#endif
             amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
                 if (weatherIdxPtr[i] != -1) { weatherIdxPtr[i] += nUnits; }
             });
