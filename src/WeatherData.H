@@ -1,4 +1,5 @@
-#pragma once
+#ifndef WEATHER_H_
+#define WEATHER_H_
 
 #include <AMReX_GpuContainers.H>
 #include <AMReX_Vector.H>
@@ -110,3 +111,4 @@ struct WeatherData {
         }
     }
 };
+#endif
