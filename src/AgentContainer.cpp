@@ -525,6 +525,73 @@ void AgentContainer::returnAirTravel () {
     AMREX_ALWAYS_ASSERT(OK());
 }
 
+void AgentContainer::initializeWeatherIndex (const iMultiFab& unit_mf, ActiveWeather* activeWeatherdata) {
+    BL_PROFILE("AgentContainer::initializeWeatherIndex");
+    awd = activeWeatherdata;
+
+    for (int lev = 0; lev <= finestLevel(); ++lev) {
+        auto& plev = GetParticles(lev);
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
+            auto& ptile = plev[{mfi.index(), mfi.LocalTileIndex()}];
+            auto& aos = ptile.GetArrayOfStructs();
+            const size_t np = aos.numParticles();
+            auto& soa = ptile.GetStructOfArrays();
+            const auto unit_arr = unit_mf[mfi].array();
+            auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
+            auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+            auto unitVec = awd->unitVec.data();
+            int nUnits = awd->unitVec.size();
+            auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
+
+            amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
+                int unit = unit_arr(home_i_ptr[i], home_j_ptr[i], 0);
+                int lunit = 0;
+                bool found = false;
+                for (; lunit < nUnits; lunit++) {
+                    if (unitVec[lunit] == unit) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (found) {
+                    weatherIdxPtr[i] = lunit;
+                } else {
+                    weatherIdxPtr[i] = -1;
+                }
+            });
+        }
+    }
+}
+
+void AgentContainer::advanceWeatherIndex () {
+    for (int lev = 0; lev <= finestLevel(); ++lev) {
+        auto& plev = GetParticles(lev);
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
+            auto& ptile = plev[{mfi.index(), mfi.LocalTileIndex()}];
+            auto& aos = ptile.GetArrayOfStructs();
+            const size_t np = aos.numParticles();
+            auto& soa = ptile.GetStructOfArrays();
+            auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
+            int nUnits = awd->unitVec.size();
+
+#if 0
+            if (soa.GetIntData(IntIdx::weatherLookup).size() != np) {
+                amrex::Print() << "VEC SIZE " << soa.GetIntData(IntIdx::weatherLookup).size()<< " np " << np << "\n";
+            }
+#endif
+            amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
+                if (weatherIdxPtr[i] != -1) { weatherIdxPtr[i] += nUnits; }
+            });
+        }
+    }
+}
+
 /*! \brief Updates disease status of each agent */
 void AgentContainer::updateStatus (MFPtrVec& a_disease_stats /*!< Community-wise disease stats tracker */) {
     BL_PROFILE("AgentContainer::updateStatus");

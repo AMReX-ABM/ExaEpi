@@ -385,6 +385,7 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
     }
 
     demo.copyToHostAsync(demo.Unit_on_proc_d, demo.Unit_on_proc);
+    demo.copyToHostAsync(demo.FIPS_d, demo.FIPS);
     Gpu::streamSynchronize();
 
     pc.comm_mf.define(comm_mf.boxArray(), comm_mf.DistributionMap(), 1, 0);

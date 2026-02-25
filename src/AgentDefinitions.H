@@ -59,6 +59,7 @@ struct IntIdx {
         withdrawn,     /*!< quarantine status */
         random_travel, /*!< on long distance travel? */
         air_travel,    /*!< on long distance travel by Air? */
+        weatherLookup, /*!< index for current weather variables, incremented weekly */
         nattribs       /*!< number of integer-type attribute */
     };
 };

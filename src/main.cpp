@@ -18,6 +18,7 @@
 #include "InitializeInfections.H"
 #include "UrbanPopData.H"
 #include "Utils.H"
+#include "WeatherData.H"
 
 #include "version.h"
 
@@ -167,6 +168,9 @@ void runAgent () {
         air.readAirTravelFlow(params.air_traffic_filename);
         air.computeTravelProbs(censusData.demo);
     }
+
+    WeatherData wd;
+    if (params.weather_int > 0) { wd.readDataFromFile(params.weather_filename); }
 
     // The default output filename is:
     // output.dat for a single disease
@@ -355,6 +359,28 @@ void runAgent () {
     Vector<Long> num_infected(params.num_diseases, 0);
 
     amrex::ParmParse::QueryUnusedInputs();
+    date startdate(params.startdate);
+    if (params.startdate.size()) {
+        if (ParallelDescriptor::IOProcessor()) {
+            amrex::Print() << "SIMULATION START DATE ";
+            startdate.print();
+        }
+    }
+    int weatherWeekIndex = -1;
+    int firstWeatherWeekIndex = -1;
+    int daysToWeatherWeekend = -1;
+    if (params.weather_int > 0) {
+        wd.computeIndex(startdate, weatherWeekIndex, daysToWeatherWeekend);
+        if (weatherWeekIndex >= 0) {
+            firstWeatherWeekIndex = weatherWeekIndex;
+            if (ParallelDescriptor::IOProcessor()) {
+                amrex::Print() << "Extracting " << params.nsteps / 7 + 1 << " Weeks of Weather Data \n";
+            }
+            // extract weather data for the simulation timeframe
+            wd.extractActiveData(censusData.demo, weatherWeekIndex, params.nsteps / 7 + 1);
+            pc.initializeWeatherIndex(censusData.unit_mf, &wd.activeWeather);
+        }
+    }
 
     {
         BL_PROFILE_REGION("Evolution");
@@ -390,6 +416,15 @@ void runAgent () {
                     ExaEpi::IO::writeAggregatedData(pc, urbanPopData, params.aggregated_diag_prefix, params.num_diseases,
                                                     params.disease_names, i);
                 }
+            }
+            if (weatherWeekIndex >= 0) {
+                if ((weatherWeekIndex + 1) < wd.numWeeks) {
+                    if ((i - start_day) % 7 == daysToWeatherWeekend) {
+                        weatherWeekIndex++;
+                        pc.advanceWeatherIndex();
+                    }
+                }
+                pc.setActiveWeatherWeek(weatherWeekIndex - firstWeatherWeekIndex);
             }
 
             // Update agents' disease status
