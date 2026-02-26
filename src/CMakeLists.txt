@@ -32,7 +32,9 @@ set(_sources
     UrbanPopData.H
     UrbanPopData.cpp
     Utils.H
-    Utils.cpp)
+    Utils.cpp
+    WeatherTransmissionModel.H
+    WeatherTransmissionModel.cpp)
 
 # List of input files
 set(_input_files)
