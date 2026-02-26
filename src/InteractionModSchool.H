@@ -170,7 +170,10 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                     auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                     auto lparm = agents.getDiseaseParameters_d(d);
                     auto lparm_h = agents.getDiseaseParameters_h(d);
-                    Real weather_scale = 1.0_rt;
+                    auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
+                    auto varVec = agents.awd != nullptr ? agents.awd->varVec.data() : nullptr;
+                    auto weather_model = agents.m_weather_model;
+                    int a_weather_int = agents.m_weather_int;
                     Real infect = (1.0_rt - lparm_h->vac_eff);
                     auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
@@ -205,6 +208,10 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                             auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                             auto community = d_ptr[tidx];
                             int pos = (community * max_school_id + school_id_ptr[i]) * max_school_grade + school_grade_ptr[i];
+                            Real weather_scale = 1.0_rt;
+                            if (a_weather_int > 0 && varVec != nullptr) {
+                                weather_scale = static_cast<Real>(weather_model(varVec[weatherIdxPtr[i]]));
+                            }
                             if (getSchoolType(school_grade_ptr[i]) == SchoolType::daycare) {
                                 if (adults && age_group_ptr[i] > AgeGroups::a5to17) { // adults-adults interaction accounted for
                                                                                       // in InteractionModWork.H

@@ -144,7 +144,10 @@ void InteractionModWorkNborhood<PCType, PTDType, PType>::fastInteractWorkNborhoo
                 auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                 auto lparm = agents.getDiseaseParameters_d(d);
                 auto lparm_h = agents.getDiseaseParameters_h(d);
-                Real weather_scale = 1.0_rt;
+                auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
+                auto varVec = agents.awd != nullptr ? agents.awd->varVec.data() : nullptr;
+                auto weather_model = agents.m_weather_model;
+                int a_weather_int = agents.m_weather_int;
                 Real infect = (1.0_rt - lparm_h->vac_eff);
                 auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
@@ -180,6 +183,10 @@ void InteractionModWorkNborhood<PCType, PTDType, PType>::fastInteractWorkNborhoo
                         int num_infected_nborhood_asymp = infected_nborhood_asymp_d_ptr[community * max_nborhood + nborhood];
                         int num_infected_community_asymp = infected_community_asymp_d_ptr[community];
                         AMREX_ALWAYS_ASSERT(num_infected_community >= num_infected_nborhood);
+                        Real weather_scale = 1.0_rt;
+                        if (a_weather_int > 0 && varVec != nullptr) {
+                            weather_scale = static_cast<Real>(weather_model(varVec[weatherIdxPtr[i]]));
+                        }
                         Real comm_prob = 1.0_rt - infect * lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * weather_scale;
                         prob_ptr[i] *=
                                 static_cast<ParticleReal>(std::pow(comm_prob, num_infected_community - num_infected_nborhood));

@@ -9,6 +9,8 @@
 #include <AMReX_GpuQualifiers.H>
 #include <AMReX_REAL.H>
 
+#include "WeatherData.H"
+
 #include <cmath>
 #include <string>
 
@@ -77,6 +79,27 @@ struct WeatherTransmissionModel {
     {
         amrex::Real T_excess = amrex::max(amrex::Real(0), T_celsius - T0);
         return p_max * std::exp(-beta_AH * AH_g_per_m3 - alpha_T * T_excess);
+    }
+
+    /*! \brief Evaluate the transmission probability directly from a #weatherVars record.
+     *
+     *  Converts \c wvar.tas (surface temperature, K) to Celsius and
+     *  \c wvar.huss (specific humidity, kg/kg) to absolute humidity (g/m^3)
+     *  using a standard sea-level air density of 1.225 kg/m^3, then
+     *  delegates to the two-argument overload.
+     *
+     *  \param wvar  Weather variables for the agent's location.
+     *  \return      Transmission probability \f$p(T,AH)\f$.
+     */
+    AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+    amrex::Real operator() (const weatherVars& wvar) const noexcept
+    {
+        // tas is in Kelvin; convert to Celsius
+        amrex::Real T_celsius = static_cast<amrex::Real>(wvar.tas) - amrex::Real(273.15);
+        // huss is specific humidity [kg vapor / kg moist air]; multiply by standard
+        // air density (1.225 kg/m^3) and convert to g/m^3 to get absolute humidity
+        amrex::Real AH_g_per_m3 = static_cast<amrex::Real>(wvar.huss) * amrex::Real(1225.0);
+        return (*this)(T_celsius, AH_g_per_m3);
     }
 };
 

@@ -26,6 +26,7 @@
 #include "InteractionModelLibrary.H"
 #include "Utils.H"
 #include "WeatherData.H"
+#include "WeatherTransmissionModel.H"
 
 /*! \brief Derived class from ParticleContainer that defines agents and their functions */
 class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs> {
@@ -130,6 +131,11 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     int activeWeatherWeek;
     ActiveWeather* awd;
+
+    /*! Weather-dependent transmission probability model */
+    WeatherTransmissionModel m_weather_model;
+    /*! Controls weather coupling: <= 0 disables weather scaling, > 0 enables it */
+    int m_weather_int = -1;
 
   protected:
     amrex::Real m_shelter_compliance = 0.95_rt; /*!< Shelter-in-place compliance rate */

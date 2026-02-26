@@ -148,6 +148,11 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
             auto& soa = ptile.GetStructOfArrays();
             auto num_tiles = numTilesInBox(mfi.tilebox(), true, bin_size);
 
+            auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
+            auto varVec = agents.awd != nullptr ? agents.awd->varVec.data() : nullptr;
+            auto weather_model = agents.m_weather_model;
+            int a_weather_int = agents.m_weather_int;
+
             int max_group = 0;
             if (bin_idx != -1) {
                 max_group = agents.getMaxGroup(bin_idx);
@@ -182,7 +187,6 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                 auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                 auto lparm = agents.getDiseaseParameters_d(d);
                 auto lparm_h = agents.getDiseaseParameters_h(d);
-                Real weather_scale = 1.0_prt;
                 Real infect = (1.0_rt - lparm_h->vac_eff);
                 Real asymp_relative_inf = lparm_h->asymp_relative_inf;
 
@@ -205,6 +209,11 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                             AMREX_ALWAYS_ASSERT((Long)susceptible_i < np);
                             if (infectious_i != susceptible_i && isSusceptible(susceptible_i, ptd, d) &&
                                 isCandidate(susceptible_i, ptd)) {
+                                Real weather_scale = 1.0_prt;
+                                if (a_weather_int > 0 && varVec != nullptr) {
+                                    weather_scale = static_cast<Real>(
+                                        weather_model(varVec[weatherIdxPtr[susceptible_i]]));
+                                }
                                 ParticleReal prob =
                                         1.0_prt -
                                         relative_inf * infect * binaryInteraction(infectious_i, susceptible_i, ptd, lparm, weather_scale);
