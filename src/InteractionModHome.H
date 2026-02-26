@@ -240,7 +240,10 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
                             int num_infected_family_asymp = infected_family_asymp_d_ptr[family_i];
                             Real weather_scale = 1.0_rt;
                             if (a_weather_int > 0 && varVec != nullptr) {
-                                weather_scale = static_cast<Real>(weather_model(varVec[weatherIdxPtr[i]]));
+                                weatherVars wvar = varVec[weatherIdxPtr[i]];
+                                Real T_celsius = static_cast<Real>(wvar.tas) - Real(273.15);
+                                Real AH_g_per_m3 = static_cast<Real>(wvar.huss) * Real(1225.0);
+                                weather_scale = weather_model(T_celsius, AH_g_per_m3);
                             }
                             Real family_prob = 1.0_rt - infect * xmit_family_prob * weather_scale;
                             Real family_prob_asymp = 1.0_rt - lparm->asymp_relative_inf * infect * xmit_family_prob * weather_scale;

@@ -210,7 +210,10 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                             int pos = (community * max_school_id + school_id_ptr[i]) * max_school_grade + school_grade_ptr[i];
                             Real weather_scale = 1.0_rt;
                             if (a_weather_int > 0 && varVec != nullptr) {
-                                weather_scale = static_cast<Real>(weather_model(varVec[weatherIdxPtr[i]]));
+                                weatherVars wvar = varVec[weatherIdxPtr[i]];
+                                Real T_celsius = static_cast<Real>(wvar.tas) - Real(273.15);
+                                Real AH_g_per_m3 = static_cast<Real>(wvar.huss) * Real(1225.0);
+                                weather_scale = weather_model(T_celsius, AH_g_per_m3);
                             }
                             if (getSchoolType(school_grade_ptr[i]) == SchoolType::daycare) {
                                 if (adults && age_group_ptr[i] > AgeGroups::a5to17) { // adults-adults interaction accounted for

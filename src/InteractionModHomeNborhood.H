@@ -181,7 +181,10 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
                         AMREX_ALWAYS_ASSERT(num_infected_community >= 0);
                         Real weather_scale = 1.0_rt;
                         if (a_weather_int > 0 && varVec != nullptr) {
-                            weather_scale = static_cast<Real>(weather_model(varVec[weatherIdxPtr[i]]));
+                            weatherVars wvar = varVec[weatherIdxPtr[i]];
+                            Real T_celsius = static_cast<Real>(wvar.tas) - Real(273.15);
+                            Real AH_g_per_m3 = static_cast<Real>(wvar.huss) * Real(1225.0);
+                            weather_scale = weather_model(T_celsius, AH_g_per_m3);
                         }
                         Real comm_prob = 1.0_prt - infect * lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * weather_scale;
                         Real comm_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect *

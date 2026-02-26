@@ -8,6 +8,7 @@
 #include <string>
 
 #include "AgentDefinitions.H"
+#include "WeatherData.H"
 #include <AMReX_BoxArray.H>
 #include <AMReX_DistributionMapping.H>
 #include <AMReX_Geometry.H>
@@ -211,8 +212,10 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                                 isCandidate(susceptible_i, ptd)) {
                                 Real weather_scale = 1.0_prt;
                                 if (a_weather_int > 0 && varVec != nullptr) {
-                                    weather_scale = static_cast<Real>(
-                                        weather_model(varVec[weatherIdxPtr[susceptible_i]]));
+                                    weatherVars wvar = varVec[weatherIdxPtr[susceptible_i]];
+                                    Real T_celsius = static_cast<Real>(wvar.tas) - Real(273.15);
+                                    Real AH_g_per_m3 = static_cast<Real>(wvar.huss) * Real(1225.0);
+                                    weather_scale = weather_model(T_celsius, AH_g_per_m3);
                                 }
                                 ParticleReal prob =
                                         1.0_prt -

@@ -41,7 +41,7 @@
 struct WeatherTransmissionModel {
 
     /*! Maximum transmission probability (dimensionless). */
-    amrex::Real p_max = amrex::Real(0.08);
+    amrex::Real p_max = amrex::Real(1.0); //amrex::Real(0.08);
 
     /*! Absolute-humidity sensitivity coefficient (m^3/g).
      *  Higher values make transmission drop faster with increasing humidity. */

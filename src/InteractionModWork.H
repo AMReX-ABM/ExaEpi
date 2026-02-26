@@ -170,7 +170,10 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
                         int num_infected_workgroup = infected_workgroup_d_ptr[wgroup_i];
                         Real weather_scale = 1.0_rt;
                         if (a_weather_int > 0 && varVec != nullptr) {
-                            weather_scale = static_cast<Real>(weather_model(varVec[weatherIdxPtr[i]]));
+                            weatherVars wvar = varVec[weatherIdxPtr[i]];
+                            Real T_celsius = static_cast<Real>(wvar.tas) - Real(273.15);
+                            Real AH_g_per_m3 = static_cast<Real>(wvar.huss) * Real(1225.0);
+                            weather_scale = weather_model(T_celsius, AH_g_per_m3);
                         }
                         Real workgroup_prob = 1.0_prt - infect * lparm->xmit_work * weather_scale;
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(workgroup_prob, num_infected_workgroup));
