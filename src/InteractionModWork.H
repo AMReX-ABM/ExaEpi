@@ -137,7 +137,7 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
                 auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                 auto lparm = agents.getDiseaseParameters_d(d);
                 auto lparm_h = agents.getDiseaseParameters_h(d);
-                Real scale = 1.0_rt; // TODO this should vary based on cell
+                Real weather_scale = 1.0_rt;
                 Real infect = 1.0_rt - lparm_h->vac_eff;
                 auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
@@ -165,10 +165,10 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
                         auto community = d_ptr[tidx];
                         int wgroup_i = (community * max_workgroup + workgroup_ptr[i]) * max_naics + naics_ptr[i];
                         int num_infected_workgroup = infected_workgroup_d_ptr[wgroup_i];
-                        Real workgroup_prob = 1.0_prt - infect * lparm->xmit_work * scale;
+                        Real workgroup_prob = 1.0_prt - infect * lparm->xmit_work * weather_scale;
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(workgroup_prob, num_infected_workgroup));
                         int num_infected_workgroup_asymp = infected_workgroup_asymp_d_ptr[wgroup_i];
-                        Real workgroup_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect * lparm->xmit_work * scale;
+                        Real workgroup_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect * lparm->xmit_work * weather_scale;
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(workgroup_prob_asymp, num_infected_workgroup_asymp));
                     }
                 });

@@ -170,7 +170,7 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                     auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                     auto lparm = agents.getDiseaseParameters_d(d);
                     auto lparm_h = agents.getDiseaseParameters_h(d);
-                    Real scale = 1.0_rt; // TODO this should vary based on cell
+                    Real weather_scale = 1.0_rt;
                     Real infect = (1.0_rt - lparm_h->vac_eff);
                     auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
@@ -211,11 +211,11 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                                     // do nothing!
                                 } else {
                                     int num_infected_daycare = infected_daycare_d_ptr[pos];
-                                    Real daycare_prob = 1.0_rt - infect * lparm->xmit_school[SchoolType::daycare] * scale;
+                                    Real daycare_prob = 1.0_rt - infect * lparm->xmit_school[SchoolType::daycare] * weather_scale;
                                     prob_ptr[i] *= static_cast<ParticleReal>(std::pow(daycare_prob, num_infected_daycare));
                                     int num_infected_daycare_asymp = infected_daycare_asymp_d_ptr[pos];
                                     Real daycare_prob_asymp = 1.0_rt - lparm->asymp_relative_inf * infect *
-                                                                               lparm->xmit_school[SchoolType::daycare] * scale;
+                                                                               lparm->xmit_school[SchoolType::daycare] * weather_scale;
                                     prob_ptr[i] *=
                                             static_cast<ParticleReal>(std::pow(daycare_prob_asymp, num_infected_daycare_asymp));
                                 }
@@ -238,9 +238,9 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                                         xmit = lparm->xmit_school_c2a[getSchoolType(school_grade_ptr[i])];
                                     }
                                 }
-                                Real school_prob = 1.0_rt - infect * xmit * scale;
+                                Real school_prob = 1.0_rt - infect * xmit * weather_scale;
                                 prob_ptr[i] *= static_cast<ParticleReal>(std::pow(school_prob, num_infected_school));
-                                Real school_prob_asymp = 1.0_rt - lparm->asymp_relative_inf * infect * xmit * scale;
+                                Real school_prob_asymp = 1.0_rt - lparm->asymp_relative_inf * infect * xmit * weather_scale;
                                 prob_ptr[i] *= static_cast<ParticleReal>(std::pow(school_prob_asymp, num_infected_school_asymp));
                             }
                         }

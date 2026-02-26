@@ -182,7 +182,7 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                 auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                 auto lparm = agents.getDiseaseParameters_d(d);
                 auto lparm_h = agents.getDiseaseParameters_h(d);
-                Real scale = 1.0_prt; // TODO this should vary based on cell
+                Real weather_scale = 1.0_prt;
                 Real infect = (1.0_rt - lparm_h->vac_eff);
                 Real asymp_relative_inf = lparm_h->asymp_relative_inf;
 
@@ -207,7 +207,7 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                                 isCandidate(susceptible_i, ptd)) {
                                 ParticleReal prob =
                                         1.0_prt -
-                                        relative_inf * infect * binaryInteraction(infectious_i, susceptible_i, ptd, lparm, scale);
+                                        relative_inf * infect * binaryInteraction(infectious_i, susceptible_i, ptd, lparm, weather_scale);
                                 // The atomic operation is needed because we find all the susceptible for each infectious in turn.
                                 // It can be eliminated by switching the order of infectious and susceptible.
                                 Gpu::Atomic::Multiply(&prob_ptr[susceptible_i], prob);

@@ -138,7 +138,7 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
                 auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                 auto lparm = agents.getDiseaseParameters_d(d);
                 auto lparm_h = agents.getDiseaseParameters_h(d);
-                Real scale = 1.0_rt; // TODO this should vary based on cell
+                Real weather_scale = 1.0_rt;
                 Real infect = 1.0_rt - lparm_h->vac_eff;
                 auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
@@ -176,15 +176,15 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
                                 infected_community_asymp_d_ptr[community] - num_infected_nborhood_asymp;
 
                         AMREX_ALWAYS_ASSERT(num_infected_community >= 0);
-                        Real comm_prob = 1.0_prt - infect * lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * scale;
+                        Real comm_prob = 1.0_prt - infect * lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * weather_scale;
                         Real comm_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect *
-                                                                 lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * scale;
+                                                                 lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * weather_scale;
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(comm_prob, num_infected_community));
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(comm_prob_asymp, num_infected_community_asymp));
 
-                        Real nborhood_prob = 1.0_prt - infect * lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * scale;
+                        Real nborhood_prob = 1.0_prt - infect * lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * weather_scale;
                         Real nborhood_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect *
-                                                                     lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * scale;
+                                                                     lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * weather_scale;
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nborhood_prob, num_infected_nborhood));
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nborhood_prob_asymp, num_infected_nborhood_asymp));
                     }
