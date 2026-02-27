@@ -139,8 +139,8 @@ bool WeatherData::lookupWeatherVars (int stateFP, int countyFP, date d, int& wee
 
 void WeatherData::extractActiveData (DemographicData& demo, int startWeek, int numSimWeeks) {
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(startWeek + numSimWeeks <= numWeeks,
-        "Weather data does not cover the full simulation period: "
-        "reduce nsteps or provide a weather file with more data.");
+                                     "Weather data does not cover the full simulation period: "
+                                     "reduce nsteps or provide a weather file with more data.");
     int numUnitsOnThisProc = 0;
     for (int i = 0; i < demo.Nunit; i++) {
         if (demo.Unit_on_proc[i]) { numUnitsOnThisProc++; }
