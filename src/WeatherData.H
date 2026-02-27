@@ -75,8 +75,9 @@ struct ActiveWeather {
         return simWeek * numUnitsWithDataOnThisProc + lunit;
     }
     weatherVars* lookupWeatherVars (int unit, int simWeek) {
-        if (computeIndex(unit, simWeek) == -1) { return NULL; }
-        return &varVec[computeIndex(unit, simWeek)];
+        int idx = computeIndex(unit, simWeek);
+        if (idx == -1) { return NULL; }
+        return &varVec[idx];
     }
     void print (int unit, int simWeek) { // gpu
         lookupWeatherVars(unit, simWeek)->print();
