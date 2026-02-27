@@ -209,7 +209,7 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                             auto community = d_ptr[tidx];
                             int pos = (community * max_school_id + school_id_ptr[i]) * max_school_grade + school_grade_ptr[i];
                             Real weather_scale = 1.0_rt;
-                            if (a_weather_int > 0 && varVec != nullptr) {
+                            if (a_weather_int > 0 && varVec != nullptr && weatherIdxPtr[i] >= 0) {
                                 weatherVars wvar = varVec[weatherIdxPtr[i]];
                                 weather_scale = weather_model(wvar);
                             }

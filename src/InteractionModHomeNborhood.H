@@ -180,7 +180,7 @@ void InteractionModHomeNborhood<PCType, PTDType, PType>::fastInteractHomeNborhoo
 
                         AMREX_ALWAYS_ASSERT(num_infected_community >= 0);
                         Real weather_scale = 1.0_rt;
-                        if (a_weather_int > 0 && varVec != nullptr) {
+                        if (a_weather_int > 0 && varVec != nullptr && weatherIdxPtr[i] >= 0) {
                             weatherVars wvar = varVec[weatherIdxPtr[i]];
                             weather_scale = weather_model(wvar);
                         }

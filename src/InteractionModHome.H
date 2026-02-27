@@ -239,7 +239,7 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
                             int num_infected_family = infected_family_d_ptr[family_i];
                             int num_infected_family_asymp = infected_family_asymp_d_ptr[family_i];
                             Real weather_scale = 1.0_rt;
-                            if (a_weather_int > 0 && varVec != nullptr) {
+                            if (a_weather_int > 0 && varVec != nullptr && weatherIdxPtr[i] >= 0) {
                                 weatherVars wvar = varVec[weatherIdxPtr[i]];
                                 weather_scale = weather_model(wvar);
                             }

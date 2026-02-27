@@ -184,7 +184,7 @@ void InteractionModWorkNborhood<PCType, PTDType, PType>::fastInteractWorkNborhoo
                         int num_infected_community_asymp = infected_community_asymp_d_ptr[community];
                         AMREX_ALWAYS_ASSERT(num_infected_community >= num_infected_nborhood);
                         Real weather_scale = 1.0_rt;
-                        if (a_weather_int > 0 && varVec != nullptr) {
+                        if (a_weather_int > 0 && varVec != nullptr && weatherIdxPtr[i] >= 0) {
                             weatherVars wvar = varVec[weatherIdxPtr[i]];
                             weather_scale = weather_model(wvar);
                         }

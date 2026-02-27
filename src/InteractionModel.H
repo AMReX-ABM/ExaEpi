@@ -211,7 +211,7 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                             if (infectious_i != susceptible_i && isSusceptible(susceptible_i, ptd, d) &&
                                 isCandidate(susceptible_i, ptd)) {
                                 Real weather_scale = 1.0_prt;
-                                if (a_weather_int > 0 && varVec != nullptr) {
+                                if (a_weather_int > 0 && varVec != nullptr && weatherIdxPtr[susceptible_i] >= 0) {
                                     weatherVars wvar = varVec[weatherIdxPtr[susceptible_i]];
                                     weather_scale = weather_model(wvar);
                                 }
