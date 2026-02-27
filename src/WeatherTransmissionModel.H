@@ -63,7 +63,7 @@ struct WeatherTransmissionModel {
      *
      *  \param pp_str  ParmParse prefix string.
      */
-    void readInputs (const std::string& pp_str);
+    void readInputs(const std::string& pp_str);
 
     /*! \brief Evaluate the transmission probability.
      *
@@ -75,9 +75,7 @@ struct WeatherTransmissionModel {
      *  \return             Transmission probability \f$p(T,AH)\f$.
      */
     AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-    amrex::Real operator() (amrex::Real T_celsius,
-                            amrex::Real AH_g_per_m3) const noexcept
-    {
+    amrex::Real operator()(amrex::Real T_celsius, amrex::Real AH_g_per_m3) const noexcept {
         amrex::Real T_excess = amrex::max(amrex::Real(0), T_celsius - T0);
         return p_max * std::exp(-beta_AH * AH_g_per_m3 - alpha_T * T_excess);
     }
@@ -93,8 +91,7 @@ struct WeatherTransmissionModel {
      *  \return      Transmission probability \f$p(T,AH)\f$.
      */
     AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-    amrex::Real operator() (const weatherVars& wvar) const noexcept
-    {
+    amrex::Real operator()(const weatherVars& wvar) const noexcept {
         // tas is in Kelvin; convert to Celsius
         amrex::Real T_celsius = static_cast<amrex::Real>(wvar.tas) - amrex::Real(273.15);
         // huss is specific humidity [kg vapor / kg moist air]; multiply by standard

@@ -244,7 +244,8 @@ void InteractionModHome<PCType, PTDType, PType>::fastInteractHome (PCType& agent
                                 weather_scale = weather_model(wvar);
                             }
                             Real family_prob = 1.0_rt - infect * xmit_family_prob * weather_scale;
-                            Real family_prob_asymp = 1.0_rt - lparm->asymp_relative_inf * infect * xmit_family_prob * weather_scale;
+                            Real family_prob_asymp =
+                                    1.0_rt - lparm->asymp_relative_inf * infect * xmit_family_prob * weather_scale;
                             prob_ptr[i] *= static_cast<ParticleReal>(std::pow(family_prob, num_infected_family));
                             prob_ptr[i] *= static_cast<ParticleReal>(std::pow(family_prob_asymp, num_infected_family_asymp));
                             if (!ptd.m_idata[IntIdx::withdrawn][i]) {

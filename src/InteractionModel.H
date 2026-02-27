@@ -215,9 +215,9 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                                     weatherVars wvar = varVec[weatherIdxPtr[susceptible_i]];
                                     weather_scale = weather_model(wvar);
                                 }
-                                ParticleReal prob =
-                                        1.0_prt -
-                                        relative_inf * infect * binaryInteraction(infectious_i, susceptible_i, ptd, lparm, weather_scale);
+                                ParticleReal prob = 1.0_prt - relative_inf * infect *
+                                                                      binaryInteraction(infectious_i, susceptible_i, ptd, lparm,
+                                                                                        weather_scale);
                                 // The atomic operation is needed because we find all the susceptible for each infectious in turn.
                                 // It can be eliminated by switching the order of infectious and susceptible.
                                 Gpu::Atomic::Multiply(&prob_ptr[susceptible_i], prob);

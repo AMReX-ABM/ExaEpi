@@ -176,7 +176,8 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
                         Real workgroup_prob = 1.0_prt - infect * lparm->xmit_work * weather_scale;
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(workgroup_prob, num_infected_workgroup));
                         int num_infected_workgroup_asymp = infected_workgroup_asymp_d_ptr[wgroup_i];
-                        Real workgroup_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect * lparm->xmit_work * weather_scale;
+                        Real workgroup_prob_asymp =
+                                1.0_prt - lparm->asymp_relative_inf * infect * lparm->xmit_work * weather_scale;
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(workgroup_prob_asymp, num_infected_workgroup_asymp));
                     }
                 });
