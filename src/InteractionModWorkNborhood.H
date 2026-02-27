@@ -186,9 +186,7 @@ void InteractionModWorkNborhood<PCType, PTDType, PType>::fastInteractWorkNborhoo
                         Real weather_scale = 1.0_rt;
                         if (a_weather_int > 0 && varVec != nullptr) {
                             weatherVars wvar = varVec[weatherIdxPtr[i]];
-                            Real T_celsius = static_cast<Real>(wvar.tas) - Real(273.15);
-                            Real AH_g_per_m3 = static_cast<Real>(wvar.huss) * Real(1225.0);
-                            weather_scale = weather_model(T_celsius, AH_g_per_m3);
+                            weather_scale = weather_model(wvar);
                         }
                         Real comm_prob = 1.0_rt - infect * lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * weather_scale;
                         prob_ptr[i] *=

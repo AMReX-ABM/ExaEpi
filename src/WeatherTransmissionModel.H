@@ -33,7 +33,7 @@
  *  #readInputs (typically \c "weather_transmission"):
  *  | Key                             | Default | Units       |
  *  |---------------------------------|---------|-------------|
- *  | \c weather_transmission.p_max   | 0.08    | —           |
+ *  | \c weather_transmission.p_max   | 1.00    | —           |
  *  | \c weather_transmission.beta_AH | 0.18    | m^3/g       |
  *  | \c weather_transmission.T0      | 5.0     | °C          |
  *  | \c weather_transmission.alpha_T | 0.015   | °C^{-1}     |
@@ -41,7 +41,8 @@
 struct WeatherTransmissionModel {
 
     /*! Maximum transmission probability (dimensionless). */
-    amrex::Real p_max = amrex::Real(1.0); //amrex::Real(0.08);
+    /*! This will be multiplied by p_trans later */
+    amrex::Real p_max = amrex::Real(1.0);
 
     /*! Absolute-humidity sensitivity coefficient (m^3/g).
      *  Higher values make transmission drop faster with increasing humidity. */
