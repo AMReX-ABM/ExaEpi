@@ -20,7 +20,7 @@ void WeatherData::readDataFromFile (const std::string& fname) {
         std::istringstream lis(line);
         std::string temp[17];
         int i = 0;
-        while (std::getline(lis, temp[i], ',')) {
+        while (i < 17 && std::getline(lis, temp[i], ',')) {
             i++;
         }
         weatherVars vars;
