@@ -223,6 +223,14 @@ bool isNewlySymptomatic (const int a_idx,      /*!< Agent index */
     return status == Status::infected && disease_counter == incb_period && symptom_status == SymptomStatus::symptomatic;
 }
 
+/*! \brief Is agent on travel? */
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+bool isOnTravel (const int a_idx, /*!< Agent index */
+                 const PTDType& a_ptd /*!< Particle tile data */) {
+    return (a_ptd.m_idata[IntIdx::random_travel][a_idx] >= 0 || a_ptd.m_idata[IntIdx::air_travel][a_idx] >= 0);
+}
+
 /*! \brief Did the agent just become asymptomatic this step? */
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE

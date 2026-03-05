@@ -209,7 +209,7 @@ void AgentContainer::moveAgentsToWork () {
             auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
 
             amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
-                if (!inHospital(ip, ptd)) {
+                if (!inHospital(ip, ptd) && !isOnTravel(ip, ptd)) {
                     ParticleType& p = pstruct[ip];
                     p.pos(0) = static_cast<ParticleReal>((work_i_ptr[ip] + 0.5_rt) * dx[0]);
                     p.pos(1) = static_cast<ParticleReal>((work_j_ptr[ip] + 0.5_rt) * dx[1]);
@@ -252,7 +252,7 @@ void AgentContainer::moveAgentsToHome () {
             auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
 
             amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
-                if (!inHospital(ip, ptd)) {
+                if (!inHospital(ip, ptd) && !isOnTravel(ip, ptd)) {
                     ParticleType& p = pstruct[ip];
                     p.pos(0) = static_cast<ParticleReal>((home_i_ptr[ip] + 0.5_rt) * dx[0]);
                     p.pos(1) = static_cast<ParticleReal>((home_j_ptr[ip] + 0.5_rt) * dx[1]);
