@@ -9,6 +9,7 @@
 
 #include <AMReX_GpuContainers.H>
 #include <AMReX_Vector.H>
+#include <AMReX_iMultiFab.H>
 
 #include "CaseData.H"
 #include "UrbanPopAgentStruct.H"

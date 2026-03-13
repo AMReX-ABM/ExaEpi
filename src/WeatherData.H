@@ -2,12 +2,12 @@
 #define WEATHER_H_
 
 #include "DemographicData.H"
+#include "UrbanPopData.H"
 #include "Utils.H"
 #include <AMReX_GpuContainers.H>
 #include <AMReX_Vector.H>
 #include <AMReX_iMultiFab.H>
 #include <string>
-#include "UrbanPopData.H"
 
 struct weatherVars {
     double hurs;

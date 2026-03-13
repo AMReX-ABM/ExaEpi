@@ -588,8 +588,6 @@ void AgentContainer::initializeWeatherIndex_UrbanPop (const iMultiFab& geoid_mf,
             const size_t np = aos.numParticles();
             auto& soa = ptile.GetStructOfArrays();
             auto geoid_arr = geoid_mf[mfi].array();
-            auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
-            auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
             auto unitVec = awd->unitVec.data();
             int nUnits = awd->unitVec.size();
             auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();

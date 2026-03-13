@@ -1,6 +1,5 @@
 #include "WeatherData.H"
 #include <AMReX_ParticleUtil.H>
-//#include "UrbanPopData.H"
 
 using namespace amrex;
 using namespace ExaEpi;
@@ -176,7 +175,7 @@ void WeatherData::extractActiveData (DemographicData& demo, int startWeek, int n
     }
 }
 
-void WeatherData::extractActiveData (UrbanPopData &upop, int startWeek, int numSimWeeks) {
+void WeatherData::extractActiveData (UrbanPopData& upop, int startWeek, int numSimWeeks) {
     int numWeatherUnits = upop.FIPS_codes.size();
     activeWeather.unitVec.resize(numWeatherUnits);
     // set up the map from local unit index to global unit index
@@ -211,4 +210,3 @@ void WeatherData::extractActiveData (UrbanPopData &upop, int startWeek, int numS
         }
     }
 }
-#endif
