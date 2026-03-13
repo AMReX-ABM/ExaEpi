@@ -206,6 +206,10 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
         if (geoid_to_block_groups.insert({block_group.geoid, i}).second == false) { Abort("Cannot insert new block group"); }
     }
     fips_community_start.push_back(num_communities);
+    County_on_proc.resize(FIPS_codes.size());
+    for (int i = 0; i < County_on_proc.size(); i++) {
+        County_on_proc[i] = 0;
+    }
 
     if (ParallelDescriptor::IOProcessor()) {
         Print() << "Found " << FIPS_codes.size() << " FIPS demographic units\n";
@@ -319,6 +323,12 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     geoid_arr(x, y, 0, 1) = static_cast<int64_t>(block_group.geoid - fips * 1e7);
                     community_indices_arr(x, y, 0) = bi;
                     num_nborhoods += get_max_nborhood(nborhood_size, block_group.home_population);
+                    for (int i = 0; i < FIPS_codes.size(); i++) {
+                        if (FIPS_codes[i] == fips) {
+                            County_on_proc[i] = 1;
+                            break;
+                        }
+                    }
                 }
             }
         }

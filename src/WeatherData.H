@@ -7,6 +7,7 @@
 #include <AMReX_Vector.H>
 #include <AMReX_iMultiFab.H>
 #include <string>
+#include "UrbanPopData.H"
 
 struct weatherVars {
     double hurs;
@@ -96,6 +97,7 @@ struct WeatherData {
     bool computeIndex(date d, int& weekIndex, int& daysToWeatherWeekend);
     bool lookupWeatherVars(int stateFP, int countyFP, date d, int& weatherWeekIndex, weatherVars& vars);
     void extractActiveData(DemographicData& demo, int startWeek, int numSimWeeks);
+    void extractActiveData(UrbanPopData& upop, int startWeek, int numSimWeeks);
     void print () {
         amrex::Print() << "STATEFP " << "COUNTYFP " << "hurs " << "huss " << "pr " << "rlds " << "rsds " << "sfcWind " << "tas "
                        << "tasmax " << "tasmin " << "Week\n";

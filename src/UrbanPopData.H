@@ -14,6 +14,8 @@
 #include "UrbanPopAgentStruct.H"
 #include "Utils.H"
 
+class AgentContainer;
+
 struct AgentExtras {
     amrex::IntVect home_xy;
     amrex::IntVect work_xy;
@@ -43,6 +45,7 @@ struct BlockGroup {
 struct UrbanPopData {
     // these three data structures are used for setting the initial cases
     amrex::Vector<int> FIPS_codes;
+    amrex::Vector<int> County_on_proc;
     amrex::Vector<int> fips_community_start;
     amrex::Vector<BlockGroup> block_groups;
 

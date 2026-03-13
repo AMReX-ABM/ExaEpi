@@ -1,5 +1,6 @@
 #include "WeatherData.H"
 #include <AMReX_ParticleUtil.H>
+//#include "UrbanPopData.H"
 
 using namespace amrex;
 using namespace ExaEpi;
@@ -174,3 +175,40 @@ void WeatherData::extractActiveData (DemographicData& demo, int startWeek, int n
         }
     }
 }
+
+void WeatherData::extractActiveData (UrbanPopData &upop, int startWeek, int numSimWeeks) {
+    int numWeatherUnits = upop.FIPS_codes.size();
+    activeWeather.unitVec.resize(numWeatherUnits);
+    // set up the map from local unit index to global unit index
+    int idx = 0;
+    activeWeather.numUnitsWithDataOnThisProc = 0; // we are going to ignore units that don't have weather data
+    for (int unit = 0; unit < numWeatherUnits; unit++) {
+        if (upop.County_on_proc[unit]) {
+            int FIPS = upop.FIPS_codes[unit];
+            if (varMap.find(FIPS) != varMap.end()) {
+                activeWeather.unitVec[idx] = FIPS;
+                activeWeather.numUnitsWithDataOnThisProc++;
+                idx++;
+            }
+        }
+    }
+    activeWeather.unitVec.resize(activeWeather.numUnitsWithDataOnThisProc);
+    activeWeather.varVec.resize(activeWeather.numUnitsWithDataOnThisProc * numSimWeeks);
+
+    for (int week = startWeek; week < startWeek + numSimWeeks; week++) {
+        int offset = (week - startWeek) * activeWeather.numUnitsWithDataOnThisProc;
+        int idx1 = 0;
+        for (int unit = 0; unit < numWeatherUnits; unit++) {
+            if (upop.County_on_proc[unit]) {
+                int FIPS = upop.FIPS_codes[unit];
+                if (varMap.find(FIPS) != varMap.end()) {
+                    activeWeather.varVec[offset + idx1] = varMap[FIPS][week];
+                    idx1++;
+                } else {
+                    // amrex::Print() << "Weather data NOT available in county with FIPS code " << FIPS << "\n";
+                }
+            }
+        }
+    }
+}
+#endif
