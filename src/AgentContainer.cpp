@@ -424,7 +424,7 @@ void AgentContainer::setAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air,
                         }
                     } else {           // binary search algorithm
                         while (low < high) {
-                            if (random1 < low) {
+                            if (random1 < arrivalUnits_prob_ptr[low]) {
                                 break; // low is the found airport index
                             }
                             // if random1 falls within (low, high), half the range
@@ -432,12 +432,12 @@ void AgentContainer::setAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air,
                             if (arrivalUnits_prob_ptr[mid] < random1) {
                                 low = mid + 1;
                             } else {
-                                high = mid - 1;
+                                high = mid;
                             }
                         }
                         destUnit = arrivalUnits_ptr[low];
                     }
-                    if (destUnit >= 0) {
+                    if (destUnit >= 0 && (Start[destUnit + 1] > Start[destUnit])) { // skip size 0 comms
                         // randomly select a community in the dest unit
                         int comm_to = Start[destUnit] + amrex::Random_int(Start[destUnit + 1] - Start[destUnit], engine);
                         int new_i = comm_to % i_max;
