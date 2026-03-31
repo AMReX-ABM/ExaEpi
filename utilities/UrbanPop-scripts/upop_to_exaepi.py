@@ -18,6 +18,7 @@ import pandas as pd
 import numpy as np
 import argparse
 import configparser
+import struct
 import glob
 from colorama import Fore
 import psutil
@@ -690,7 +691,7 @@ def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
             "school_counts": counts,
         }
 
-    with ThreadPool(processes=2) as pool:
+    with ThreadPool(processes=1) as pool:
         results = pool.map(process_region, [(region, group) for region, group in student_groups])
 
     for result in results:
@@ -787,7 +788,7 @@ def alloc_students(schools_df, students_df):
 
     elif USE_MULTIPROCS:
         levels = ["P", "E", "M", "H", "U", "C"]
-        with Pool(processes=6) as pool:
+        with Pool(processes=1) as pool:
             process_level_partial = partial(process_level, schools=schools_df, students=students_df)
             dfs = pool.map(process_level_partial, levels)
 
@@ -1246,6 +1247,11 @@ static std::vector<string> splitString(const string &s, char delim) {{
         return true;
     }}\n"""
 
+    hdr += "\n    bool readBinary(std::ifstream &f) {\n"
+    for i, col in enumerate(df.columns):
+        hdr += f"        if (!f.read(reinterpret_cast<char*>(&{col}), sizeof({df.dtypes.iloc[i]}_t))) return false;\n"
+    hdr += "        return true;\n    }\n"
+
     hdr += f"""
     friend std::ostream& operator<<(std::ostream& os, const UrbanPopAgent& agent) {{
         os << std::fixed << std::setprecision(6);\n"""
@@ -1278,7 +1284,7 @@ static std::vector<string> splitString(const string &s, char delim) {{
 
 
 @timer
-def print_agents(df, out_fname):
+def print_agents_csv(df, out_fname):
     num_rows = len(df.index)
     # start with a distinct marker so that the file can be read in parallel more easily
     df.index = ["*"] * num_rows
@@ -1287,6 +1293,7 @@ def print_agents(df, out_fname):
     foffsets = []
     home_pops = []
     home_geoids = []
+
     num_geoids = df.home_geoid.unique()
     step = int(len(num_geoids) / 10)
     out_fname_csv = out_fname + ".csv"
@@ -1303,6 +1310,56 @@ def print_agents(df, out_fname):
         print(buff.getvalue(), end="", file=f)
         print(f"Wrote {len(df)} records in {buff.tell()} bytes")
     buff.close()
+
+    return foffsets, home_pops, home_geoids
+
+
+@timer
+def print_agents_bin(df, out_fname):
+    num_rows = len(df.index)
+    # start with a distinct marker so that the file can be read in parallel more easily
+    df.index = ["*"] * num_rows
+    # print each geoid in turn so we can track the file offsets
+    # buff = io.StringIO()
+    foffsets = []
+    home_pops = []
+    home_geoids = []
+    grouped = df.groupby("home_geoid")
+    num_geoids = len(grouped)
+    step = max(1, num_geoids // 10)
+    out_fname_bin = out_fname + ".bin"
+    printgreen(f"Writing binary data to {out_fname_bin}")
+
+    # Build struct format for entire row
+    struct_formats = {
+        "int64": "q",
+        "int32": "i",
+        "int16": "h",
+        "int8": "b",
+        "float32": "f",
+        "float64": "d",
+    }
+
+    row_format = "".join(struct_formats[str(dt)] for dt in df.dtypes)
+    row_struct = struct.Struct(row_format)
+
+    with open(out_fname_bin, "wb") as f:
+        for i, (geoid, subset_df) in enumerate(grouped):
+            if i % step == 0:
+                print(f"  GEOID {geoid} {i}/{num_geoids}", flush=True)
+
+            home_geoids.append(geoid)
+            foffsets.append(f.tell())
+            home_pops.append(len(subset_df))
+
+            # Convert entire subset to bytes at once
+            data_array = subset_df.to_numpy()
+            for row in data_array:
+                f.write(row_struct.pack(*row))
+
+        file_size = f.tell()
+        print(f"Wrote {num_rows} records in {file_size:,} bytes")
+
     return foffsets, home_pops, home_geoids
 
 
@@ -1437,10 +1494,10 @@ def main():
 
     check_flows_correlation(workers_df, lodes_df)
 
-    workers_df.to_pickle("workers_df.pkl")
-    students_df.to_pickle("students_df.pkl")
-    schools_df.to_pickle("schools_df.pkl")
-    unemp_df.to_pickle("unemp_df.pkl")
+    # workers_df.to_pickle("workers_df.pkl")
+    # students_df.to_pickle("students_df.pkl")
+    # schools_df.to_pickle("schools_df.pkl")
+    # unemp_df.to_pickle("unemp_df.pkl")
 
     allocate_teachers(workers_df, students_df, schools_df)
     teachers_df = workers_df[workers_df.grade != -1].copy()
@@ -1475,6 +1532,7 @@ def main():
     df.home_geoid = df.home_geoid.astype("int64")
     df.work_geoid = df.work_geoid.fillna(-1).astype("int64")
     df.loc[df.work_geoid == -1, "work_geoid"] = df.home_geoid
+    df.naics = df.naics.astype("int16")
 
     dump_intermediate(df, args.output + "_nt_dt")
     adjust_indexes(df, args.output)
@@ -1484,8 +1542,13 @@ def main():
     sanity_checks(df)
 
     print_cpp_header(df)
-    foffsets, home_pops, home_geoids = print_agents(df, args.output)
-    print_index(df, args.output, foffsets, home_pops, home_geoids)
+    # foffsets, home_pops, home_geoids = print_agents_csv(df, args.output)
+    # print_index(df, args.output, foffsets, home_pops, home_geoids)
+    foffsets, home_pops, home_geoids = print_agents_bin(df, args.output + "-bin")
+    print_index(df, args.output + "-bin", foffsets, home_pops, home_geoids)
+
+    # foffsets, home_pops, home_geoids = print_agents_csv(df, args.output)
+    # print_index(df, args.output, foffsets, home_pops, home_geoids)
 
 
 if __name__ == "__main__":

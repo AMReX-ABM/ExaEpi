@@ -155,6 +155,8 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
         write_int_comp.push_back(1);
         int_varnames.push_back("air_travel");
         write_int_comp.push_back(1);
+        int_varnames.push_back("weatherLookup");
+        write_int_comp.push_back(1);
         // disease-specific (runtime-added) attributes
         if (num_diseases == 1) {
             real_varnames.push_back("treatment_timer");
@@ -373,7 +375,7 @@ void writeFIPSData (const AgentContainer& agents,                  /*!< Agents (
                     auto bx = mfi.tilebox();
                     amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
                         int unit = unit_arr(i, j, k); // which FIPS
-                        int num_infected = int(cell_data_arr(i, j, k, 2));
+                        int num_infected = int(cell_data_arr(i, j, k, 5 * d + 2));
                         amrex::Gpu::Atomic::AddNoRet(&data_ptr[unit], (amrex::Real)num_infected);
                     });
                 }
@@ -452,7 +454,7 @@ void writeAggregatedData (const AgentContainer& agents,                  /*!< Ag
                     amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
                         int block_group_i = block_group_indices_arr(i, j, k);
                         if (block_group_i == -1) { return; }
-                        int num_infected = int(cell_data_arr(i, j, k, 2));
+                        int num_infected = int(cell_data_arr(i, j, k, 5 * d + 2));
                         // This should not require an atomic operation because each block group is at a separate i,j location
                         // amrex::Gpu::Atomic::AddNoRet(&data_ptr[block_group_i], (amrex::Real)num_infected);
                         data_ptr[block_group_i] = (amrex::Real)num_infected;

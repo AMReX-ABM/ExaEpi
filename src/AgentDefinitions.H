@@ -59,6 +59,7 @@ struct IntIdx {
         withdrawn,     /*!< quarantine status */
         random_travel, /*!< on long distance travel? */
         air_travel,    /*!< on long distance travel by Air? */
+        weatherLookup, /*!< index for current weather variables, incremented weekly */
         nattribs       /*!< number of integer-type attribute */
     };
 };
@@ -220,6 +221,14 @@ bool isNewlySymptomatic (const int a_idx,      /*!< Agent index */
     int disease_counter = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
     int incb_period = (int)amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
     return status == Status::infected && disease_counter == incb_period && symptom_status == SymptomStatus::symptomatic;
+}
+
+/*! \brief Is agent on travel? */
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+bool isOnTravel (const int a_idx, /*!< Agent index */
+                 const PTDType& a_ptd /*!< Particle tile data */) {
+    return (a_ptd.m_idata[IntIdx::random_travel][a_idx] >= 0 || a_ptd.m_idata[IntIdx::air_travel][a_idx] >= 0);
 }
 
 /*! \brief Did the agent just become asymptomatic this step? */
