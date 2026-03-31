@@ -81,7 +81,7 @@ def load_exaepi(fname):
 
     if not fname.startswith("adjusted"):
         transformed_df = df.copy()
-        transformed_df.Day += 4
+        transformed_df["Day"] += 4
         for col in transformed_df.columns:
             if col != "Day":
                 transformed_df[col] *= 1
