@@ -25,6 +25,8 @@ set(AMReX_PARTICLES_PRECISION
     SINGLE
     CACHE INTERNAL "")
 
+add_compile_definitions(COMPARE_TO_EPICAST)
+
 #
 # Fetch amrex repo
 #

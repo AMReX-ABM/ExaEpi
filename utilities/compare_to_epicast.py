@@ -1,39 +1,45 @@
 #!/usr/bin/env -S python -u
 
 import sys
+import os
 import pandas as pd
 import argparse
 import matplotlib.pyplot as plt
 
+sys.path.insert(0, os.path.dirname(__file__))
+from read_epicast_events import read_events_bin, aggregate_events
+
 
 def load_epicast(fname):
-    df = pd.read_csv(fname)
-    print(f"Read {len(df)} lines from the Epicast file {fname}")
-    # print("Epicast columns:")
-    # print(df.dtypes)
+    print(f"Reading binary Epicast file {fname} ...")
+    events_df, _ = read_events_bin(fname)
+    print(f"Read {len(events_df):,} events from {fname}")
 
-    exposed = df.groupby("day")["exposed"].sum().to_list()
-    recovered = df.groupby("day")["recovered"].sum().to_list()
-    dead = df.groupby("day")["ctx_removed"].sum().to_list()
-    symptomatic = df.groupby("day")["ctx_symptomatic"].sum().to_list()
-    asymptomatic = df.groupby("day")["ctx_asymptomatic"].sum().to_list()
-    presymptomatic = df.groupby("day")["ctx_presymptomatic"].sum().to_list()
-    icu = df.groupby("day")["ctx_icu"].sum()
-    vent = df.groupby("day")["ctx_ventilated"].sum()
-    hospitalized = df.groupby("day")["ctx_hospitalized"].sum() + icu + vent
-    hospitalized = hospitalized.to_list()
+    agg_df = aggregate_events(events_df)
+    print(f"Aggregated into {len(agg_df)} timesteps")
 
-    days = len(exposed)
-    print(f"Epicast has {days} days")
+    # aggregate_events groups by timestep; each row is one timestep.
+    # disease_state columns: exposed, recovered, symptomatic, asymptomatic, presymptomatic
+    # context columns: ctx_removed, ctx_symptomatic, ctx_asymptomatic, ctx_presymptomatic,
+    #                  ctx_icu, ctx_ventilated, ctx_hospitalized, ...
+
+    def _col(name):
+        return agg_df[name] if name in agg_df.columns else pd.Series(0, index=agg_df.index)
 
     converted_df = pd.DataFrame()
-    converted_df["exposed"] = exposed
-    converted_df["symptomatic"] = symptomatic
-    converted_df["asymptomatic"] = asymptomatic
-    converted_df["presymptomatic"] = presymptomatic
-    converted_df["hospitalized"] = hospitalized
-    converted_df["dead"] = dead
-    converted_df["recovered"] = recovered
+    converted_df["exposed"] = _col("exposed").values
+    converted_df["symptomatic"] = _col("ctx_symptomatic").values
+    converted_df["asymptomatic"] = _col("ctx_asymptomatic").values
+    converted_df["presymptomatic"] = _col("ctx_presymptomatic").values
+    converted_df["hospitalized"] = (
+        _col("ctx_hospitalized") + _col("ctx_icu") + _col("ctx_ventilated")
+    ).values
+    converted_df["dead"] = _col("ctx_removed").values
+    converted_df["recovered"] = _col("recovered").values
+
+    days = len(converted_df)
+    print(f"Epicast has {days} days")
+
     converted_df.to_csv(fname + "-converted.csv")
 
     converted_df["cumulative_exposed"] = converted_df.exposed.cumsum()
