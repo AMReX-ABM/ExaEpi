@@ -3,6 +3,7 @@
 import sys
 import os
 import pandas as pd
+import numpy as np
 import argparse
 import matplotlib.pyplot as plt
 
@@ -40,7 +41,7 @@ def load_epicast(fname):
     days = len(converted_df)
     print(f"Epicast has {days} days")
 
-    converted_df.to_csv(fname + "-converted.csv")
+    # converted_df.to_csv(fname + "-converted.csv")
 
     converted_df["cumulative_exposed"] = converted_df.exposed.cumsum()
 
@@ -91,7 +92,7 @@ def load_exaepi(fname):
         for col in transformed_df.columns:
             if col != "Day":
                 transformed_df[col] *= 1
-        transformed_df.to_csv("adjusted-" + fname, index=False, sep=" ")
+        # transformed_df.to_csv("adjusted-" + fname, index=False, sep=" ")
 
     return df
 
@@ -137,29 +138,38 @@ def plot_series(ax, epicast_data, exaepi_data, label):
     col_name = label.lower().replace(" ", "_")
     exaepi_col = col_mapping.get(col_name, col_name)
 
+    auc_lines = []
+
     # Plot each Epicast file
     for i, (fname, (df, file_label)) in enumerate(epicast_data.items()):
+        color = epicast_colors[i % len(epicast_colors)]
+        y_vals = df[col_name][: args.xlimit]
+        auc = np.trapezoid(y_vals)
+        auc_lines.append((file_label, auc, color))
         ax.plot(
             df[col_name],
             label=f"{file_label}",
-            color=epicast_colors[i % len(epicast_colors)],
+            color=color,
             linewidth=2,
             linestyle="--",
         )
 
     # Plot each ExaEpi file
     for i, (fname, (df, file_label)) in enumerate(exaepi_data.items()):
+        color = exaepi_colors[i % len(exaepi_colors)]
         # x_vals = range(len(df[exaepi_col]))
-        x_vals = df["Day"]
+        x_vals = df["Day"] + args.shift
         y_vals = df[exaepi_col]
         # x_vals = range(len(df[exaepi_col]))[4:]
         # y_vals = df[exaepi_col] * 1.33
         # y_vals = y_vals[:-4]
+        auc = np.trapezoid(y_vals[: args.xlimit])
+        auc_lines.append((file_label, auc, color))
         ax.plot(
             x_vals,
             y_vals,
             label=f"{file_label}",
-            color=exaepi_colors[i % len(exaepi_colors)],
+            color=color,
             linewidth=2,
         )
 
@@ -170,12 +180,56 @@ def plot_series(ax, epicast_data, exaepi_data, label):
     # Calculate ylim from all series
     max_vals = [df[col_name][: args.xlimit].max() for df, _ in epicast_data.values()]
     max_vals.extend([df[exaepi_col][: args.xlimit].max() for df, _ in exaepi_data.values()])
-    ax.set_ylim([0, 1.1 * max(max_vals)])
+    ylim_top = 1.1 * max(max_vals)
+    ax.set_ylim([0, ylim_top])
 
     ax.set_title(label)
     ax.grid(True, which="major")
     ax.grid(True, which="minor", alpha=0.3)
     ax.minorticks_on()
+
+    # Annotate AUC (or max value for cumulative) for each series in the upper-right corner
+    if col_name == "cumulative_exposed":
+        # For cumulative plot: show max value per series instead of legend
+        for i, (fname, (df, file_label)) in enumerate(epicast_data.items()):
+            color = epicast_colors[i % len(epicast_colors)]
+            max_val = df[col_name][: args.xlimit].max()
+            ax.text(
+                0.98,
+                0.97 - i * 0.10,
+                f"Max {file_label}: {max_val:,.0f}",
+                transform=ax.transAxes,
+                ha="right",
+                va="top",
+                fontsize=7,
+                color=color,
+            )
+        offset = len(epicast_data)
+        for i, (fname, (df, file_label)) in enumerate(exaepi_data.items()):
+            color = exaepi_colors[i % len(exaepi_colors)]
+            max_val = df[exaepi_col][: args.xlimit].max()
+            ax.text(
+                0.98,
+                0.97 - (offset + i) * 0.10,
+                f"Max {file_label}: {max_val:,.0f}",
+                transform=ax.transAxes,
+                ha="right",
+                va="top",
+                fontsize=7,
+                color=color,
+            )
+    else:
+        for j, (lbl, auc, color) in enumerate(auc_lines):
+            ax.text(
+                0.98,
+                0.97 - j * 0.10,
+                f"AUC {lbl}: {auc:,.0f}",
+                transform=ax.transAxes,
+                ha="right",
+                va="top",
+                fontsize=7,
+                color=color,
+            )
 
 
 parser = argparse.ArgumentParser(
@@ -198,6 +252,16 @@ parser.add_argument(
 )
 parser.add_argument(
     "--xlimit", "-l", type=int, default=250, help="X-axis limit for plotting (default: 250)"
+)
+parser.add_argument(
+    "--shift",
+    "-s",
+    type=int,
+    default=0,
+    help="Shift the ExaEpi curve along the x-axis in days (positive = right, negative = left, default: 0)",
+)
+parser.add_argument(
+    "--output", "-o", required=True, help="Output file name for the plot (e.g., comparison.png)"
 )
 args = parser.parse_args()
 
@@ -226,9 +290,8 @@ plot_series(ax5, epicast_data, exaepi_data, "Hospitalized")
 plot_series(ax6, epicast_data, exaepi_data, "Dead")
 plot_series(ax7, epicast_data, exaepi_data, "Recovered")
 plot_series(ax8, epicast_data, exaepi_data, "Cumulative Exposed")
-ax8.legend(loc="lower right")
 
-plt.suptitle("ExaEpi vs Epicast Comparison", y=1.05)
+# plt.suptitle("ExaEpi vs Epicast Comparison", y=1.05)
 plt.tight_layout()
-plt.savefig("exaepi_v_epicast_comparison.png", bbox_inches="tight")
+plt.savefig(args.output, bbox_inches="tight")
 plt.show()

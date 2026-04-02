@@ -209,12 +209,13 @@ def read_events_bin(path: str) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 def aggregate_events(events_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Aggregate event counts by timestep, disease_state, and context.
+    Aggregate event counts by day (pairs of timesteps), disease_state, and context.
 
-    Returns a DataFrame with one row per timestep and one column per
-    disease_state category and one column per context category, containing
-    the count of events in each category at that timestep.  An additional
-    ``total`` column holds the total number of events at that timestep.
+    Timesteps are grouped into consecutive pairs: timesteps 0 and 1 form day 0,
+    timesteps 2 and 3 form day 1, etc.  Returns a DataFrame with one row per day
+    and one column per disease_state category and one column per context category,
+    containing the count of events in each category on that day.  An additional
+    ``total`` column holds the total number of events on that day.
 
     Parameters
     ----------
@@ -224,11 +225,14 @@ def aggregate_events(events_df: pd.DataFrame) -> pd.DataFrame:
     Returns
     -------
     agg_df : pd.DataFrame
-        Columns: timestep, <disease_state categories…>, <context categories…>, total
+        Columns: day, <disease_state categories…>, <context categories…>, total
     """
+    # Assign each timestep to a day: day = timestep // 2
+    df = events_df.copy()
+    df["day"] = (df["timestep"] // 2).astype(int)
 
     def _pivot(col, dtype):
-        piv = events_df.groupby(["timestep", col], observed=True).size().unstack(fill_value=0)
+        piv = df.groupby(["day", col], observed=True).size().unstack(fill_value=0)
         # Flatten CategoricalIndex to plain string Index so concat/join works
         piv.columns = piv.columns.astype(str)
         for cat in dtype.categories:
@@ -275,7 +279,7 @@ if __name__ == "__main__":
     # Aggregate and write .agg.csv
     agg_df = aggregate_events(events_df)
     agg_path = base + ".agg.csv"
-    print(f"\n=== Aggregated DataFrame ({len(agg_df):,} timesteps) ===")
+    print(f"\n=== Aggregated DataFrame ({len(agg_df):,} days) ===")
     print(agg_df.head(10))
     print(f"\nWriting aggregated CSV to {agg_path} ...")
     agg_df.to_csv(agg_path, index=False)

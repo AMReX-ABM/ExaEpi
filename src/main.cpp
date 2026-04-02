@@ -544,7 +544,7 @@ void runAgent () {
                 pc.moveAirTravel(censusData.unit_mf, air, censusData.demo);
             }
 
-// Typical day
+            // Typical day
 #ifndef COMPARE_TO_EPICAST
             pc.morningCommute(mask_behavior);
             pc.interactDay(mask_behavior);
