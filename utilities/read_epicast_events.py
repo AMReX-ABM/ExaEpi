@@ -178,6 +178,19 @@ def read_events_bin(path: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     tract_fips = location_id >> np.uint64(8)
     tract_community = (location_id & np.uint64(0xFF)).astype(np.uint8)
 
+    raw_disease_state = pd.Series(records["disease_state"], dtype="uint8")
+    unmapped_mask = ~raw_disease_state.isin(_DISEASE_STATE_MAP.keys())
+    n_unmapped = unmapped_mask.sum()
+    if n_unmapped > 0:
+        import warnings
+
+        unmapped_codes = raw_disease_state[unmapped_mask].unique().tolist()
+        warnings.warn(
+            f"{n_unmapped} event(s) have unmapped disease_state code(s) {unmapped_codes} "
+            "(expected codes: 0x00–0x03, 0x07). These events will have NaN disease_state "
+            "and will be excluded from disease_state counts and 'total' in aggregate_events()."
+        )
+
     events_df = pd.DataFrame(
         {
             "agent_id": agent_id,
@@ -186,9 +199,7 @@ def read_events_bin(path: str) -> tuple[pd.DataFrame, pd.DataFrame]:
             "context": pd.Series(records["context"], dtype="uint8")
             .map(_CONTEXT_MAP)
             .astype(_CONTEXT_DTYPE),
-            "disease_state": pd.Series(records["disease_state"], dtype="uint8")
-            .map(_DISEASE_STATE_MAP)
-            .astype(_DISEASE_STATE_DTYPE),
+            "disease_state": raw_disease_state.map(_DISEASE_STATE_MAP).astype(_DISEASE_STATE_DTYPE),
             "variant": records["variant"],
             "home_state": home_state,
             "true_agent_id": true_agent_id,
@@ -207,32 +218,51 @@ def read_events_bin(path: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     return events_df, demog_df
 
 
-def aggregate_events(events_df: pd.DataFrame) -> pd.DataFrame:
+def aggregate_events(events_df: pd.DataFrame, split_day_night: bool = False) -> pd.DataFrame:
     """
     Aggregate event counts by day (pairs of timesteps), disease_state, and context.
 
     Timesteps are grouped into consecutive pairs: timesteps 0 and 1 form day 0,
-    timesteps 2 and 3 form day 1, etc.  Returns a DataFrame with one row per day
-    and one column per disease_state category and one column per context category,
-    containing the count of events in each category on that day.  An additional
-    ``total`` column holds the total number of events on that day.
+    timesteps 2 and 3 form day 1, etc.
+
+    When *split_day_night* is ``False`` (default) the two 12-hour periods within
+    each calendar day are merged and the result has one row per day.
+
+    When *split_day_night* is ``True`` the periods are kept separate and the
+    result has two rows per calendar day: one for the day period (even timestep)
+    and one for the night period (odd timestep).  An extra ``period`` column
+    contains ``"day"`` or ``"night"``.
+
+    In both cases each row contains one column per disease_state category, one
+    column per context category, and a ``total`` column with the total number of
+    events in that period/day.
 
     Parameters
     ----------
     events_df : pd.DataFrame
         Output of :func:`read_events_bin`.
+    split_day_night : bool, optional
+        If ``True``, keep day and night periods as separate rows.
+        Default is ``False`` (aggregate both periods into a single daily row).
 
     Returns
     -------
     agg_df : pd.DataFrame
-        Columns: day, <disease_state categories…>, <context categories…>, total
+        When split_day_night is False:
+            Columns: day, <disease_state categories…>, <context categories…>, total
+        When split_day_night is True:
+            Columns: day, period, <disease_state categories…>, <context categories…>, total
     """
-    # Assign each timestep to a day: day = timestep // 2
     df = events_df.copy()
+    # day = which 24-hour calendar day (timestep // 2)
     df["day"] = (df["timestep"] // 2).astype(int)
+    # period: even timestep → "day" half, odd timestep → "night" half
+    df["period"] = np.where(df["timestep"] % 2 == 0, "day", "night")
+
+    group_keys = ["day", "period"] if split_day_night else ["day"]
 
     def _pivot(col, dtype):
-        piv = df.groupby(["day", col], observed=True).size().unstack(fill_value=0)
+        piv = df.groupby(group_keys + [col], observed=True).size().unstack(fill_value=0)
         # Flatten CategoricalIndex to plain string Index so concat/join works
         piv.columns = piv.columns.astype(str)
         for cat in dtype.categories:
@@ -243,8 +273,12 @@ def aggregate_events(events_df: pd.DataFrame) -> pd.DataFrame:
     ds_piv = _pivot("disease_state", _DISEASE_STATE_DTYPE)
     ctx_piv = _pivot("context", _CONTEXT_DTYPE)
 
+    # Count all events per group (including those with unmapped/NaN disease_state)
+    total_per_group = df.groupby(group_keys).size().rename("total")
+
     agg_df = pd.concat([ds_piv, ctx_piv], axis=1).fillna(0).astype(int)
-    agg_df["total"] = ds_piv.sum(axis=1)
+    agg_df = agg_df.join(total_per_group, how="left").fillna(0)
+    agg_df["total"] = agg_df["total"].astype(int)
     agg_df = agg_df.reset_index()
     return agg_df
 
@@ -255,11 +289,33 @@ def aggregate_events(events_df: pd.DataFrame) -> pd.DataFrame:
 if __name__ == "__main__":
     import sys
     import os
+    import argparse
 
-    path = sys.argv[1] if len(sys.argv) > 1 else "run.events.bin"
-    print(f"Reading {path} ...")
+    parser = argparse.ArgumentParser(
+        description="Read an Epicast run.events.bin file and write an aggregated CSV."
+    )
+    parser.add_argument(
+        "path",
+        nargs="?",
+        default="run.events.bin",
+        help="Path to the .events.bin file (default: run.events.bin)",
+    )
+    parser.add_argument(
+        "--split-day-night",
+        action="store_true",
+        default=False,
+        help=(
+            "Keep day and night periods as separate rows in the output. "
+            "When set, the output CSV contains two rows per calendar day "
+            "(one for the day period, one for the night period) and a "
+            "'period' column with values 'day' or 'night'. "
+            "The output file is named <base>.agg.split.csv instead of <base>.agg.csv."
+        ),
+    )
+    args = parser.parse_args()
 
-    events_df, demog_df = read_events_bin(path)
+    print(f"Reading {args.path} ...")
+    events_df, demog_df = read_events_bin(args.path)
 
     print(f"\n=== Events DataFrame ({len(events_df):,} rows) ===")
     print(events_df.dtypes)
@@ -270,16 +326,21 @@ if __name__ == "__main__":
     print(demog_df.head(10))
 
     # Write events DataFrame to CSV
-    base = os.path.splitext(path)[0]
+    base = os.path.splitext(args.path)[0]
     # csv_path = base + ".csv"
     # print(f"\nWriting events CSV to {csv_path} ...")
     # events_df.to_csv(csv_path, index=False)
     # print(f"Done. {len(events_df):,} rows written.")
 
-    # Aggregate and write .agg.csv
-    agg_df = aggregate_events(events_df)
-    agg_path = base + ".agg.csv"
-    print(f"\n=== Aggregated DataFrame ({len(agg_df):,} days) ===")
+    # Aggregate and write CSV
+    agg_df = aggregate_events(events_df, split_day_night=args.split_day_night)
+    if args.split_day_night:
+        agg_path = base + ".agg.split.csv"
+        period_desc = "day/night rows"
+    else:
+        agg_path = base + ".agg.csv"
+        period_desc = "days"
+    print(f"\n=== Aggregated DataFrame ({len(agg_df):,} {period_desc}) ===")
     print(agg_df.head(10))
     print(f"\nWriting aggregated CSV to {agg_path} ...")
     agg_df.to_csv(agg_path, index=False)

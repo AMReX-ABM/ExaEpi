@@ -180,8 +180,9 @@ def plot_series(ax, epicast_data, exaepi_data, label):
     # Calculate ylim from all series
     max_vals = [df[col_name][: args.xlimit].max() for df, _ in epicast_data.values()]
     max_vals.extend([df[exaepi_col][: args.xlimit].max() for df, _ in exaepi_data.values()])
-    ylim_top = 1.1 * max(max_vals)
-    ax.set_ylim([0, ylim_top])
+    if max_vals:
+        ylim_top = 1.1 * max(max_vals)
+        ax.set_ylim([0, ylim_top])
 
     ax.set_title(label)
     ax.grid(True, which="major")
@@ -234,21 +235,27 @@ def plot_series(ax, epicast_data, exaepi_data, label):
 
 parser = argparse.ArgumentParser(
     description="Compare ExaEpi and Epicast simulation outputs",
-    epilog="File specifications can include optional labels using the format: 'filename.csv:Label'",
+    epilog=(
+        "File specifications can include optional labels using the format: 'filename.csv:Label'. "
+        "Both -e and -x can be repeated multiple times to plot multiple series, "
+        "e.g.: -e file1.bin -e file2.bin:Label2 -x run1.csv -x run2.csv:Label2"
+    ),
 )
 parser.add_argument(
     "--epicast_file",
     "-e",
-    nargs="+",
-    required=True,
-    help="One or more Epicast csv files, optionally with labels (e.g., 'file.csv:MyLabel')",
+    action="append",
+    default=[],
+    metavar="FILE[:LABEL]",
+    help="Epicast binary file, optionally with a label (e.g., 'file.bin:MyLabel'). Can be repeated.",
 )
 parser.add_argument(
     "--exaepi_file",
     "-x",
-    nargs="+",
-    required=True,
-    help="One or more ExaEpi csv files, optionally with labels (e.g., 'file.csv:MyLabel')",
+    action="append",
+    default=[],
+    metavar="FILE[:LABEL]",
+    help="ExaEpi csv file, optionally with a label (e.g., 'file.csv:MyLabel'). Can be repeated.",
 )
 parser.add_argument(
     "--xlimit", "-l", type=int, default=250, help="X-axis limit for plotting (default: 250)"
@@ -265,6 +272,9 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
+if not args.epicast_file and not args.exaepi_file:
+    parser.error("At least one -e/--epicast_file or -x/--exaepi_file must be specified.")
+
 epicast_data = {}
 for file_spec in args.epicast_file:
     fname, label = parse_file_with_label(file_spec)
@@ -276,7 +286,6 @@ for file_spec in args.exaepi_file:
     fname, label = parse_file_with_label(file_spec)
     print(f"{fname}")
     df = load_exaepi(fname)
-
     exaepi_data[fname] = (df, label)
 
 

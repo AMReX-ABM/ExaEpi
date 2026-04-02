@@ -545,12 +545,12 @@ void runAgent () {
             }
 
             // Typical day
-#ifndef COMPARE_TO_EPICAST
+            // #ifndef COMPARE_TO_EPICAST
             pc.morningCommute(mask_behavior);
             pc.interactDay(mask_behavior);
             pc.eveningCommute(mask_behavior);
             pc.interactEvening(mask_behavior);
-#endif
+            // #endif
             pc.interactNight(mask_behavior);
 
             if ((params.random_travel_int > 0) && (i % params.random_travel_int == 0)) { pc.returnRandomTravel(); }
