@@ -43,7 +43,8 @@ set(FETCHCONTENT_QUIET OFF) # Verbose ON
 FetchContent_Declare(
   amrex
   GIT_REPOSITORY https://github.com/AMReX-Codes/amrex.git/
-  GIT_TAG ${AMReX_GIT_BRANCH})
+  GIT_TAG ${AMReX_GIT_BRANCH}
+  GIT_SUBMODULES "")
 
 if(NOT ${amrex}_POPULATED)
   FetchContent_Populate(amrex)
