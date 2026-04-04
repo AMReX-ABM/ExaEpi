@@ -193,32 +193,27 @@ struct DiseaseParm {
     }
 };
 
-/*! Fixed cumulative distribution for latent period (exposed_to_presymp from calc_epicast_trans_probs.py).
+/*! Fixed cumulative distribution for latent period from Epicast (fig 6)
  *  Entry i gives P(transition by day i). Days 0-7. */
 static constexpr int latent_period_cdf_size = 8;
-AMREX_GPU_DEVICE AMREX_GPU_CONSTANT constexpr Real latent_period_cdf[latent_period_cdf_size] = {Real(0.0),  Real(0.1),
-                                                                                                Real(0.25), Real(0.55),
-                                                                                                Real(0.66), Real(0.78),
-                                                                                                Real(0.85), Real(1.0)};
+AMREX_GPU_DEVICE AMREX_GPU_CONSTANT
+constexpr Real latent_period_cdf[latent_period_cdf_size] = {Real(0.0),  Real(0.1),  Real(0.25), Real(0.55),
+                                                            Real(0.66), Real(0.78), Real(0.85), Real(1.0)};
 
-/*! Fixed cumulative distribution for incubation period (incubation from calc_epicast_trans_probs.py).
+/*! Fixed cumulative distribution for incubation period from Epicast (fig 6)
  *  Entry i gives P(transition by day i). Days 0-8. */
 static constexpr int incubation_period_cdf_size = 9;
-AMREX_GPU_DEVICE AMREX_GPU_CONSTANT constexpr Real incubation_period_cdf[incubation_period_cdf_size] = {Real(0.0),  Real(0.0),
-                                                                                                        Real(0.1),  Real(0.25),
-                                                                                                        Real(0.55), Real(0.66),
-                                                                                                        Real(0.78), Real(0.85),
-                                                                                                        Real(1.0)};
+AMREX_GPU_DEVICE AMREX_GPU_CONSTANT
+constexpr Real incubation_period_cdf[incubation_period_cdf_size] = {Real(0.0),  Real(0.0),  Real(0.1),  Real(0.25), Real(0.55),
+                                                                    Real(0.66), Real(0.78), Real(0.85), Real(1.0)};
 
-/*! Fixed cumulative distribution for infectious period (infectious from calc_epicast_trans_probs.py).
+/*! Fixed cumulative distribution for infectious period from Epicast (fig 6)
  *  Entry i gives P(transition by day i). Days 0-10. */
 static constexpr int infectious_period_cdf_size = 11;
-AMREX_GPU_DEVICE AMREX_GPU_CONSTANT constexpr Real infectious_period_cdf[infectious_period_cdf_size] = {Real(0.0),  Real(0.0),
-                                                                                                        Real(0.0),  Real(0.0),
-                                                                                                        Real(0.1),  Real(0.3),
-                                                                                                        Real(0.5),  Real(0.7),
-                                                                                                        Real(0.85), Real(0.95),
-                                                                                                        Real(1.0)};
+AMREX_GPU_DEVICE AMREX_GPU_CONSTANT
+constexpr Real infectious_period_cdf[infectious_period_cdf_size] = {Real(0.0),  Real(0.0),  Real(0.0), Real(0.0),
+                                                                    Real(0.1),  Real(0.3),  Real(0.5), Real(0.7),
+                                                                    Real(0.85), Real(0.95), Real(1.0)};
 
 /*! \brief Will a symptomatic agent be hospitalized? */
 template <typename PTDType>
