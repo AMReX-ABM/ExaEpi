@@ -17,11 +17,9 @@ infectious = [0.0] * 4
 infectious.extend([0.1, 0.3, 0.5, 0.7, 0.85, 0.95, 1.0])
 
 transitions = [
-    #(exposed_to_presymp, 6.0, 0.73, 0.0, "Exposed to Presymptomatic"),
-    #(incubation, 6.0, 0.73, 1.0, "Incubation Period"),
+    (exposed_to_presymp, 6.0, 0.73, 0.0, "Exposed to Presymptomatic"),
+    (incubation, 6.0, 0.73, 1.0, "Incubation Period"),
     #(infectious, 27.0, 0.25, 0.0, "Infectious Period"),
-    (exposed_to_presymp, 1.82, 2.36, 0.0, "Exposed to Presymptomatic"),
-    (incubation, 1.82, 2.36, 1.0, "Incubation Period"),
     (infectious, 3.56, 1.22, 2.5, "Infectious Period"),
 ]
 
@@ -175,7 +173,7 @@ for idx, (trans_probs, shape, scale, loc, title) in enumerate(transitions):
         gamma_manual,
         "r--",
         lw=2,
-        label=f"Manual gamma (α={shape:.2f}, β={scale:.2f}, r={corr_manual:.3f})",
+        label=f"Manual gamma (α={shape:.2f}, β={scale:.2f}, loc={loc:.2f} r={corr_manual:.3f})",
     )
 
     # --- Plot MLE-fitted gamma (orange) ---
@@ -190,7 +188,7 @@ for idx, (trans_probs, shape, scale, loc, title) in enumerate(transitions):
         color="orange",
         lw=2,
         linestyle="-.",
-        label=f"MLE gamma (α={fshape_mle:.2f}, β={fscale_mle:.2f}, r={corr_mle:.3f})",
+        label=f"MLE gamma (α={fshape_mle:.2f}, β={fscale_mle:.2f}, loc={loc:.2f} , r={corr_mle:.3f})",
     )
 
     # --- Plot optimized gamma (green) ---
@@ -204,7 +202,7 @@ for idx, (trans_probs, shape, scale, loc, title) in enumerate(transitions):
         gamma_opt,
         "g-",
         lw=2,
-        label=f"Optimized gamma (α={shape_opt:.2f}, loc={loc_opt:.2f}, β={scale_opt:.2f}, r={corr_opt:.3f})",
+        label=f"Optimized gamma (α={shape_opt:.2f}, β={scale_opt:.2f}, loc={loc:.2f} , r={corr_opt:.3f})",
     )
 
     print(f"  Pearson r vs Epicast cumulative probs:")

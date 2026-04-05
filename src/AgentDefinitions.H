@@ -244,7 +244,9 @@ bool isNewlyAsymptomatic (const int a_idx,      /*!< Agent index */
     return status == Status::infected && disease_counter == incb_period && symptom_status == SymptomStatus::asymptomatic;
 }
 
-/*! \brief Did the agent just become presymptomatic this step? */
+/*! \brief Did the agent just transition out of presymptomatic this step (i.e., just became symptomatic or asymptomatic)?
+ *  This fires on the same step as isNewlySymptomatic / isNewlyAsymptomatic, so that
+ *  sum(NewP) == sum(NewS) + sum(NewA) over a complete run. */
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 bool isNewlyPresymptomatic (const int a_idx,      /*!< Agent index */
@@ -254,8 +256,9 @@ bool isNewlyPresymptomatic (const int a_idx,      /*!< Agent index */
     int symptom_status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx];
     int disease_counter = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
     int incb_period = (int)amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
-    // presymptomatic for one day only, just before becoming asymp/symp
-    return status == Status::infected && (disease_counter == incb_period - 1) && symptom_status == SymptomStatus::presymptomatic;
+    // fires on the same step as isNewlySymptomatic/isNewlyAsymptomatic (counter == incb_period, after transition)
+    return status == Status::infected && (disease_counter == incb_period) &&
+           (symptom_status == SymptomStatus::symptomatic || symptom_status == SymptomStatus::asymptomatic);
 }
 
 /*! \brief Is an agent asymptomatic (does not currently have symptoms and will not develop them)? */

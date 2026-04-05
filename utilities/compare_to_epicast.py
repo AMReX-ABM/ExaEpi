@@ -144,7 +144,8 @@ def plot_series(ax, epicast_data, exaepi_data, label):
     for i, (fname, (df, file_label)) in enumerate(epicast_data.items()):
         color = epicast_colors[i % len(epicast_colors)]
         y_vals = df[col_name][: args.xlimit]
-        auc = np.trapezoid(y_vals)
+        #auc = np.trapezoid(y_vals)
+        auc = np.sum(y_vals)
         auc_lines.append((file_label, auc, color))
         ax.plot(
             df[col_name],
@@ -163,7 +164,8 @@ def plot_series(ax, epicast_data, exaepi_data, label):
         # x_vals = range(len(df[exaepi_col]))[4:]
         # y_vals = df[exaepi_col] * 1.33
         # y_vals = y_vals[:-4]
-        auc = np.trapezoid(y_vals[: args.xlimit])
+        #auc = np.trapezoid(y_vals[: args.xlimit])
+        auc = np.sum(y_vals)
         auc_lines.append((file_label, auc, color))
         ax.plot(
             x_vals,
@@ -220,6 +222,7 @@ def plot_series(ax, epicast_data, exaepi_data, label):
                 color=color,
             )
     else:
+        print(f"{col_name}")
         for j, (lbl, auc, color) in enumerate(auc_lines):
             ax.text(
                 0.98,
@@ -231,6 +234,7 @@ def plot_series(ax, epicast_data, exaepi_data, label):
                 fontsize=7,
                 color=color,
             )
+            print(f"  {lbl}: {auc:.0f}")
 
 
 parser = argparse.ArgumentParser(

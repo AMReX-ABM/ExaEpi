@@ -720,6 +720,7 @@ void AgentContainer::infectAgents (MFPtrVec& a_disease_stats /*!< Community-wise
                 auto ds_arr = (*a_disease_stats[d])[mfi].array();
 
                 auto status_ptr = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
+                auto symptomatic_ptr = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::symptomatic).data();
 
                 auto prob_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::prob).data();
                 auto counter_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::disease_counter).data();
@@ -752,9 +753,9 @@ void AgentContainer::infectAgents (MFPtrVec& a_disease_stats /*!< Community-wise
                     prob_ptr[i] *= (1.0_prt - ci_arr[i]);
                     if (status_ptr[i] == Status::never || status_ptr[i] == Status::susceptible) {
                         if (amrex::Random(engine) < prob_ptr[i]) {
-                            setInfected(&(status_ptr[i]), &(counter_ptr[i]), &(latent_period_ptr[i]), &(infectious_period_ptr[i]),
-                                        &(incubation_period_ptr[i]), &(hospital_delay_ptr[i]), &(hospital_random_ptr[i]), engine,
-                                        lparm);
+                            setInfected(&(status_ptr[i]), &(symptomatic_ptr[i]), &(counter_ptr[i]), &(latent_period_ptr[i]),
+                                        &(infectious_period_ptr[i]), &(incubation_period_ptr[i]), &(hospital_delay_ptr[i]),
+                                        &(hospital_random_ptr[i]), engine, lparm);
                             Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::new_cases), 1.0_rt);
 
                             return;

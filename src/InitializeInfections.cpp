@@ -80,6 +80,7 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
         int r_RT = RealIdx::nattribs;
 
         auto status_ptr = soa.GetIntData(i_RT + i0(d_idx) + IntIdxDisease::status).data();
+        auto symptomatic_ptr = soa.GetIntData(i_RT + i0(d_idx) + IntIdxDisease::symptomatic).data();
 
         auto counter_ptr = soa.GetRealData(r_RT + r0(d_idx) + RealIdxDisease::disease_counter).data();
         auto latent_period_ptr = soa.GetRealData(r_RT + r0(d_idx) + RealIdxDisease::latent_period).data();
@@ -115,9 +116,9 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
                         ip += ninfect;
                     }
                 } else {
-                    setInfected(&(status_ptr[pindex]), &(counter_ptr[pindex]), &(latent_period_ptr[pindex]),
-                                &(infectious_period_ptr[pindex]), &(incubation_period_ptr[pindex]), &(hospital_delay_ptr[pindex]),
-                                &(hospital_random_ptr[pindex]), engine, lparm);
+                    setInfected(&(status_ptr[pindex]), &(symptomatic_ptr[pindex]), &(counter_ptr[pindex]),
+                                &(latent_period_ptr[pindex]), &(infectious_period_ptr[pindex]), &(incubation_period_ptr[pindex]),
+                                &(hospital_delay_ptr[pindex]), &(hospital_random_ptr[pindex]), engine, lparm);
                     ++ni;
                 }
             }
@@ -160,13 +161,13 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
     std::map<std::pair<int, int>, amrex::DenseBins<AgentContainer::ParticleType>> bin_map;
 
     Print() << "Initializing infections for " << d_name << "\n";
-#ifdef COMPARE_TO_EPICAST
+    //    #ifdef COMPARE_TO_EPICAST
     Print() << "WARNINNG: limited version for comparing to Epicast\n";
     const int NTRY = 1;
 #warning Building limited version for comparing to Epicast
-#else
-    const int NTRY = 10;
-#endif
+    // #else
+    //  const int NTRY = 10;
+    // #endif
 
     int ntry = NTRY;
     int ninf = 0;

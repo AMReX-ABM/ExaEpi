@@ -157,13 +157,13 @@ struct DiseaseParm {
     /*! \brief Given age group, decide if hospitalized or not;
      *  if so, compute number of hospitalization days and check if
      *  moved to ICU and ventilator */
-    AMREX_GPU_DEVICE AMREX_FORCE_INLINE void
-    checkHospitalization (ParticleReal* a_t_hosp_days,     /*!< number of hospitalization days */
-                          int* a_ICU,                      /*!< moved to ICU ? */
-                          int* a_ventilator,               /*!< moved to ventilator? */
-                          const int a_age_group,           /*!< age group */
-                          const amrex::Real a_random_draw, /*!< random number */
-                          const amrex::RandomEngine& a_reng /*!< random engine */) const {
+    AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+    void checkHospitalization (ParticleReal* a_t_hosp_days,     /*!< number of hospitalization days */
+                               int* a_ICU,                      /*!< moved to ICU ? */
+                               int* a_ventilator,               /*!< moved to ventilator? */
+                               const int a_age_group,           /*!< age group */
+                               const amrex::Real a_random_draw, /*!< random number */
+                               const amrex::RandomEngine& a_reng /*!< random engine */) const {
         *a_t_hosp_days = ParticleReal(0);
         // check the agent will be hospitalized (m_CHR prob)
         if (a_random_draw < m_CHR[a_age_group]) {
@@ -193,6 +193,7 @@ struct DiseaseParm {
     }
 };
 
+#ifdef COMPARE_TO_EPICAST
 /*! Fixed cumulative distribution for latent period from Epicast (fig 6)
  *  Entry i gives P(transition by day i). Days 0-7. */
 static constexpr int latent_period_cdf_size = 8;
@@ -214,6 +215,7 @@ AMREX_GPU_DEVICE AMREX_GPU_CONSTANT
 constexpr Real infectious_period_cdf[infectious_period_cdf_size] = {Real(0.0),  Real(0.0),  Real(0.0), Real(0.0),
                                                                     Real(0.1),  Real(0.3),  Real(0.5), Real(0.7),
                                                                     Real(0.85), Real(0.95), Real(1.0)};
+#endif
 
 /*! \brief Will a symptomatic agent be hospitalized? */
 template <typename PTDType>
@@ -243,11 +245,12 @@ int sampleFromCDF (const amrex::Real* cdf, int cdf_size, amrex::RandomEngine con
 
 /*! \brief Set this agent to infected status, and initialize disease periods. */
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void setInfected (int* status, amrex::ParticleReal* counter, amrex::ParticleReal* latent_period,
+void setInfected (int* status, int* symptomatic, amrex::ParticleReal* counter, amrex::ParticleReal* latent_period,
                   amrex::ParticleReal* infectious_period, amrex::ParticleReal* incubation_period,
                   amrex::ParticleReal* hospital_delay, amrex::ParticleReal* hospital_random, amrex::RandomEngine const& engine,
                   const DiseaseParm* lparm) {
     *status = Status::infected;
+    *symptomatic = SymptomStatus::presymptomatic;
     *counter = ParticleReal(0);
 
 #ifdef COMPARE_TO_EPICAST
@@ -271,11 +274,11 @@ void setInfected (int* status, amrex::ParticleReal* counter, amrex::ParticleReal
     if (*latent_period < 1) { *latent_period = amrex::Real(1); }
     if (*incubation_period < 1) { *incubation_period = amrex::Real(1); }
     if (*infectious_period < 1) { *infectious_period = amrex::Real(1); }
-    if (*incubation_period > (*infectious_period + *latent_period)) {
-        *incubation_period = std::floor(*infectious_period + *latent_period);
-    }
     // if (*hospital_delay < 2) { *hospital_delay = amrex::Real(2); }
 #endif
+    if (*incubation_period >= (*infectious_period + *latent_period)) {
+        *incubation_period = std::floor(*infectious_period + *latent_period) - amrex::Real(1);
+    }
 
     *hospital_random = static_cast<ParticleReal>(amrex::Random(engine));
 }
