@@ -2,6 +2,7 @@
 
 import sys
 import os
+import glob
 import pandas as pd
 import numpy as np
 import argparse
@@ -101,23 +102,61 @@ def parse_file_with_label(file_spec):
     """Parse a file specification like 'path/to/file.csv:MyLabel'
 
     Returns:
-        tuple: (filename, label) where label is None if not specified
+        tuple: (pattern, explicit_label_or_None)
+            explicit_label_or_None is None when no ':label' was given.
     """
     if ":" in file_spec:
         parts = file_spec.split(":", 1)
         return parts[0], parts[1]
     else:
-        # Use short filename without extension as default label
-        short_name = file_spec.split("/")[-1].split(".")[0]
-        return file_spec, short_name
+        return file_spec, None
+
+
+def expand_file_spec(file_spec):
+    """Expand a file specification (possibly containing wildcards) into a list of
+    (filename, legend_label, is_wildcard) tuples.
+
+    legend_label is the string to show in the legend, or None if no legend entry
+    should be created for this file.
+
+    Rules:
+    - No ':label' suffix → legend_label is None for every matched file (no legend entry).
+    - ':label' suffix, single file (or no wildcard) → legend_label = label.
+    - ':label' suffix, wildcard matching N>1 files → first file gets legend_label = label,
+      the rest get legend_label = None (label shown only once).
+    - Wildcard matching multiple files → is_wildcard=True (faint lines).
+    - Single file (explicit or single wildcard match) → is_wildcard=False.
+
+    Returns:
+        list of (filename, legend_label, is_wildcard)
+    """
+    pattern, explicit_label = parse_file_with_label(file_spec)
+    has_wildcard = any(c in pattern for c in ("*", "?", "["))
+
+    if has_wildcard:
+        matched = sorted(glob.glob(pattern))
+        if not matched:
+            print(f"Warning: no files matched pattern '{pattern}'", file=sys.stderr)
+            return []
+        if len(matched) == 1:
+            # Single match – treat as explicit (not faint)
+            return [(matched[0], explicit_label, False)]
+        # Multiple matches – faint lines; label shown at most once
+        results = []
+        for idx, fpath in enumerate(matched):
+            legend_label = explicit_label if (idx == 0 and explicit_label is not None) else None
+            results.append((fpath, legend_label, True))
+        return results
+    else:
+        return [(pattern, explicit_label, False)]
 
 
 def plot_series(ax, epicast_data, exaepi_data, label):
     """Plot time series data from multiple files.
 
     Args:
-        epicast_data: dict mapping filenames to (dataframe, label) tuples
-        exaepi_data: dict mapping filenames to (dataframe, label) tuples
+        epicast_data: dict mapping filenames to (dataframe, label, is_wildcard) tuples
+        exaepi_data: dict mapping filenames to (dataframe, label, is_wildcard) tuples
         label: the data series to plot (e.g., 'exposed', 'symptomatic')
     """
     # Mapping from plot labels to ExaEpi column names
@@ -141,47 +180,72 @@ def plot_series(ax, epicast_data, exaepi_data, label):
     auc_lines = []
 
     # Plot each Epicast file
-    for i, (fname, (df, file_label)) in enumerate(epicast_data.items()):
-        color = epicast_colors[i % len(epicast_colors)]
+    for i, (fname, (df, legend_label, is_wildcard)) in enumerate(epicast_data.items()):
+        # Wildcard series all use the same base blue; explicit series cycle through colors
+        color = "blue" if is_wildcard else epicast_colors[i % len(epicast_colors)]
         y_vals = df[col_name][: args.xlimit]
-        #auc = np.trapezoid(y_vals)
         auc = np.sum(y_vals)
-        auc_lines.append((file_label, auc, color))
-        ax.plot(
-            df[col_name],
-            label=f"{file_label}",
-            color=color,
-            linewidth=2,
-            linestyle="--",
-        )
+        auc_lines.append((legend_label, auc, color, is_wildcard))
+
+        # Use the explicit label if provided; otherwise suppress from legend
+        plot_label = legend_label if legend_label is not None else "_nolegend_"
+
+        if is_wildcard:
+            ax.plot(
+                df[col_name],
+                label=plot_label,
+                color=color,
+                linewidth=1,
+                linestyle="-",
+                alpha=0.3,
+            )
+        else:
+            ax.plot(
+                df[col_name],
+                label=plot_label,
+                color=color,
+                linewidth=2,
+                linestyle="--",
+            )
 
     # Plot each ExaEpi file
-    for i, (fname, (df, file_label)) in enumerate(exaepi_data.items()):
-        color = exaepi_colors[i % len(exaepi_colors)]
-        # x_vals = range(len(df[exaepi_col]))
+    for i, (fname, (df, legend_label, is_wildcard)) in enumerate(exaepi_data.items()):
+        # Wildcard series all use the same base red; explicit series cycle through colors
+        color = "red" if is_wildcard else exaepi_colors[i % len(exaepi_colors)]
         x_vals = df["Day"] + args.shift
         y_vals = df[exaepi_col]
-        # x_vals = range(len(df[exaepi_col]))[4:]
-        # y_vals = df[exaepi_col] * 1.33
-        # y_vals = y_vals[:-4]
-        #auc = np.trapezoid(y_vals[: args.xlimit])
         auc = np.sum(y_vals)
-        auc_lines.append((file_label, auc, color))
-        ax.plot(
-            x_vals,
-            y_vals,
-            label=f"{file_label}",
-            color=color,
-            linewidth=2,
-        )
+        auc_lines.append((legend_label, auc, color, is_wildcard))
+
+        # Use the explicit label if provided; otherwise suppress from legend
+        plot_label = legend_label if legend_label is not None else "_nolegend_"
+
+        if is_wildcard:
+            ax.plot(
+                x_vals,
+                y_vals,
+                label=plot_label,
+                color=color,
+                linewidth=1,
+                linestyle="-",
+                alpha=0.3,
+            )
+        else:
+            ax.plot(
+                x_vals,
+                y_vals,
+                label=plot_label,
+                color=color,
+                linewidth=2,
+            )
 
     ax.set_xlabel("Days")
     ax.set_ylabel("Number of " + label)
     ax.set_xlim([0, args.xlimit])
 
     # Calculate ylim from all series
-    max_vals = [df[col_name][: args.xlimit].max() for df, _ in epicast_data.values()]
-    max_vals.extend([df[exaepi_col][: args.xlimit].max() for df, _ in exaepi_data.values()])
+    max_vals = [df[col_name][: args.xlimit].max() for df, _, _wc in epicast_data.values()]
+    max_vals.extend([df[exaepi_col][: args.xlimit].max() for df, _, _wc in exaepi_data.values()])
     if max_vals:
         ylim_top = 1.1 * max(max_vals)
         ax.set_ylim([0, ylim_top])
@@ -192,41 +256,52 @@ def plot_series(ax, epicast_data, exaepi_data, label):
     ax.minorticks_on()
 
     # Annotate AUC (or max value for cumulative) for each series in the upper-right corner
+    # Only annotate series that have an explicit label (legend_label is not None).
     if col_name == "cumulative_exposed":
-        # For cumulative plot: show max value per series instead of legend
-        for i, (fname, (df, file_label)) in enumerate(epicast_data.items()):
+        # For cumulative plot: show max value per labelled series
+        row = 0
+        for i, (fname, (df, legend_label, is_wildcard)) in enumerate(epicast_data.items()):
+            if legend_label is None:
+                continue
             color = epicast_colors[i % len(epicast_colors)]
             max_val = df[col_name][: args.xlimit].max()
             ax.text(
                 0.98,
-                0.97 - i * 0.10,
-                f"Max {file_label}: {max_val:,.0f}",
+                0.97 - row * 0.10,
+                f"Max {legend_label}: {max_val:,.0f}",
                 transform=ax.transAxes,
                 ha="right",
                 va="top",
                 fontsize=7,
                 color=color,
             )
-        offset = len(epicast_data)
-        for i, (fname, (df, file_label)) in enumerate(exaepi_data.items()):
+            row += 1
+        for i, (fname, (df, legend_label, is_wildcard)) in enumerate(exaepi_data.items()):
+            if legend_label is None:
+                continue
             color = exaepi_colors[i % len(exaepi_colors)]
             max_val = df[exaepi_col][: args.xlimit].max()
             ax.text(
                 0.98,
-                0.97 - (offset + i) * 0.10,
-                f"Max {file_label}: {max_val:,.0f}",
+                0.97 - row * 0.10,
+                f"Max {legend_label}: {max_val:,.0f}",
                 transform=ax.transAxes,
                 ha="right",
                 va="top",
                 fontsize=7,
                 color=color,
             )
+            row += 1
     else:
         print(f"{col_name}")
-        for j, (lbl, auc, color) in enumerate(auc_lines):
+        row = 0
+        for lbl, auc, color, is_wildcard in auc_lines:
+            if lbl is None:
+                print(f"  (unlabelled): {auc:.0f}")
+                continue
             ax.text(
                 0.98,
-                0.97 - j * 0.10,
+                0.97 - row * 0.10,
                 f"AUC {lbl}: {auc:,.0f}",
                 transform=ax.transAxes,
                 ha="right",
@@ -235,6 +310,7 @@ def plot_series(ax, epicast_data, exaepi_data, label):
                 color=color,
             )
             print(f"  {lbl}: {auc:.0f}")
+            row += 1
 
 
 parser = argparse.ArgumentParser(
@@ -281,16 +357,16 @@ if not args.epicast_file and not args.exaepi_file:
 
 epicast_data = {}
 for file_spec in args.epicast_file:
-    fname, label = parse_file_with_label(file_spec)
-    df = load_epicast(fname)
-    epicast_data[fname] = (df, label)
+    for fname, label, is_wildcard in expand_file_spec(file_spec):
+        df = load_epicast(fname)
+        epicast_data[fname] = (df, label, is_wildcard)
 
 exaepi_data = {}
 for file_spec in args.exaepi_file:
-    fname, label = parse_file_with_label(file_spec)
-    print(f"{fname}")
-    df = load_exaepi(fname)
-    exaepi_data[fname] = (df, label)
+    for fname, label, is_wildcard in expand_file_spec(file_spec):
+        print(f"{fname}")
+        df = load_exaepi(fname)
+        exaepi_data[fname] = (df, label, is_wildcard)
 
 
 fig, ((ax1, ax2), (ax3, ax4), (ax5, ax6), (ax7, ax8)) = plt.subplots(4, 2, figsize=(12, 11))
