@@ -47,25 +47,25 @@ struct DiseaseParm {
 
     // Transmission probabilities based on age group of receiver (0-4, 5-17, 18-29, 30-49, 50-64, 65+)
     /*! community transmission, both home and work */
-    Real xmit_comm[AgeGroups::total] = {Real(0.000015), Real(0.000055), Real(0.00015),
-                                        Real(0.00015),  Real(0.00015),  Real(0.00025)};
+    Real xmit_comm[AgeGroups::total] = {Real(0.000021), Real(0.000062), Real(0.000165),
+                                        Real(0.000165), Real(0.000165), Real(0.000247)};
     /*! neighborhood transmission, both home and work */
-    Real xmit_hood[AgeGroups::total] = {Real(0.000086), Real(0.00025), Real(0.00065), Real(0.00065), Real(0.00065), Real(0.001)};
+    Real xmit_hood[AgeGroups::total] = {Real(0.000082), Real(0.000247), Real(0.00066), Real(0.00066), Real(0.00066), Real(0.001)};
     /*! within household transmission, where transmitter is an adult */
     Real xmit_hh_adult[AgeGroups::total] = {Real(0.3), Real(0.3), Real(0.4), Real(0.4), Real(0.4), Real(0.4)};
     /*! within household transmission, where transmitter is a child */
     Real xmit_hh_child[AgeGroups::total] = {Real(0.6), Real(0.6), Real(0.3), Real(0.3), Real(0.3), Real(0.3)};
     /*! neighborhood cluster transmission, where transmitter is an adult */
-    Real xmit_nc_adult[AgeGroups::total] = {Real(0.0528), Real(0.0528), Real(0.066), Real(0.066), Real(0.066), Real(0.066)};
+    Real xmit_nc_adult[AgeGroups::total] = {Real(0.132), Real(0.132), Real(0.165), Real(0.165), Real(0.165), Real(0.165)};
     /*! neighborhood cluster transmission, where transmitter is a child */
-    Real xmit_nc_child[AgeGroups::total] = {Real(0.1), Real(0.1), Real(0.0528), Real(0.0528), Real(0.0528), Real(0.0528)};
+    Real xmit_nc_child[AgeGroups::total] = {Real(0.25), Real(0.25), Real(0.132), Real(0.132), Real(0.132), Real(0.132)};
     /// probabilities for school groups: none, college, high, middle, elementary, and daycare
     /*! child-to-child */
-    Real xmit_school[SchoolType::total] = {Real(0), Real(0.0315), Real(0.0315), Real(0.0375), Real(0.0435), Real(0.15)};
+    Real xmit_school[SchoolType::total] = {Real(0), Real(0.0002), Real(0.0024), Real(0.0027), Real(0.0088), Real(0.0125)};
     /*! for adult to child */
-    Real xmit_school_a2c[SchoolType::total] = {Real(0), Real(0.0315), Real(0.0315), Real(0.0375), Real(0.0435), Real(0.15)};
+    Real xmit_school_a2c[SchoolType::total] = {Real(0), Real(0.001), Real(0.01), Real(0.013), Real(0.043), Real(0.025)};
     /*! for child to adult */
-    Real xmit_school_c2a[SchoolType::total] = {Real(0), Real(0.0315), Real(0.0315), Real(0.0375), Real(0.0435), Real(0.15)};
+    Real xmit_school_c2a[SchoolType::total] = {Real(0), Real(0.001), Real(0.01), Real(0.013), Real(0.043), Real(0.025)};
 
     /*! Probabilities when school is closed */
     Real xmit_comm_SC[AgeGroups::total];
@@ -87,26 +87,24 @@ struct DiseaseParm {
     Real child_compliance;                     /*!< Child compliance with masking ?? */
     Real child_HH_closure;                     /*!< Multiplier for household contacts during school closure */
 
-    Real immune_length_alpha = Real(540.0);    /*! alpha parameter for gamma distribution*/
-    Real immune_length_beta = Real(0.33);      /*! beta parameter for gamma distribution*/
-    Real immune_length_loc = Real(0.0);        /*! location (shift) parameter for gamma distribution*/
+    Real immune_length_alpha = Real(1.0);      /*! alpha parameter for gamma distribution*/
+    Real immune_length_beta = Real(1.0);       /*! beta parameter for gamma distribution*/
+    Real immune_length_loc = Real(10000.0);    /*! location (shift) parameter for gamma distribution*/
 
-    Real latent_length_alpha = Real(5.2);      /*! alpha parameter for gamma distribution (unused - see latent_period_cdf)*/
-    Real latent_length_beta = Real(0.75);      /*! beta parameter for gamma distribution (unused - see latent_period_cdf)*/
+    Real latent_length_alpha = Real(6.0);      /*! alpha parameter for gamma distribution (unused - see latent_period_cdf)*/
+    Real latent_length_beta = Real(0.73);      /*! beta parameter for gamma distribution (unused - see latent_period_cdf)*/
 
-    Real infectious_length_alpha = Real(26.2); /*! alpha parameter for gamma distribution (unused - see infectious_period_cdf)*/
-    Real infectious_length_beta = Real(0.23);  /*! beta parameter for gamma distribution (unused - see infectious_period_cdf)*/
-    Real infectious_length_loc =
-            Real(0.0); /*! location (shift) parameter for gamma distribution (unused - see infectious_period_cdf)*/
+    Real infectious_length_alpha = Real(3.54); /*! alpha parameter for gamma distribution (unused - see infectious_period_cdf)*/
+    Real infectious_length_beta = Real(1.22);  /*! beta parameter for gamma distribution (unused - see infectious_period_cdf)*/
+    Real infectious_length_loc = Real(2.5);    /*! location (shift) parameter for gamma distribution */
 
-    Real incubation_length_alpha = Real(7.5); /*! alpha parameter for gamma distribution (unused - see incubation_period_cdf)*/
-    Real incubation_length_beta = Real(0.65); /*! beta parameter for gamma distribution (unused - see incubation_period_cdf)*/
-    Real incubation_length_loc =
-            Real(0.0); /*! location (shift) parameter for gamma distribution (unused - see incubation_period_cdf)*/
+    Real incubation_length_alpha = Real(6.0);  /*! alpha parameter for gamma distribution (unused - see incubation_period_cdf)*/
+    Real incubation_length_beta = Real(0.73);  /*! beta parameter for gamma distribution (unused - see incubation_period_cdf)*/
+    Real incubation_length_loc = Real(1.0);    /*! location (shift) parameter for gamma distribution */
 
-    Real hospital_delay_length_alpha = Real(1.0); /*! alpha parameter for gamma distribution*/
-    Real hospital_delay_length_beta = Real(1.0);  /*! beta parameter for gamma distribution*/
-    Real hospital_delay_length_loc = Real(0.0);   /*! location (shift) parameter for gamma distribution*/
+    Real hospital_delay_length_alpha = Real(0.1); /*! alpha parameter for gamma distribution*/
+    Real hospital_delay_length_beta = Real(0.1);  /*! beta parameter for gamma distribution*/
+    Real hospital_delay_length_loc = Real(1.0);   /*! location (shift) parameter for gamma distribution*/
 
     int m_hospital_stay_type = HospitalStayType::Constant;
 
@@ -274,7 +272,6 @@ void setInfected (int* status, int* symptomatic, amrex::ParticleReal* counter, a
     if (*latent_period < 1) { *latent_period = amrex::Real(1); }
     if (*incubation_period < 1) { *incubation_period = amrex::Real(1); }
     if (*infectious_period < 1) { *infectious_period = amrex::Real(1); }
-    // if (*hospital_delay < 2) { *hospital_delay = amrex::Real(2); }
 #endif
     if (*incubation_period >= (*infectious_period + *latent_period)) {
         *incubation_period = std::floor(*infectious_period + *latent_period) - amrex::Real(1);
