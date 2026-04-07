@@ -165,7 +165,7 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
     Print() << "WARNINNG: limited version for comparing to Epicast\n";
     const int NTRY = 1;
 #else
-      const int NTRY = 10;
+    const int NTRY = 10;
 #endif
 
     int ntry = NTRY;
