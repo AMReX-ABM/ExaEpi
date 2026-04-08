@@ -24,7 +24,6 @@ struct BinaryInteractionWorkNborhood {
                             const DiseaseParm* const a_lparm, /*!< disease parameters */
                             const Real a_social_scale /*!< Social scale */) const noexcept {
         auto age_group_ptr = a_ptd.m_idata[IntIdx::age_group];
-        auto nborhood_ptr = a_ptd.m_idata[IntIdx::nborhood];
         auto nborhood_ptr = a_ptd.m_idata[IntIdx::work_nborhood];
         auto random_travel_ptr = a_ptd.m_idata[IntIdx::random_travel];
 
