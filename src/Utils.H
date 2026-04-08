@@ -76,8 +76,8 @@ struct TestParams {
     int shelter_start = -1;
     int shelter_length = 0;
 
-    int nborhood_size = 340;
-    int workgroup_size = 16;
+    int nborhood_size = 500;
+    int workgroup_size = 20;
 
     bool fast = false; /*!< Use the fast implementations for various operations, e.g. binning, at the cost of
                            exact reproducibility for a given random seed. */
