@@ -2,3 +2,11 @@ Backtrace.*
 output-*
 out-*
 results
+EducationData/*
+!EducationData/schools_with_geoids.csv.gz
+LODES7
+US_2010_Census_BlockGroups
+US_2010_Census_States
+UrbanPop
+!UrbanPop/urbanpop_nm.bin.gz
+!UrbanPop/urbanpop_nm.idx

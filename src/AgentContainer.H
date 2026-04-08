@@ -116,7 +116,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     amrex::GpuArray<amrex::Real, AgeGroups::total> m_symptomatic_withdraw_compliance_day_0 = {0.3_rt, 0.3_rt, 0.3_rt,
                                                                                               0.3_rt, 0.3_rt, 0.3_rt};
     /*!< Symptomatic withdrawal compliance rate, day 1 */
-    amrex::GpuArray<amrex::Real, AgeGroups::total> m_symptomatic_withdraw_compliance_day_1 = {0.8_rt, 0.7_rt, 0.5_rt,
+    amrex::GpuArray<amrex::Real, AgeGroups::total> m_symptomatic_withdraw_compliance_day_1 = {0.8_rt, 0.6_rt, 0.5_rt,
                                                                                               0.5_rt, 0.5_rt, 0.5_rt};
     /*!< Symptomatic withdrawal compliance rate, day 2 */
     amrex::GpuArray<amrex::Real, AgeGroups::total> m_symptomatic_withdraw_compliance_day_2 = {0.9_rt, 0.8_rt, 0.7_rt,
