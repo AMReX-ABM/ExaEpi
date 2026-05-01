@@ -292,6 +292,7 @@ void AgentContainer::moveRandomTravel (const amrex::Real random_travel_prob) {
             auto& soa = ptile.GetStructOfArrays();
             auto random_travel_ptr = soa.GetIntData(IntIdx::random_travel).data();
             auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
+            auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
 
             amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
                 if (!inHospital(i, ptd) && !withdrawn_ptr[i]) {
@@ -302,14 +303,15 @@ void AgentContainer::moveRandomTravel (const amrex::Real random_travel_prob) {
                         int j_random = int(amrex::Real(j_max) * amrex::Random(engine));
                         p.pos(0) = i_random;
                         p.pos(1) = j_random;
+                        weatherIdxPtr[i] = -weatherIdxPtr[i] - 2;
                     }
                 }
             });
         }
     }
 
-    // Don't need to redistribute here because it happens after agents move to work
-    // Redistribute();
+    Redistribute();
+    AMREX_ALWAYS_ASSERT(OK());
 }
 
 /*! \brief Select agents to travel by air
@@ -338,6 +340,7 @@ void AgentContainer::moveAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air
             auto trav_i_ptr = soa.GetIntData(IntIdx::trav_i).data();
             auto trav_j_ptr = soa.GetIntData(IntIdx::trav_j).data();
             auto air_travel_prob_ptr = air.air_travel_prob_d.data();
+            auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
 
             amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
                 int unit = unit_arr(home_i_ptr[i], home_j_ptr[i], 0);
@@ -348,11 +351,14 @@ void AgentContainer::moveAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air
                         p.pos(0) = trav_i_ptr[i];
                         p.pos(1) = trav_j_ptr[i];
                         air_travel_ptr[i] = i;
+                        weatherIdxPtr[i] = -weatherIdxPtr[i] - 2;
                     }
                 }
             });
         }
     }
+    Redistribute();
+    AMREX_ALWAYS_ASSERT(OK());
 }
 
 void AgentContainer::setAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air, DemographicData& demo) {
@@ -472,8 +478,10 @@ void AgentContainer::returnRandomTravel () {
             const size_t np = aos.numParticles();
             auto& soa = ptile.GetStructOfArrays();
             auto random_travel_ptr = soa.GetIntData(IntIdx::random_travel).data();
+            auto air_travel_ptr = soa.GetIntData(IntIdx::air_travel).data();
             auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
             auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+            auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
 
             amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                 if (random_travel_ptr[i] >= 0) {
@@ -481,6 +489,7 @@ void AgentContainer::returnRandomTravel () {
                     random_travel_ptr[i] = -1;
                     p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
                     p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
+                    weatherIdxPtr[i] = -weatherIdxPtr[i] - 2;
                 }
             });
         }
@@ -507,9 +516,11 @@ void AgentContainer::returnAirTravel () {
             ParticleType* pstruct = &(aos[0]);
             const size_t np = aos.numParticles();
             auto& soa = ptile.GetStructOfArrays();
+            auto random_travel_ptr = soa.GetIntData(IntIdx::random_travel).data();
             auto air_travel_ptr = soa.GetIntData(IntIdx::air_travel).data();
             auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
             auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+            auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
 
             amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                 if (air_travel_ptr[i] >= 0) {
@@ -517,6 +528,7 @@ void AgentContainer::returnAirTravel () {
                     air_travel_ptr[i] = -1;
                     p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
                     p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
+                    weatherIdxPtr[i] = -weatherIdxPtr[i] - 2;
                 }
             });
         }
@@ -636,7 +648,8 @@ void AgentContainer::advanceWeatherIndex () {
             }
 #endif
             amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
-                if (weatherIdxPtr[i] != -1) { weatherIdxPtr[i] += nUnits; }
+                if (weatherIdxPtr[i] >= 0) { weatherIdxPtr[i] += nUnits; }
+                else if (weatherIdxPtr[i] <= -2) { weatherIdxPtr[i] -= nUnits; }
             });
         }
     }
