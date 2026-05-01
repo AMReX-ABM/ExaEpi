@@ -648,8 +648,11 @@ void AgentContainer::advanceWeatherIndex () {
             }
 #endif
             amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
-                if (weatherIdxPtr[i] >= 0) { weatherIdxPtr[i] += nUnits; }
-                else if (weatherIdxPtr[i] <= -2) { weatherIdxPtr[i] -= nUnits; }
+                if (weatherIdxPtr[i] >= 0) {
+                    weatherIdxPtr[i] += nUnits;
+                } else if (weatherIdxPtr[i] <= -2) {
+                    weatherIdxPtr[i] -= nUnits;
+                }
             });
         }
     }
