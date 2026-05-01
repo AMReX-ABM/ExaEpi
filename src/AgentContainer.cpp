@@ -478,7 +478,6 @@ void AgentContainer::returnRandomTravel () {
             const size_t np = aos.numParticles();
             auto& soa = ptile.GetStructOfArrays();
             auto random_travel_ptr = soa.GetIntData(IntIdx::random_travel).data();
-            auto air_travel_ptr = soa.GetIntData(IntIdx::air_travel).data();
             auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
             auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
             auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
@@ -516,7 +515,6 @@ void AgentContainer::returnAirTravel () {
             ParticleType* pstruct = &(aos[0]);
             const size_t np = aos.numParticles();
             auto& soa = ptile.GetStructOfArrays();
-            auto random_travel_ptr = soa.GetIntData(IntIdx::random_travel).data();
             auto air_travel_ptr = soa.GetIntData(IntIdx::air_travel).data();
             auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
             auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
