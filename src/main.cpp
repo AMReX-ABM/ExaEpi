@@ -254,11 +254,10 @@ void runAgent () {
                 std::ofstream agents_f(agents_fname, std::ios_base::app);
                 agents_f << "#posx posy id cpu " << "treatment_timer " << "disease_counter " << "prob " << "latent_period "
                          << "infectious_period " << "incubation_period " << "hospital_delay " << "age_group " << "family "
-                         << "home_i "
-                         << "home_j " << "work_i " << "work_j " << "hosp_i " << "hosp_j " << "trav_i " << "trav_j " << "nborhood "
-                         << "hh_cluster " << "school_grade "
-                         << "school_id " << "school_closed " << "naics " << "workgroup " << "work_nborhood " << "withdrawn "
-                         << "random_travel " << "air_travel " << "status " << "symptomatic\n";
+                         << "home_i " << "home_j " << "work_i " << "work_j " << "hosp_i " << "hosp_j " << "trav_i " << "trav_j "
+                         << "nborhood " << "hh_cluster " << "school_grade " << "school_id " << "school_closed " << "naics "
+                         << "workgroup " << "work_nborhood " << "withdrawn " << "random_travel " << "air_travel " << "status "
+                         << "symptomatic\n";
                 agents_f.close();
             }
 #endif
@@ -549,13 +548,11 @@ void runAgent () {
                 pc.moveAirTravel(censusData.unit_mf, air, censusData.demo);
             }
 
-// Typical day
-#ifndef COMPARE_TO_EPICAST
+            // Typical day
             pc.morningCommute(mask_behavior);
             pc.interactDay(mask_behavior);
             pc.eveningCommute(mask_behavior);
             pc.interactEvening(mask_behavior);
-#endif
             pc.interactNight(mask_behavior);
 
             if ((params.random_travel_int > 0) && (i % params.random_travel_int == 0)) { pc.returnRandomTravel(); }

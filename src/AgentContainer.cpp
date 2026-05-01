@@ -209,7 +209,7 @@ void AgentContainer::moveAgentsToWork () {
             auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
 
             amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
-                if (!inHospital(ip, ptd)) {
+                if (!inHospital(ip, ptd) && !isOnTravel(ip, ptd)) {
                     ParticleType& p = pstruct[ip];
                     p.pos(0) = static_cast<ParticleReal>((work_i_ptr[ip] + 0.5_rt) * dx[0]);
                     p.pos(1) = static_cast<ParticleReal>((work_j_ptr[ip] + 0.5_rt) * dx[1]);
@@ -252,7 +252,7 @@ void AgentContainer::moveAgentsToHome () {
             auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
 
             amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
-                if (!inHospital(ip, ptd)) {
+                if (!inHospital(ip, ptd) && !isOnTravel(ip, ptd)) {
                     ParticleType& p = pstruct[ip];
                     p.pos(0) = static_cast<ParticleReal>((home_i_ptr[ip] + 0.5_rt) * dx[0]);
                     p.pos(1) = static_cast<ParticleReal>((home_j_ptr[ip] + 0.5_rt) * dx[1]);
@@ -430,7 +430,7 @@ void AgentContainer::setAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air,
                         }
                     } else {           // binary search algorithm
                         while (low < high) {
-                            if (random1 < low) {
+                            if (random1 < arrivalUnits_prob_ptr[low]) {
                                 break; // low is the found airport index
                             }
                             // if random1 falls within (low, high), half the range
@@ -438,12 +438,12 @@ void AgentContainer::setAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air,
                             if (arrivalUnits_prob_ptr[mid] < random1) {
                                 low = mid + 1;
                             } else {
-                                high = mid - 1;
+                                high = mid;
                             }
                         }
                         destUnit = arrivalUnits_ptr[low];
                     }
-                    if (destUnit >= 0) {
+                    if (destUnit >= 0 && (Start[destUnit + 1] > Start[destUnit])) { // skip size 0 comms
                         // randomly select a community in the dest unit
                         int comm_to = Start[destUnit] + amrex::Random_int(Start[destUnit + 1] - Start[destUnit], engine);
                         int new_i = comm_to % i_max;
@@ -784,6 +784,7 @@ void AgentContainer::infectAgents (MFPtrVec& a_disease_stats /*!< Community-wise
                 auto ds_arr = (*a_disease_stats[d])[mfi].array();
 
                 auto status_ptr = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
+                auto symptomatic_ptr = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::symptomatic).data();
 
                 auto prob_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::prob).data();
                 auto counter_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::disease_counter).data();
@@ -816,9 +817,9 @@ void AgentContainer::infectAgents (MFPtrVec& a_disease_stats /*!< Community-wise
                     prob_ptr[i] *= (1.0_prt - ci_arr[i]);
                     if (status_ptr[i] == Status::never || status_ptr[i] == Status::susceptible) {
                         if (amrex::Random(engine) < prob_ptr[i]) {
-                            setInfected(&(status_ptr[i]), &(counter_ptr[i]), &(latent_period_ptr[i]), &(infectious_period_ptr[i]),
-                                        &(incubation_period_ptr[i]), &(hospital_delay_ptr[i]), &(hospital_random_ptr[i]), engine,
-                                        lparm);
+                            setInfected(&(status_ptr[i]), &(symptomatic_ptr[i]), &(counter_ptr[i]), &(latent_period_ptr[i]),
+                                        &(infectious_period_ptr[i]), &(incubation_period_ptr[i]), &(hospital_delay_ptr[i]),
+                                        &(hospital_random_ptr[i]), engine, lparm);
                             Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::new_cases), 1.0_rt);
 
                             return;

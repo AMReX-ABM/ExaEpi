@@ -123,6 +123,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                 auto* disease_parm_h = a_agents.getDiseaseParameters_h(d);
                 auto immune_length_alpha = disease_parm_h->immune_length_alpha;
                 auto immune_length_beta = disease_parm_h->immune_length_beta;
+                auto immune_length_loc = disease_parm_h->immune_length_loc;
                 auto* disease_parm_d = a_agents.getDiseaseParameters_d(d);
 
                 ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
@@ -188,7 +189,8 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                             // If alive, hospitalized patient recovers
                             status_ptrs[d][i] = Status::immune;
                             counter_ptrs[d][i] =
-                                    static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine));
+                                    static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine)) +
+                                    static_cast<ParticleReal>(immune_length_loc);
                             symptomatic_ptrs[d][i] = SymptomStatus::presymptomatic;
                             // don't withdraw yet since the agent could still have another disease
                             // withdrawn_ptr[i] = 0;

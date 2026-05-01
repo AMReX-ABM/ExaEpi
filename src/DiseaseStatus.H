@@ -131,6 +131,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                 auto* disease_parm_h = a_agents.getDiseaseParameters_h(d);
                 auto immune_length_alpha = disease_parm_h->immune_length_alpha;
                 auto immune_length_beta = disease_parm_h->immune_length_beta;
+                auto immune_length_loc = disease_parm_h->immune_length_loc;
 
                 auto compliance_day_0 = a_agents.m_symptomatic_withdraw_compliance_day_0;
                 auto compliance_day_1 = a_agents.m_symptomatic_withdraw_compliance_day_1;
@@ -192,7 +193,8 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                     auto recovered_period = amrex::Math::floor(latent_period_ptr[i] + infectious_period_ptr[i]);
                     if (!marked_for_hosp_ptr[i] && !inHospital(i, ptd) && counter_ptr[i] == recovered_period) {
                         status_ptr[i] = Status::immune;
-                        counter_ptr[i] = static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine));
+                        counter_ptr[i] = static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine)) +
+                                         static_cast<ParticleReal>(immune_length_loc);
                         symptomatic_ptr[i] = SymptomStatus::presymptomatic;
                         withdrawn_ptr[i] = 0;
                     }
