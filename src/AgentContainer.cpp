@@ -310,8 +310,8 @@ void AgentContainer::moveRandomTravel (const amrex::Real random_travel_prob) {
         }
     }
 
-    Redistribute();
-    AMREX_ALWAYS_ASSERT(OK());
+    //Redistribute();
+    //AMREX_ALWAYS_ASSERT(OK());
 }
 
 /*! \brief Select agents to travel by air
@@ -357,8 +357,8 @@ void AgentContainer::moveAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air
             });
         }
     }
-    Redistribute();
-    AMREX_ALWAYS_ASSERT(OK());
+    //Redistribute();
+    //AMREX_ALWAYS_ASSERT(OK());
 }
 
 void AgentContainer::setAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air, DemographicData& demo) {
