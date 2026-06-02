@@ -60,9 +60,7 @@ struct InitialInfectionBins {
         Gpu::copy(Gpu::hostToDevice, m_host_perm.begin(), m_host_perm.end(), m_device_perm.begin());
     }
 
-    [[nodiscard]] Long numBins () const noexcept {
-        return m_using_gpu_bins ? m_gpu_bins.numBins() : m_num_bins;
-    }
+    [[nodiscard]] Long numBins () const noexcept { return m_using_gpu_bins ? m_gpu_bins.numBins() : m_num_bins; }
 
     [[nodiscard]] index_type* permutationPtr () noexcept {
         return m_using_gpu_bins ? m_gpu_bins.permutationPtr() : m_device_perm.dataPtr();
