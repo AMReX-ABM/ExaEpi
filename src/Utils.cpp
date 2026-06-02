@@ -31,12 +31,16 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
     pp.query("random_travel_prob", params.random_travel_prob);
     pp.query("air_travel_int", params.air_travel_int);
     pp.query("number_of_diseases", params.num_diseases);
+    pp.query("weather_int", params.weather_int);
+    pp.query("startdate", params.startdate);
 
     params.disease_names.resize(params.num_diseases);
     for (int d = 0; d < params.num_diseases; d++) {
         params.disease_names[d] = amrex::Concatenate("default", d, 2);
     }
     pp.queryarr("disease_names", params.disease_names, 0, params.num_diseases);
+
+    if (params.weather_int > 0) { pp.get("weather_filename", params.weather_filename); }
 
     std::string ic_type = "urbanpop";
     pp.query("ic_type", ic_type);

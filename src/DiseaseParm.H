@@ -47,25 +47,25 @@ struct DiseaseParm {
 
     // Transmission probabilities based on age group of receiver (0-4, 5-17, 18-29, 30-49, 50-64, 65+)
     /*! community transmission, both home and work */
-    Real xmit_comm[AgeGroups::total] = {Real(0.000015), Real(0.000055), Real(0.00015),
-                                        Real(0.00015),  Real(0.00015),  Real(0.00025)};
+    Real xmit_comm[AgeGroups::total] = {Real(0.000021), Real(0.000062), Real(0.000165),
+                                        Real(0.000165), Real(0.000165), Real(0.000247)};
     /*! neighborhood transmission, both home and work */
-    Real xmit_hood[AgeGroups::total] = {Real(0.000086), Real(0.00025), Real(0.00065), Real(0.00065), Real(0.00065), Real(0.001)};
+    Real xmit_hood[AgeGroups::total] = {Real(0.000082), Real(0.000247), Real(0.00066), Real(0.00066), Real(0.00066), Real(0.001)};
     /*! within household transmission, where transmitter is an adult */
     Real xmit_hh_adult[AgeGroups::total] = {Real(0.3), Real(0.3), Real(0.4), Real(0.4), Real(0.4), Real(0.4)};
     /*! within household transmission, where transmitter is a child */
     Real xmit_hh_child[AgeGroups::total] = {Real(0.6), Real(0.6), Real(0.3), Real(0.3), Real(0.3), Real(0.3)};
     /*! neighborhood cluster transmission, where transmitter is an adult */
-    Real xmit_nc_adult[AgeGroups::total] = {Real(0.0528), Real(0.0528), Real(0.066), Real(0.066), Real(0.066), Real(0.066)};
+    Real xmit_nc_adult[AgeGroups::total] = {Real(0.132), Real(0.132), Real(0.165), Real(0.165), Real(0.165), Real(0.165)};
     /*! neighborhood cluster transmission, where transmitter is a child */
-    Real xmit_nc_child[AgeGroups::total] = {Real(0.1), Real(0.1), Real(0.0528), Real(0.0528), Real(0.0528), Real(0.0528)};
+    Real xmit_nc_child[AgeGroups::total] = {Real(0.25), Real(0.25), Real(0.132), Real(0.132), Real(0.132), Real(0.132)};
     /// probabilities for school groups: none, college, high, middle, elementary, and daycare
     /*! child-to-child */
-    Real xmit_school[SchoolType::total] = {Real(0), Real(0.0315), Real(0.0315), Real(0.0375), Real(0.0435), Real(0.15)};
+    Real xmit_school[SchoolType::total] = {Real(0), Real(0.0002), Real(0.0024), Real(0.0027), Real(0.0088), Real(0.0125)};
     /*! for adult to child */
-    Real xmit_school_a2c[SchoolType::total] = {Real(0), Real(0.0315), Real(0.0315), Real(0.0375), Real(0.0435), Real(0.15)};
+    Real xmit_school_a2c[SchoolType::total] = {Real(0), Real(0.001), Real(0.01), Real(0.013), Real(0.043), Real(0.025)};
     /*! for child to adult */
-    Real xmit_school_c2a[SchoolType::total] = {Real(0), Real(0.0315), Real(0.0315), Real(0.0375), Real(0.0435), Real(0.15)};
+    Real xmit_school_c2a[SchoolType::total] = {Real(0), Real(0.001), Real(0.01), Real(0.013), Real(0.043), Real(0.025)};
 
     /*! Probabilities when school is closed */
     Real xmit_comm_SC[AgeGroups::total];
@@ -86,29 +86,33 @@ struct DiseaseParm {
     /*! probability for transmission within a hospital (patient-to-patient), independent of age group currently */
     Real xmit_hosp_p2p = Real(0.0);
 
-    Real p_trans = Real(0.20);                    /*!< probability of transimission given contact */
-    Real p_asymp = Real(0.30);                    /*!< fraction of cases that are asymptomatic */
-    Real asymp_relative_inf = Real(0.7);          /*!< relative infectiousness of asymptomatic individuals */
+    Real p_trans = Real(0.20);                 /*!< probability of transimission given contact */
+    Real p_asymp = Real(0.30);                 /*!< fraction of cases that are asymptomatic */
+    Real asymp_relative_inf = Real(0.7);       /*!< relative infectiousness of asymptomatic individuals */
 
-    Real vac_eff = Real(0.0);                     /*!< Vaccine efficacy */
+    Real vac_eff = Real(0.0);                  /*!< Vaccine efficacy */
 
-    Real child_compliance;                        /*!< Child compliance with masking ?? */
-    Real child_HH_closure;                        /*!< Multiplier for household contacts during school closure */
+    Real child_compliance;                     /*!< Child compliance with masking ?? */
+    Real child_HH_closure;                     /*!< Multiplier for household contacts during school closure */
 
-    Real immune_length_alpha = Real(540.0);       /*! alpha parameter for gamma distribution*/
-    Real immune_length_beta = Real(0.33);         /*! beta parameter for gamma distribution*/
+    Real immune_length_alpha = Real(1.0);      /*! alpha parameter for gamma distribution*/
+    Real immune_length_beta = Real(1.0);       /*! beta parameter for gamma distribution*/
+    Real immune_length_loc = Real(10000.0);    /*! location (shift) parameter for gamma distribution*/
 
-    Real latent_length_alpha = Real(5.2);         /*! alpha parameter for gamma distribution*/
-    Real latent_length_beta = Real(0.75);         /*! beta parameter for gamma distribution*/
+    Real latent_length_alpha = Real(6.0);      /*! alpha parameter for gamma distribution (unused - see latent_period_cdf)*/
+    Real latent_length_beta = Real(0.73);      /*! beta parameter for gamma distribution (unused - see latent_period_cdf)*/
 
-    Real infectious_length_alpha = Real(26.2);    /*! alpha parameter for gamma distribution*/
-    Real infectious_length_beta = Real(0.23);     /*! beta parameter for gamma distribution*/
+    Real infectious_length_alpha = Real(3.54); /*! alpha parameter for gamma distribution (unused - see infectious_period_cdf)*/
+    Real infectious_length_beta = Real(1.22);  /*! beta parameter for gamma distribution (unused - see infectious_period_cdf)*/
+    Real infectious_length_loc = Real(2.5);    /*! location (shift) parameter for gamma distribution */
 
-    Real incubation_length_alpha = Real(7.5);     /*! alpha parameter for gamma distribution*/
-    Real incubation_length_beta = Real(0.65);     /*! beta parameter for gamma distribution*/
+    Real incubation_length_alpha = Real(6.0);  /*! alpha parameter for gamma distribution (unused - see incubation_period_cdf)*/
+    Real incubation_length_beta = Real(0.73);  /*! beta parameter for gamma distribution (unused - see incubation_period_cdf)*/
+    Real incubation_length_loc = Real(1.0);    /*! location (shift) parameter for gamma distribution */
 
-    Real hospital_delay_length_alpha = Real(1.0); /*! alpha parameter for gamma distribution*/
-    Real hospital_delay_length_beta = Real(1.0);  /*! beta parameter for gamma distribution*/
+    Real hospital_delay_length_alpha = Real(0.1); /*! alpha parameter for gamma distribution*/
+    Real hospital_delay_length_beta = Real(0.1);  /*! beta parameter for gamma distribution*/
+    Real hospital_delay_length_loc = Real(1.0);   /*! location (shift) parameter for gamma distribution*/
 
     int m_hospital_stay_type = HospitalStayType::Constant;
 
@@ -167,8 +171,6 @@ struct DiseaseParm {
                                const amrex::Real a_random_draw, /*!< random number */
                                const amrex::RandomEngine& a_reng /*!< random engine */) const {
         *a_t_hosp_days = ParticleReal(0);
-        *a_ICU = 0;
-        *a_ventilator = 0;
         // check the agent will be hospitalized (m_CHR prob)
         if (a_random_draw < m_CHR[a_age_group]) {
             // determine how long agent will stay in hospital
@@ -197,6 +199,30 @@ struct DiseaseParm {
     }
 };
 
+#ifdef COMPARE_TO_EPICAST
+/*! Fixed cumulative distribution for latent period from Epicast (fig 6)
+ *  Entry i gives P(transition by day i). Days 0-7. */
+static constexpr int latent_period_cdf_size = 8;
+AMREX_GPU_DEVICE AMREX_GPU_CONSTANT
+constexpr Real latent_period_cdf[latent_period_cdf_size] = {Real(0.0),  Real(0.1),  Real(0.25), Real(0.55),
+                                                            Real(0.66), Real(0.78), Real(0.85), Real(1.0)};
+
+/*! Fixed cumulative distribution for incubation period from Epicast (fig 6)
+ *  Entry i gives P(transition by day i). Days 0-8. */
+static constexpr int incubation_period_cdf_size = 9;
+AMREX_GPU_DEVICE AMREX_GPU_CONSTANT
+constexpr Real incubation_period_cdf[incubation_period_cdf_size] = {Real(0.0),  Real(0.0),  Real(0.1),  Real(0.25), Real(0.55),
+                                                                    Real(0.66), Real(0.78), Real(0.85), Real(1.0)};
+
+/*! Fixed cumulative distribution for infectious period from Epicast (fig 6)
+ *  Entry i gives P(transition by day i). Days 0-10. */
+static constexpr int infectious_period_cdf_size = 11;
+AMREX_GPU_DEVICE AMREX_GPU_CONSTANT
+constexpr Real infectious_period_cdf[infectious_period_cdf_size] = {Real(0.0),  Real(0.0),  Real(0.0), Real(0.0),
+                                                                    Real(0.1),  Real(0.3),  Real(0.5), Real(0.7),
+                                                                    Real(0.85), Real(0.95), Real(1.0)};
+#endif
+
 /*! \brief Will a symptomatic agent be hospitalized? */
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
@@ -208,30 +234,58 @@ bool willBeHospitalized (const int a_idx,      /*!< Agent index */
     return a_parm.checkHospitalization(draw, a_ptd.m_idata[IntIdx::age_group][a_idx]);
 }
 
+/*! \brief Sample a period (in days) from a fixed cumulative distribution array.
+ *
+ *  Draws a uniform random number and returns the first day index where the
+ *  cumulative probability exceeds the draw (inverse CDF / quantile method).
+ *  If the draw exceeds all entries the last valid day index is returned.
+ */
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+int sampleFromCDF (const amrex::Real* cdf, int cdf_size, amrex::RandomEngine const& engine) {
+    amrex::Real u = amrex::Random(engine);
+    for (int i = 0; i < cdf_size; ++i) {
+        if (u <= cdf[i]) { return i; }
+    }
+    return cdf_size - 1;
+}
+
 /*! \brief Set this agent to infected status, and initialize disease periods. */
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void setInfected (int* status, amrex::ParticleReal* counter, amrex::ParticleReal* latent_period,
+void setInfected (int* status, int* symptomatic, amrex::ParticleReal* counter, amrex::ParticleReal* latent_period,
                   amrex::ParticleReal* infectious_period, amrex::ParticleReal* incubation_period,
                   amrex::ParticleReal* hospital_delay, amrex::ParticleReal* hospital_random, amrex::RandomEngine const& engine,
                   const DiseaseParm* lparm) {
     *status = Status::infected;
+    *symptomatic = SymptomStatus::presymptomatic;
     *counter = ParticleReal(0);
+
+#ifdef COMPARE_TO_EPICAST
+    // Sample latent, incubation, and infectious periods from fixed Epicast CDFs
+    *latent_period = static_cast<ParticleReal>(sampleFromCDF(latent_period_cdf, latent_period_cdf_size, engine));
+    *incubation_period = static_cast<ParticleReal>(sampleFromCDF(incubation_period_cdf, incubation_period_cdf_size, engine));
+    *infectious_period = static_cast<ParticleReal>(sampleFromCDF(infectious_period_cdf, infectious_period_cdf_size, engine));
+    *hospital_delay = amrex::Real(2);
+#else
     *latent_period = static_cast<ParticleReal>(amrex::RandomGamma(lparm->latent_length_alpha, lparm->latent_length_beta, engine));
     *incubation_period =
-            static_cast<ParticleReal>(amrex::RandomGamma(lparm->incubation_length_alpha, lparm->incubation_length_beta, engine));
+            static_cast<ParticleReal>(amrex::RandomGamma(lparm->incubation_length_alpha, lparm->incubation_length_beta, engine)) +
+            static_cast<ParticleReal>(lparm->incubation_length_loc);
     *infectious_period =
-            static_cast<ParticleReal>(amrex::RandomGamma(lparm->infectious_length_alpha, lparm->infectious_length_beta, engine));
-    *hospital_delay = static_cast<ParticleReal>(
-            amrex::RandomGamma(lparm->hospital_delay_length_alpha, lparm->hospital_delay_length_beta, engine));
-    *hospital_random = static_cast<ParticleReal>(amrex::Random(engine));
+            static_cast<ParticleReal>(amrex::RandomGamma(lparm->infectious_length_alpha, lparm->infectious_length_beta, engine)) +
+            static_cast<ParticleReal>(lparm->infectious_length_loc);
 
+    *hospital_delay = static_cast<ParticleReal>(
+                              amrex::RandomGamma(lparm->hospital_delay_length_alpha, lparm->hospital_delay_length_beta, engine)) +
+                      static_cast<ParticleReal>(lparm->hospital_delay_length_loc);
     if (*latent_period < 1) { *latent_period = amrex::Real(1); }
-    if (*infectious_period < 1) { *infectious_period = amrex::Real(1); }
     if (*incubation_period < 1) { *incubation_period = amrex::Real(1); }
-    if (*hospital_delay < 2) { *hospital_delay = amrex::Real(2); }
-    if (*incubation_period > (*infectious_period + *latent_period)) {
-        *incubation_period = std::floor(*infectious_period + *latent_period);
+    if (*infectious_period < 1) { *infectious_period = amrex::Real(1); }
+#endif
+    if (*incubation_period >= (*infectious_period + *latent_period)) {
+        *incubation_period = std::floor(*infectious_period + *latent_period) - amrex::Real(1);
     }
+
+    *hospital_random = static_cast<ParticleReal>(amrex::Random(engine));
 }
 
 template <typename T>

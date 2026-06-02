@@ -6,6 +6,9 @@ agent.workerflow_filename = "../../data/CensusData/MA-wf.dat"
 agent.nsteps = 120
 agent.plot_int = 10
 agent.random_travel_int = 24
+agent.weather_int = 10
+agent.weather_filename = "../../data/weatherData_MA.csv"
+agent.startdate="2025-1-1"
 
 agent.aggregated_diag_int = -1
 
@@ -13,10 +16,10 @@ agent.aggregated_diag_int = -1
 #agent.shelter_length = 30
 #agent.shelter_compliance = 0.85
 
-#disease.initial_case_type = "random"
-#disease.num_initial_cases = 5
-disease.initial_case_type = "file"
-disease.case_filename = "../../data/CaseData/July4.cases"
+disease.initial_case_type = "random"
+disease.num_initial_cases = 5
+#disease.initial_case_type = "file"
+#disease.case_filename = "../../data/CaseData/July4.cases"
 disease.p_trans = 0.20
 disease.p_asymp = 0.40
 

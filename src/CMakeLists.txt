@@ -8,6 +8,8 @@ set(_sources
     AirTravelFlow.cpp
     CaseData.H
     CaseData.cpp
+    WeatherData.H
+    WeatherData.cpp
     DiseaseCoupling.H
     CensusData.H
     CensusData.cpp

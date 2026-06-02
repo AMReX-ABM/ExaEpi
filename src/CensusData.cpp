@@ -385,6 +385,7 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
     }
 
     demo.copyToHostAsync(demo.Unit_on_proc_d, demo.Unit_on_proc);
+    demo.copyToHostAsync(demo.FIPS_d, demo.FIPS);
     Gpu::streamSynchronize();
 
     pc.comm_mf.define(comm_mf.boxArray(), comm_mf.DistributionMap(), 1, 0);
@@ -551,7 +552,7 @@ void CensusData::readWorkerflow (AgentContainer& pc, /*!< Agent container (parti
             /* Check working-age population */
             if (age_group >= AgeGroups::a18to29 && age_group <= AgeGroups::a50to64) {
                 unsigned int irnd = Random_int(nwork, engine);
-                int to = 0;
+                int to = from; // Default: work in home unit
                 int comm_to = 0;
                 if (irnd < d_flow[from][Nunit - 1]) {
                     /* Choose a random destination unit */
@@ -560,6 +561,7 @@ void CensusData::readWorkerflow (AgentContainer& pc, /*!< Agent container (parti
                         to++;
                     }
                 }
+                // else: irnd >= d_flow[from][Nunit - 1], stay in home unit (to = from)
 
                 /*If from=to unit, 25% EXTRA chance of working in home community*/
                 if ((from == to) && (Random(engine) < 0.25)) {
