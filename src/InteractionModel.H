@@ -128,11 +128,11 @@ struct Binner {
         #DiseaseParm::xmit_adult) depending on whether B works at a school or not (#IntIdx::school)
 */
 template <typename IModel, typename AgentContainer, typename PTDType, typename CandidateFunc, typename BinaryInteractionFunc>
-void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int bin_idx) {
+void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int bin_idx,
+                         CandidateFunc isCandidate = CandidateFunc{}) {
     BL_PROFILE("interactAgentsimpl");
     int n_disease = agents.numDiseases();
     IntVect bin_size = {AMREX_D_DECL(1, 1, 1)};
-    CandidateFunc isCandidate;
     BinaryInteractionFunc binaryInteraction;
 
     for (int lev = 0; lev < agents.numLevels(); ++lev) {

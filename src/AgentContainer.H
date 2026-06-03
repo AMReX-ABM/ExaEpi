@@ -114,6 +114,13 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     /*! \brief return the proportion of medical workers */
     inline amrex::Real medicalWorkersProportion () const { return m_med_workers_prop; }
 
+    /*! \brief whether the medical-workers / hospital-capacity model is active */
+    inline bool modelMedicalWorkers () const { return m_model_medical_workers; }
+
+    /*! \brief initialize the medical-workers model (per-community staffed-bed supply);
+     *  call once before the time loop, when agents are at their home communities */
+    void initHospitalCapacityModel();
+
     /*! \brief update the hospital capacities in each community */
     void updateHospitalCapacities();
 
@@ -160,8 +167,15 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     Array<int, IntIdx::nattribs> max_attribute_values;
 
-    /*! Proportion of medical workers in each community */
-    amrex::Real m_med_workers_prop = 0.0_rt;
+    /*! Whether the medical-workers / hospital-capacity model is active (default off).
+     *  When off, the simulation reproduces development: medical workers interact at work
+     *  like other workers, no hospital capacity/transmission, baseline hospital mortality. */
+    bool m_model_medical_workers = false;
+
+    /*! Proportion of workers who are medical workers, for census initialization (UrbanPop has
+     *  NAICS industry codes natively). Default ~0.13 (NAICS 62, health care and social assistance,
+     *  ~14% of US employment). Only used when the medical-workers model is active. */
+    amrex::Real m_med_workers_prop = 0.13_rt;
 
     /*! Number of medical workers by community - total and active */
     MFPtr m_num_medworkers;

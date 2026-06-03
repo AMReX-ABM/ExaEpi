@@ -104,6 +104,7 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
 
     amrex::ParmParse pp("agent");
 
+    pp.query("model_medical_workers", m_model_medical_workers);
     pp.query("med_workers_proportion", m_med_workers_prop);
     pp.query("shelter_compliance", m_shelter_compliance);
     queryGpuArray<int, SchoolType::total>(pp, "student_teacher_ratio", m_student_teacher_ratio);
@@ -118,15 +119,16 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
         /* Create the interaction model objects and push to container */
         m_interactions.clear();
         m_interactions[InteractionNames::home] = new InteractionModHome<PCType, PTDType, PType>(fast);
-        m_interactions[InteractionNames::work] = new InteractionModWork<PCType, PTDType, PType>(fast);
+        m_interactions[InteractionNames::work] = new InteractionModWork<PCType, PTDType, PType>(fast, m_model_medical_workers);
         m_interactions[InteractionNames::school] = new InteractionModSchool<PCType, PTDType, PType>(fast);
         m_interactions[InteractionNames::home_nborhood] = new InteractionModHomeNborhood<PCType, PTDType, PType>(fast);
         m_interactions[InteractionNames::work_nborhood] = new InteractionModWorkNborhood<PCType, PTDType, PType>(fast);
 
-        m_hospital = std::make_unique<HospitalModel<PCType, PTDType, PType>>(fast, "hospital_model");
+        m_hospital = std::make_unique<HospitalModel<PCType, PTDType, PType>>(fast, "hospital_model", m_model_medical_workers);
         m_hosp_data.define(a_ba, a_dmap, HospMod::ncomps, 0);
         m_hospital->initHospitalScoreMF(&m_hosp_data);
-        // number of medical workers in each community: component 0 - total, component 1 - active
+        // frontline medical workers in each community: component 0 - total (full-strength)
+        // frontline workers, component 1 - currently-available frontline workers
         m_num_medworkers = std::make_unique<MultiFab>(a_ba, a_dmap, 2, 0);
     }
 
@@ -950,9 +952,40 @@ int AgentContainer::getMaxGroup (const int group_idx) {
     return max_attribute_values[group_idx];
 }
 
-/*! Updates the MultiFab that contains the number of total and active medical workers in each
- *  community and sends this the HospitalModel object to compute the patient capacities and hospital
- *  quality scores.
+/*! Initializes the medical-workers / hospital-capacity model: records the fixed per-community
+ *  staffed-bed supply from the residential population.
+ *
+ *  **NOTE** this must be called once before the time loop, when agents are at their home
+ *  communities, so the population deposited per community is the residential population that the
+ *  community hospital serves. No-op when the model is off. */
+void AgentContainer::initHospitalCapacityModel () {
+    BL_PROFILE("AgentContainer::initHospitalCapacityModel");
+    if (!m_model_medical_workers) { return; }
+
+    const int lev = 0;
+    const auto& geom = Geom(lev);
+    const auto plo = geom.ProbLoArray();
+    const auto dxi = geom.InvCellSizeArray();
+    const auto domain = geom.Domain();
+
+    MultiFab population(m_hosp_data.boxArray(), m_hosp_data.DistributionMap(), 1, 0);
+    population.setVal(0.0);
+    ParticleToMesh(
+            *this, population, lev,
+            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd, int i,
+                                 Array4<Real> const& mf_arr) {
+                auto p = ptd.m_aos[i];
+                auto iv = getParticleCell(p, plo, dxi, domain);
+                Gpu::Atomic::AddNoRet(&mf_arr(iv, 0), 1.0_rt);
+            },
+            false);
+
+    m_hospital->initBedSupply(population);
+}
+
+/*! Updates the MultiFab that contains the number of total and available frontline medical workers
+ *  in each community and sends this the HospitalModel object to compute the patient capacities and
+ *  hospital quality scores.
  *
  *  **NOTE** this function must be called when the agents are at work; consequently, the medical
  *  workers are at their work locations. */
@@ -1022,7 +1055,7 @@ void AgentContainer::eveningCommute (MultiFab& /*a_mask_behavior*/ /*!< Masking 
 /*! \brief Interaction of agents during day time - work and school */
 void AgentContainer::interactDay (MultiFab& a_mask_behavior /*!< Masking behavior */) {
     BL_PROFILE("AgentContainer::interactDay");
-    updateHospitalCapacities();
+    if (m_model_medical_workers) { updateHospitalCapacities(); }
     if (haveInteractionModel(ExaEpi::InteractionNames::work)) {
         m_interactions[ExaEpi::InteractionNames::work]->interactAgents(*this, a_mask_behavior);
     }
@@ -1032,7 +1065,7 @@ void AgentContainer::interactDay (MultiFab& a_mask_behavior /*!< Masking behavio
     if (haveInteractionModel(ExaEpi::InteractionNames::work_nborhood)) {
         m_interactions[ExaEpi::InteractionNames::work_nborhood]->interactAgents(*this, a_mask_behavior);
     }
-    m_hospital->interactAgents(*this, a_mask_behavior);
+    if (m_model_medical_workers) { m_hospital->interactAgents(*this, a_mask_behavior); }
 }
 
 /*! \brief Interaction of agents during evening (after work) - social stuff */

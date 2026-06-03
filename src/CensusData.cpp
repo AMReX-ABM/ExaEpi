@@ -594,7 +594,7 @@ void CensusData::readWorkerflow (AgentContainer& pc, /*!< Agent container (parti
     The_Device_Arena()->free(d_flow);
 
     assignTeachersAndWorkgroup(pc);
-    assignMedicalWorkers(pc);
+    if (pc.modelMedicalWorkers()) { assignMedicalWorkers(pc); }
 }
 
 void CensusData::assignTeachersAndWorkgroup (AgentContainer& a_pc) {

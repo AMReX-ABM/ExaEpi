@@ -19,13 +19,13 @@ using namespace amrex;
 
 struct HospMod {
     enum {
-        score = 0,  // hospital score (treatment quality)
-        capacity,   // patient capacity
-        r_a2t_mw,   // ratio of active to total medical workers
-        load,       // hospital load (total patients / capacity)
-        n_patients, // number of patients
-        n_a_mw,     // number of active medical workers
-        n_t_mw,     // total number of medical workers
+        score = 0,     // hospital score (treatment quality)
+        capacity,      // patient capacity (staffed beds, scaled by workforce availability)
+        load,          // hospital load (total patients / capacity)
+        n_patients,    // number of patients
+        n_avail_mw,    // number of currently-available frontline medical workers
+        n_baseline_mw, // frontline medical workforce at full strength (fixed at init)
+        bed_supply,    // staffed-bed supply at full strength (fixed at init)
         ncomps
     };
 };
@@ -88,10 +88,10 @@ template <typename PCType, typename PTDType, typename PType>
 class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
   public:
     /*! \brief Constructor - reads in inputs */
-    HospitalModel (bool _fast_bin, const std::string& a_prefix) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {
+    HospitalModel (bool _fast_bin, const std::string& a_prefix, bool a_model_medical_workers)
+        : InteractionModel<PCType, PTDType, PType>(_fast_bin), m_model_medical_workers(a_model_medical_workers) {
         ParmParse pp(a_prefix);
-        pp.query("num_patients_per_doctor", m_num_patients_per_doctor);
-        pp.query("acute_medworkers_proportion", m_acute_mw_prop);
+        pp.query("staffed_beds_per_1000", m_beds_per_1000);
         pp.query("score_minimum", m_sc_floor);
         pp.query("halfscore_load", m_sc_half_load);
         pp.query("write_pltfiles", m_write_pltfiles);
@@ -102,12 +102,13 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
         pp_agent.query("plot_int", m_plot_int);
         if (m_plot_int < 0) { m_write_pltfiles = false; }
 
-        Print() << "Initialized hospital model...\n";
-        Print() << "  Number of patients per doctor: " << m_num_patients_per_doctor << "\n";
-        Print() << "  Proportion of medical workers working with acute diseases: " << m_acute_mw_prop << "\n";
-        Print() << "  Minimum score for overloaded hospitals: " << m_sc_floor << "\n";
-        Print() << "  Load for score=0.5: " << m_sc_half_load << "\n";
-        Print() << "  Write hospital data plotfiles: " << (m_write_pltfiles ? "yes" : "no") << "\n";
+        if (m_model_medical_workers) {
+            Print() << "Initialized hospital model...\n";
+            Print() << "  Staffed beds per 1000 population (at full strength): " << m_beds_per_1000 << "\n";
+            Print() << "  Minimum score for overloaded hospitals: " << m_sc_floor << "\n";
+            Print() << "  Load for score=0.5: " << m_sc_half_load << "\n";
+            Print() << "  Write hospital data plotfiles: " << (m_write_pltfiles ? "yes" : "no") << "\n";
+        }
     }
 
     /*! \brief default destructor */
@@ -140,6 +141,9 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
         m_data->setVal(0.0, 1, m_data->nComp() - 1);
     }
 
+    /*! \brief Set the fixed staffed-bed supply per community from the residential population */
+    void initBedSupply(const MultiFab&);
+
     /*! \brief Update patient capacity of hospitals in each community */
     void updateCapacities(const MFPtr&);
 
@@ -150,11 +154,17 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
     /*! MultiFab with hospital data - see HospMod for components */
     MultiFab* m_data = nullptr;
 
-    /*! Number of patients that a doctor can see in a day */
-    Real m_num_patients_per_doctor = 50.0_rt;
+    /*! Whether the medical-workers / hospital-capacity model is active. When false,
+     *  treatment uses the load-independent baseline mortality (reproduces development). */
+    bool m_model_medical_workers = false;
 
-    /*! Proportion of medical workers working with acute diseases */
-    Real m_acute_mw_prop = 0.2_rt;
+    /*! Staffed hospital beds per 1000 population at full workforce strength.
+     *  Sets the per-community bed supply: bed_supply = (m_beds_per_1000/1000) x population. */
+    Real m_beds_per_1000 = 2.4_rt;
+
+    /*! Whether the fixed per-community baseline (bed supply, full-strength workforce)
+     *  has been recorded; set on the first call to updateCapacities. */
+    bool m_capacities_initialized = false;
 
     /*! Minimum hospital score even at very high loading */
     Real m_sc_floor = 0.1_rt;
@@ -194,8 +204,9 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                                                          const int a_iter) {
     BL_PROFILE("HospitalModel::interactAgents");
     int n_disease = a_agents.numDiseases();
+    const bool model_mw = m_model_medical_workers;
 
-    computeHospitalScores(a_agents, a_iter);
+    if (model_mw) { computeHospitalScores(a_agents, a_iter); }
     m_num_underserved_patients = 0;
 
     for (int lev = 0; lev < a_agents.numLevels(); ++lev) {
@@ -324,12 +335,16 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                     }
                     // decrement days in hospital
                     timer_ptrs[d][i] -= 1.0_prt;
-                    // accumulate treatment quality (medical-workers model)
-                    PType& p = pstruct[i];
-                    auto iv = getParticleCell(p, plo, dxi, domain);
-                    AMREX_ALWAYS_ASSERT((iv[0] == ptd.m_idata[IntIdx::hosp_i][i]) && (iv[1] == ptd.m_idata[IntIdx::hosp_j][i]));
-                    treat_q_ptrs[d][i] *= hosp_data_arr(iv, HospMod::score);
-                    if ((d == 0) && (treat_q_ptrs[d][i] < 1.0_prt)) { Gpu::Atomic::Add(underserved_agents_ptr, 1); }
+                    // accumulate treatment quality (medical-workers model); when the model is
+                    // off, treatment quality stays 1 and mortality is the load-independent baseline
+                    if (model_mw) {
+                        PType& p = pstruct[i];
+                        auto iv = getParticleCell(p, plo, dxi, domain);
+                        AMREX_ALWAYS_ASSERT((iv[0] == ptd.m_idata[IntIdx::hosp_i][i]) &&
+                                            (iv[1] == ptd.m_idata[IntIdx::hosp_j][i]));
+                        treat_q_ptrs[d][i] *= hosp_data_arr(iv, HospMod::score);
+                        if ((d == 0) && (treat_q_ptrs[d][i] < 1.0_prt)) { Gpu::Atomic::Add(underserved_agents_ptr, 1); }
+                    }
                     int status_d = 0;
                     if (timer_ptrs[d][i] == 0) {
                         // finished hospitalization period
@@ -343,11 +358,12 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                     }
 
                     if (status_d > 0) {
-                        // Check if hospitalized patient recovers or dies
-                        // treatment quality (capacity-limited) lowers survival; index the
-                        // baseline severity by status_d (development #146 multi-disease fix)
-                        auto p_death = 1.0_rt - treat_q_ptrs[d][i] *
-                                                        (1.0_rt - disease_parm_d->m_hospToDeath[status_d - 1][age_group_ptr[i]]);
+                        // Check if hospitalized patient recovers or dies. The baseline severity is
+                        // indexed by status_d (development #146 multi-disease fix). With the
+                        // medical-workers model active, capacity-limited treatment quality lowers
+                        // survival; without it, mortality is exactly the baseline (reproduces development).
+                        amrex::Real p_death = disease_parm_d->m_hospToDeath[status_d - 1][age_group_ptr[i]];
+                        if (model_mw) { p_death = 1.0_rt - treat_q_ptrs[d][i] * (1.0_rt - p_death); }
                         if (Random(engine) < p_death) {
                             // patient dies
                             is_alive_ptr[i] = 0;
@@ -456,10 +472,11 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
         }
     }
 
-    ParallelDescriptor::ReduceIntSum(&m_num_underserved_patients, 1);
-
-    amrex::Print() << "Day " << a_iter << ": " << m_num_overloaded_hospitals << " hospitals over capacity, "
-                   << m_num_underserved_patients << " underserved hospitalized agents\n";
+    if (model_mw) {
+        ParallelDescriptor::ReduceIntSum(&m_num_underserved_patients, 1);
+        amrex::Print() << "Day " << a_iter << ": " << m_num_overloaded_hospitals << " hospitals over capacity, "
+                       << m_num_underserved_patients << " underserved hospitalized agents\n";
+    }
 }
 
 /*! Interaction between medical workers at a hospital */
@@ -611,33 +628,59 @@ void HospitalModel<PCType, PTDType, PType>::fastInteractHospital (PCType& a_agen
     }
 }
 
-/*! Given a MultiFab with the number of active medical workers in each community, updates the
- *  hospital capacities for each community. The input argument is a MultiFab with two components
- *  - the total number of medical workers and the currently-active number of medical workers. */
+/*! Sets the fixed per-community staffed-bed supply from the residential population:
+ *  bed_supply = (staffed_beds_per_1000 / 1000) x population. Called once at initialization,
+ *  when agents are at their home communities, so the count is the residential population the
+ *  community hospital serves. */
 template <typename PCType, typename PTDType, typename PType>
-void HospitalModel<PCType, PTDType, PType>::updateCapacities (const MFPtr& a_num_medworkers /*!< Number of medical workers */) {
+void HospitalModel<PCType, PTDType, PType>::initBedSupply (const MultiFab& a_population /*!< residential population */) {
+    BL_PROFILE("HospitalModel::initBedSupply");
+    const auto beds_per_capita = m_beds_per_1000 / 1000.0_rt;
+    for (MFIter mfi(*m_data); mfi.isValid(); ++mfi) {
+        const auto& bx = mfi.tilebox();
+        const auto pop_arr = a_population.const_array(mfi);
+        auto data_arr = m_data->array(mfi);
+        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+            data_arr(i, j, k, HospMod::bed_supply) = beds_per_capita * pop_arr(i, j, k, 0);
+        });
+    }
+}
+
+/*! Given a MultiFab with the current frontline medical-worker counts in each community, updates
+ *  the hospital capacities. The input MultiFab has two components: (0) current total frontline
+ *  medical workers (the full-strength workforce, recorded once on the first call), and (1) the
+ *  currently-available frontline medical workers. The staffed-bed supply (fixed per community)
+ *  must already have been set by initBedSupply. On every call the capacity is the bed supply
+ *  scaled by workforce availability: capacity = bed_supply x (available / baseline). Communities
+ *  with no baseline workforce carry no capacity limit. */
+template <typename PCType, typename PTDType, typename PType>
+void HospitalModel<PCType, PTDType, PType>::updateCapacities (const MFPtr& a_num_medworkers /*!< frontline worker counts */) {
     BL_PROFILE("HospitalModel::updateCapacities");
+
+    const bool first_call = !m_capacities_initialized;
 
     for (MFIter mfi(*m_data); mfi.isValid(); ++mfi) {
         const auto& bx = mfi.tilebox();
         const auto n_mw_arr = a_num_medworkers->const_array(mfi);
         auto data_arr = m_data->array(mfi);
-        auto p_per_d = m_num_patients_per_doctor;
-        auto acute_mw_prop = m_acute_mw_prop;
 
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-            data_arr(i, j, k, HospMod::n_t_mw) = acute_mw_prop * n_mw_arr(i, j, k, 0);
-            data_arr(i, j, k, HospMod::n_a_mw) = acute_mw_prop * n_mw_arr(i, j, k, 1);
-            data_arr(i, j, k, HospMod::capacity) = data_arr(i, j, k, HospMod::n_a_mw) * p_per_d;
+            // record the full-strength frontline workforce once (bed supply is set by initBedSupply)
+            if (first_call) { data_arr(i, j, k, HospMod::n_baseline_mw) = n_mw_arr(i, j, k, 0); }
+            data_arr(i, j, k, HospMod::n_avail_mw) = n_mw_arr(i, j, k, 1);
 
-            if (n_mw_arr(i, j, k, 0) == 0) {
-                AMREX_ALWAYS_ASSERT(n_mw_arr(i, j, k, 1) == 0);
-                data_arr(i, j, k, HospMod::r_a2t_mw) = 0.0_rt;
+            const auto n_baseline = data_arr(i, j, k, HospMod::n_baseline_mw);
+            if (n_baseline == 0) {
+                // no hospital workforce in this community -> no capacity limit
+                data_arr(i, j, k, HospMod::capacity) = 0.0_rt;
             } else {
-                data_arr(i, j, k, HospMod::r_a2t_mw) = n_mw_arr(i, j, k, 1) / n_mw_arr(i, j, k, 0);
+                data_arr(i, j, k, HospMod::capacity) =
+                        data_arr(i, j, k, HospMod::bed_supply) * data_arr(i, j, k, HospMod::n_avail_mw) / n_baseline;
             }
         });
     }
+
+    m_capacities_initialized = true;
 }
 
 /*! Computes the hospital scores (treatment quality) for each community based on the number of
@@ -688,8 +731,8 @@ void HospitalModel<PCType, PTDType, PType>::computeHospitalScores (const PCType&
 
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             // Compute load
-            if (data_arr(i, j, k, HospMod::n_t_mw) == 0) {
-                data_arr(i, j, k, HospMod::load) = 0.0_prt; // exclude from hospital score modeling
+            if (data_arr(i, j, k, HospMod::n_baseline_mw) == 0) {
+                data_arr(i, j, k, HospMod::load) = 0.0_prt; // no hospital workforce: exclude from score modeling
             } else if (data_arr(i, j, k, HospMod::capacity) == 0) {
                 if (data_arr(i, j, k, HospMod::n_patients) == 0) {
                     data_arr(i, j, k, HospMod::load) = 0.0_prt;
@@ -721,9 +764,13 @@ void HospitalModel<PCType, PTDType, PType>::computeHospitalScores (const PCType&
         {
             std::string op_fname = "hospital_data_" + std::string(iter_str);
             Print() << "Writing " << op_fname << "\n";
-            Vector<std::string> varnames =
-                    {"hospital_score", "patient_capacity",           "active_to_total_medworkers", "hospital_load",
-                     "num_patients",   "num_active_medical_workers", "num_total_medical_workets"};
+            Vector<std::string> varnames = {"hospital_score",
+                                            "patient_capacity",
+                                            "hospital_load",
+                                            "num_patients",
+                                            "num_available_frontline_medworkers",
+                                            "baseline_frontline_medworkers",
+                                            "staffed_bed_supply"};
             WriteSingleLevelPlotfile(op_fname, *m_data, varnames, geom, a_iter, a_iter);
         }
     }
