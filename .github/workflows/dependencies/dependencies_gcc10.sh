@@ -12,7 +12,7 @@ sudo apt-get update
 
 sudo apt-get install -y --no-install-recommends \
     build-essential    \
-    g++-10 gfortran-10 \
+    g++-13 gfortran-13 \
     libopenmpi-dev     \
     openmpi-bin        \
     libhdf5-openmpi-dev

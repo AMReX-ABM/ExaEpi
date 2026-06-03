@@ -10,20 +10,9 @@ set -eu -o pipefail
 sudo add-apt-repository ppa:ubuntu-toolchain-r/test
 sudo apt-get update
 
-sudo cat <<EOF | sudo tee /etc/apt/sources.list.d/gcc-8.list
-deb http://old-releases.ubuntu.com/ubuntu/ impish main restricted universe multiverse
-EOF
-
-sudo apt update
-apt-cache policy g++-8
-apt-cache show g++-8
-sudo apt install g++-8
-apt-cache policy gfortran-8
-apt-cache show gfortran-8
-sudo apt install gfortran-8
-
 sudo apt-get install -y --no-install-recommends \
     build-essential    \
+    g++-11 gfortran-11 \
     libopenmpi-dev     \
     openmpi-bin        \
     libhdf5-dev

@@ -7,11 +7,12 @@
 
 set -eu -o pipefail
 
+sudo add-apt-repository ppa:ubuntu-toolchain-r/test
 sudo apt-get update
 
 sudo apt-get install -y --no-install-recommends\
-    build-essential \
-    g++ gfortran    \
-    libopenmpi-dev  \
-    openmpi-bin     \
+    build-essential    \
+    g++-12 gfortran-12 \
+    libopenmpi-dev     \
+    openmpi-bin        \
     libhdf5-openmpi-dev
