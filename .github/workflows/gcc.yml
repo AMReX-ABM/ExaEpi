@@ -13,27 +13,29 @@ jobs:
   # Build ExaEpi
   # Note: this is an intentional "minimal" build that does not enable (many) options
   library:
-    name: GNU@8.4 C++17 Release
+    name: GNU@11 C++20 Release
     runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-fno-operator-names -Werror -Wall -Wextra -Wpedantic -Wnull-dereference -Wfloat-conversion -Wshadow -Woverloaded-virtual -Wnon-virtual-dtor -Wlogical-op -Wmisleading-indentation -Wduplicated-cond -Wduplicated-branches -Wmissing-include-dirs -Wno-unused-parameter"}
     steps:
     - uses: actions/checkout@v3
     - name: Dependencies
-      run: .github/workflows/dependencies/dependencies_gcc8.sh
+      run: .github/workflows/dependencies/dependencies_gcc11.sh
     - name: Build & Install
       run: |
         mkdir build
         cd build
         cmake ..                                  \
             -DCMAKE_VERBOSE_MAKEFILE=ON           \
-            -DCMAKE_C_COMPILER=$(which gcc-8)     \
-            -DCMAKE_CXX_COMPILER=$(which g++-8)   \
-            -DCMAKE_Fortran_COMPILER=$(which gfortran-8)
+            -DCMAKE_CXX_STANDARD=20               \
+            -DCMAKE_CXX_STANDARD_REQUIRED=ON       \
+            -DCMAKE_C_COMPILER=$(which gcc-11)     \
+            -DCMAKE_CXX_COMPILER=$(which g++-11)   \
+            -DCMAKE_Fortran_COMPILER=$(which gfortran-11)
         make -j 2
 
   # Build ExaEpi [Debug]
   build_debug:
-    name: GNU@9.3 C++17 Debug
+    name: GNU C++20 Debug
     runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-fno-operator-names -Werror -Wall -Wextra -Wpedantic -Wnull-dereference -Wfloat-conversion -Wshadow -Woverloaded-virtual -O1 -Wnon-virtual-dtor -Wlogical-op -Wmisleading-indentation -Wduplicated-cond -Wduplicated-branches -Wmissing-include-dirs -Wno-unused-parameter"}
       # It's too slow with -O0
@@ -45,7 +47,9 @@ jobs:
       run: |
         cmake -S . -B build             \
             -DCMAKE_BUILD_TYPE=Debug    \
-            -DCMAKE_VERBOSE_MAKEFILE=ON
+            -DCMAKE_VERBOSE_MAKEFILE=ON \
+            -DCMAKE_CXX_STANDARD=20     \
+            -DCMAKE_CXX_STANDARD_REQUIRED=ON
         cmake --build build -j 2
     - name: Run Tests
       run: |
@@ -53,13 +57,13 @@ jobs:
 
   # Build ExaEpi
   tests_cxx20:
-    name: GNU@10.1 C++20 OMP
+    name: GNU@11 C++20 OMP
     runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-fno-operator-names -Werror -Wall -Wextra -Wpedantic -Wnull-dereference -Wfloat-conversion -Wshadow -Woverloaded-virtual -Wextra-semi -Wnon-virtual-dtor -Wlogical-op -Wmisleading-indentation -Wduplicated-cond -Wduplicated-branches -Wmissing-include-dirs -Wno-unused-parameter"}
     steps:
     - uses: actions/checkout@v3
     - name: Dependencies
-      run: .github/workflows/dependencies/dependencies_gcc10.sh
+      run: .github/workflows/dependencies/dependencies_gcc11.sh
     - name: Build & Install
       run: |
         mkdir build
@@ -72,10 +76,11 @@ jobs:
             -DAMReX_BOUND_CHECK=ON      \
             -DAMReX_FPE=ON              \
             -DAMReX_OMP=ON              \
-            -DCMAKE_CXX_STANDARD=20     \
-            -DCMAKE_C_COMPILER=$(which gcc-10)              \
-            -DCMAKE_CXX_COMPILER=$(which g++-10)            \
-            -DCMAKE_Fortran_COMPILER=$(which gfortran-10)
+            -DCMAKE_CXX_STANDARD=20                     \
+            -DCMAKE_CXX_STANDARD_REQUIRED=ON             \
+            -DCMAKE_C_COMPILER=$(which gcc-11)           \
+            -DCMAKE_CXX_COMPILER=$(which g++-11)         \
+            -DCMAKE_Fortran_COMPILER=$(which gfortran-11)
         make -j 2
     - name: Run Tests
       run: |
@@ -83,13 +88,13 @@ jobs:
 
   # Build ExaEpi w/o MPI
   tests-nonmpi:
-    name: GNU@8.4 C++17 NOMPI
+    name: GNU@11 C++20 NOMPI
     runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-fno-operator-names -Werror -Wall -Wextra -Wpedantic -Wnull-dereference -Wfloat-conversion -Wshadow -Woverloaded-virtual -Wnon-virtual-dtor -Wlogical-op -Wmisleading-indentation -Wduplicated-cond -Wduplicated-branches -Wmissing-include-dirs -Wno-unused-parameter"}
     steps:
     - uses: actions/checkout@v3
     - name: Dependencies
-      run: .github/workflows/dependencies/dependencies_gcc8_nompi.sh
+      run: .github/workflows/dependencies/dependencies_gcc11_nompi.sh
     - name: Build & Install
       run: |
         mkdir build
@@ -102,7 +107,9 @@ jobs:
             -DAMReX_BOUND_CHECK=ON      \
             -DAMReX_FPE=ON              \
             -DAMReX_MPI=OFF             \
-            -DCMAKE_C_COMPILER=$(which gcc-8)     \
-            -DCMAKE_CXX_COMPILER=$(which g++-8)   \
-            -DCMAKE_Fortran_COMPILER=$(which gfortran-8)
+            -DCMAKE_CXX_STANDARD=20               \
+            -DCMAKE_CXX_STANDARD_REQUIRED=ON       \
+            -DCMAKE_C_COMPILER=$(which gcc-11)     \
+            -DCMAKE_CXX_COMPILER=$(which g++-11)   \
+            -DCMAKE_Fortran_COMPILER=$(which gfortran-11)
         make -j 2

@@ -7,9 +7,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Build ExaEpi with CUDA 12.6 (minimum supported)
+  # Build ExaEpi with CUDA 12.6
   build-cuda12:
-    name: CUDA@12.6 C++17 Release
+    name: CUDA@12.6 GCC@11 C++20 Release
     runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-fno-operator-names -Werror -Wall -Wextra -Wpedantic -Wnull-dereference -Wfloat-conversion -Wshadow -Woverloaded-virtual -Wextra-semi -Wunreachable-code -Wnon-virtual-dtor -Wlogical-op -Wmisleading-indentation -Wduplicated-cond -Wduplicated-branches"}
     steps:
@@ -25,11 +25,13 @@ jobs:
         cmake -S . -B build                              \
             -DCMAKE_VERBOSE_MAKEFILE=ON                  \
             -DAMReX_GPU_BACKEND=CUDA                     \
-            -DCMAKE_C_COMPILER=$(which gcc)              \
-            -DCMAKE_CXX_COMPILER=$(which g++)            \
-            -DCMAKE_CUDA_HOST_COMPILER=$(which g++)      \
-            -DCMAKE_CUDA_STANDARD=17                     \
-            -DCMAKE_CXX_STANDARD=17                      \
+            -DCMAKE_C_COMPILER=$(which gcc-11)           \
+            -DCMAKE_CXX_COMPILER=$(which g++-11)         \
+            -DCMAKE_CUDA_HOST_COMPILER=$(which g++-11)   \
+            -DCMAKE_CUDA_STANDARD=20                     \
+            -DCMAKE_CUDA_STANDARD_REQUIRED=ON            \
+            -DCMAKE_CXX_STANDARD=20                      \
+            -DCMAKE_CXX_STANDARD_REQUIRED=ON             \
             -DAMReX_CUDA_ARCH=8.0                        \
             -DAMReX_CUDA_ERROR_CROSS_EXECUTION_SPACE_CALL=ON \
             -DAMReX_CUDA_ERROR_CAPTURE_THIS=ON
@@ -38,7 +40,7 @@ jobs:
 
   # Build ExaEpi with NVHPC (recent supported)
   build-nvhpc-nvcc:
-    name: NVHPC NVCC/NVC++ C++17 Release
+    name: NVHPC NVCC/NVC++ C++20 Release
     runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-Werror -Wall -Wextra -Wpedantic -Wshadow"}
     steps:
@@ -77,8 +79,10 @@ jobs:
             -DCMAKE_C_COMPILER=$(which nvc)              \
             -DCMAKE_CXX_COMPILER=$(which nvc++)          \
             -DCMAKE_CUDA_HOST_COMPILER=$(which nvc++)    \
-            -DCMAKE_CUDA_STANDARD=17                     \
-            -DCMAKE_CXX_STANDARD=17                      \
+            -DCMAKE_CUDA_STANDARD=20                     \
+            -DCMAKE_CUDA_STANDARD_REQUIRED=ON            \
+            -DCMAKE_CXX_STANDARD=20                      \
+            -DCMAKE_CXX_STANDARD_REQUIRED=ON             \
             -DAMReX_CUDA_ARCH=8.0                        \
             -DAMReX_CUDA_ERROR_CROSS_EXECUTION_SPACE_CALL=ON \
             -DAMReX_CUDA_ERROR_CAPTURE_THIS=ON
