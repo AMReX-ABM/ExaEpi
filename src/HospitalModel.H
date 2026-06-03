@@ -346,9 +346,8 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                         // Check if hospitalized patient recovers or dies
                         // treatment quality (capacity-limited) lowers survival; index the
                         // baseline severity by status_d (development #146 multi-disease fix)
-                        auto p_death = 1.0_rt -
-                                       treat_q_ptrs[d][i] *
-                                               (1.0_rt - disease_parm_d->m_hospToDeath[status_d - 1][age_group_ptr[i]]);
+                        auto p_death = 1.0_rt - treat_q_ptrs[d][i] *
+                                                        (1.0_rt - disease_parm_d->m_hospToDeath[status_d - 1][age_group_ptr[i]]);
                         if (Random(engine) < p_death) {
                             // patient dies
                             is_alive_ptr[i] = 0;
