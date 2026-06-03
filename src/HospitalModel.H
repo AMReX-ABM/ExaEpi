@@ -628,7 +628,7 @@ void HospitalModel<PCType, PTDType, PType>::updateCapacities (const MFPtr& a_num
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             data_arr(i, j, k, HospMod::n_t_mw) = acute_mw_prop * n_mw_arr(i, j, k, 0);
             data_arr(i, j, k, HospMod::n_a_mw) = acute_mw_prop * n_mw_arr(i, j, k, 1);
-            data_arr(i, j, k, HospMod::capacity) = n_mw_arr(i, j, k, 1) * p_per_d;
+            data_arr(i, j, k, HospMod::capacity) = data_arr(i, j, k, HospMod::n_a_mw) * p_per_d;
 
             if (n_mw_arr(i, j, k, 0) == 0) {
                 AMREX_ALWAYS_ASSERT(n_mw_arr(i, j, k, 1) == 0);
