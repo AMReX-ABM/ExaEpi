@@ -11,7 +11,9 @@ sudo apt-get install -y \
     build-essential     \
     ca-certificates     \
     cmake               \
-    g++                 \
+    gcc-11              \
+    g++-11              \
+    gfortran-11         \
     gnupg               \
     libopenmpi-dev      \
     openmpi-bin         \
