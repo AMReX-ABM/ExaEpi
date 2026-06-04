@@ -52,7 +52,7 @@ static std::map<int, Real> readHospitalBedData (const std::string& a_fname) {
         if (line[p] == '#') { continue; }         // comment
         std::istringstream ls(line);
         if (!have_count) {
-            have_count = true; // first non-comment line is the record count
+            have_count = true;                    // first non-comment line is the record count
             continue;
         }
         int fips = -1;
@@ -84,9 +84,7 @@ static std::map<std::pair<int, int>, TractHospInfo> readHospitalTractData (const
         }
         int fips = -1, tract = -1, icu = 0, nh = 0, hF = -1, hT = -1;
         Real beds = 0.0_rt;
-        if (ls >> fips >> tract >> beds >> icu >> nh >> hF >> hT) {
-            data[{fips, tract}] = TractHospInfo{beds, hF, hT};
-        }
+        if (ls >> fips >> tract >> beds >> icu >> nh >> hF >> hT) { data[{fips, tract}] = TractHospInfo{beds, hF, hT}; }
     }
     return data;
 }
@@ -138,7 +136,9 @@ void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, cons
         const int Ncommunity = a_demo->Ncommunity;
 
         std::map<std::pair<int, int>, int> tract2unit;
-        for (int u = 0; u < Nunit; ++u) { tract2unit[{a_demo->FIPS[u], a_demo->Tract[u]}] = u; }
+        for (int u = 0; u < Nunit; ++u) {
+            tract2unit[{a_demo->FIPS[u], a_demo->Tract[u]}] = u;
+        }
 
         // per-unit bed supply and assigned hospital cell = first community cell of the hospital unit
         Gpu::HostVector<Real> unit_beds_h(Nunit, 0.0_rt);
@@ -233,8 +233,8 @@ void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, cons
         }
         Gpu::synchronize();
 
-        amrex::Print() << "Hospital bed supply + patient routing set from tract-level HHS data ("
-                       << tract_data.size() << " tracts): " << m_hospital->hospitalDataFile() << "\n";
+        amrex::Print() << "Hospital bed supply + patient routing set from tract-level HHS data (" << tract_data.size()
+                       << " tracts): " << m_hospital->hospitalDataFile() << "\n";
     } else {
         // County-level: apportion each county's beds to its communities by population,
         // bed_supply(community) = (county beds / county population) x community population.
@@ -242,16 +242,18 @@ void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, cons
         const auto& county_pop = a_demo->CountyPop;
 
         int max_fips = 0;
-        for (const auto& kv : county_beds) { max_fips = std::max(max_fips, kv.first); }
-        for (const auto& kv : county_pop) { max_fips = std::max(max_fips, kv.first); }
+        for (const auto& kv : county_beds) {
+            max_fips = std::max(max_fips, kv.first);
+        }
+        for (const auto& kv : county_pop) {
+            max_fips = std::max(max_fips, kv.first);
+        }
         const int dsize = max_fips + 1;
 
         Gpu::HostVector<Real> density_h(dsize, 0.0_rt);
         for (const auto& kv : county_beds) {
             auto it = county_pop.find(kv.first);
-            if ((it != county_pop.end()) && (it->second > 0)) {
-                density_h[kv.first] = kv.second / Real(it->second);
-            }
+            if ((it != county_pop.end()) && (it->second > 0)) { density_h[kv.first] = kv.second / Real(it->second); }
         }
         Gpu::DeviceVector<Real> density_d(dsize);
         Gpu::copy(Gpu::hostToDevice, density_h.begin(), density_h.end(), density_d.begin());

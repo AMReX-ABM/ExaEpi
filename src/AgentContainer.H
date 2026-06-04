@@ -122,8 +122,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
      *  call once before the time loop, when agents are at their home communities. For census
      *  initialization with hospital_model.use_HHS_data, pass the per-community FIPS codes
      *  and the county populations so the bed supply is set from real per-county hospital data. */
-    void initHospitalCapacityModel(const amrex::iMultiFab* a_fips_mf = nullptr,
-                                   const DemographicData* a_demo = nullptr);
+    void initHospitalCapacityModel(const amrex::iMultiFab* a_fips_mf = nullptr, const DemographicData* a_demo = nullptr);
 
     /*! \brief reroute hospitalized agents to their assigned hospital community (tract-level routing);
      *  defined in AgentContainerHospital.cpp */

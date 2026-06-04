@@ -959,7 +959,6 @@ int AgentContainer::getMaxGroup (const int group_idx) {
     return max_attribute_values[group_idx];
 }
 
-
 /*! Updates the MultiFab that contains the number of total and available frontline medical workers
  *  in each community and sends this the HospitalModel object to compute the patient capacities and
  *  hospital quality scores.
