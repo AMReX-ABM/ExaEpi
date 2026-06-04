@@ -9,22 +9,22 @@ particular year so the dataset can be regenerated periodically.
 
 Data sources (public)
 ---------------------
-* HIFLD "Hospitals" (Homeland Infrastructure Foundation-Level Data) -- hospital
-  point locations with bed counts (``BEDS``), facility ``TYPE``, ``STATUS``,
-  ``COUNTYFIPS`` and ``LATITUDE``/``LONGITUDE``. This sets *where* hospitals are
-  and *how many beds* they have. Portal:
-  https://hifld-geoplatform.opendata.arcgis.com/datasets/hospitals
 * HHS "COVID-19 Reported Patient Impact and Hospital Capacity by Facility"
-  (HealthData.gov, dataset id ``anag-cw7u``) -- OPTIONAL. Facility-level staffed
-  and ICU bed counts reported weekly (2020-2024), used to tie staffed/ICU bed
-  supply to a specific year. Portal:
+  (HealthData.gov, dataset id ``anag-cw7u``) -- the default and recommended source.
+  Facility-level **staffed** and **ICU** bed counts reported weekly (2019-2024,
+  year-tied), plus a ``geocoded_hospital_address`` point, so it supplies both the
+  bed counts and the hospital locations (no separate location source needed).
+  Reliable Socrata API, no account. Portal:
   https://healthdata.gov/Hospital/COVID-19-Reported-Patient-Impact-and-Hospital-Capa/anag-cw7u
   (For dates after 2024 the successor is CDC NHSN hospital respiratory data.)
+* HIFLD "Hospitals" -- legacy alternative (``--source hifld``), hospital point
+  locations + licensed beds. **HIFLD Open is being deprecated** (its layers are
+  moving to the account-gated HIFLD Secure / DHS GII), so this path now expects a
+  locally supplied CSV (``--hifld-csv``) rather than a download.
 
-We keep only facilities that can admit infectious-disease inpatients, i.e.
-``STATUS == OPEN`` and ``TYPE`` in the acute-care set (general acute care and
-critical access by default); psychiatric, rehabilitation, children's-only and
-military facilities are excluded.
+We keep only facilities that can admit infectious-disease inpatients. For HHS,
+every reporting facility with staffed beds is kept; for HIFLD, ``STATUS == OPEN``
+and ``TYPE`` in the acute-care set (general acute care, critical access).
 
 Output format
 -------------
@@ -208,11 +208,60 @@ def load_hhs_by_county(args, sfips, required):
     return out
 
 
-def build_tract_records(hifld, shapefile, sfips, hhs, args):
-    """Spatial-join hospitals to TIGER census tracts, then for *every* state tract emit its bed
-    supply and the nearest tract that has a hospital (for patient routing, the analog of the
-    home->work assignment). Returns records (FIPS, TRACT, beds, icu_beds, n_hospitals,
-    hosp_FIPS, hosp_TRACT). The census Tract code is int(TRACTCE) (e.g. 400 for '000400'). """
+def load_hhs_facilities(args, sfips):
+    """HHS facility-level records with geocoded location and staffed/ICU beds, for a state/week.
+    Returns a DataFrame with COUNTYFIPS, LATITUDE, LONGITUDE, BEDS (staffed inpatient), ICU. Uses
+    the ``geocoded_hospital_address`` WKT point, so no separate hospital-location source (HIFLD) is
+    needed for tract-level placement."""
+    if args.hhs_csv:
+        hhs = pd.read_csv(args.hhs_csv, dtype=str)
+    else:
+        sel = "fips_code,geocoded_hospital_address,collection_week," + ",".join(HHS_STAFFED_COLS[:1] + HHS_ICU_COLS[:1])
+        url = HHS_SODA_URL + f"?$select={sel}&$limit=2000000"
+        if args.state.upper() != "US":
+            url += f"&state={args.state.upper()}"
+        if args.hhs_week:
+            url += f"&collection_week={args.hhs_week}T00:00:00.000"
+        print(f"Downloading HHS facilities from {url}", file=sys.stderr)
+        hhs = pd.read_csv(url, dtype=str)
+
+    cols = _norm(hhs.columns)
+    icu_col = next((cols[c.upper()] for c in HHS_ICU_COLS if c.upper() in cols), None)
+    staffed_col = next((cols[c.upper()] for c in HHS_STAFFED_COLS if c.upper() in cols), None)
+    geo_col = cols.get("GEOCODED_HOSPITAL_ADDRESS")
+    if not (icu_col and staffed_col and "FIPS_CODE" in cols and geo_col):
+        raise SystemExit("HHS CSV missing fips_code / geocoded_hospital_address / bed columns.")
+    if args.hhs_week and "COLLECTION_WEEK" in cols:
+        hhs = hhs[hhs[cols["COLLECTION_WEEK"]].astype(str).str.startswith(args.hhs_week)]
+
+    df = pd.DataFrame()
+    df["COUNTYFIPS"] = pd.to_numeric(hhs[cols["FIPS_CODE"]], errors="coerce")
+    df["BEDS"] = pd.to_numeric(hhs[staffed_col], errors="coerce")
+    df["ICU"] = pd.to_numeric(hhs[icu_col], errors="coerce")
+    pt = hhs[geo_col].astype(str).str.extract(r"POINT\s*\(\s*([-\d.]+)\s+([-\d.]+)\s*\)")
+    df["LONGITUDE"] = pd.to_numeric(pt[0], errors="coerce")
+    df["LATITUDE"] = pd.to_numeric(pt[1], errors="coerce")
+    df.loc[df["BEDS"] < 0, "BEDS"] = pd.NA  # -999999 = suppressed
+    df.loc[df["ICU"] < 0, "ICU"] = 0
+    df = df.dropna(subset=["COUNTYFIPS", "BEDS", "LONGITUDE", "LATITUDE"])
+    df = df[df["BEDS"] > 0].copy()
+    df["COUNTYFIPS"] = df["COUNTYFIPS"].astype(int).astype(str).str.zfill(5)
+    df = df[df["COUNTYFIPS"].str.startswith(sfips)]
+    if args.counties:
+        df = df[df["COUNTYFIPS"].isin({c.zfill(5) for c in args.counties})]
+    if df.empty:
+        raise SystemExit("No HHS facilities matched the state/county/week filters.")
+    print(f"HHS: {len(df)} facilities, {int(df['BEDS'].sum())} staffed beds", file=sys.stderr)
+    return df
+
+
+def build_tract_records(fac, shapefile, sfips, args):
+    """Spatial-join hospital points to TIGER census tracts, then for *every* state tract emit its
+    bed supply and the nearest tract that has a hospital (for patient routing, the analog of the
+    home->work assignment). ``fac`` is a facilities DataFrame with LATITUDE, LONGITUDE, BEDS and
+    optionally ICU columns (from HHS geocoded points, or HIFLD). Returns records (FIPS, TRACT, beds,
+    icu_beds, n_hospitals, hosp_FIPS, hosp_TRACT). The census Tract code is int(TRACTCE)
+    (e.g. 400 for '000400')."""
     try:
         import numpy as np
         import geopandas as gpd
@@ -242,16 +291,19 @@ def build_tract_records(hifld, shapefile, sfips, hhs, args):
     if tracts.empty:
         raise SystemExit("No tracts after the state/county filters.")
 
-    # spatial-join hospital points to the tract polygons; sum beds per tract
-    hifld = hifld.copy()
-    hifld["LATITUDE"] = pd.to_numeric(hifld["LATITUDE"], errors="coerce")
-    hifld["LONGITUDE"] = pd.to_numeric(hifld["LONGITUDE"], errors="coerce")
+    # spatial-join hospital points to the tract polygons; sum beds (and ICU) per tract
+    fac = fac.copy()
+    if "ICU" not in fac.columns:
+        fac["ICU"] = 0
+    fac["LATITUDE"] = pd.to_numeric(fac["LATITUDE"], errors="coerce")
+    fac["LONGITUDE"] = pd.to_numeric(fac["LONGITUDE"], errors="coerce")
+    fac = fac.dropna(subset=["LATITUDE", "LONGITUDE"])
     pts = gpd.GeoDataFrame(
-        hifld, geometry=[Point(xy) for xy in zip(hifld["LONGITUDE"], hifld["LATITUDE"])], crs="EPSG:4326"
+        fac, geometry=[Point(xy) for xy in zip(fac["LONGITUDE"], fac["LATITUDE"])], crs="EPSG:4326"
     ).to_crs(tracts.crs)
     joined = gpd.sjoin(pts, tracts[["FIPS", "TRACT", "geometry"]], how="inner", predicate="within")
-    bed = joined.groupby(["FIPS", "TRACT"]).agg(beds=("BEDS", "sum"), n=("BEDS", "size"))
-    bedset = {k: (int(round(v.beds)), int(v.n)) for k, v in bed.iterrows()}
+    bed = joined.groupby(["FIPS", "TRACT"]).agg(beds=("BEDS", "sum"), icu=("ICU", "sum"), n=("BEDS", "size"))
+    bedset = {k: (int(round(v.beds)), int(round(v.icu)), int(v.n)) for k, v in bed.iterrows()}
 
     # metric centroids (CONUS Albers) for nearest-hospital search (avoid leading-underscore
     # column names, which itertuples() would mangle)
@@ -259,24 +311,17 @@ def build_tract_records(hifld, shapefile, sfips, hhs, args):
     tracts = tracts.assign(ctr_x=cen.x.to_numpy(), ctr_y=cen.y.to_numpy())
     key_xy = {(int(r.FIPS), int(r.TRACT)): (r.ctr_x, r.ctr_y) for r in tracts.itertuples()}
 
-    hosp_keys = [k for k, (b, _) in bedset.items() if b > 0 and k in key_xy]
+    hosp_keys = [k for k, v in bedset.items() if v[0] > 0 and k in key_xy]
     if not hosp_keys:
         raise SystemExit("No hospital tracts after the spatial join.")
     tree = cKDTree(np.array([key_xy[k] for k in hosp_keys]))
 
-    icu_by_fips = {}
-    if hhs is not None:
-        for f, row in hhs.iterrows():
-            if pd.notna(row.get("icu_beds")):
-                icu_by_fips[int(f)] = int(round(row["icu_beds"]))
-
     records = []
     for r in tracts.itertuples():
         key = (int(r.FIPS), int(r.TRACT))
-        beds_i, n_i = bedset.get(key, (0, 0))
+        beds_i, icu_i, n_i = bedset.get(key, (0, 0, 0))
         if beds_i > 0:
             hF, hT = key  # has its own hospital
-            icu_i = icu_by_fips.get(int(r.FIPS), 0)
         else:
             hF, hT = hosp_keys[int(tree.query([r.ctr_x, r.ctr_y])[1])]  # nearest hospital tract
             icu_i = 0
@@ -319,8 +364,9 @@ def main(argv=None):
     p.add_argument("--hhs-csv", help="Local HHS facility-capacity CSV (optional, for ICU/staffed beds)")
     p.add_argument("--hhs-week", help="HHS collection_week prefix to select, e.g. 2021-01-08")
     p.add_argument("--tract-shapefile", help="TIGER tract .shp for --level tract")
-    p.add_argument("--source", choices=["hifld", "hhs"], default="hifld",
-                   help="Primary bed source: hifld (locations + licensed beds) or hhs (staffed beds, year-tied, county only)")
+    p.add_argument("--source", choices=["hhs", "hifld"], default="hhs",
+                   help="Bed source: hhs (geocoded staffed/ICU beds, year-tied, reliable; default) "
+                        "or hifld (legacy local CSV -- HIFLD Open is being deprecated)")
     p.add_argument("--counties", nargs="+", help="Restrict to these 5-digit county FIPS (e.g. a metro area)")
     p.add_argument("--types", nargs="+", default=DEFAULT_ACUTE_TYPES, help="HIFLD TYPE values to keep")
     p.add_argument("--download", action="store_true", help="Fetch from documented endpoints (verify URLs)")
@@ -332,27 +378,27 @@ def main(argv=None):
     def county_int(fips5):
         return int(fips5)  # 5-digit county FIPS -> int (drops leading zero), matches ExaEpi
 
-    # HHS-only county source (reliable, year-tied staffed/ICU beds; no point locations).
+    # Tract level: place hospitals from geocoded facility points (HHS by default, or HIFLD).
+    if args.level == "tract":
+        if not args.tract_shapefile:
+            raise SystemExit("--level tract requires --tract-shapefile PATH (TIGER tracts).")
+        fac = load_hhs_facilities(args, sfips) if args.source == "hhs" else load_hifld(args, sfips)
+        records = build_tract_records(fac, args.tract_shapefile, sfips, args)
+        write_dat(args.out, records, "tract", args)
+        return
+
+    # County level.
     if args.source == "hhs":
-        if args.level != "county":
-            raise SystemExit("--source hhs supports only --level county (HHS has no point locations).")
         hhs = load_hhs_by_county(args, sfips, required=True)
         records = []
         for fips5, row in hhs.iterrows():
             beds = int(round(row["staffed_beds"])) if pd.notna(row["staffed_beds"]) else 0
             icu = int(round(row["icu_beds"])) if pd.notna(row["icu_beds"]) else 0
-            if beds <= 0:
-                continue
-            records.append((county_int(fips5), beds, icu, int(row["n"])))
-        records.sort()
-        write_dat(args.out, records, "county", args)
-        return
-
-    # HIFLD source: locations + licensed beds, with optional HHS ICU beds.
-    hifld = load_hifld(args, sfips)
-    hhs = load_hhs_by_county(args, sfips, required=False)
-
-    if args.level == "county":
+            if beds > 0:
+                records.append((county_int(fips5), beds, icu, int(row["n"])))
+    else:
+        hifld = load_hifld(args, sfips)
+        hhs = load_hhs_by_county(args, sfips, required=False)
         g = hifld.groupby("COUNTYFIPS").agg(beds=("BEDS", "sum"), n=("BEDS", "size"))
         records = []
         for fips5, row in g.iterrows():
@@ -360,13 +406,8 @@ def main(argv=None):
             if hhs is not None and fips5 in hhs.index and pd.notna(hhs.loc[fips5, "icu_beds"]):
                 icu_beds = int(round(hhs.loc[fips5, "icu_beds"]))
             records.append((county_int(fips5), int(round(row["beds"])), icu_beds, int(row["n"])))
-        records.sort()
-    else:
-        if not args.tract_shapefile:
-            raise SystemExit("--level tract requires --tract-shapefile PATH (TIGER tracts).")
-        records = build_tract_records(hifld, args.tract_shapefile, sfips, hhs, args)
-
-    write_dat(args.out, records, args.level, args)
+    records.sort()
+    write_dat(args.out, records, "county", args)
 
 
 if __name__ == "__main__":

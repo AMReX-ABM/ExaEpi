@@ -92,7 +92,7 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
         : InteractionModel<PCType, PTDType, PType>(_fast_bin), m_model_medical_workers(a_model_medical_workers) {
         ParmParse pp(a_prefix);
         pp.query("staffed_beds_per_1000", m_beds_per_1000);
-        pp.query("use_HIFLD_HHS_data", m_use_hifld_hhs);
+        pp.query("use_HHS_data", m_use_hhs_data);
         pp.query("hospital_data_file", m_hospital_data_file);
         pp.query("score_minimum", m_sc_floor);
         pp.query("halfscore_load", m_sc_half_load);
@@ -106,8 +106,8 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
 
         if (m_model_medical_workers) {
             Print() << "Initialized hospital model...\n";
-            if (m_use_hifld_hhs) {
-                Print() << "  Bed supply from HIFLD/HHS data file: " << m_hospital_data_file << "\n";
+            if (m_use_hhs_data) {
+                Print() << "  Bed supply from HHS data file: " << m_hospital_data_file << "\n";
             } else {
                 Print() << "  Staffed beds per 1000 population (at full strength): " << m_beds_per_1000 << "\n";
             }
@@ -150,11 +150,11 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
     /*! \brief Set the fixed staffed-bed supply per community from the residential population */
     void initBedSupply(const MultiFab&);
 
-    /*! \brief Set the fixed staffed-bed supply per community directly (e.g. from HIFLD/HHS data) */
+    /*! \brief Set the fixed staffed-bed supply per community directly (e.g. from HHS data) */
     void setBedSupply(const MultiFab&);
 
-    /*! \brief whether to set the bed supply from real HIFLD/HHS county data */
-    bool useHIFLDHHSData () const { return m_use_hifld_hhs; }
+    /*! \brief whether to set the bed supply from real HHS county data */
+    bool useHHSData () const { return m_use_hhs_data; }
 
     /*! \brief path to the per-county hospital bed-supply data file */
     const std::string& hospitalDataFile () const { return m_hospital_data_file; }
@@ -175,12 +175,12 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
 
     /*! Staffed hospital beds per 1000 population at full workforce strength.
      *  Sets the per-community bed supply: bed_supply = (m_beds_per_1000/1000) x population.
-     *  Ignored when m_use_hifld_hhs is true. */
+     *  Ignored when m_use_hhs_data is true. */
     Real m_beds_per_1000 = 2.4_rt;
 
-    /*! Whether to set the per-community bed supply from real HIFLD/HHS county data
+    /*! Whether to set the per-community bed supply from real HHS county data
      *  (built by utilities/build_hospital_data.py) instead of the per-capita formula. */
-    bool m_use_hifld_hhs = false;
+    bool m_use_hhs_data = false;
 
     /*! Path to the per-county hospital bed-supply data file (census initialization only). */
     std::string m_hospital_data_file;
@@ -670,7 +670,7 @@ void HospitalModel<PCType, PTDType, PType>::initBedSupply (const MultiFab& a_pop
 }
 
 /*! Sets the fixed per-community staffed-bed supply directly from a MultiFab (component 0),
- *  e.g. the real per-county bed supply apportioned by population from HIFLD/HHS data. */
+ *  e.g. the real per-county bed supply apportioned by population from HHS data. */
 template <typename PCType, typename PTDType, typename PType>
 void HospitalModel<PCType, PTDType, PType>::setBedSupply (const MultiFab& a_bed_supply /*!< bed supply per community */) {
     BL_PROFILE("HospitalModel::setBedSupply");

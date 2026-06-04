@@ -1057,7 +1057,7 @@ static std::map<std::pair<int, int>, TractHospInfo> readHospitalTractData (const
 /*! Initializes the medical-workers / hospital-capacity model: records the fixed per-community
  *  staffed-bed supply, and (for tract-level data) the per-community hospital assignment used to
  *  route patients. By default the supply is the residential population times the per-capita bed
- *  density (staffed_beds_per_1000). With hospital_model.use_HIFLD_HHS_data (census only) it is set
+ *  density (staffed_beds_per_1000). With hospital_model.use_HHS_data (census only) it is set
  *  from real hospital data: county-level data apportions each county's beds to its communities by
  *  population; tract-level data places beds at hospital tracts and routes each community's patients
  *  to its nearest hospital tract (the analog of work_i/work_j).
@@ -1087,7 +1087,7 @@ void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, cons
             },
             false);
 
-    if (!(m_hospital->useHIFLDHHSData() && (a_fips_mf != nullptr) && (a_demo != nullptr))) {
+    if (!(m_hospital->useHHSData() && (a_fips_mf != nullptr) && (a_demo != nullptr))) {
         m_hospital->initBedSupply(population); // uniform per-capita bed density
         return;
     }
@@ -1163,7 +1163,40 @@ void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, cons
         Gpu::synchronize();
         m_hospital->setBedSupply(bed_supply);
         m_tract_routing = true;
-        amrex::Print() << "Hospital bed supply + patient routing set from tract-level HIFLD/HHS data ("
+
+        // Medical workers staff the nearest hospital: retarget each med_sca worker's work_i/work_j
+        // to its assigned hospital community so they commute to (and are counted for capacity at)
+        // the real hospital, aligning staff with the beds and routed patients. The worker-flow data
+        // only resolves home/work to census tracts, so the community-within-tract assignment is free
+        // to set.
+        for (int alev = 0; alev <= finestLevel(); ++alev) {
+            auto& plev = GetParticles(alev);
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+            for (MFIter mfi = MakeMFIter(alev); mfi.isValid(); ++mfi) {
+                auto& ptile = plev[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
+                const size_t np = ptile.GetArrayOfStructs().numParticles();
+                auto& soa = ptile.GetStructOfArrays();
+                auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
+                auto work_i_ptr = soa.GetIntData(IntIdx::work_i).data();
+                auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
+                amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
+                    if ((naics_ptr[ip] == NAICSCodes::NAICS::med_sca) && (work_i_ptr[ip] >= 0)) {
+                        IntVect wiv{AMREX_D_DECL(work_i_ptr[ip], work_j_ptr[ip], 0)};
+                        const int c = static_cast<int>(dom.index(wiv));
+                        if ((c >= 0) && (c < Ncommunity)) {
+                            const int unit = c2u[c];
+                            work_i_ptr[ip] = uhi[unit];
+                            work_j_ptr[ip] = uhj[unit];
+                        }
+                    }
+                });
+            }
+        }
+        Gpu::synchronize();
+
+        amrex::Print() << "Hospital bed supply + patient routing set from tract-level HHS data ("
                        << tract_data.size() << " tracts): " << m_hospital->hospitalDataFile() << "\n";
     } else {
         // County-level: apportion each county's beds to its communities by population,
@@ -1201,7 +1234,7 @@ void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, cons
         }
         Gpu::synchronize();
         m_hospital->setBedSupply(bed_supply);
-        amrex::Print() << "Hospital bed supply set from county-level HIFLD/HHS data (" << county_beds.size()
+        amrex::Print() << "Hospital bed supply set from county-level HHS data (" << county_beds.size()
                        << " counties): " << m_hospital->hospitalDataFile() << "\n";
     }
 }

@@ -50,10 +50,11 @@ Sources
   (HealthData.gov dataset ``anag-cw7u``): facility-level **staffed** and **ICU**
   beds reported weekly (2019-2024), so the bed supply can be tied to a specific
   year. This is the default source (``--source hhs``).
-- **HIFLD "Hospitals"** (Homeland Infrastructure Foundation-Level Data): hospital
-  point locations, licensed bed counts, facility type, and county FIPS. Required
-  for tract-level placement (``--source hifld --level tract``), where hospital
-  points are spatially joined to census tracts.
+- **HIFLD "Hospitals"** -- a legacy alternative (``--source hifld``). HHS already
+  supplies hospital locations (its ``geocoded_hospital_address`` point), so HIFLD
+  is not needed even for tract-level placement; **HIFLD Open is being deprecated**
+  (its layers move to the account-gated HIFLD Secure / DHS GII), so this path
+  expects a locally supplied CSV.
 
 Only acute-care facilities that admit infectious-disease inpatients are kept
 (``STATUS = OPEN`` and ``TYPE`` in ``GENERAL ACUTE CARE`` / ``CRITICAL ACCESS``);
@@ -90,10 +91,17 @@ Install the dependencies and run the script (from ``data/HospitalData/``)::
     ../../utilities/build_hospital_data.py --state CA --year 2021 --source hhs \
         --download --hhs-week 2021-12-26 --out CA_hospitals_2021.dat
 
+    # Tract-level placement + routing (adds a Census tract shapefile)
+    ../../utilities/build_hospital_data.py --state CA --year 2021 --source hhs \
+        --download --hhs-week 2021-12-26 --level tract \
+        --tract-shapefile ../CA_2020_Census_Tracts/tl_2020_06_tract.shp \
+        --out CA_hospitals_tract_2021.dat
+
 ``--state US`` builds the whole country; ``--counties <FIPS ...>`` restricts to a
-metro area (e.g. the San Francisco Bay Area). Tract-level files additionally need a
-TIGER tract shapefile and ``geopandas``/``scipy``. Re-run with a new ``--year`` and
-matching week to update periodically.
+metro area (e.g. the San Francisco Bay Area). Tract-level additionally needs a
+Census tract shapefile (the bundled CA one, or the national
+``cb_2020_us_tract_500k`` for other states) and ``geopandas``/``scipy``. Re-run
+with a new ``--year`` and matching week to update periodically.
 
 Using the data in ExaEpi
 -------------------------
@@ -102,7 +110,7 @@ Enable the medical-workers model and point it at a file (census initialization
 only)::
 
     agent.model_medical_workers = true
-    hospital_model.use_HIFLD_HHS_data = true
+    hospital_model.use_HHS_data = true
     hospital_model.hospital_data_file = data/HospitalData/CA_hospitals_2021.dat
 
 The model uses the data according to its granularity:
@@ -111,8 +119,12 @@ The model uses the data according to its granularity:
   supply, apportioned by population. This captures real between-county bed-density
   variation; patients are treated in their home community.
 - **Tract-level** data places beds at the tracts that actually have hospitals and
-  routes each community's patients to its nearest hospital tract, reusing the same
-  agent-movement machinery as the home/work commute. Hospitals therefore cluster
-  where they exist, and capacity strain is shared across each hospital's catchment.
+  routes both **patients and medical staff** to the nearest hospital tract, reusing
+  the same agent-movement machinery as the home/work commute (medical workers'
+  ``work_i/work_j`` are retargeted to their hospital, which is free to set because
+  the worker-flow data only resolves home/work to census tracts). Beds, staff, and
+  patients therefore aggregate at the real hospitals, so capacity strain and the
+  workforce-availability feedback are shared across each hospital's catchment;
+  communities without a hospital are inactive in the hospital mesh.
 
 See :doc:`how_to_run` for the full list of ``hospital_model.*`` input parameters.

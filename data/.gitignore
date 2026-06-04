@@ -18,3 +18,5 @@ HospitalData/*.shx
 HospitalData/*.dbf
 HospitalData/*.prj
 HospitalData/*.cpg
+# generated shapefile .shx index (GDAL rebuilds it with SHAPE_RESTORE_SHX=YES)
+*_Census_Tracts/*.shx
