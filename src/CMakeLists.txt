@@ -4,6 +4,7 @@ set(_sources
     AgentDefinitions.H
     AgentContainer.H
     AgentContainer.cpp
+    AgentContainerHospital.cpp
     AirTravelFlow.H
     AirTravelFlow.cpp
     CaseData.H

@@ -125,6 +125,10 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     void initHospitalCapacityModel(const amrex::iMultiFab* a_fips_mf = nullptr,
                                    const DemographicData* a_demo = nullptr);
 
+    /*! \brief reroute hospitalized agents to their assigned hospital community (tract-level routing);
+     *  defined in AgentContainerHospital.cpp */
+    void rerouteHospitalizedToHospital();
+
     /*! \brief update the hospital capacities in each community */
     void updateHospitalCapacities();
 
