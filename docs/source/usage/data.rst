@@ -88,14 +88,14 @@ Install the dependencies and run the script (from ``data/HospitalData/``)::
     pip install -r ../../utilities/requirements-hospital-data.txt
 
     # County-level staffed beds from HHS, tied to a reporting week
-    ../../utilities/build_hospital_data.py --state CA --year 2021 --source hhs \
-        --download --hhs-week 2021-12-26 --out CA_hospitals_2021.dat
+    ../../utilities/build_hospital_data.py --state CA --year 2020 --source hhs \
+        --download --hhs-week 2020-09-27 --out CA_hospitals_2020.dat
 
     # Tract-level placement + routing (adds a Census tract shapefile)
-    ../../utilities/build_hospital_data.py --state CA --year 2021 --source hhs \
-        --download --hhs-week 2021-12-26 --level tract \
+    ../../utilities/build_hospital_data.py --state CA --year 2020 --source hhs \
+        --download --hhs-week 2020-09-27 --level tract \
         --tract-shapefile ../CA_2020_Census_Tracts/tl_2020_06_tract.shp \
-        --out CA_hospitals_tract_2021.dat
+        --out CA_hospitals_tract_2020.dat
 
 ``--state US`` builds the whole country; ``--counties <FIPS ...>`` restricts to a
 metro area (e.g. the San Francisco Bay Area). Tract-level additionally needs a
@@ -111,7 +111,7 @@ only)::
 
     agent.model_medical_workers = true
     hospital_model.use_HHS_data = true
-    hospital_model.hospital_data_file = data/HospitalData/CA_hospitals_2021.dat
+    hospital_model.hospital_data_file = data/HospitalData/CA_hospitals_2020.dat
 
 The model uses the data according to its granularity:
 
