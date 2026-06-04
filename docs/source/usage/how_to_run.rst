@@ -282,6 +282,14 @@ The following inputs specify parameters for the hospital model.
     this supply scaled by workforce availability (``capacity = bed_supply x available_workers /
     full_strength_workers``), so capacity falls as medical workers fall ill, withdraw, or die. The
     default ~2.4 matches US staffed-bed density (AHA). Used only when the medical-workers model is active.
+* ``hospital_model.use_HIFLD_HHS_data`` (`bool`, default ``false``)
+    Set each community's staffed-bed supply from real per-county hospital data (built by
+    ``utilities/build_hospital_data.py`` from HIFLD and HHS public sources) instead of the uniform
+    ``staffed_beds_per_1000`` density. The county bed supply is apportioned to communities by
+    population, so real between-county bed-density variation is captured. Census initialization only.
+* ``hospital_model.hospital_data_file`` (`string`, default empty)
+    Path to the per-county hospital bed-supply ``.dat`` file (see ``data/HospitalData/``). Required
+    when ``use_HIFLD_HHS_data = true``.
 * ``hospital_model.score_minimum`` (`float`, default ``0.1``)
     The minimum hospital score (quality of treatment) when a hospital is overloaded (i.e., number of patients with
     respect to its capacity) to a very high degree.

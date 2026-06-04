@@ -5,6 +5,7 @@
 #define AGENT_CONTAINER_H_
 
 #include <array>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -118,8 +119,11 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     inline bool modelMedicalWorkers () const { return m_model_medical_workers; }
 
     /*! \brief initialize the medical-workers model (per-community staffed-bed supply);
-     *  call once before the time loop, when agents are at their home communities */
-    void initHospitalCapacityModel();
+     *  call once before the time loop, when agents are at their home communities. For census
+     *  initialization with hospital_model.use_HIFLD_HHS_data, pass the per-community FIPS codes
+     *  and the county populations so the bed supply is set from real per-county hospital data. */
+    void initHospitalCapacityModel(const amrex::iMultiFab* a_fips_mf = nullptr,
+                                   const DemographicData* a_demo = nullptr);
 
     /*! \brief update the hospital capacities in each community */
     void updateHospitalCapacities();
@@ -179,6 +183,15 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     /*! Number of medical workers by community - total and active */
     MFPtr m_num_medworkers;
+
+    /*! Per-community assigned hospital community (component 0,1 = hospital i,j). Built at init
+     *  for tract-level routing; agents are sent here on hospitalization, the same way work_i/work_j
+     *  sends them to work. */
+    amrex::iMultiFab m_hosp_assignment;
+
+    /*! Whether hospitalized patients are routed to a nearest hospital community (tract-level data).
+     *  When false, patients are treated in their home community (the default). */
+    bool m_tract_routing = false;
 
     /*! \brief queries if a given interaction type (model) is available */
     inline bool haveInteractionModel (ExaEpi::InteractionNames a_mod_name) const {

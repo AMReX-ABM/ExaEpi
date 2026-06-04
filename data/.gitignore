@@ -10,3 +10,11 @@ US_2010_Census_States
 UrbanPop
 !UrbanPop/urbanpop_nm.bin.gz
 !UrbanPop/urbanpop_nm.idx
+# Hospital data: ignore raw source downloads, keep processed .dat files and README
+HospitalData/*.csv
+HospitalData/*.zip
+HospitalData/*.shp
+HospitalData/*.shx
+HospitalData/*.dbf
+HospitalData/*.prj
+HospitalData/*.cpg

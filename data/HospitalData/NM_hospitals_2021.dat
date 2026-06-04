@@ -1,0 +1,31 @@
+# ExaEpi hospital-capacity data -- utilities/build_hospital_data.py
+# source: HHS COVID-19 Hospital Capacity by Facility (anag-cw7u): staffed inpatient beds (beds) + staffed adult ICU beds (icu_beds)
+# state=NM year=2021 level=county week=2021-12-26
+# columns: FIPS beds icu_beds n_hospitals
+26
+35001 2016 211 8
+35005 108 19 2
+35006 11 0 1
+35007 18 4 1
+35009 100 7 1
+35013 395 54 4
+35015 66 9 2
+35017 17 0 1
+35019 11 0 1
+35025 46 6 2
+35027 25 6 1
+35028 12 4 1
+35029 25 0 1
+35031 28 6 1
+35035 78 9 1
+35037 10 0 1
+35039 32 6 1
+35041 16 0 1
+35043 78 12 1
+35045 175 21 1
+35047 14 0 1
+35049 206 24 2
+35051 11 0 1
+35053 22 0 1
+35055 30 6 1
+35059 25 0 1

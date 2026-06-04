@@ -92,6 +92,8 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
         : InteractionModel<PCType, PTDType, PType>(_fast_bin), m_model_medical_workers(a_model_medical_workers) {
         ParmParse pp(a_prefix);
         pp.query("staffed_beds_per_1000", m_beds_per_1000);
+        pp.query("use_HIFLD_HHS_data", m_use_hifld_hhs);
+        pp.query("hospital_data_file", m_hospital_data_file);
         pp.query("score_minimum", m_sc_floor);
         pp.query("halfscore_load", m_sc_half_load);
         pp.query("write_pltfiles", m_write_pltfiles);
@@ -104,7 +106,11 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
 
         if (m_model_medical_workers) {
             Print() << "Initialized hospital model...\n";
-            Print() << "  Staffed beds per 1000 population (at full strength): " << m_beds_per_1000 << "\n";
+            if (m_use_hifld_hhs) {
+                Print() << "  Bed supply from HIFLD/HHS data file: " << m_hospital_data_file << "\n";
+            } else {
+                Print() << "  Staffed beds per 1000 population (at full strength): " << m_beds_per_1000 << "\n";
+            }
             Print() << "  Minimum score for overloaded hospitals: " << m_sc_floor << "\n";
             Print() << "  Load for score=0.5: " << m_sc_half_load << "\n";
             Print() << "  Write hospital data plotfiles: " << (m_write_pltfiles ? "yes" : "no") << "\n";
@@ -144,6 +150,15 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
     /*! \brief Set the fixed staffed-bed supply per community from the residential population */
     void initBedSupply(const MultiFab&);
 
+    /*! \brief Set the fixed staffed-bed supply per community directly (e.g. from HIFLD/HHS data) */
+    void setBedSupply(const MultiFab&);
+
+    /*! \brief whether to set the bed supply from real HIFLD/HHS county data */
+    bool useHIFLDHHSData () const { return m_use_hifld_hhs; }
+
+    /*! \brief path to the per-county hospital bed-supply data file */
+    const std::string& hospitalDataFile () const { return m_hospital_data_file; }
+
     /*! \brief Update patient capacity of hospitals in each community */
     void updateCapacities(const MFPtr&);
 
@@ -159,8 +174,16 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
     bool m_model_medical_workers = false;
 
     /*! Staffed hospital beds per 1000 population at full workforce strength.
-     *  Sets the per-community bed supply: bed_supply = (m_beds_per_1000/1000) x population. */
+     *  Sets the per-community bed supply: bed_supply = (m_beds_per_1000/1000) x population.
+     *  Ignored when m_use_hifld_hhs is true. */
     Real m_beds_per_1000 = 2.4_rt;
+
+    /*! Whether to set the per-community bed supply from real HIFLD/HHS county data
+     *  (built by utilities/build_hospital_data.py) instead of the per-capita formula. */
+    bool m_use_hifld_hhs = false;
+
+    /*! Path to the per-county hospital bed-supply data file (census initialization only). */
+    std::string m_hospital_data_file;
 
     /*! Whether the fixed per-community baseline (bed supply, full-strength workforce)
      *  has been recorded; set on the first call to updateCapacities. */
@@ -642,6 +665,21 @@ void HospitalModel<PCType, PTDType, PType>::initBedSupply (const MultiFab& a_pop
         auto data_arr = m_data->array(mfi);
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             data_arr(i, j, k, HospMod::bed_supply) = beds_per_capita * pop_arr(i, j, k, 0);
+        });
+    }
+}
+
+/*! Sets the fixed per-community staffed-bed supply directly from a MultiFab (component 0),
+ *  e.g. the real per-county bed supply apportioned by population from HIFLD/HHS data. */
+template <typename PCType, typename PTDType, typename PType>
+void HospitalModel<PCType, PTDType, PType>::setBedSupply (const MultiFab& a_bed_supply /*!< bed supply per community */) {
+    BL_PROFILE("HospitalModel::setBedSupply");
+    for (MFIter mfi(*m_data); mfi.isValid(); ++mfi) {
+        const auto& bx = mfi.tilebox();
+        const auto src = a_bed_supply.const_array(mfi);
+        auto data_arr = m_data->array(mfi);
+        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+            data_arr(i, j, k, HospMod::bed_supply) = src(i, j, k, 0);
         });
     }
 }

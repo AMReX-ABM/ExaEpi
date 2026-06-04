@@ -1,0 +1,12 @@
+# Dependencies for utilities/build_hospital_data.py
+# Install with:  pip install -r requirements-hospital-data.txt
+
+# Required (download + tabular processing; pandas reads CSV from local files or URLs)
+pandas>=1.5
+
+# Optional: only needed for --level tract, which spatial-joins hospital point
+# locations to TIGER census-tract polygons and routes each tract to its nearest hospital.
+geopandas>=0.12
+shapely>=2.0
+scipy>=1.7
+numpy>=1.20

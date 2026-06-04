@@ -287,7 +287,11 @@ void runAgent () {
             pc.printAgeGroupCounts();
 
             // record the per-community staffed-bed supply while agents are at home (no-op if model off)
-            pc.initHospitalCapacityModel();
+            if (params.ic_type == ICType::Census) {
+                pc.initHospitalCapacityModel(&censusData.FIPS_mf, &censusData.demo);
+            } else {
+                pc.initHospitalCapacityModel();
+            }
 
             if (params.ic_type == ICType::Census && params.air_travel_int > 0) {
                 pc.setAirTravel(censusData.unit_mf, air, censusData.demo);
@@ -301,7 +305,11 @@ void runAgent () {
                                        &(urbanPopData.community_mf), cur_time, start_day);
             }
             // record the per-community staffed-bed supply after restart (no-op if model off)
-            pc.initHospitalCapacityModel();
+            if (params.ic_type == ICType::Census) {
+                pc.initHospitalCapacityModel(&censusData.FIPS_mf, &censusData.demo);
+            } else {
+                pc.initHospitalCapacityModel();
+            }
         }
     }
 
