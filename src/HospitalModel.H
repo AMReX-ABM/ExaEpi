@@ -147,11 +147,10 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
         m_data->setVal(0.0, 1, m_data->nComp() - 1);
     }
 
-    /*! \brief Set the fixed staffed-bed supply per community from the residential population */
-    void initBedSupply(const MultiFab&);
-
-    /*! \brief Set the fixed staffed-bed supply per community directly (e.g. from HHS data) */
-    void setBedSupply(const MultiFab&);
+    /*! \brief staffed beds per 1000 population at full workforce strength (per-capita fallback).
+     *  The per-community bed supply is written directly into the hospital-data MultiFab by
+     *  AgentContainer::initHospitalCapacityModel, keeping that device code out of this template. */
+    Real bedsPerThousand () const { return m_beds_per_1000; }
 
     /*! \brief whether to set the bed supply from real HHS county data */
     bool useHHSData () const { return m_use_hhs_data; }
@@ -651,44 +650,11 @@ void HospitalModel<PCType, PTDType, PType>::fastInteractHospital (PCType& a_agen
     }
 }
 
-/*! Sets the fixed per-community staffed-bed supply from the residential population:
- *  bed_supply = (staffed_beds_per_1000 / 1000) x population. Called once at initialization,
- *  when agents are at their home communities, so the count is the residential population the
- *  community hospital serves. */
-template <typename PCType, typename PTDType, typename PType>
-void HospitalModel<PCType, PTDType, PType>::initBedSupply (const MultiFab& a_population /*!< residential population */) {
-    BL_PROFILE("HospitalModel::initBedSupply");
-    const auto beds_per_capita = m_beds_per_1000 / 1000.0_rt;
-    for (MFIter mfi(*m_data); mfi.isValid(); ++mfi) {
-        const auto& bx = mfi.tilebox();
-        const auto pop_arr = a_population.const_array(mfi);
-        auto data_arr = m_data->array(mfi);
-        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-            data_arr(i, j, k, HospMod::bed_supply) = beds_per_capita * pop_arr(i, j, k, 0);
-        });
-    }
-}
-
-/*! Sets the fixed per-community staffed-bed supply directly from a MultiFab (component 0),
- *  e.g. the real per-county bed supply apportioned by population from HHS data. */
-template <typename PCType, typename PTDType, typename PType>
-void HospitalModel<PCType, PTDType, PType>::setBedSupply (const MultiFab& a_bed_supply /*!< bed supply per community */) {
-    BL_PROFILE("HospitalModel::setBedSupply");
-    for (MFIter mfi(*m_data); mfi.isValid(); ++mfi) {
-        const auto& bx = mfi.tilebox();
-        const auto src = a_bed_supply.const_array(mfi);
-        auto data_arr = m_data->array(mfi);
-        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-            data_arr(i, j, k, HospMod::bed_supply) = src(i, j, k, 0);
-        });
-    }
-}
-
 /*! Given a MultiFab with the current frontline medical-worker counts in each community, updates
  *  the hospital capacities. The input MultiFab has two components: (0) current total frontline
  *  medical workers (the full-strength workforce, recorded once on the first call), and (1) the
  *  currently-available frontline medical workers. The staffed-bed supply (fixed per community)
- *  must already have been set by initBedSupply. On every call the capacity is the bed supply
+ *  must already have been set by AgentContainer::initHospitalCapacityModel. On every call the capacity is the bed supply
  *  scaled by workforce availability: capacity = bed_supply x (available / baseline). Communities
  *  with no baseline workforce carry no capacity limit. */
 template <typename PCType, typename PTDType, typename PType>
@@ -703,7 +669,7 @@ void HospitalModel<PCType, PTDType, PType>::updateCapacities (const MFPtr& a_num
         auto data_arr = m_data->array(mfi);
 
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-            // record the full-strength frontline workforce once (bed supply is set by initBedSupply)
+            // record the full-strength frontline workforce once (bed supply is set by AgentContainer::initHospitalCapacityModel)
             if (first_call) { data_arr(i, j, k, HospMod::n_baseline_mw) = n_mw_arr(i, j, k, 0); }
             data_arr(i, j, k, HospMod::n_avail_mw) = n_mw_arr(i, j, k, 1);
 

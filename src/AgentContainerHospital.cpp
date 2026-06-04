@@ -123,7 +123,17 @@ void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, cons
             false);
 
     if (!(m_hospital->useHHSData() && (a_fips_mf != nullptr) && (a_demo != nullptr))) {
-        m_hospital->initBedSupply(population); // uniform per-capita bed density
+        // uniform per-capita bed density: bed_supply = (staffed_beds_per_1000/1000) x population.
+        // Written directly into m_hosp_data here so this device code stays out of HospitalModel.
+        const Real beds_per_capita = m_hospital->bedsPerThousand() / 1000.0_rt;
+        for (MFIter mfi(m_hosp_data); mfi.isValid(); ++mfi) {
+            const auto& bx = mfi.tilebox();
+            const auto pop = population.const_array(mfi);
+            auto hd = m_hosp_data.array(mfi);
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+                hd(i, j, k, HospMod::bed_supply) = beds_per_capita * pop(i, j, k, 0);
+            });
+        }
         return;
     }
 
@@ -176,29 +186,27 @@ void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, cons
         const int* start_d = a_demo->Start_d.data();
 
         m_hosp_assignment.define(m_hosp_data.boxArray(), m_hosp_data.DistributionMap(), 2, 0);
-        MultiFab bed_supply(m_hosp_data.boxArray(), m_hosp_data.DistributionMap(), 1, 0);
         const Box dom = domain;
-        for (MFIter mfi(bed_supply); mfi.isValid(); ++mfi) {
+        for (MFIter mfi(m_hosp_data); mfi.isValid(); ++mfi) {
             const auto& bx = mfi.tilebox();
-            auto bs = bed_supply.array(mfi);
+            auto hd = m_hosp_data.array(mfi);
             auto asg = m_hosp_assignment.array(mfi);
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
                 IntVect iv{AMREX_D_DECL(i, j, k)};
                 const int community = static_cast<int>(dom.index(iv));
                 if ((community >= 0) && (community < Ncommunity)) {
                     const int unit = c2u[community];
-                    bs(i, j, k, 0) = (community == start_d[unit]) ? ub[unit] : 0.0_rt;
+                    hd(i, j, k, HospMod::bed_supply) = (community == start_d[unit]) ? ub[unit] : 0.0_rt;
                     asg(i, j, k, 0) = uhi[unit];
                     asg(i, j, k, 1) = uhj[unit];
                 } else {
-                    bs(i, j, k, 0) = 0.0_rt;
+                    hd(i, j, k, HospMod::bed_supply) = 0.0_rt;
                     asg(i, j, k, 0) = i;
                     asg(i, j, k, 1) = j;
                 }
             });
         }
         Gpu::synchronize();
-        m_hospital->setBedSupply(bed_supply);
         m_tract_routing = true;
 
         // Medical workers staff the nearest hospital: retarget each med_sca worker's work_i/work_j
@@ -259,20 +267,18 @@ void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, cons
         Gpu::copy(Gpu::hostToDevice, density_h.begin(), density_h.end(), density_d.begin());
         const Real* density_ptr = density_d.data();
 
-        MultiFab bed_supply(m_hosp_data.boxArray(), m_hosp_data.DistributionMap(), 1, 0);
-        for (MFIter mfi(bed_supply); mfi.isValid(); ++mfi) {
+        for (MFIter mfi(m_hosp_data); mfi.isValid(); ++mfi) {
             const auto& bx = mfi.tilebox();
-            auto bs = bed_supply.array(mfi);
+            auto hd = m_hosp_data.array(mfi);
             const auto pop = population.const_array(mfi);
             const auto fips = a_fips_mf->const_array(mfi);
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
                 const int f = fips(i, j, k, 0);
                 const Real dens = ((f >= 0) && (f < dsize)) ? density_ptr[f] : 0.0_rt;
-                bs(i, j, k, 0) = dens * pop(i, j, k, 0);
+                hd(i, j, k, HospMod::bed_supply) = dens * pop(i, j, k, 0);
             });
         }
         Gpu::synchronize();
-        m_hospital->setBedSupply(bed_supply);
         amrex::Print() << "Hospital bed supply set from county-level HHS data (" << county_beds.size()
                        << " counties): " << m_hospital->hospitalDataFile() << "\n";
     }
