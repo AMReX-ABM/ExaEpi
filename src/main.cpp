@@ -187,6 +187,16 @@ void runAgent () {
     ParmParse pp("diag");
     pp.queryarr("output_filename", output_filename, 0, params.num_diseases);
 
+    // per-day medical-worker infection counts (written only when the medical-workers model is on)
+    std::vector<std::string> medworker_filename(params.num_diseases);
+    if (params.num_diseases == 1) {
+        medworker_filename[0] = "medical_workers.dat";
+    } else {
+        for (int d = 0; d < params.num_diseases; d++) {
+            medworker_filename[d] = "medical_workers_" + params.disease_names[d] + ".dat";
+        }
+    }
+
     if (params.restart_chkfile == "") {
         for (int d = 0; d < params.num_diseases; d++) {
             if (ParallelDescriptor::IOProcessor()) {
@@ -494,6 +504,9 @@ void runAgent () {
                 auto symp_age_counts = pc.getNewStatusByAge(d, OutputStatus::NewS);
                 auto hosp_age_counts = pc.getNewStatusByAge(d, OutputStatus::NewH);
 
+                std::array<Long, 6> mw_counts{};
+                if (pc.modelMedicalWorkers()) { mw_counts = pc.getMedicalWorkerCounts(d); }
+
                 if (ParallelDescriptor::IOProcessor()) {
                     // total number of deaths computed on agents and on mesh should be the same...
                     if (mmc[3] != counts[OutputStatus::D]) {
@@ -543,6 +556,27 @@ void runAgent () {
                     File.close();
 
                     if (!File.good()) { amrex::Abort("problem writing output file"); }
+
+                    if (pc.modelMedicalWorkers()) {
+                        std::ofstream mwFile;
+                        const bool mw_header = (i == start_day) && (params.restart_chkfile == "");
+                        mwFile.open(medworker_filename[d].c_str(),
+                                    mw_header ? (std::ios::out | std::ios::trunc) : (std::ios::out | std::ios::app));
+                        if (!mwFile.good()) { amrex::FileOpenFailed(medworker_filename[d]); }
+                        if (mw_header) {
+                            mwFile << std::setw(5) << "Day" << std::setw(12) << "MW_tot" << std::setw(12) << "MW_susc"
+                                   << std::setw(12) << "MW_newinf" << std::setw(12) << "OW_tot" << std::setw(12) << "OW_susc"
+                                   << std::setw(12) << "OW_newinf" << "\n";
+                        }
+                        mwFile << std::setw(5) << i;
+                        for (int j = 0; j < 6; ++j) {
+                            mwFile << std::setw(12) << mw_counts[j];
+                        }
+                        mwFile << "\n";
+                        mwFile.flush();
+                        mwFile.close();
+                        if (!mwFile.good()) { amrex::Abort("problem writing medical-worker output file"); }
+                    }
                 }
             }
 

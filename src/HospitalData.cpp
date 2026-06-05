@@ -331,3 +331,39 @@ void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, cons
 void AgentContainer::rerouteHospitalizedToHospital () {
     if (m_hosp_obj && m_hosp_obj->tractRouting()) { m_hosp_obj->rerouteHospitalized(*this); }
 }
+
+/*! Per-day medical-worker vs other-worker infection counts for disease a_d (rank-summed), for
+ *  calibrating the in-hospital transmission parameters against the observed HCW infection risk.
+ *  Returns {mw_total, mw_susceptible, mw_newly_infected, ow_total, ow_susceptible, ow_newly_infected}.
+ *  A medical worker is an employed agent (work_i >= 0) with NAICS med_sca; an other worker is any
+ *  other employed agent. Kept in this translation unit with the rest of the medical-worker device
+ *  code. */
+std::array<Long, 6> AgentContainer::getMedicalWorkerCounts (const int a_d) {
+    BL_PROFILE("AgentContainer::getMedicalWorkerCounts");
+    ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum> reduce_ops;
+    auto r = ParticleReduce<ReduceData<int, int, int, int, int, int>>(
+            *this,
+            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
+                                 const int i) noexcept -> GpuTuple<int, int, int, int, int, int> {
+                const int naics = ptd.m_idata[IntIdx::naics][i];
+                const int work_i = ptd.m_idata[IntIdx::work_i][i];
+                const int status = ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][i];
+                const bool worker = (work_i >= 0);
+                const bool mw = worker && (naics == NAICSCodes::NAICS::med_sca);
+                const bool ow = worker && (naics != NAICSCodes::NAICS::med_sca);
+                const bool at_risk = (status == Status::never) || (status == Status::susceptible);
+                const bool new_inf = isNewlyInfected(i, ptd, a_d);
+                return {mw ? 1 : 0, (mw && at_risk) ? 1 : 0, (mw && new_inf) ? 1 : 0,
+                        ow ? 1 : 0, (ow && at_risk) ? 1 : 0, (ow && new_inf) ? 1 : 0};
+            },
+            reduce_ops);
+    std::array<Long, 6> counts;
+    counts[0] = static_cast<Long>(amrex::get<0>(r));
+    counts[1] = static_cast<Long>(amrex::get<1>(r));
+    counts[2] = static_cast<Long>(amrex::get<2>(r));
+    counts[3] = static_cast<Long>(amrex::get<3>(r));
+    counts[4] = static_cast<Long>(amrex::get<4>(r));
+    counts[5] = static_cast<Long>(amrex::get<5>(r));
+    ParallelDescriptor::ReduceLongSum(&counts[0], 6, ParallelDescriptor::IOProcessorNumber());
+    return counts;
+}

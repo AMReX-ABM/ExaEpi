@@ -87,6 +87,12 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     std::array<amrex::Long, AgeGroups::total> getNewStatusByAge(const int a_d, const int output_status);
 
+    /*! \brief Per-day medical-worker vs other-worker infection counts for disease a_d, for
+     *  calibrating in-hospital transmission. Returns six rank-summed totals:
+     *  {medical-worker total, susceptible, newly infected, other-worker total, susceptible,
+     *  newly infected}. Defined in HospitalData.cpp. */
+    std::array<amrex::Long, 6> getMedicalWorkerCounts(const int a_d);
+
     int getMaxGroup(const int group_idx);
 
     void moveAgentsToWork();
