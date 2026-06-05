@@ -5,6 +5,7 @@
 #ifndef _HOSPITAL_MODEL_H_
 #define _HOSPITAL_MODEL_H_
 
+#include <AMReX_Enum.H>
 #include <AMReX_MultiFab.H>
 #include <AMReX_PlotFileUtil.H>
 #include <AMReX_REAL.H>
@@ -16,6 +17,11 @@
 #include "Utils.H"
 
 using namespace amrex;
+
+/*! How the treatment-quality multiplier accumulates over a hospital stay:
+ *  - minimum:    treat_q = minimum of the daily scores (the worst day of the stay)
+ *  - cumulative: treat_q = product of the daily scores (compounds each day) */
+AMREX_ENUM(TreatmentScoreType, minimum, cumulative);
 
 struct HospMod {
     enum {
@@ -96,6 +102,7 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
         pp.query("hospital_data_file", m_hospital_data_file);
         pp.query("score_minimum", m_sc_floor);
         pp.query("halfscore_load", m_sc_half_load);
+        pp.query_enum_case_insensitive("treatment_score_type", m_score_type);
         pp.query("write_pltfiles", m_write_pltfiles);
 
         m_very_large_number = 4.0_rt * m_sc_half_load;
@@ -113,6 +120,7 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
             }
             Print() << "  Minimum score for overloaded hospitals: " << m_sc_floor << "\n";
             Print() << "  Load for score=0.5: " << m_sc_half_load << "\n";
+            Print() << "  Treatment-quality accumulation: " << amrex::getEnumNameString(m_score_type) << "\n";
             Print() << "  Write hospital data plotfiles: " << (m_write_pltfiles ? "yes" : "no") << "\n";
         }
     }
@@ -194,6 +202,9 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
     /*! Load at which hospital score falls to 0.5 */
     Real m_sc_half_load = 5.0_rt;
 
+    /*! How treatment quality accumulates over a hospital stay (minimum or cumulative) */
+    TreatmentScoreType m_score_type = TreatmentScoreType::minimum;
+
     /*! Number of hospitals operating beyond capacity */
     Long m_num_overloaded_hospitals = Long(0);
 
@@ -227,6 +238,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
     BL_PROFILE("HospitalModel::interactAgents");
     int n_disease = a_agents.numDiseases();
     const bool model_mw = m_model_medical_workers;
+    const auto score_type = m_score_type;
 
     if (model_mw) { computeHospitalScores(a_agents, a_iter); }
     m_num_underserved_patients = 0;
@@ -364,7 +376,12 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                         auto iv = getParticleCell(p, plo, dxi, domain);
                         AMREX_ALWAYS_ASSERT((iv[0] == ptd.m_idata[IntIdx::hosp_i][i]) &&
                                             (iv[1] == ptd.m_idata[IntIdx::hosp_j][i]));
-                        treat_q_ptrs[d][i] *= hosp_data_arr(iv, HospMod::score);
+                        const auto day_score = static_cast<ParticleReal>(hosp_data_arr(iv, HospMod::score));
+                        if (score_type == TreatmentScoreType::minimum) {
+                            treat_q_ptrs[d][i] = amrex::min(treat_q_ptrs[d][i], day_score);
+                        } else {
+                            treat_q_ptrs[d][i] *= day_score;
+                        }
                         if ((d == 0) && (treat_q_ptrs[d][i] < 1.0_prt)) { Gpu::Atomic::Add(underserved_agents_ptr, 1); }
                     }
                     int status_d = 0;
