@@ -5,7 +5,7 @@
 #define AGENT_CONTAINER_H_
 
 #include <array>
-#include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -28,6 +28,8 @@
 #include "Utils.H"
 #include "WeatherData.H"
 
+class HospitalData;
+
 /*! \brief Derived class from ParticleContainer that defines agents and their functions */
 class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs> {
 
@@ -44,6 +46,10 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     AgentContainer(const amrex::Geometry& a_geom, const amrex::DistributionMapping& a_dmap, const amrex::BoxArray& a_ba,
                    const int& a_num_diseases, const std::vector<std::string>& a_disease_names, const bool fast,
                    const short a_ic_type);
+
+    /*! \brief Destructor (defined in HospitalData.cpp where the unique_ptr<HospitalData> member's
+     *  incomplete type is complete). */
+    ~AgentContainer();
 
     void morningCommute(amrex::MultiFab&);
 
@@ -124,8 +130,8 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
      *  and the county populations so the bed supply is set from real per-county hospital data. */
     void initHospitalCapacityModel(const amrex::iMultiFab* a_fips_mf = nullptr, const DemographicData* a_demo = nullptr);
 
-    /*! \brief reroute hospitalized agents to their assigned hospital community (tract-level routing);
-     *  defined in AgentContainerHospital.cpp */
+    /*! \brief reroute hospitalized agents to their assigned hospital community when tract-level
+     *  routing is active; no-op otherwise. Defined in HospitalData.cpp. */
     void rerouteHospitalizedToHospital();
 
     /*! \brief update the hospital capacities in each community */
@@ -187,14 +193,10 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     /*! Number of medical workers by community - total and active */
     MFPtr m_num_medworkers;
 
-    /*! Per-community assigned hospital community (component 0,1 = hospital i,j). Built at init
-     *  for tract-level routing; agents are sent here on hospitalization, the same way work_i/work_j
-     *  sends them to work. */
-    amrex::iMultiFab m_hosp_assignment;
-
-    /*! Whether hospitalized patients are routed to a nearest hospital community (tract-level data).
-     *  When false, patients are treated in their home community (the default). */
-    bool m_tract_routing = false;
+    /*! Bed-supply and patient-routing data for the medical-workers model (HHS hospital placement).
+     *  Held behind a pointer/forward declaration so its implementation -- and its CUDA device code --
+     *  is not compiled into the AgentContainer translation unit. Null when the model is off. */
+    std::unique_ptr<HospitalData> m_hosp_obj;
 
     /*! \brief queries if a given interaction type (model) is available */
     inline bool haveInteractionModel (ExaEpi::InteractionNames a_mod_name) const {

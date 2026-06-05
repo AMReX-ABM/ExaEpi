@@ -1,16 +1,20 @@
-/*! @file AgentContainerHospital.cpp
-    \brief AgentContainer methods for the medical-workers / hospital-capacity model.
+/*! @file HospitalData.cpp
+    \brief #HospitalData implementation, plus the thin AgentContainer glue that drives it.
 
-    These are kept in a separate translation unit from AgentContainer.cpp so that their device
-    code does not perturb the CUDA compilation (register allocation under RDC) of the other
-    AgentContainer kernels in that file, such as generateCellData.
+    This translation unit holds all of the medical-workers hospital-data device code and STL parsing.
+    It is kept out of AgentContainer.cpp (and the AgentContainer/HospitalModel headers), which is why
+    AgentContainer refers to HospitalData only through a forward declaration and a std::unique_ptr.
 */
+
+#include "HospitalData.H"
 
 #include "AgentContainer.H"
 #include "AgentDefinitions.H"
 #include "DemographicData.H"
+#include "HospitalModel.H"
 #include "NAICS.H"
 
+#include <algorithm>
 #include <map>
 #include <sstream>
 #include <string>
@@ -18,6 +22,8 @@
 
 using namespace amrex;
 using namespace ExaEpi::Utils;
+
+namespace {
 
 /*! Bed supply and assigned (nearest) hospital tract for one census tract. */
 struct TractHospInfo {
@@ -27,7 +33,7 @@ struct TractHospInfo {
 };
 
 /*! Returns "tract" or "county" by scanning the data-file header for "level=tract". */
-static std::string readHospitalDataLevel (const std::string& a_fname) {
+std::string readHospitalDataLevel (const std::string& a_fname) {
     Vector<char> fileCharPtr;
     ParallelDescriptor::ReadAndBcastFile(a_fname, fileCharPtr);
     std::string s(fileCharPtr.dataPtr());
@@ -37,7 +43,7 @@ static std::string readHospitalDataLevel (const std::string& a_fname) {
 /*! Reads a per-county hospital bed-supply data file (built by utilities/build_hospital_data.py):
  *  '#'-comment lines, then a record count, then rows "FIPS beds icu n_hospitals". Returns a map
  *  from integer county FIPS to the staffed bed supply. */
-static std::map<int, Real> readHospitalBedData (const std::string& a_fname) {
+std::map<int, Real> readHospitalBedData (const std::string& a_fname) {
     Vector<char> fileCharPtr;
     ParallelDescriptor::ReadAndBcastFile(a_fname, fileCharPtr);
     std::string fileStr(fileCharPtr.dataPtr());
@@ -64,7 +70,7 @@ static std::map<int, Real> readHospitalBedData (const std::string& a_fname) {
 
 /*! Reads a per-tract hospital data file: rows "FIPS TRACT beds icu n hosp_FIPS hosp_TRACT".
  *  Returns a map from (FIPS, tract) to its bed supply and assigned (nearest) hospital tract. */
-static std::map<std::pair<int, int>, TractHospInfo> readHospitalTractData (const std::string& a_fname) {
+std::map<std::pair<int, int>, TractHospInfo> readHospitalTractData (const std::string& a_fname) {
     Vector<char> fileCharPtr;
     ParallelDescriptor::ReadAndBcastFile(a_fname, fileCharPtr);
     std::string fileStr(fileCharPtr.dataPtr());
@@ -89,31 +95,29 @@ static std::map<std::pair<int, int>, TractHospInfo> readHospitalTractData (const
     return data;
 }
 
-/*! Initializes the medical-workers / hospital-capacity model: records the fixed per-community
- *  staffed-bed supply, and (for tract-level data) the per-community hospital assignment used to
- *  route patients. By default the supply is the residential population times the per-capita bed
- *  density (staffed_beds_per_1000). With hospital_model.use_HHS_data (census only) it is set
- *  from real hospital data: county-level data apportions each county's beds to its communities by
- *  population; tract-level data places beds at hospital tracts and routes each community's patients
- *  to its nearest hospital tract (the analog of work_i/work_j).
- *
- *  **NOTE** this must be called once before the time loop, when agents are at their home
- *  communities, so the population deposited per community is the residential population. No-op when
- *  the model is off. */
-void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, const DemographicData* a_demo) {
-    BL_PROFILE("AgentContainer::initHospitalCapacityModel");
-    if (!m_model_medical_workers) { return; }
+} // namespace
+
+HospitalData::~HospitalData () = default;
+
+void HospitalData::initialize (AgentContainer& a_pc,
+                               MultiFab& a_hosp_data,
+                               const iMultiFab* a_fips_mf,
+                               const DemographicData* a_demo,
+                               Real a_beds_per_1000,
+                               bool a_use_hhs_data,
+                               const std::string& a_hospital_data_file) {
+    BL_PROFILE("HospitalData::initialize");
 
     const int lev = 0;
-    const auto& geom = Geom(lev);
+    const auto& geom = a_pc.Geom(lev);
     const auto plo = geom.ProbLoArray();
     const auto dxi = geom.InvCellSizeArray();
     const auto domain = geom.Domain();
 
-    MultiFab population(m_hosp_data.boxArray(), m_hosp_data.DistributionMap(), 1, 0);
+    MultiFab population(a_hosp_data.boxArray(), a_hosp_data.DistributionMap(), 1, 0);
     population.setVal(0.0);
     ParticleToMesh(
-            *this, population, lev,
+            a_pc, population, lev,
             [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd, int i,
                                  Array4<Real> const& mf_arr) {
                 auto p = ptd.m_aos[i];
@@ -122,14 +126,13 @@ void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, cons
             },
             false);
 
-    if (!(m_hospital->useHHSData() && (a_fips_mf != nullptr) && (a_demo != nullptr))) {
+    if (!(a_use_hhs_data && (a_fips_mf != nullptr) && (a_demo != nullptr))) {
         // uniform per-capita bed density: bed_supply = (staffed_beds_per_1000/1000) x population.
-        // Written directly into m_hosp_data here so this device code stays out of HospitalModel.
-        const Real beds_per_capita = m_hospital->bedsPerThousand() / 1000.0_rt;
-        for (MFIter mfi(m_hosp_data); mfi.isValid(); ++mfi) {
+        const Real beds_per_capita = a_beds_per_1000 / 1000.0_rt;
+        for (MFIter mfi(a_hosp_data); mfi.isValid(); ++mfi) {
             const auto& bx = mfi.tilebox();
             const auto pop = population.const_array(mfi);
-            auto hd = m_hosp_data.array(mfi);
+            auto hd = a_hosp_data.array(mfi);
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
                 hd(i, j, k, HospMod::bed_supply) = beds_per_capita * pop(i, j, k, 0);
             });
@@ -137,11 +140,11 @@ void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, cons
         return;
     }
 
-    if (readHospitalDataLevel(m_hospital->hospitalDataFile()) == "tract") {
+    if (readHospitalDataLevel(a_hospital_data_file) == "tract") {
         // Place beds at hospital tracts and route each community's patients to its nearest hospital
         // tract. Everything is deterministic from the global demographic data and the domain raster
         // (community number == domain.index(cell)); no inter-rank communication is needed.
-        auto tract_data = readHospitalTractData(m_hospital->hospitalDataFile());
+        auto tract_data = readHospitalTractData(a_hospital_data_file);
         const int Nunit = a_demo->Nunit;
         const int Ncommunity = a_demo->Ncommunity;
 
@@ -185,12 +188,12 @@ void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, cons
         const int* c2u = comm2unit_d.data();
         const int* start_d = a_demo->Start_d.data();
 
-        m_hosp_assignment.define(m_hosp_data.boxArray(), m_hosp_data.DistributionMap(), 2, 0);
+        m_assignment.define(a_hosp_data.boxArray(), a_hosp_data.DistributionMap(), 2, 0);
         const Box dom = domain;
-        for (MFIter mfi(m_hosp_data); mfi.isValid(); ++mfi) {
+        for (MFIter mfi(a_hosp_data); mfi.isValid(); ++mfi) {
             const auto& bx = mfi.tilebox();
-            auto hd = m_hosp_data.array(mfi);
-            auto asg = m_hosp_assignment.array(mfi);
+            auto hd = a_hosp_data.array(mfi);
+            auto asg = m_assignment.array(mfi);
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
                 IntVect iv{AMREX_D_DECL(i, j, k)};
                 const int community = static_cast<int>(dom.index(iv));
@@ -214,12 +217,12 @@ void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, cons
         // the real hospital, aligning staff with the beds and routed patients. The worker-flow data
         // only resolves home/work to census tracts, so the community-within-tract assignment is free
         // to set.
-        for (int alev = 0; alev <= finestLevel(); ++alev) {
-            auto& plev = GetParticles(alev);
+        for (int alev = 0; alev <= a_pc.finestLevel(); ++alev) {
+            auto& plev = a_pc.GetParticles(alev);
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-            for (MFIter mfi = MakeMFIter(alev); mfi.isValid(); ++mfi) {
+            for (MFIter mfi = a_pc.MakeMFIter(alev); mfi.isValid(); ++mfi) {
                 auto& ptile = plev[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
                 const size_t np = ptile.GetArrayOfStructs().numParticles();
                 auto& soa = ptile.GetStructOfArrays();
@@ -242,11 +245,11 @@ void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, cons
         Gpu::synchronize();
 
         amrex::Print() << "Hospital bed supply + patient routing set from tract-level HHS data (" << tract_data.size()
-                       << " tracts): " << m_hospital->hospitalDataFile() << "\n";
+                       << " tracts): " << a_hospital_data_file << "\n";
     } else {
         // County-level: apportion each county's beds to its communities by population,
         // bed_supply(community) = (county beds / county population) x community population.
-        auto county_beds = readHospitalBedData(m_hospital->hospitalDataFile());
+        auto county_beds = readHospitalBedData(a_hospital_data_file);
         const auto& county_pop = a_demo->CountyPop;
 
         int max_fips = 0;
@@ -267,9 +270,9 @@ void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, cons
         Gpu::copy(Gpu::hostToDevice, density_h.begin(), density_h.end(), density_d.begin());
         const Real* density_ptr = density_d.data();
 
-        for (MFIter mfi(m_hosp_data); mfi.isValid(); ++mfi) {
+        for (MFIter mfi(a_hosp_data); mfi.isValid(); ++mfi) {
             const auto& bx = mfi.tilebox();
-            auto hd = m_hosp_data.array(mfi);
+            auto hd = a_hosp_data.array(mfi);
             const auto pop = population.const_array(mfi);
             const auto fips = a_fips_mf->const_array(mfi);
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
@@ -280,21 +283,18 @@ void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, cons
         }
         Gpu::synchronize();
         amrex::Print() << "Hospital bed supply set from county-level HHS data (" << county_beds.size()
-                       << " counties): " << m_hospital->hospitalDataFile() << "\n";
+                       << " counties): " << a_hospital_data_file << "\n";
     }
 }
 
-/*! Tract-level routing: send each hospitalized agent to its assigned (nearest) hospital community
- *  -- the work_i/work_j analog -- using the per-community m_hosp_assignment built at init. Kept in
- *  this translation unit so its device code stays out of AgentContainer.cpp. */
-void AgentContainer::rerouteHospitalizedToHospital () {
-    BL_PROFILE("AgentContainer::rerouteHospitalizedToHospital");
-    for (int alev = 0; alev <= finestLevel(); ++alev) {
-        auto& plev = GetParticles(alev);
+void HospitalData::rerouteHospitalized (AgentContainer& a_pc) const {
+    BL_PROFILE("HospitalData::rerouteHospitalized");
+    for (int alev = 0; alev <= a_pc.finestLevel(); ++alev) {
+        auto& plev = a_pc.GetParticles(alev);
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for (MFIter mfi = MakeMFIter(alev); mfi.isValid(); ++mfi) {
+        for (MFIter mfi = a_pc.MakeMFIter(alev); mfi.isValid(); ++mfi) {
             auto& ptile = plev[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
             const auto& ptd = ptile.getParticleTileData();
             const size_t np = ptile.GetArrayOfStructs().numParticles();
@@ -303,7 +303,7 @@ void AgentContainer::rerouteHospitalizedToHospital () {
             auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
             auto hosp_i_ptr = soa.GetIntData(IntIdx::hosp_i).data();
             auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
-            auto assign = m_hosp_assignment.const_array(mfi);
+            auto assign = m_assignment.const_array(mfi);
             amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
                 if (inHospital(ip, ptd)) {
                     hosp_i_ptr[ip] = assign(home_i_ptr[ip], home_j_ptr[ip], 0, 0);
@@ -312,4 +312,26 @@ void AgentContainer::rerouteHospitalizedToHospital () {
             });
         }
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// AgentContainer glue. Defined here (not in AgentContainer.cpp) so that the HospitalData type --
+// and all of its device code -- stays out of the AgentContainer translation unit. The out-of-line
+// destructor is required for the std::unique_ptr<HospitalData> member to use an incomplete type in
+// the header.
+// ---------------------------------------------------------------------------------------------
+
+AgentContainer::~AgentContainer () = default;
+
+/*! No-op when the medical-workers model is off. */
+void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, const DemographicData* a_demo) {
+    BL_PROFILE("AgentContainer::initHospitalCapacityModel");
+    if (!m_model_medical_workers) { return; }
+    if (!m_hosp_obj) { m_hosp_obj = std::make_unique<HospitalData>(); }
+    m_hosp_obj->initialize(*this, m_hosp_data, a_fips_mf, a_demo, m_hospital->bedsPerThousand(),
+                           m_hospital->useHHSData(), m_hospital->hospitalDataFile());
+}
+
+void AgentContainer::rerouteHospitalizedToHospital () {
+    if (m_hosp_obj && m_hosp_obj->tractRouting()) { m_hosp_obj->rerouteHospitalized(*this); }
 }

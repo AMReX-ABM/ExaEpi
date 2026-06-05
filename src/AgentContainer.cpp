@@ -4,9 +4,8 @@
 
 #include "AgentContainer.H"
 #include "AgentDefinitions.H"
+#include "HospitalData.H"
 #include "NAICS.H"
-
-#include <sstream>
 
 // repeat macro for repeating identical tokens
 #define REPEAT_0(x)
@@ -610,9 +609,9 @@ void AgentContainer::updateStatus (MFPtrVec& a_disease_stats, /*!< Community-wis
     m_disease_status.updateAgents(*this, a_disease_stats);
 
     // tract-level routing: send hospitalized agents to their assigned (nearest) hospital community
-    // instead of their home community (the work_i/work_j analog). Defined in
-    // AgentContainerHospital.cpp so its device code stays out of this translation unit.
-    if (m_tract_routing) { rerouteHospitalizedToHospital(); }
+    // instead of their home community (the work_i/work_j analog). Implemented in HospitalData.cpp
+    // (a no-op unless tract-level routing is active) so its device code stays out of this TU.
+    rerouteHospitalizedToHospital();
 
     // move hospitalized agents to their hospital location
     for (int lev = 0; lev <= finestLevel(); ++lev) {
