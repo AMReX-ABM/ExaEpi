@@ -14,9 +14,9 @@
 #ifndef HOSPITALDATA_H_
 #define HOSPITALDATA_H_
 
+#include <AMReX_MultiFab.H>
 #include <AMReX_REAL.H>
 #include <AMReX_iMultiFab.H>
-#include <AMReX_MultiFab.H>
 
 #include <string>
 
@@ -26,11 +26,11 @@ struct DemographicData;
 /*! \brief Bed-supply and patient-routing data for the medical-workers / hospital-capacity model. */
 class HospitalData {
   public:
-    HospitalData () = default;
+    HospitalData() = default;
 
     /*! \brief Destructor (defined out-of-line in HospitalData.cpp so that owners holding a
      *  std::unique_ptr<HospitalData> need not instantiate the iMultiFab member's destructor). */
-    ~HospitalData ();
+    ~HospitalData();
 
     /*! \brief Records the fixed per-community staffed-bed supply (into a_hosp_data, component
      *  HospMod::bed_supply) and, for tract-level data, the per-community hospital assignment used to
@@ -42,17 +42,13 @@ class HospitalData {
      *
      *  Must be called once before the time loop, when agents are at their home communities, so the
      *  population deposited per community is the residential population. */
-    void initialize (AgentContainer& a_pc,
-                     amrex::MultiFab& a_hosp_data,
-                     const amrex::iMultiFab* a_fips_mf,
-                     const DemographicData* a_demo,
-                     amrex::Real a_beds_per_1000,
-                     bool a_use_hhs_data,
-                     const std::string& a_hospital_data_file);
+    void initialize(AgentContainer& a_pc, amrex::MultiFab& a_hosp_data, const amrex::iMultiFab* a_fips_mf,
+                    const DemographicData* a_demo, amrex::Real a_beds_per_1000, bool a_use_hhs_data,
+                    const std::string& a_hospital_data_file);
 
     /*! \brief Tract-level routing: send each hospitalized agent to its assigned (nearest) hospital
      *  community -- the work_i/work_j analog -- using the per-community assignment built at init. */
-    void rerouteHospitalized (AgentContainer& a_pc) const;
+    void rerouteHospitalized(AgentContainer& a_pc) const;
 
     /*! \brief Whether hospitalized patients are routed to a nearest hospital community (tract-level
      *  data). When false, patients are treated in their home community (the default). */

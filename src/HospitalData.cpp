@@ -97,14 +97,10 @@ std::map<std::pair<int, int>, TractHospInfo> readHospitalTractData (const std::s
 
 } // namespace
 
-HospitalData::~HospitalData () = default;
+HospitalData::~HospitalData() = default;
 
-void HospitalData::initialize (AgentContainer& a_pc,
-                               MultiFab& a_hosp_data,
-                               const iMultiFab* a_fips_mf,
-                               const DemographicData* a_demo,
-                               Real a_beds_per_1000,
-                               bool a_use_hhs_data,
+void HospitalData::initialize (AgentContainer& a_pc, MultiFab& a_hosp_data, const iMultiFab* a_fips_mf,
+                               const DemographicData* a_demo, Real a_beds_per_1000, bool a_use_hhs_data,
                                const std::string& a_hospital_data_file) {
     BL_PROFILE("HospitalData::initialize");
 
@@ -321,15 +317,15 @@ void HospitalData::rerouteHospitalized (AgentContainer& a_pc) const {
 // the header.
 // ---------------------------------------------------------------------------------------------
 
-AgentContainer::~AgentContainer () = default;
+AgentContainer::~AgentContainer() = default;
 
 /*! No-op when the medical-workers model is off. */
 void AgentContainer::initHospitalCapacityModel (const iMultiFab* a_fips_mf, const DemographicData* a_demo) {
     BL_PROFILE("AgentContainer::initHospitalCapacityModel");
     if (!m_model_medical_workers) { return; }
     if (!m_hosp_obj) { m_hosp_obj = std::make_unique<HospitalData>(); }
-    m_hosp_obj->initialize(*this, m_hosp_data, a_fips_mf, a_demo, m_hospital->bedsPerThousand(),
-                           m_hospital->useHHSData(), m_hospital->hospitalDataFile());
+    m_hosp_obj->initialize(*this, m_hosp_data, a_fips_mf, a_demo, m_hospital->bedsPerThousand(), m_hospital->useHHSData(),
+                           m_hospital->hospitalDataFile());
 }
 
 void AgentContainer::rerouteHospitalizedToHospital () {
