@@ -768,8 +768,11 @@ void HospitalModel<PCType, PTDType, PType>::computeHospitalScores (const PCType&
                 data_arr(i, j, k, HospMod::score) = 1.0_rt;
             } else {
                 auto x = data_arr(i, j, k, HospMod::load) - 1.0_rt;
-                data_arr(i, j, k, HospMod::score) =
-                        1.0_rt - (1.0_rt - sc_floor) * std::exp(x) / (std::exp(sc_half_load) + std::exp(x));
+                // Continuous at load = 1: (e^x - 1) vanishes there, so the score meets the
+                // load<=1 branch at 1; the half-score load and the floor are preserved.
+                auto excess = std::exp(x) - 1.0_rt;
+                auto half_excess = std::exp(sc_half_load) - 1.0_rt;
+                data_arr(i, j, k, HospMod::score) = 1.0_rt - (1.0_rt - sc_floor) * excess / (half_excess + excess);
                 Gpu::Atomic::Add(overloaded_hosp_ptr, Long(1));
             }
         });
