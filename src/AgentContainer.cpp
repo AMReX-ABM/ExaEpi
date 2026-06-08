@@ -123,7 +123,8 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
         m_interactions[InteractionNames::work] = new InteractionModWork<PCType, PTDType, PType>(fast, m_model_medical_workers);
         m_interactions[InteractionNames::school] = new InteractionModSchool<PCType, PTDType, PType>(fast);
         m_interactions[InteractionNames::home_nborhood] = new InteractionModHomeNborhood<PCType, PTDType, PType>(fast);
-        m_interactions[InteractionNames::work_nborhood] = new InteractionModWorkNborhood<PCType, PTDType, PType>(fast);
+        m_interactions[InteractionNames::work_nborhood] =
+                new InteractionModWorkNborhood<PCType, PTDType, PType>(fast, m_model_medical_workers);
 
         m_hospital = std::make_unique<HospitalModel<PCType, PTDType, PType>>(fast, "hospital_model", m_model_medical_workers);
         m_hosp_data.define(a_ba, a_dmap, HospMod::ncomps, 0);
