@@ -32,12 +32,15 @@ struct TractHospInfo {
     int hosp_tract = -1; /*!< census tract this tract's patients are routed to */
 };
 
-/*! Returns "tract" or "county" by scanning the data-file header for "level=tract". */
+/*! Returns "county" only if the data-file header marks "level=county"; otherwise
+ *  defaults to "tract". Tract-level placement (real hospital locations + patient
+ *  routing) is the default when HHS hospital data is used; county-level
+ *  apportionment is opt-in via an explicit "level=county" header. */
 std::string readHospitalDataLevel (const std::string& a_fname) {
     Vector<char> fileCharPtr;
     ParallelDescriptor::ReadAndBcastFile(a_fname, fileCharPtr);
     std::string s(fileCharPtr.dataPtr());
-    return (s.find("level=tract") != std::string::npos) ? std::string("tract") : std::string("county");
+    return (s.find("level=county") != std::string::npos) ? std::string("county") : std::string("tract");
 }
 
 /*! Reads a per-county hospital bed-supply data file (built by utilities/build_hospital_data.py):
