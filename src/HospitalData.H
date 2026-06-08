@@ -60,7 +60,9 @@ class HospitalData {
      *  data). When false, patients are treated in their home community (the default). */
     bool tractRouting () const { return m_tract_routing; }
 
-  private:
+    // The next two are internal helpers of rerouteHospitalized, public only because CUDA forbids an
+    // extended __device__ lambda inside a private or protected member function.
+
     /*! For each hospital's county, find the lowest-load hospital and record, per hospital, the cell of
      *  the hospital a just-admitted patient is routed to: the nearest hospital itself if it is within
      *  capacity (load <= 1) or its county has a single hospital, else the lowest-load county peer.
@@ -73,6 +75,7 @@ class HospitalData {
      *  the per-source counts across ranks; writes on the I/O rank only. */
     void writeTransferLog (int a_iter);
 
+  private:
     /*! Per-community assigned hospital community (component 0,1 = hospital i,j; component 2 = the
      *  global index of that hospital, or -1 for communities with no hospital). Built at init for
      *  tract-level routing; agents are sent here on hospitalization, the same way work_i/work_j sends
