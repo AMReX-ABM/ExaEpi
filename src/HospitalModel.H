@@ -317,6 +317,20 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
             });
             Gpu::synchronize();
 
+            // Capture each agent's current (in-tile) cell. With tract-level routing a
+            // hospitalized agent sits in its hospital cell, not its home cell; the
+            // disease-statistics deposit below must write to a cell inside this tile, so we
+            // record the agent's cell here before any discharge/death moves it home.
+            Gpu::DeviceVector<int> stay_i(np), stay_j(np);
+            auto stay_i_ptr = stay_i.data();
+            auto stay_j_ptr = stay_j.data();
+            ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
+                auto iv = getParticleCell(pstruct[i], plo, dxi, domain);
+                stay_i_ptr[i] = iv[0];
+                stay_j_ptr[i] = iv[1];
+            });
+            Gpu::synchronize();
+
             Gpu::Buffer<int> underserved_agents({0});
             auto* underserved_agents_ptr = underserved_agents.data();
 
@@ -468,6 +482,11 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                     hosp_i_ptr[i] = -1;
                     hosp_j_ptr[i] = -1;
                     withdrawn_ptr[i] = 0;
+                    // move the deceased back to its home community so mortality is attributed
+                    // by residence (matching the no-routing baseline), not the hospital tract
+                    PType& p = pstruct[i];
+                    p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
+                    p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
                 } else {
                     // check if agent can be discharged from hospital
                     ParticleReal sum_timers = 0;
@@ -494,16 +513,16 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                 auto ds_arr = (*a_dstats[d])[mfi].array();
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                     if (died_today_ptr[i]) {
-                        Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::death), 1.0_rt);
+                        Gpu::Atomic::AddNoRet(&ds_arr(stay_i_ptr[i], stay_j_ptr[i], 0, DiseaseStats::death), 1.0_rt);
                     }
                     if (rm_from_hosp_ptr[i]) {
-                        Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::hospitalization), -1.0_rt);
+                        Gpu::Atomic::AddNoRet(&ds_arr(stay_i_ptr[i], stay_j_ptr[i], 0, DiseaseStats::hospitalization), -1.0_rt);
                     }
                     if (rm_from_ICU_ptr[i]) {
-                        Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::ICU), -1.0_rt);
+                        Gpu::Atomic::AddNoRet(&ds_arr(stay_i_ptr[i], stay_j_ptr[i], 0, DiseaseStats::ICU), -1.0_rt);
                     }
                     if (rm_from_vent_ptr[i]) {
-                        Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::ventilator), -1.0_rt);
+                        Gpu::Atomic::AddNoRet(&ds_arr(stay_i_ptr[i], stay_j_ptr[i], 0, DiseaseStats::ventilator), -1.0_rt);
                     }
                 });
                 Gpu::synchronize();
