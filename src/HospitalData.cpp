@@ -304,7 +304,15 @@ void HospitalData::rerouteHospitalized (AgentContainer& a_pc) const {
             auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
             auto assign = m_assignment.const_array(mfi);
             amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
-                if (inHospital(ip, ptd)) {
+                // Route only agents just admitted: assignHospital() sets hosp == home on
+                // admission, and the daily step runs this while agents are at home, so the
+                // home-indexed assignment lookup is in the current tile. An already-routed
+                // agent (hosp != home) has been moved to its hospital cell, whose tile no
+                // longer contains its home cell; re-reading the assignment for it would be
+                // an out-of-bounds access. Its hospital cell is fixed by its home, so it is
+                // simply left in place.
+                if (inHospital(ip, ptd)
+                    && hosp_i_ptr[ip] == home_i_ptr[ip] && hosp_j_ptr[ip] == home_j_ptr[ip]) {
                     hosp_i_ptr[ip] = assign(home_i_ptr[ip], home_j_ptr[ip], 0, 0);
                     hosp_j_ptr[ip] = assign(home_i_ptr[ip], home_j_ptr[ip], 0, 1);
                 }
