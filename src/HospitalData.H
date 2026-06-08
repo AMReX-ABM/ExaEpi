@@ -14,11 +14,13 @@
 #ifndef HOSPITALDATA_H_
 #define HOSPITALDATA_H_
 
+#include <AMReX_GpuContainers.H>
 #include <AMReX_MultiFab.H>
 #include <AMReX_REAL.H>
 #include <AMReX_iMultiFab.H>
 
 #include <string>
+#include <vector>
 
 class AgentContainer;
 struct DemographicData;
@@ -47,20 +49,63 @@ class HospitalData {
                     const std::string& a_hospital_data_file);
 
     /*! \brief Tract-level routing: send each hospitalized agent to its assigned (nearest) hospital
-     *  community -- the work_i/work_j analog -- using the per-community assignment built at init. */
-    void rerouteHospitalized(AgentContainer& a_pc) const;
+     *  community -- the work_i/work_j analog -- using the per-community assignment built at init. When
+     *  patient transfer is active, a just-admitted agent whose nearest hospital is over capacity is
+     *  instead routed to the lowest-load hospital in that hospital's county (a_hosp_data supplies the
+     *  current per-hospital load, lagged one day). a_iter is the current day, used only to label the
+     *  optional transfer log. */
+    void rerouteHospitalized(AgentContainer& a_pc, const amrex::MultiFab& a_hosp_data, int a_iter);
 
     /*! \brief Whether hospitalized patients are routed to a nearest hospital community (tract-level
      *  data). When false, patients are treated in their home community (the default). */
     bool tractRouting () const { return m_tract_routing; }
 
   private:
-    /*! Per-community assigned hospital community (component 0,1 = hospital i,j). Built at init for
+    /*! For each hospital's county, find the lowest-load hospital and record, per hospital, the cell of
+     *  the hospital a just-admitted patient is routed to: the nearest hospital itself if it is within
+     *  capacity (load <= 1) or its county has a single hospital, else the lowest-load county peer.
+     *  Fills m_transfer_i/j_d and the per-hospital target index m_transfer_target from the current
+     *  per-hospital load in a_hosp_data (HospMod::load), and resets the per-day transfer counter. */
+    void computeTransferTargets (const amrex::MultiFab& a_hosp_data);
+
+    /*! Append the current day's patient transfers to the transfer log (one line per source hospital
+     *  that sent patients away): day, from FIPS/tract, to FIPS/tract, and the patient count. Gathers
+     *  the per-source counts across ranks; writes on the I/O rank only. */
+    void writeTransferLog (int a_iter);
+
+    /*! Per-community assigned hospital community (component 0,1 = hospital i,j; component 2 = the
+     *  global index of that hospital, or -1 for communities with no hospital). Built at init for
      *  tract-level routing; agents are sent here on hospitalization, the same way work_i/work_j sends
      *  them to work. */
     amrex::iMultiFab m_assignment;
 
     bool m_tract_routing = false;
+
+    /*! Whether to transfer a just-admitted patient from an over-capacity nearest hospital to the
+     *  lowest-load hospital in the same county (no transfer if that county has a single hospital). */
+    bool m_patient_transfer = false;
+
+    /*! Global hospital tables, identical on every rank (built from the global demographic data at
+     *  init). A "hospital" is a tract with a positive bed supply. */
+    int m_nhosp = 0;
+    amrex::Gpu::DeviceVector<int> m_hosp_i_d;        /*!< hospital cell i, per hospital */
+    amrex::Gpu::DeviceVector<int> m_hosp_j_d;        /*!< hospital cell j, per hospital */
+    std::vector<int> m_hosp_i_h, m_hosp_j_h;         /*!< host copies of the hospital cells */
+    std::vector<int> m_hosp_county;                  /*!< county FIPS, per hospital */
+    std::vector<int> m_hosp_tract;                   /*!< census tract, per hospital (for the transfer log) */
+    std::vector<std::vector<int>> m_county_hosps;    /*!< hospital indices grouped by county */
+    std::vector<int> m_hosp_county_slot;             /*!< index into m_county_hosps, per hospital */
+
+    /*! Per-hospital routing target cell for the current day (filled by computeTransferTargets). */
+    amrex::Gpu::DeviceVector<int> m_transfer_i_d;
+    amrex::Gpu::DeviceVector<int> m_transfer_j_d;
+
+    /*! Optional plain-text transfer log: per day, the patients moved from each over-capacity hospital
+     *  to its lowest-load county peer (set hospital_model.transfer_output_file to enable). */
+    bool m_write_transfers = false;
+    std::string m_transfer_file;
+    std::vector<int> m_transfer_target;              /*!< per-hospital routing target index, current day */
+    amrex::Gpu::DeviceVector<int> m_transfer_count_d; /*!< per-source-hospital transfer count, current day */
 };
 
 #endif

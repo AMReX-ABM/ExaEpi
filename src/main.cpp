@@ -504,7 +504,7 @@ void runAgent () {
                 auto symp_age_counts = pc.getNewStatusByAge(d, OutputStatus::NewS);
                 auto hosp_age_counts = pc.getNewStatusByAge(d, OutputStatus::NewH);
 
-                std::array<Long, 6> mw_counts{};
+                std::array<Long, 8> mw_counts{};
                 if (pc.modelMedicalWorkers()) { mw_counts = pc.getMedicalWorkerCounts(d); }
 
                 if (ParallelDescriptor::IOProcessor()) {
@@ -566,10 +566,11 @@ void runAgent () {
                         if (mw_header) {
                             mwFile << std::setw(5) << "Day" << std::setw(12) << "MW_tot" << std::setw(12) << "MW_susc"
                                    << std::setw(12) << "MW_newinf" << std::setw(12) << "OW_tot" << std::setw(12) << "OW_susc"
-                                   << std::setw(12) << "OW_newinf" << "\n";
+                                   << std::setw(12) << "OW_newinf" << std::setw(12) << "MW_dead" << std::setw(12) << "OW_dead"
+                                   << "\n";
                         }
                         mwFile << std::setw(5) << i;
-                        for (int j = 0; j < 6; ++j) {
+                        for (int j = 0; j < 8; ++j) {
                             mwFile << std::setw(12) << mw_counts[j];
                         }
                         mwFile << "\n";

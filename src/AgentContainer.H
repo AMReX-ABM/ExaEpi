@@ -87,11 +87,13 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     std::array<amrex::Long, AgeGroups::total> getNewStatusByAge(const int a_d, const int output_status);
 
-    /*! \brief Per-day medical-worker vs other-worker infection counts for disease a_d, for
-     *  calibrating in-hospital transmission. Returns six rank-summed totals:
-     *  {medical-worker total, susceptible, newly infected, other-worker total, susceptible,
-     *  newly infected}. Defined in HospitalData.cpp. */
-    std::array<amrex::Long, 6> getMedicalWorkerCounts(const int a_d);
+    /*! \brief Per-day medical-worker vs other-worker infection and mortality counts for disease a_d,
+     *  for calibrating in-hospital transmission and tracking the medical-worker death toll. Returns
+     *  eight rank-summed totals: {medical-worker total, susceptible, newly infected, other-worker
+     *  total, susceptible, newly infected, medical-worker deaths (cumulative), other-worker deaths
+     *  (cumulative)}. The death counts are appended so the first six are unchanged. Defined in
+     *  HospitalData.cpp. */
+    std::array<amrex::Long, 8> getMedicalWorkerCounts(const int a_d);
 
     int getMaxGroup(const int group_idx);
 
@@ -137,8 +139,9 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     void initHospitalCapacityModel(const amrex::iMultiFab* a_fips_mf = nullptr, const DemographicData* a_demo = nullptr);
 
     /*! \brief reroute hospitalized agents to their assigned hospital community when tract-level
-     *  routing is active; no-op otherwise. Defined in HospitalData.cpp. */
-    void rerouteHospitalizedToHospital();
+     *  routing is active; no-op otherwise. a_iter (the day) labels the optional transfer log.
+     *  Defined in HospitalData.cpp. */
+    void rerouteHospitalizedToHospital(int a_iter);
 
     /*! \brief update the hospital capacities in each community */
     void updateHospitalCapacities();

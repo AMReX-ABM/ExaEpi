@@ -611,7 +611,7 @@ void AgentContainer::updateStatus (MFPtrVec& a_disease_stats, /*!< Community-wis
     // tract-level routing: send hospitalized agents to their assigned (nearest) hospital community
     // instead of their home community (the work_i/work_j analog). Implemented in HospitalData.cpp
     // (a no-op unless tract-level routing is active) so its device code stays out of this TU.
-    rerouteHospitalizedToHospital();
+    rerouteHospitalizedToHospital(a_iter);
 
     // move hospitalized agents to their hospital location
     for (int lev = 0; lev <= finestLevel(); ++lev) {
