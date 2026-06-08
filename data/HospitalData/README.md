@@ -99,16 +99,26 @@ $SCRIPT --state US --year 2020 --source hhs --download --hhs-week 2020-09-27 \
         --level tract --tract-shapefile cb_2020_us_tract_500k.shp \
         --out US_hospitals_tract_2020.dat
 
-# the Bay Area uses the CA shapefile filtered to its 9 counties
+# the Bay Area must use the 2000-vintage tract shapefile that matches BayArea.dat
 SHAPE_RESTORE_SHX=YES $SCRIPT --state CA --year 2020 --source hhs --download \
         --hhs-week 2020-09-27 --level tract \
         --counties 06001 06013 06041 06055 06075 06081 06085 06095 06097 \
-        --tract-shapefile ../CA_2020_Census_Tracts/tl_2020_06_tract.shp \
+        --tract-shapefile ../San_Francisco_Bay_Region_2000_Census_Tracts/region_2000_censustract.shp \
         --out BayArea_hospitals_tract_2020.dat
 ```
 
 (`SHAPE_RESTORE_SHX=YES` lets GDAL rebuild the `.shx` index if a shapefile ships
 without one.)
+
+**Tract vintage must match the demographic file.** `BayArea.dat` is built on
+2000-vintage census tracts (1405 tracts; e.g. San Francisco has 176, not the 197
+of 2010). The hospital points must be spatial-joined to the *same* vintage, so
+the Bay Area command uses `San_Francisco_Bay_Region_2000_Census_Tracts/`, not the
+2020 CA TIGER file. Joining to 2020 tracts silently drops the beds of every
+hospital that sits in a post-2000 tract split: 20 of the 60 Bay Area facilities,
+about a third of the beds, land in tracts `BayArea.dat` does not have and are
+never placed. (The CA, NM, MA and US examples above use 2020 TIGER because their
+demographic files are 2010/2020-vintage; only the Bay Area run is 2000-vintage.)
 
 ## File format
 
