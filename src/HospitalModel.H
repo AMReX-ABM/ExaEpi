@@ -293,13 +293,21 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
             auto is_alive_ptr = is_alive.data();
 
             Gpu::DeviceVector<int> died_today(np, 0);
-            Gpu::DeviceVector<int> exit_hosp(np * n_disease, -1);
-            Gpu::DeviceVector<int> exit_ICU(np * n_disease, -1);
-            Gpu::DeviceVector<int> exit_vent(np * n_disease, -1);
             auto died_today_ptr = died_today.data();
-            auto exit_hosp_ptr = exit_hosp.data();
-            auto exit_ICU_ptr = exit_ICU.data();
-            auto exit_vent_ptr = exit_vent.data();
+
+            // Per-disease ward/ICU/ventilator boundary offset, and each agent's hospital
+            // level (0=none, 1=ward, 2=ICU, 3=ventilator) taken as the most intensive
+            // level across its diseases. level_before is captured before the per-disease
+            // treatment update below so the nested ward/ICU/ventilator counts can be
+            // decremented exactly when the agent drops below a level. With two diseases a
+            // patient hospitalized for both leaves a level only when neither disease keeps
+            // it there; the old per-disease exit flags removed it as soon as one did.
+            GpuArray<ParticleReal, ExaEpi::max_num_diseases> hosp_offset;
+            for (int d = 0; d < n_disease; d++) {
+                hosp_offset[d] = static_cast<ParticleReal>(a_agents.getDiseaseParameters_h(d)->m_t_hosp_offset);
+            }
+            Gpu::DeviceVector<int> level_before(np, 0);
+            auto level_before_ptr = level_before.data();
 
             ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                 // if status_ptr for any one disease is dead, they should all be dead
@@ -328,6 +336,16 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                 auto iv = getParticleCell(pstruct[i], plo, dxi, domain);
                 stay_i_ptr[i] = iv[0];
                 stay_j_ptr[i] = iv[1];
+                if (inHospital(i, ptd)) {
+                    int lvl = 0;
+                    for (int d = 0; d < n_disease; d++) {
+                        const ParticleReal t = timer_ptrs[d][i];
+                        const int ld = (t <= 0.0_prt) ? 0
+                                       : ((t > 2.0_prt * hosp_offset[d]) ? 3 : ((t > hosp_offset[d]) ? 2 : 1));
+                        if (ld > lvl) { lvl = ld; }
+                    }
+                    level_before_ptr[i] = lvl;
+                }
             });
             Gpu::synchronize();
 
@@ -361,27 +379,8 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                     }
 
                     AMREX_ALWAYS_ASSERT(status_ptrs[d][i] == Status::infected);
-                    // check for exit conditions (multi-disease hospital-stat fix, development #146)
-                    if (timer_ptrs[d][i] > 2 * disease_parm_d->m_t_hosp_offset + 1) {
-                        exit_vent_ptr[d * np + i] = 0;
-                        exit_ICU_ptr[d * np + i] = 0;
-                        exit_hosp_ptr[d * np + i] = 0;
-                    } else if (timer_ptrs[d][i] == 2 * disease_parm_d->m_t_hosp_offset + 1) {
-                        exit_vent_ptr[d * np + i] = 1;
-                        exit_ICU_ptr[d * np + i] = 1;
-                        exit_hosp_ptr[d * np + i] = 1;
-                    } else if (timer_ptrs[d][i] > disease_parm_d->m_t_hosp_offset + 1) {
-                        exit_ICU_ptr[d * np + i] = 0;
-                        exit_hosp_ptr[d * np + i] = 0;
-                    } else if (timer_ptrs[d][i] == disease_parm_d->m_t_hosp_offset + 1) {
-                        exit_ICU_ptr[d * np + i] = 1;
-                        exit_hosp_ptr[d * np + i] = 1;
-                    } else if (timer_ptrs[d][i] > 1) {
-                        exit_hosp_ptr[d * np + i] = 0;
-                    } else if (timer_ptrs[d][i] == 1) {
-                        exit_hosp_ptr[d * np + i] = 1;
-                    }
-                    // decrement days in hospital
+                    // decrement days in hospital (the agent's level after this update is
+                    // recomputed below from the timers to drive the nested-count removals)
                     timer_ptrs[d][i] -= 1.0_prt;
                     // accumulate treatment quality (medical-workers model); when the model is
                     // off, treatment quality stays 1 and mortality is the load-independent baseline
@@ -450,29 +449,25 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
             ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                 if (!inHospital(i, ptd)) { return; }
 
-                rm_from_hosp_ptr[i] = 1;
-                rm_from_ICU_ptr[i] = 1;
-                rm_from_vent_ptr[i] = 1;
-                int count_h = 0;
-                int count_i = 0;
-                int count_v = 0;
-                for (int d = 0; d < n_disease; d++) {
-                    if (exit_hosp_ptr[d * np + i] > 0) {
-                        rm_from_hosp_ptr[i] *= exit_hosp_ptr[d * np + i];
-                        count_h++;
-                    }
-                    if (exit_ICU_ptr[d * np + i] > 0) {
-                        rm_from_ICU_ptr[i] *= exit_ICU_ptr[d * np + i];
-                        count_i++;
-                    }
-                    if (exit_vent_ptr[d * np + i] > 0) {
-                        rm_from_vent_ptr[i] *= exit_vent_ptr[d * np + i];
-                        count_v++;
+                // Recompute the agent's hospital level after this step's treatment update.
+                // A dead agent leaves the hospital entirely (level 0); otherwise the level
+                // is the most intensive across its diseases (recovery sets a disease's
+                // timer to 0). Each nested count is decremented exactly when the agent
+                // drops below that level -- so with two diseases the ward/ICU/ventilator
+                // counts are released only when no disease keeps the agent at that level.
+                int level_after = 0;
+                if (is_alive_ptr[i] != 0) {
+                    for (int d = 0; d < n_disease; d++) {
+                        const ParticleReal t = timer_ptrs[d][i];
+                        const int ld = (t <= 0.0_prt) ? 0
+                                       : ((t > 2.0_prt * hosp_offset[d]) ? 3 : ((t > hosp_offset[d]) ? 2 : 1));
+                        if (ld > level_after) { level_after = ld; }
                     }
                 }
-                if (count_h == 0) { rm_from_hosp_ptr[i] = 0; }
-                if (count_i == 0) { rm_from_ICU_ptr[i] = 0; }
-                if (count_v == 0) { rm_from_vent_ptr[i] = 0; }
+                const int level0 = level_before_ptr[i];
+                rm_from_hosp_ptr[i] = (level0 >= 1 && level_after < 1) ? 1 : 0;
+                rm_from_ICU_ptr[i]  = (level0 >= 2 && level_after < 2) ? 1 : 0;
+                rm_from_vent_ptr[i] = (level0 >= 3 && level_after < 3) ? 1 : 0;
 
                 if (is_alive_ptr[i] == 0) {
                     // agent has died
@@ -487,23 +482,14 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                     PType& p = pstruct[i];
                     p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
                     p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
-                } else {
-                    // check if agent can be discharged from hospital
-                    ParticleReal sum_timers = 0;
-                    for (int d = 0; d < n_disease; d++) {
-                        sum_timers += timer_ptrs[d][i];
-                    }
-                    if (sum_timers == 0) {
-                        // discharge patient
-                        hosp_i_ptr[i] = -1;
-                        hosp_j_ptr[i] = -1;
-                        withdrawn_ptr[i] = 0;
-                        PType& p = pstruct[i];
-                        p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
-                        p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
-                    } else {
-                        AMREX_ALWAYS_ASSERT(!rm_from_hosp_ptr[i]);
-                    }
+                } else if (level_after == 0) {
+                    // no disease keeps the agent hospitalized -> discharge
+                    hosp_i_ptr[i] = -1;
+                    hosp_j_ptr[i] = -1;
+                    withdrawn_ptr[i] = 0;
+                    PType& p = pstruct[i];
+                    p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
+                    p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
                 }
             });
             Gpu::synchronize();
