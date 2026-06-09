@@ -775,7 +775,21 @@ void AgentContainer::infectAgents (MFPtrVec& a_disease_stats /*!< Community-wise
                             setInfected(&(status_ptr[i]), &(symptomatic_ptr[i]), &(counter_ptr[i]), &(latent_period_ptr[i]),
                                         &(infectious_period_ptr[i]), &(incubation_period_ptr[i]), &(hospital_delay_ptr[i]),
                                         &(hospital_random_ptr[i]), engine, lparm);
-                            Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::new_cases), 1.0_rt);
+                            // A hospitalized agent sits in its hospital cell, not its home cell; with
+                            // tract-level routing that cell can be in a different box, so depositing at
+                            // the home cell would write outside this tile. Deposit the new infection at
+                            // the cell the agent currently occupies (its hospital cell when hospitalized,
+                            // otherwise its home cell), which is always inside this tile's box.
+                            const bool in_hosp = inHospital(i, ptd);
+                            const int dep_i = in_hosp ? ptd.m_idata[IntIdx::hosp_i][i] : home_i_ptr[i];
+                            const int dep_j = in_hosp ? ptd.m_idata[IntIdx::hosp_j][i] : home_j_ptr[i];
+                            Gpu::Atomic::AddNoRet(&ds_arr(dep_i, dep_j, 0, DiseaseStats::new_cases), 1.0_rt);
+                            // Hospitalized agents are cut off from all other contact, so a new infection
+                            // here is necessarily hospital-acquired (nosocomial) -- a patient admitted for
+                            // one disease acquiring another. Record it at the hospital cell, by disease.
+                            if (in_hosp) {
+                                Gpu::Atomic::AddNoRet(&ds_arr(dep_i, dep_j, 0, DiseaseStats::hospital_acquired), 1.0_rt);
+                            }
 
                             return;
                         }

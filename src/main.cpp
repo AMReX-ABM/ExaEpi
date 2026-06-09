@@ -229,7 +229,7 @@ void runAgent () {
     amrex::Vector<std::unique_ptr<MultiFab>> disease_stats;
     disease_stats.resize(params.num_diseases);
     for (int d = 0; d < params.num_diseases; d++) {
-        disease_stats[d] = std::make_unique<MultiFab>(ba, dm, 5, 0);
+        disease_stats[d] = std::make_unique<MultiFab>(ba, dm, 6, 0);  // +1 for DiseaseStats::hospital_acquired
         disease_stats[d]->setVal(0);
     }
 
