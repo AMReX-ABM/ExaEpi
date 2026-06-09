@@ -140,6 +140,84 @@ void HospitalData::initialize (AgentContainer& a_pc, MultiFab& a_hosp_data, cons
                 hd(i, j, k, HospMod::bed_supply) = beds_per_capita * pop(i, j, k, 0);
             });
         }
+
+        // Hospital workgroups (fallback): each community is its own hospital, so split the medical
+        // workforce that works in each community cell into groups of ~workgroup_size, exactly as the
+        // tract-data path does per hospital. Without this a community's medical staff would carry their
+        // generic per-unit census workgroups (tied to the work-neighborhood, from which medical workers
+        // are now excluded) rather than hospital teams; the in-hospital worker-to-worker path then mixes
+        // them as one oversized group.
+        int wg_size = 20;
+        {
+            ParmParse pp_agent("agent");
+            pp_agent.query("workgroup_size", wg_size);
+            ParmParse pp_hosp("hospital_model");
+            pp_hosp.query("workgroup_size", wg_size); // hospital-specific override of the workplace size
+        }
+        if (wg_size < 1) { wg_size = 1; }
+
+        const Long ncell = domain.numPts();
+        Gpu::DeviceVector<int> mw_count_d(ncell, 0);
+        int* mwc = mw_count_d.data();
+        for (int alev = 0; alev <= a_pc.finestLevel(); ++alev) {
+            auto& plev = a_pc.GetParticles(alev);
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+            for (MFIter mfi = a_pc.MakeMFIter(alev); mfi.isValid(); ++mfi) {
+                auto& ptile = plev[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
+                const size_t np = ptile.GetArrayOfStructs().numParticles();
+                auto& soa = ptile.GetStructOfArrays();
+                auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
+                auto work_i_ptr = soa.GetIntData(IntIdx::work_i).data();
+                auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
+                amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
+                    if ((naics_ptr[ip] == NAICSCodes::NAICS::med_sca) && (work_i_ptr[ip] >= 0)) {
+                        IntVect wiv{AMREX_D_DECL(work_i_ptr[ip], work_j_ptr[ip], 0)};
+                        const Long c = domain.index(wiv);
+                        if ((c >= 0) && (c < ncell)) { Gpu::Atomic::AddNoRet(&mwc[c], 1); }
+                    }
+                });
+            }
+        }
+        Gpu::synchronize();
+
+        std::vector<int> mw_count_h(ncell, 0);
+        Gpu::copy(Gpu::deviceToHost, mw_count_d.begin(), mw_count_d.end(), mw_count_h.begin());
+        ParallelDescriptor::ReduceIntSum(mw_count_h.data(), static_cast<int>(ncell));
+        std::vector<int> ngroups_h(ncell, 1);
+        for (Long c = 0; c < ncell; ++c) {
+            ngroups_h[c] = std::max(1, static_cast<int>(std::lround(double(mw_count_h[c]) / double(wg_size))));
+        }
+        Gpu::DeviceVector<int> ngroups_d(ncell);
+        Gpu::copy(Gpu::hostToDevice, ngroups_h.begin(), ngroups_h.end(), ngroups_d.begin());
+        const int* ngrp = ngroups_d.data();
+
+        for (int alev = 0; alev <= a_pc.finestLevel(); ++alev) {
+            auto& plev = a_pc.GetParticles(alev);
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+            for (MFIter mfi = a_pc.MakeMFIter(alev); mfi.isValid(); ++mfi) {
+                auto& ptile = plev[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
+                const size_t np = ptile.GetArrayOfStructs().numParticles();
+                auto& soa = ptile.GetStructOfArrays();
+                auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
+                auto work_i_ptr = soa.GetIntData(IntIdx::work_i).data();
+                auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
+                auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
+                amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int ip, RandomEngine const& engine) noexcept {
+                    if ((naics_ptr[ip] == NAICSCodes::NAICS::med_sca) && (work_i_ptr[ip] >= 0)) {
+                        IntVect wiv{AMREX_D_DECL(work_i_ptr[ip], work_j_ptr[ip], 0)};
+                        const Long c = domain.index(wiv);
+                        if ((c >= 0) && (c < ncell)) {
+                            workgroup_ptr[ip] = 1 + Random_int(ngrp[c], engine);
+                        }
+                    }
+                });
+            }
+        }
+        Gpu::synchronize();
         return;
     }
 
