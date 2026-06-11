@@ -80,8 +80,8 @@ def load_exaepi(fname):
     print(f"ExaEpi hospitalized by age:")
     ages = ["U5", "5to17", "18to29", "30to49", "50to64", "O64"]
     for i in range(len(ages)):
-        num_symp = float(df["Symp" + ages[i]].sum())
-        num_hosp = float(df["Hosp" + ages[i]].sum())
+        num_symp = float(df["Symp" + ages[i]].to_numpy().sum())
+        num_hosp = float(df["Hosp" + ages[i]].to_numpy().sum())
         frac_hosp = num_hosp / num_symp
         print(f"  {ages[i]:8s}   {num_hosp:8.0f} {frac_hosp:.3f}")
 
@@ -101,106 +101,140 @@ def load_exaepi(fname):
     return df
 
 
-def run_seir(beta, sigma, gamma, N, seed, days):
-    """Run a standard SEIR model and return a DataFrame with daily new counts.
+def run_seir(beta, sigma, gamma, h, gamma_h, delta, N, seed, days):
+    """Run a SEIRHD model and return a DataFrame with daily new counts.
 
     Compartments:
         S  – Susceptible
         E  – Exposed (latent, not yet infectious)
-        I  – Infectious
-        R  – Removed (recovered + dead)
+        I  – Infectious (community)
+        H  – Hospitalised
+        R  – Recovered
+        D  – Dead (only from H)
+
+    Flow:
+        S → E  (rate β·I/N)
+        E → I  (rate σ)
+        I → H  (rate h  – hospitalisation)
+        I → R  (rate γ  – direct community recovery)
+        H → R  (rate γ_h – hospital recovery)
+        H → D  (rate δ  – death only from hospital)
 
     Parameters
     ----------
-    beta  : transmission rate (contacts * probability of transmission per day)
-    sigma : rate of progression from E→I  (1/sigma = mean latent period)
-    gamma : recovery rate (1/gamma = mean infectious period)
-    N     : total population
-    seed  : initial number of infectious individuals
-    days  : number of days to simulate
+    beta    : transmission rate (per day)
+    sigma   : E→I progression rate  (1/sigma = mean latent period)
+    gamma   : I→R direct recovery rate
+    h       : I→H hospitalisation rate
+    gamma_h : H→R hospital recovery rate
+    delta   : H→D death rate  (HFR = delta / (gamma_h + delta))
+    N       : total population
+    seed    : initial number of infectious individuals
+    days    : number of days to simulate
     """
 
-    def seir_odes(t, y):
-        S, E, I, R = y
-        dS = -beta * S * I / N
-        dE = beta * S * I / N - sigma * E
-        dI = sigma * E - gamma * I
-        dR = gamma * I
-        return [dS, dE, dI, dR]
+    def seirhd_odes(t, y):
+        S, E, I, H, R, D = y
+        inf  = beta * S * I / N
+        dS   = -inf
+        dE   =  inf - sigma * E
+        dI   =  sigma * E - (gamma + h) * I
+        dH   =  h * I - (gamma_h + delta) * H
+        dR   =  gamma * I + gamma_h * H
+        dD   =  delta * H
+        return [dS, dE, dI, dH, dR, dD]
 
-    S0 = N - seed
-    E0 = 0.0
-    I0 = float(seed)
-    R0 = 0.0
-    y0 = [S0, E0, I0, R0]
+    y0 = [float(N - seed), 0.0, float(seed), 0.0, 0.0, 0.0]
 
     t_eval = np.arange(0, days + 1, 1, dtype=float)
-    sol = solve_ivp(seir_odes, [0, days], y0, t_eval=t_eval, method="RK45", max_step=0.1)
+    sol = solve_ivp(seirhd_odes, [0, days], y0, t_eval=t_eval, method="RK45", max_step=0.1)
 
     S = sol.y[0]
-    E = sol.y[1]
-    I = sol.y[2]
-    R = sol.y[3]
+    H = sol.y[3]
+    R = sol.y[4]
+    D = sol.y[5]
 
-    # Compute daily *new* exposures (flux S→E) as difference in S between days
-    new_exposed = np.maximum(0, -np.diff(S))   # length = days
-    new_recovered = np.maximum(0, np.diff(R))  # length = days
+    new_exposed      = np.maximum(0, -np.diff(S))
+    new_hospitalized = np.maximum(0,  np.diff(H + R + D)) - new_exposed  # flux into H
+    # simpler: new hospitalized = h * I  integrated per day
+    new_hospitalized = np.maximum(0, np.diff(H) + np.maximum(0, np.diff(R + D)))
+    # most direct: use the H inflow = diff in cumulative (S drop - direct recoveries)
+    # Just track H compartment entries via finite differences of D+R+H
+    new_hospitalized = np.maximum(0, np.diff(sol.y[3] + sol.y[4] + sol.y[5])
+                                   - np.maximum(0, -np.diff(sol.y[0]))
+                                   + np.maximum(0, -np.diff(sol.y[0])))
+    # Cleanest: new_hosp = h*I averaged per interval; use midpoint of sol
+    I_mid = 0.5 * (sol.y[2][:-1] + sol.y[2][1:])
+    new_hospitalized = np.maximum(0, h * I_mid)
+
+    new_recovered = np.maximum(0, np.diff(R))
+    new_dead      = np.maximum(0, np.diff(D))
 
     df = pd.DataFrame()
-    df["day"] = np.arange(days)
-    # "exposed" in the plot corresponds to new infections per day
-    df["exposed"] = new_exposed
-    # SEIR has a single infectious compartment; map it to "symptomatic"
-    df["symptomatic"] = new_exposed  # same as new_exposed (all exposed become symptomatic)
-    df["presymptomatic"] = new_exposed  # not separately modelled – use new_exposed as proxy
-    df["asymptomatic"] = np.zeros(days)
-    df["hospitalized"] = np.zeros(days)
-    df["dead"] = np.zeros(days)
-    df["recovered"] = new_recovered
-    df["cumulative_exposed"] = df["exposed"].cumsum()
+    df["day"]                = np.arange(days)
+    df["exposed"]            = new_exposed
+    df["symptomatic"]        = new_exposed
+    df["presymptomatic"]     = new_exposed
+    df["asymptomatic"]       = np.zeros(days)
+    df["hospitalized"]       = new_hospitalized
+    df["dead"]               = new_dead
+    df["recovered"]          = new_recovered
+    df["cumulative_exposed"] = new_exposed.cumsum()
 
-    print(f"SEIR total infected/exposed: {new_exposed.sum():.0f}")
-    print(f"SEIR R0 = {beta / gamma:.2f}")
+    r0  = beta / (gamma + h)
+    hfr = delta / (gamma_h + delta)
+    ifr = (h / (gamma + h)) * hfr
+    print(f"SEIRHD  exposed={new_exposed.sum():.0f}  hosp={new_hospitalized.sum():.0f}  dead={new_dead.sum():.0f}")
+    print(f"SEIRHD  R0={r0:.2f}  hosp_rate={h/(gamma+h):.4f}  HFR={hfr:.4f}  IFR={ifr:.4f}")
 
     return df
 
 
-def fit_seir(target_y, N, seed, days, fixed=None):
-    """Fit SEIR parameters to a target new-exposures time series.
+def fit_seir(target_exposed, target_dead, target_hosp, N, seed, days, fixed=None):
+    """Fit SEIRHD parameters to target time series.
 
     Parameters
     ----------
-    target_y : array-like, daily new exposures (length >= days)
-    N        : total population (used as initial value; fixed if 'N' in fixed)
-    seed     : initial guess for infectious seed count
-    days     : number of days to simulate
-    fixed    : set of parameter names to hold fixed, e.g. {'beta', 'gamma'}.
-               Any parameter not in this set is free to be optimised.
-               Valid names: 'beta', 'sigma', 'gamma', 'N', 'seed'.
+    target_exposed : array-like, daily new exposures  (length >= days)
+    target_dead    : array-like, daily new deaths      (length >= days); may be all zeros
+    target_hosp    : array-like, daily new hospitalized(length >= days); may be all zeros
+    N              : total population (fixed)
+    seed           : initial guess for infectious seed count
+    days           : number of days to simulate
+    fixed          : set of parameter names to hold fixed during optimisation.
+                     Valid names: 'beta', 'sigma', 'gamma', 'hosp_rate', 'gamma_h', 'delta', 'seed'.
 
     Returns
     -------
-    (beta, sigma, gamma, seed, fitted_df)  – best-fit parameters and the resulting SEIR DataFrame
+    (beta, sigma, gamma, hosp_rate, gamma_h, delta, seed, fitted_df)
     """
     if fixed is None:
         fixed = set()
 
-    target = np.array(target_y[:days], dtype=float)
+    exp_arr  = np.array(target_exposed[:days], dtype=float)
+    dead_arr = np.array(target_dead[:days],    dtype=float)
+    hosp_arr = np.array(target_hosp[:days],    dtype=float)
 
-    # Build list of free parameter names and their initial values / bounds
+    exp_scale  = exp_arr.max()  + 1e-9
+    dead_scale = dead_arr.max() + 1e-9
+    hosp_scale = hosp_arr.max() + 1e-9
+    has_deaths = dead_arr.max() > 0
+    has_hosp   = hosp_arr.max() > 0
+
     all_params = [
-        ("beta",  args.beta,       (1e-4, 5.0)),
-        ("sigma", args.sigma,      (1e-4, 5.0)),
-        ("gamma", args.gamma,      (1e-4, 5.0)),
-        ("seed",  float(seed),     (1.0, float(N))),
+        ("beta",      args.beta,       (1e-4, 5.0)),
+        ("sigma",     args.sigma,      (1e-4, 5.0)),
+        ("gamma",     args.gamma,      (1e-4, 5.0)),
+        ("hosp_rate", args.hosp_rate,  (1e-6, 2.0)),
+        ("gamma_h",   args.gamma_h,    (1e-4, 5.0)),
+        ("delta",     args.delta,      (1e-6, 1.0)),
+        ("seed",      float(seed),     (1.0, float(N))),
     ]
     free_params  = [(name, val, bnd) for name, val, bnd in all_params if name not in fixed]
-    fixed_values = {name: val for name, val, _   in all_params if name in fixed}
-    # N is always fixed (population is not a dynamical parameter)
+    fixed_values = {name: val for name, val, _ in all_params if name in fixed}
     fixed_values.setdefault("N", float(N))
 
     def _unpack(free_vals):
-        """Reconstruct full parameter set from free values."""
         it = iter(free_vals)
         vals = {}
         for name, _, _ in all_params:
@@ -210,13 +244,19 @@ def fit_seir(target_y, N, seed, days, fixed=None):
 
     def objective(free_vals):
         p = _unpack(free_vals)
-        if any(p[k] <= 0 for k in ("beta", "sigma", "gamma", "seed")):
+        if any(p[k] <= 0 for k in ("beta", "sigma", "gamma", "hosp_rate", "gamma_h", "delta", "seed")):
             return 1e18
-        df = run_seir(p["beta"], p["sigma"], p["gamma"], int(round(p["N"])),
-                      int(round(p["seed"])), days)
-        pred = df["exposed"].values
-        weights = 1.0 + target / (target.max() + 1e-9)
-        return float(np.sum(weights * (pred - target) ** 2))
+        df = run_seir(p["beta"], p["sigma"], p["gamma"], p["hosp_rate"], p["gamma_h"], p["delta"],
+                      int(round(p["N"])), int(round(p["seed"])), days)
+        w_exp = 1.0 + exp_arr / exp_scale
+        res = np.sum(w_exp * ((df["exposed"].values - exp_arr) / exp_scale) ** 2)
+        if has_deaths:
+            w_dead = 1.0 + dead_arr / dead_scale
+            res += np.sum(w_dead * ((df["dead"].values - dead_arr) / dead_scale) ** 2)
+        if has_hosp:
+            w_hosp = 1.0 + hosp_arr / hosp_scale
+            res += np.sum(w_hosp * ((df["hospitalized"].values - hosp_arr) / hosp_scale) ** 2)
+        return float(res)
 
     x0     = [val for _, val, _   in free_params]
     bounds = [bnd for _, _,   bnd in free_params]
@@ -227,20 +267,28 @@ def fit_seir(target_y, N, seed, days, fixed=None):
         p = _unpack(result.x)
         converged = result.success
     else:
-        # Everything fixed – just evaluate
         p = _unpack([])
         converged = True
 
-    beta_fit  = p["beta"]
-    sigma_fit = p["sigma"]
-    gamma_fit = p["gamma"]
-    seed_fit  = int(round(p["seed"]))
-    N_fit     = int(round(p["N"]))
+    beta_fit      = p["beta"]
+    sigma_fit     = p["sigma"]
+    gamma_fit     = p["gamma"]
+    hosp_rate_fit = p["hosp_rate"]
+    gamma_h_fit   = p["gamma_h"]
+    delta_fit     = p["delta"]
+    seed_fit      = int(round(p["seed"]))
+    N_fit         = int(round(p["N"]))
 
-    fitted_df = run_seir(beta_fit, sigma_fit, gamma_fit, N_fit, seed_fit, days)
+    fitted_df = run_seir(beta_fit, sigma_fit, gamma_fit, hosp_rate_fit, gamma_h_fit,
+                         delta_fit, N_fit, seed_fit, days)
+    r0  = beta_fit / (gamma_fit + hosp_rate_fit)
+    hfr = delta_fit / (gamma_h_fit + delta_fit)
+    ifr = (hosp_rate_fit / (gamma_fit + hosp_rate_fit)) * hfr
     fixed_str = f" [fixed: {', '.join(sorted(fixed))}]" if fixed else ""
-    print(f"  Fit converged={converged}  β={beta_fit:.4f}  σ={sigma_fit:.4f}  γ={gamma_fit:.4f}  seed={seed_fit}  R0={beta_fit/gamma_fit:.2f}{fixed_str}")
-    return beta_fit, sigma_fit, gamma_fit, seed_fit, fitted_df
+    print(f"  Fit converged={converged}  β={beta_fit:.4f}  σ={sigma_fit:.4f}  "
+          f"γ={gamma_fit:.4f}  h={hosp_rate_fit:.4f}  γ_h={gamma_h_fit:.4f}  δ={delta_fit:.5f}  "
+          f"seed={seed_fit}  R0={r0:.2f}  HFR={hfr:.4f}  IFR={ifr:.4f}{fixed_str}")
+    return beta_fit, sigma_fit, gamma_fit, hosp_rate_fit, gamma_h_fit, delta_fit, seed_fit, fitted_df
 
 
 def parse_file_with_label(file_spec):
@@ -269,7 +317,7 @@ def expand_file_spec(file_spec):
     - ':label' suffix, single file (or no wildcard) → legend_label = label.
     - ':label' suffix, wildcard matching N>1 files → first file gets legend_label = label,
       the rest get legend_label = None (label shown only once).
-    - Wildcard matching multiple files → is_wildcard=True (faint lines).
+    - Wildcard matching multiple files → is_wildcard=True.
     - Single file (explicit or single wildcard match) → is_wildcard=False.
 
     Returns:
@@ -284,9 +332,7 @@ def expand_file_spec(file_spec):
             print(f"Warning: no files matched pattern '{pattern}'", file=sys.stderr)
             return []
         if len(matched) == 1:
-            # Single match – treat as explicit (not faint)
             return [(matched[0], explicit_label, False)]
-        # Multiple matches – faint lines; label shown at most once
         results = []
         for idx, fpath in enumerate(matched):
             legend_label = explicit_label if (idx == 0 and explicit_label is not None) else None
@@ -296,14 +342,26 @@ def expand_file_spec(file_spec):
         return [(pattern, explicit_label, False)]
 
 
+def _align_arrays(dfs, col, xlimit):
+    """Stack column values from a list of DataFrames, truncated to xlimit.
+
+    Returns a 2-D array of shape (n_files, n_days).
+    """
+    max_len = min(min(len(df) for df in dfs), xlimit)
+    return np.vstack([df[col].values[:max_len] for df in dfs])
+
+
 def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=None):
     """Plot time series data from multiple files.
 
+    Both epicast_data and exaepi_data are lists of group dicts:
+        {'label': str|None, 'is_wildcard': bool, 'dfs': [df, ...], 'fnames': [str, ...]}
+    A wildcard group with N>1 files is rendered as an average line with a
+    semi-transparent band between the per-day min and max.
+
     Args:
-        epicast_data: dict mapping filenames to (dataframe, label, is_wildcard) tuples
-        exaepi_data: dict mapping filenames to (dataframe, label, is_wildcard) tuples
         label: the data series to plot (e.g., 'exposed', 'symptomatic')
-        seir_df: optional DataFrame from run_seir(); plotted only on the 'exposed' subplot
+        seir_df: optional DataFrame from run_seir()
         fit_results: optional list of (series_label, color, beta, sigma, gamma, fitted_df)
     """
     # Mapping from plot labels to ExaEpi column names
@@ -317,167 +375,131 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
         "recovered": "delta_recovered",
         "cumulative_exposed": "cum_exposed",
     }
-    # Define colors for multiple series
     epicast_colors = ["blue", "green", "purple", "orange", "brown", "pink"]
-    exaepi_colors = ["red", "darkred", "crimson", "firebrick", "maroon", "indianred"]
+    exaepi_colors  = ["red", "darkred", "crimson", "firebrick", "maroon", "indianred"]
 
-    col_name = label.lower().replace(" ", "_")
+    col_name   = label.lower().replace(" ", "_")
     exaepi_col = col_mapping.get(col_name, col_name)
 
     auc_lines = []
 
-    # Plot fitted SEIR curves first (under experimental lines) on exposed/cumulative subplots
-    seir_col = "cumulative_exposed" if col_name == "cumulative_exposed" else "exposed"
-    if fit_results and col_name in ("exposed", "cumulative_exposed"):
-        for (series_lbl, color, beta_f, sigma_f, gamma_f, seed_f, fdf) in fit_results:
+    _seird_cols = {"exposed", "cumulative_exposed", "hospitalized", "dead", "recovered"}
+    seir_col = col_name if col_name in _seird_cols else None
+
+    # Plot fitted SEIRHD curves first (under experimental lines)
+    if fit_results and seir_col is not None:
+        for (series_lbl, color, beta_f, sigma_f, gamma_f, h_f, gh_f, delta_f, seed_f, fdf) in fit_results:
             fit_y = fdf[seir_col].values[: args.xlimit]
-            ax.plot(
-                np.arange(len(fit_y)),
-                fit_y,
-                color="green",
-                linewidth=3,
-                linestyle="-",
-                zorder=1,
-            )
+            ax.plot(np.arange(len(fit_y)), fit_y, color="green", linewidth=3, linestyle="-", zorder=1)
             auc = np.sum(fit_y)
-            fit_lbl = f"SEIR fit ({series_lbl})" if series_lbl else "SEIR fit"
+            fit_lbl = f"SEIRHD fit ({series_lbl})" if series_lbl else "SEIRHD fit"
             auc_lines.append((fit_lbl, auc, "green", False))
 
-    # Plot each Epicast file
-    for i, (fname, (df, legend_label, is_wildcard)) in enumerate(epicast_data.items()):
-        # Wildcard series all use the same base blue; explicit series cycle through colors
-        color = "blue" if is_wildcard else epicast_colors[i % len(epicast_colors)]
-        y_vals = df[col_name][: args.xlimit]
-        auc = np.sum(y_vals)
-        auc_lines.append((legend_label, auc, color, is_wildcard))
+    def _plot_group(entry, i, base_colors, col, x_col=None, x_shift=0):
+        """Plot one group entry; return (legend_label, auc, color)."""
+        legend_label = entry["label"]
+        is_wildcard  = entry["is_wildcard"]
+        color        = base_colors[0] if is_wildcard else base_colors[i % len(base_colors)]
+        plot_label   = legend_label if legend_label is not None else "_nolegend_"
 
-        # Use the explicit label if provided; otherwise suppress from legend
-        plot_label = legend_label if legend_label is not None else "_nolegend_"
+        if is_wildcard and len(entry["dfs"]) > 1:
+            y_mat  = _align_arrays(entry["dfs"], col, args.xlimit)
+            y_mean = y_mat.mean(axis=0)
+            y_min  = y_mat.min(axis=0)
+            y_max  = y_mat.max(axis=0)
+            n      = y_mat.shape[1]
+            x_vals = (entry["dfs"][0][x_col].values[:n] + x_shift) if x_col else np.arange(n)
 
-        if is_wildcard:
-            ax.plot(
-                df[col_name],
-                label=plot_label,
-                color=color,
-                linewidth=1,
-                linestyle="-",
-                alpha=0.3,
-                zorder=2,
-            )
+            ax.fill_between(x_vals, y_min, y_max, alpha=0.25, color=color,
+                            zorder=1, label="_nolegend_")
+            ax.plot(x_vals, y_mean, label=plot_label, color=color, linewidth=2, zorder=2)
+            auc = float(np.sum(y_mean))
         else:
-            ax.plot(
-                df[col_name],
-                label=plot_label,
-                color=color,
-                linewidth=2,
-                linestyle="--",
-                zorder=2,
-            )
+            df     = entry["dfs"][0]
+            x_vals = (df[x_col] + x_shift) if x_col else np.arange(len(df[col]))
+            y_vals = df[col]
+            auc    = float(np.sum(y_vals[: args.xlimit]))
+            lsargs = {"linestyle": "--"} if base_colors[0] == "blue" else {}
+            ax.plot(x_vals, y_vals, label=plot_label, color=color, linewidth=2, zorder=2, **lsargs)
 
-    # Plot each ExaEpi file
-    for i, (fname, (df, legend_label, is_wildcard)) in enumerate(exaepi_data.items()):
-        # Wildcard series all use the same base red; explicit series cycle through colors
-        color = "red" if is_wildcard else exaepi_colors[i % len(exaepi_colors)]
-        x_vals = df["Day"] + args.shift
-        y_vals = df[exaepi_col]
-        auc = np.sum(y_vals)
-        auc_lines.append((legend_label, auc, color, is_wildcard))
+        return legend_label, auc, color, is_wildcard
 
-        # Use the explicit label if provided; otherwise suppress from legend
-        plot_label = legend_label if legend_label is not None else "_nolegend_"
+    # Plot each Epicast group
+    for i, entry in enumerate(epicast_data):
+        lbl, auc, color, is_wc = _plot_group(entry, i, epicast_colors, col_name)
+        auc_lines.append((lbl, auc, color, is_wc))
 
-        if is_wildcard:
-            ax.plot(
-                x_vals,
-                y_vals,
-                label=plot_label,
-                color=color,
-                linewidth=1,
-                linestyle="-",
-                alpha=0.3,
-                zorder=2,
-            )
-        else:
-            ax.plot(
-                x_vals,
-                y_vals,
-                label=plot_label,
-                color=color,
-                linewidth=2,
-                zorder=2,
-            )
+    # Plot each ExaEpi group
+    for i, entry in enumerate(exaepi_data):
+        lbl, auc, color, is_wc = _plot_group(entry, i, exaepi_colors, exaepi_col,
+                                              x_col="Day", x_shift=args.shift)
+        auc_lines.append((lbl, auc, color, is_wc))
 
-    # Plot manual SEIR curve on the exposed and cumulative_exposed subplots
-    if seir_df is not None and col_name in ("exposed", "cumulative_exposed"):
+    # Plot manual SEIRD curve
+    if seir_df is not None and seir_col is not None:
         seir_y = seir_df[seir_col].values[: args.xlimit]
         ax.plot(
-            np.arange(len(seir_y)),
-            seir_y,
-            label=f"SEIR (β={args.beta}, σ={args.sigma}, γ={args.gamma})",
-            color="green",
-            linewidth=2,
-            linestyle="-.",
+            np.arange(len(seir_y)), seir_y,
+            label=f"SEIRHD (β={args.beta}, h={args.hosp_rate}, δ={args.delta})",
+            color="green", linewidth=2, linestyle="-.",
         )
-        auc = np.sum(seir_y)
-        auc_lines.append((f"SEIR", auc, "green", False))
+        auc_lines.append(("SEIRHD", np.sum(seir_y), "green", False))
 
     ax.set_xlabel("Days")
     ax.set_ylabel("Number of " + label)
     ax.set_xlim([0, args.xlimit])
 
-    # Calculate ylim from all series
-    max_vals = [df[col_name][: args.xlimit].max() for df, _, _wc in epicast_data.values()]
-    max_vals.extend([df[exaepi_col][: args.xlimit].max() for df, _, _wc in exaepi_data.values()])
-    if seir_df is not None and col_name in ("exposed", "cumulative_exposed"):
+    # ylim from all series (use max of the band ceiling for wildcard groups)
+    max_vals = []
+    for entry in epicast_data:
+        if entry["is_wildcard"] and len(entry["dfs"]) > 1:
+            max_vals.append(float(_align_arrays(entry["dfs"], col_name, args.xlimit).max()))
+        else:
+            max_vals.append(float(entry["dfs"][0][col_name][: args.xlimit].max()))
+    for entry in exaepi_data:
+        if entry["is_wildcard"] and len(entry["dfs"]) > 1:
+            max_vals.append(float(_align_arrays(entry["dfs"], exaepi_col, args.xlimit).max()))
+        else:
+            max_vals.append(float(entry["dfs"][0][exaepi_col][: args.xlimit].max()))
+    if seir_df is not None and seir_col is not None:
         max_vals.append(seir_df[seir_col].values[: args.xlimit].max())
-    if fit_results and col_name in ("exposed", "cumulative_exposed"):
-        for (_, _c, _b, _s, _g, _sd, fdf) in fit_results:
+    if fit_results and seir_col is not None:
+        for (_, _c, _b, _s, _g, _h, _gh, _d, _sd, fdf) in fit_results:
             max_vals.append(fdf[seir_col].values[: args.xlimit].max())
     if max_vals:
-        ylim_top = 1.1 * max(max_vals)
-        ax.set_ylim([0, ylim_top])
+        ax.set_ylim([0, 1.1 * max(max_vals)])
 
     ax.set_title(label)
     ax.grid(True, which="major")
     ax.grid(True, which="minor", alpha=0.3)
     ax.minorticks_on()
 
-    # Annotate AUC (or max value for cumulative) for each series in the upper-right corner
-    # Only annotate series that have an explicit label (legend_label is not None).
+    # Annotate per-series summary values in the upper-right corner
     if col_name == "cumulative_exposed":
-        # For cumulative plot: show max value per labelled series
         row = 0
-        for i, (fname, (df, legend_label, is_wildcard)) in enumerate(epicast_data.items()):
+        for i, entry in enumerate(epicast_data):
+            legend_label = entry["label"]
             if legend_label is None:
                 continue
             color = epicast_colors[i % len(epicast_colors)]
-            max_val = df[col_name][: args.xlimit].max()
-            ax.text(
-                0.98,
-                0.97 - row * 0.10,
-                f"Max {legend_label}: {max_val:,.0f}",
-                transform=ax.transAxes,
-                ha="right",
-                va="top",
-                fontsize=7,
-                color=color,
-            )
+            if entry["is_wildcard"] and len(entry["dfs"]) > 1:
+                max_val = float(_align_arrays(entry["dfs"], col_name, args.xlimit).mean(axis=0).max())
+            else:
+                max_val = float(entry["dfs"][0][col_name][: args.xlimit].max())
+            ax.text(0.98, 0.97 - row * 0.10, f"Max {legend_label}: {max_val:,.0f}",
+                    transform=ax.transAxes, ha="right", va="top", fontsize=7, color=color)
             row += 1
-        for i, (fname, (df, legend_label, is_wildcard)) in enumerate(exaepi_data.items()):
+        for i, entry in enumerate(exaepi_data):
+            legend_label = entry["label"]
             if legend_label is None:
                 continue
-            color = exaepi_colors[i % len(exaepi_colors)]
-            max_val = df[exaepi_col][: args.xlimit].max()
-            ax.text(
-                0.98,
-                0.97 - row * 0.10,
-                f"Max {legend_label}: {max_val:,.0f}",
-                transform=ax.transAxes,
-                ha="right",
-                va="top",
-                fontsize=7,
-                color=color,
-            )
+            color = "red" if entry["is_wildcard"] else exaepi_colors[i % len(exaepi_colors)]
+            if entry["is_wildcard"] and len(entry["dfs"]) > 1:
+                max_val = float(_align_arrays(entry["dfs"], exaepi_col, args.xlimit).mean(axis=0).max())
+            else:
+                max_val = float(entry["dfs"][0][exaepi_col][: args.xlimit].max())
+            ax.text(0.98, 0.97 - row * 0.10, f"Max {legend_label}: {max_val:,.0f}",
+                    transform=ax.transAxes, ha="right", va="top", fontsize=7, color=color)
             row += 1
     else:
         print(f"{col_name}")
@@ -486,116 +508,101 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
             if lbl is None:
                 print(f"  (unlabelled): {auc:.0f}")
                 continue
-            ax.text(
-                0.98,
-                0.97 - row * 0.10,
-                f"AUC {lbl}: {auc:,.0f}",
-                transform=ax.transAxes,
-                ha="right",
-                va="top",
-                fontsize=7,
-                color=color,
-            )
+            ax.text(0.98, 0.97 - row * 0.10, f"AUC {lbl}: {auc:,.0f}",
+                    transform=ax.transAxes, ha="right", va="top", fontsize=7, color=color)
             print(f"  {lbl}: {auc:.0f}")
             row += 1
-        # Add parameter label for the manual SEIR curve
-        if seir_df is not None and col_name in ("exposed", "cumulative_exposed"):
-            ax.text(
-                0.98,
-                0.97 - row * 0.10,
-                f"β={args.beta}\nσ={args.sigma}, γ={args.gamma}\nN={args.N:,}, seed={args.seed}",
-                transform=ax.transAxes,
-                ha="right",
-                va="top",
-                fontsize=7,
-                color="green",
-            )
-            row += 3  # three lines of text
-        # Add parameter labels for each fitted SEIR curve
-        if fit_results and col_name in ("exposed", "cumulative_exposed"):
-            for (series_lbl, color, beta_f, sigma_f, gamma_f, seed_f, fdf) in fit_results:
-                ax.text(
-                    0.98,
-                    0.97 - row * 0.10,
-                    f"fit ({series_lbl})\nβ={beta_f:.3f}, σ={sigma_f:.3f}, γ={gamma_f:.3f}\nR0={beta_f/gamma_f:.2f}, seed={seed_f:,}",
-                    transform=ax.transAxes,
-                    ha="right",
-                    va="top",
-                    fontsize=7,
-                    color='green',
+        if seir_df is not None and seir_col is not None:
+            r0_m = args.beta / (args.gamma + args.hosp_rate)
+            if args.hosp_rate != 0:
+                hfr_m = args.delta / (args.gamma_h + args.delta)
+                param_txt = (
+                    f"β={args.beta}, σ={args.sigma}, γ={args.gamma}\n"
+                    f"h={args.hosp_rate}, γ_h={args.gamma_h}, δ={args.delta}\n"
+                    f"R0={r0_m:.2f}  HFR={hfr_m:.4f}  N={args.N:,}"
                 )
+            else:
+                param_txt = (
+                    f"β={args.beta}, σ={args.sigma}, γ={args.gamma}\n"
+                    f"R0={r0_m:.2f}  N={args.N:,}"
+                )
+            ax.text(0.98, 0.97 - row * 0.10, param_txt,
+                    transform=ax.transAxes, ha="right", va="top", fontsize=7, color="green")
+            row += 3
+        if fit_results and seir_col is not None:
+            for (series_lbl, color, beta_f, sigma_f, gamma_f, h_f, gh_f, delta_f, seed_f, fdf) in fit_results:
+                r0_f = beta_f / (gamma_f + h_f)
+                if args.hosp_rate != 0:
+                    hfr_f = delta_f / (gh_f + delta_f)
+                    param_txt = (
+                        f"fit ({series_lbl})\n"
+                        f"β={beta_f:.3f}, σ={sigma_f:.3f}, γ={gamma_f:.3f}, h={h_f:.4f}\n"
+                        f"γ_h={gh_f:.3f}, δ={delta_f:.5f}  R0={r0_f:.2f}  HFR={hfr_f:.4f}  seed={seed_f:,}"
+                    )
+                else:
+                    param_txt = (
+                        f"fit ({series_lbl})\n"
+                        f"β={beta_f:.3f}, σ={sigma_f:.3f}, γ={gamma_f:.3f}\n"
+                        f"R0={r0_f:.2f}  seed={seed_f:,}"
+                    )
+                ax.text(0.98, 0.97 - row * 0.10, param_txt,
+                        transform=ax.transAxes, ha="right", va="top", fontsize=7, color="green")
                 row += 3
 
 
 parser = argparse.ArgumentParser(
     description="Compare ExaEpi and Epicast simulation outputs",
     epilog=(
-        "File specifications can include optional labels using the format: 'filename.csv:Label'. "
-        "Both -e and -x can be repeated multiple times to plot multiple series, "
-        "e.g.: -e file1.bin -e file2.bin:Label2 -x run1.csv -x run2.csv:Label2"
+        "File specifications can include optional labels using the format: 'filename:Label'. "
+        "Both -e and -x can be repeated and accept glob patterns, "
+        "e.g.: -e 'runs/*.bin:Epicast' -x 'runs/*.csv:ExaEpi'. "
+        "When a pattern matches multiple files, their average is plotted with a "
+        "semi-transparent min/max band in the same color as the line."
     ),
 )
 parser.add_argument(
-    "--epicast_file",
-    "-e",
-    action="append",
-    default=[],
-    metavar="FILE[:LABEL]",
-    help="Epicast binary file, optionally with a label (e.g., 'file.bin:MyLabel'). Can be repeated.",
+    "--epicast_file", "-e",
+    action="append", default=[], metavar="FILE[:LABEL]",
+    help="Epicast binary file or glob pattern, optionally with a label. Can be repeated.",
 )
 parser.add_argument(
-    "--exaepi_file",
-    "-x",
-    action="append",
-    default=[],
-    metavar="FILE[:LABEL]",
-    help="ExaEpi csv file, optionally with a label (e.g., 'file.csv:MyLabel'). Can be repeated.",
+    "--exaepi_file", "-x",
+    action="append", default=[], metavar="FILE[:LABEL]",
+    help=(
+        "ExaEpi csv file or glob pattern, optionally with a label. Can be repeated. "
+        "Multiple matched files are averaged with a min/max band."
+    ),
 )
 parser.add_argument(
     "--xlimit", "-l", type=int, default=250, help="X-axis limit for plotting (default: 250)"
 )
 parser.add_argument(
-    "--shift",
-    "-s",
-    type=int,
-    default=0,
-    help="Shift the ExaEpi curve along the x-axis in days (positive = right, negative = left, default: 0)",
+    "--shift", "-s", type=int, default=0,
+    help="Shift the ExaEpi curve along the x-axis in days (default: 0)",
 )
 parser.add_argument(
     "--output", "-o", required=True, help="Output file name for the plot (e.g., comparison.png)"
 )
 parser.add_argument(
-    "--seir",
-    action="store_true",
-    default=False,
+    "--seir", action="store_true", default=False,
     help="Overlay an SEIR model curve using the specified parameters",
 )
 parser.add_argument(
-    "--fit",
-    action="store_true",
-    default=False,
+    "--fit", action="store_true", default=False,
     help="Fit an SEIR model to each experimental series and overlay the fitted curves",
 )
-parser.add_argument(
-    "--beta", type=float, default=0.44, help="SEIR transmission rate (default: 0.44)"
-)
-parser.add_argument(
-    "--sigma", type=float, default=0.3, help="SEIR E→I progression rate (default: 0.3)"
-)
-parser.add_argument(
-    "--gamma", type=float, default=0.173, help="SEIR I→R recovery rate (default: 0.17)"
-)
-parser.add_argument(
-    "--N", type=int, default=1_800_000, help="SEIR total population (default: 1800000)"
-)
-parser.add_argument(
-    "--seed", type=int, default=1000, help="SEIR initial infectious count (default: 1000)"
-)
+parser.add_argument("--beta",      type=float, default=0.44,       help="SEIR transmission rate (default: 0.44)")
+parser.add_argument("--sigma",     type=float, default=0.3,        help="SEIR E→I progression rate (default: 0.3)")
+parser.add_argument("--gamma",     type=float, default=0.173,      help="SEIR I→R recovery rate (default: 0.17)")
+parser.add_argument("--hosp_rate", type=float, default=0.01,       help="SEIRHD I→H hospitalisation rate (default: 0.01)")
+parser.add_argument("--gamma_h",   type=float, default=0.1,        help="SEIRHD H→R hospital recovery rate (default: 0.1)")
+parser.add_argument("--delta",     type=float, default=0.005,      help="SEIRHD H→D death rate (default: 0.005)")
+parser.add_argument("--N",         type=int,   default=1_800_000,  help="SEIRHD total population (default: 1800000)")
+parser.add_argument("--seed",      type=int,   default=1000,       help="SEIRHD initial infectious count (default: 1000)")
 args = parser.parse_args()
 
-# Track which SEIR parameters were explicitly provided on the command line.
-# Parameters not provided are free to be fitted; provided ones are fixed.
-_seir_params = {"beta", "sigma", "gamma", "N", "seed"}
+# Track which SEIR parameters were explicitly set so fitting can hold them fixed.
+_seir_params = {"beta", "sigma", "gamma", "hosp_rate", "gamma_h", "delta", "N", "seed"}
 _argv_flags = set()
 for _tok in sys.argv[1:]:
     if _tok.startswith("--"):
@@ -605,66 +612,111 @@ fit_fixed = {p for p in _seir_params if p in _argv_flags}
 if not args.epicast_file and not args.exaepi_file:
     parser.error("At least one -e/--epicast_file or -x/--exaepi_file must be specified.")
 
-epicast_data = {}
-for file_spec in args.epicast_file:
-    for fname, label, is_wildcard in expand_file_spec(file_spec):
-        df = load_epicast(fname)
-        epicast_data[fname] = (df, label, is_wildcard)
-        # Write per-day CSV alongside the source file
-        csv_out = fname + "-plot_values.csv"
-        df.to_csv(csv_out, index=False)
-        print(f"Wrote plot values to {csv_out}")
 
-exaepi_data = {}
-for file_spec in args.exaepi_file:
-    for fname, label, is_wildcard in expand_file_spec(file_spec):
-        print(f"{fname}")
-        df = load_exaepi(fname)
-        exaepi_data[fname] = (df, label, is_wildcard)
-        # Write per-day CSV in the same format as the Epicast output
-        converted_exaepi_df = pd.DataFrame()
-        converted_exaepi_df["day"] = df["Day"] + args.shift
-        converted_exaepi_df["exposed"] = df["NewI"].values
-        converted_exaepi_df["symptomatic"] = df["NewS"].values
-        converted_exaepi_df["asymptomatic"] = df["NewA"].values
-        converted_exaepi_df["presymptomatic"] = df["NewP"].values
-        converted_exaepi_df["hospitalized"] = df["NewH"].values
-        converted_exaepi_df["dead"] = df["delta_dead"].values
-        converted_exaepi_df["recovered"] = df["delta_recovered"].values
-        converted_exaepi_df["cumulative_exposed"] = df["cum_exposed"].values
-        csv_out = fname + "-plot_values.csv"
-        converted_exaepi_df.to_csv(csv_out, index=False)
-        print(f"Wrote plot values to {csv_out}")
+def _load_grouped(file_specs, load_fn, extra_csv_fn=None):
+    """Expand each file spec into a group dict, loading DataFrames with load_fn.
 
+    Returns a list of {'label', 'is_wildcard', 'dfs', 'fnames'} dicts.
+    """
+    groups = []
+    for file_spec in file_specs:
+        expanded = expand_file_spec(file_spec)
+        if not expanded:
+            continue
+        group_label = expanded[0][1]
+        is_wc = len(expanded) > 1
+        entry = {"label": group_label, "is_wildcard": is_wc, "dfs": [], "fnames": []}
+        for fname, _, _ in expanded:
+            print(f"{fname}")
+            df = load_fn(fname)
+            entry["dfs"].append(df)
+            entry["fnames"].append(fname)
+            if extra_csv_fn:
+                extra_csv_fn(fname, df)
+        groups.append(entry)
+    return groups
+
+
+def _write_epicast_csv(fname, df):
+    csv_out = fname + "-plot_values.csv"
+    df.to_csv(csv_out, index=False)
+    print(f"Wrote plot values to {csv_out}")
+
+
+def _write_exaepi_csv(fname, df):
+    out = pd.DataFrame({
+        "day":               df["Day"] + args.shift,
+        "exposed":           df["NewI"].values,
+        "symptomatic":       df["NewS"].values,
+        "asymptomatic":      df["NewA"].values,
+        "presymptomatic":    df["NewP"].values,
+        "hospitalized":      df["NewH"].values,
+        "dead":              df["delta_dead"].values,
+        "recovered":         df["delta_recovered"].values,
+        "cumulative_exposed":df["cum_exposed"].values,
+    })
+    csv_out = fname + "-plot_values.csv"
+    out.to_csv(csv_out, index=False)
+    print(f"Wrote plot values to {csv_out}")
+
+
+epicast_data = _load_grouped(args.epicast_file, load_epicast, _write_epicast_csv)
+exaepi_data  = _load_grouped(args.exaepi_file,  load_exaepi,  _write_exaepi_csv)
 
 seir_df = None
 if args.seir:
-    seir_df = run_seir(args.beta, args.sigma, args.gamma, args.N, args.seed, args.xlimit)
+    seir_df = run_seir(args.beta, args.sigma, args.gamma, args.hosp_rate, args.gamma_h,
+                       args.delta, args.N, args.seed, args.xlimit)
 
-# fit_results: list of (label, color, beta, sigma, gamma, fitted_df)
+# fit_results: list of (label, color, beta, sigma, gamma, h, gamma_h, delta, seed, fitted_df)
 fit_results = []
 if args.fit:
     epicast_colors = ["blue", "green", "purple", "orange", "brown", "pink"]
-    exaepi_colors = ["red", "darkred", "crimson", "firebrick", "maroon", "indianred"]
-    for i, (fname, (df, legend_label, is_wildcard)) in enumerate(epicast_data.items()):
-        target_y = df["exposed"].values
-        lbl = legend_label or f"Epicast {i+1}"
-        color = "blue" if is_wildcard else epicast_colors[i % len(epicast_colors)]
-        print(f"Fitting SEIR to {lbl} ...")
-        b, s, g, sd, fdf = fit_seir(target_y, args.N, args.seed, args.xlimit, fixed=fit_fixed)
-        fit_results.append((lbl, color, b, s, g, sd, fdf))
-    for i, (fname, (df, legend_label, is_wildcard)) in enumerate(exaepi_data.items()):
-        target_y = df["NewI"].values
-        lbl = legend_label or f"ExaEpi {i+1}"
-        color = "red" if is_wildcard else exaepi_colors[i % len(exaepi_colors)]
-        print(f"Fitting SEIR to {lbl} ...")
-        b, s, g, sd, fdf = fit_seir(target_y, args.N, args.seed, args.xlimit, fixed=fit_fixed)
-        fit_results.append((lbl, color, b, s, g, sd, fdf))
+    exaepi_colors  = ["red", "darkred", "crimson", "firebrick", "maroon", "indianred"]
+
+    for i, entry in enumerate(epicast_data):
+        lbl   = entry["label"] or f"Epicast {i+1}"
+        color = "blue" if entry["is_wildcard"] else epicast_colors[i % len(epicast_colors)]
+        print(f"Fitting SEIRHD to {lbl} ...")
+        if entry["is_wildcard"] and len(entry["dfs"]) > 1:
+            exp  = _align_arrays(entry["dfs"], "exposed",      args.xlimit).mean(axis=0)
+            dead = _align_arrays(entry["dfs"], "dead",         args.xlimit).mean(axis=0)
+            hosp = _align_arrays(entry["dfs"], "hospitalized", args.xlimit).mean(axis=0)
+        else:
+            df   = entry["dfs"][0]
+            exp, dead, hosp = df["exposed"].values, df["dead"].values, df["hospitalized"].values
+        b, s, g, h, gh, d, sd, fdf = fit_seir(exp, dead, hosp, args.N, args.seed,
+                                               args.xlimit, fixed=fit_fixed)
+        fit_results.append((lbl, color, b, s, g, h, gh, d, sd, fdf))
+
+    for i, entry in enumerate(exaepi_data):
+        lbl   = entry["label"] or f"ExaEpi {i+1}"
+        color = "red" if entry["is_wildcard"] else exaepi_colors[i % len(exaepi_colors)]
+        print(f"Fitting SEIRHD to {lbl} ...")
+        if entry["is_wildcard"] and len(entry["dfs"]) > 1:
+            new_i = _align_arrays(entry["dfs"], "NewI",       args.xlimit).mean(axis=0)
+            ddead = _align_arrays(entry["dfs"], "delta_dead", args.xlimit).mean(axis=0)
+            new_h = _align_arrays(entry["dfs"], "NewH",       args.xlimit).mean(axis=0)
+        else:
+            df    = entry["dfs"][0]
+            new_i, ddead, new_h = df["NewI"].values, df["delta_dead"].values, df["NewH"].values
+        b, s, g, h, gh, d, sd, fdf = fit_seir(new_i, ddead, new_h, args.N, args.seed,
+                                               args.xlimit, fixed=fit_fixed)
+        fit_results.append((lbl, color, b, s, g, h, gh, d, sd, fdf))
 
 if args.seir or fit_results:
-    fig, (ax1, ax8) = plt.subplots(1, 2, figsize=(14, 5))
-    plot_series(ax1, epicast_data, exaepi_data, "Exposed", seir_df=seir_df, fit_results=fit_results)
+    show_hosp = args.hosp_rate != 0
+    if show_hosp:
+        fig, ((ax1, ax8), (ax5, ax6), (ax7, _ax)) = plt.subplots(3, 2, figsize=(12, 15))
+        _ax.set_visible(False)
+        plot_series(ax5, epicast_data, exaepi_data, "Hospitalized", seir_df=seir_df, fit_results=fit_results)
+        plot_series(ax6, epicast_data, exaepi_data, "Dead",         seir_df=seir_df, fit_results=fit_results)
+    else:
+        fig, ((ax1, ax8), (ax7, _ax)) = plt.subplots(2, 2, figsize=(12, 10))
+        _ax.set_visible(False)
+    plot_series(ax1, epicast_data, exaepi_data, "Exposed",           seir_df=seir_df, fit_results=fit_results)
     plot_series(ax8, epicast_data, exaepi_data, "Cumulative Exposed", seir_df=seir_df, fit_results=fit_results)
+    plot_series(ax7, epicast_data, exaepi_data, "Recovered",          seir_df=seir_df, fit_results=fit_results)
 else:
     fig, ((ax1, ax2), (ax3, ax4), (ax5, ax6), (ax7, ax8)) = plt.subplots(4, 2, figsize=(12, 11))
     plot_series(ax1, epicast_data, exaepi_data, "Exposed")
