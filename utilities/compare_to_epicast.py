@@ -475,43 +475,44 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
     ax.minorticks_on()
 
     # Annotate per-series summary values in the upper-right corner
+    print(f"{col_name}")
     if col_name == "cumulative_exposed":
         row = 0
         for i, entry in enumerate(epicast_data):
             legend_label = entry["label"]
-            if legend_label is None:
-                continue
             color = epicast_colors[i % len(epicast_colors)]
             if entry["is_wildcard"] and len(entry["dfs"]) > 1:
                 max_val = float(_align_arrays(entry["dfs"], col_name, args.xlimit).mean(axis=0).max())
             else:
                 max_val = float(entry["dfs"][0][col_name][: args.xlimit].max())
-            ax.text(0.98, 0.97 - row * 0.10, f"Max {legend_label}: {max_val:,.0f}",
-                    transform=ax.transAxes, ha="right", va="top", fontsize=7, color=color)
-            row += 1
+            lbl_str = legend_label if legend_label is not None else "(unlabelled)"
+            print(f"  Max {lbl_str}: {max_val:,.0f}")
+            if legend_label is not None:
+                ax.text(0.98, 0.97 - row * 0.10, f"Max {legend_label}: {max_val:,.0f}",
+                        transform=ax.transAxes, ha="right", va="top", fontsize=7, color=color)
+                row += 1
         for i, entry in enumerate(exaepi_data):
             legend_label = entry["label"]
-            if legend_label is None:
-                continue
             color = "red" if entry["is_wildcard"] else exaepi_colors[i % len(exaepi_colors)]
             if entry["is_wildcard"] and len(entry["dfs"]) > 1:
                 max_val = float(_align_arrays(entry["dfs"], exaepi_col, args.xlimit).mean(axis=0).max())
             else:
                 max_val = float(entry["dfs"][0][exaepi_col][: args.xlimit].max())
-            ax.text(0.98, 0.97 - row * 0.10, f"Max {legend_label}: {max_val:,.0f}",
-                    transform=ax.transAxes, ha="right", va="top", fontsize=7, color=color)
-            row += 1
+            lbl_str = legend_label if legend_label is not None else "(unlabelled)"
+            print(f"  Max {lbl_str}: {max_val:,.0f}")
+            if legend_label is not None:
+                ax.text(0.98, 0.97 - row * 0.10, f"Max {legend_label}: {max_val:,.0f}",
+                        transform=ax.transAxes, ha="right", va="top", fontsize=7, color=color)
+                row += 1
     else:
-        print(f"{col_name}")
         row = 0
         for lbl, auc, color, is_wildcard in auc_lines:
-            if lbl is None:
-                print(f"  (unlabelled): {auc:.0f}")
-                continue
-            ax.text(0.98, 0.97 - row * 0.10, f"AUC {lbl}: {auc:,.0f}",
-                    transform=ax.transAxes, ha="right", va="top", fontsize=7, color=color)
-            print(f"  {lbl}: {auc:.0f}")
-            row += 1
+            lbl_str = lbl if lbl is not None else "(unlabelled)"
+            print(f"  AUC {lbl_str}: {auc:,.0f}")
+            if lbl is not None:
+                ax.text(0.98, 0.97 - row * 0.10, f"AUC {lbl}: {auc:,.0f}",
+                        transform=ax.transAxes, ha="right", va="top", fontsize=7, color=color)
+                row += 1
         if seir_df is not None and seir_col is not None:
             r0_m = args.beta / (args.gamma + args.hosp_rate)
             if args.hosp_rate != 0:
