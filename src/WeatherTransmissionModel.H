@@ -20,8 +20,7 @@
  *  temperature and absolute humidity:
  *
  *  \f[
- *    p(T, AH) = p_{\max} \exp\!\bigl(-\beta_{AH}\,AH
- *                                    -\alpha_T\,\max(0,\,T - T_0)\bigr)
+ *    p(T,AH) = p_max exp(-beta_AH * AH - alpha_T * \max(0,T - T_0))
  *  \f]
  *
  *  where \f$T\f$ is temperature in degrees Celsius and \f$AH\f$ is absolute
