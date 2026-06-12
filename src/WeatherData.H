@@ -57,19 +57,17 @@ struct week {
 };
 
 struct ActiveWeather {
-    amrex::Vector<weatherVars> h_varVec;           // host-side weather variables
-    amrex::Vector<int> h_unitVec;                  // host-side unit IDs
-    amrex::Gpu::DeviceVector<weatherVars> varVec;  // device-side weather variables for GPU kernels
-    amrex::Gpu::DeviceVector<int> unitVec;         // device-side unit IDs for GPU kernels
+    amrex::Vector<weatherVars> h_varVec;          // host-side weather variables
+    amrex::Vector<int> h_unitVec;                 // host-side unit IDs
+    amrex::Gpu::DeviceVector<weatherVars> varVec; // device-side weather variables for GPU kernels
+    amrex::Gpu::DeviceVector<int> unitVec;        // device-side unit IDs for GPU kernels
     int numUnitsWithDataOnThisProc;
 
     void copyToDevice () {
         varVec.resize(h_varVec.size());
         unitVec.resize(h_unitVec.size());
-        amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
-                              h_varVec.begin(), h_varVec.end(), varVec.begin());
-        amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
-                              h_unitVec.begin(), h_unitVec.end(), unitVec.begin());
+        amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice, h_varVec.begin(), h_varVec.end(), varVec.begin());
+        amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice, h_unitVec.begin(), h_unitVec.end(), unitVec.begin());
         amrex::Gpu::streamSynchronize();
     }
 
@@ -77,9 +75,7 @@ struct ActiveWeather {
     weatherVars& nextWeekWeather (int curIdx) { return h_varVec[curIdx + numUnitsWithDataOnThisProc]; }
     inline int computeIndex (int unit, int simWeek) {
         for (amrex::Long lunit = 0; lunit < h_unitVec.size(); lunit++) {
-            if (h_unitVec[lunit] == unit) {
-                return simWeek * numUnitsWithDataOnThisProc + (int)lunit;
-            }
+            if (h_unitVec[lunit] == unit) { return simWeek * numUnitsWithDataOnThisProc + (int)lunit; }
         }
         return -1;
     }
@@ -88,9 +84,7 @@ struct ActiveWeather {
         if (idx == -1) { return NULL; }
         return &h_varVec[idx];
     }
-    void print (int unit, int simWeek) {
-        lookupWeatherVars(unit, simWeek)->print();
-    }
+    void print (int unit, int simWeek) { lookupWeatherVars(unit, simWeek)->print(); }
 };
 
 struct WeatherData {
