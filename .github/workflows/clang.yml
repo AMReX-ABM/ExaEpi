@@ -1,5 +1,3 @@
-# -Wno-c++17-extensions: Clang complains about nodiscard if the standard is not set to c++17.
-
 name: Linux Clang
 
 on: [push, pull_request]
@@ -11,7 +9,7 @@ concurrency:
 jobs:
   # Build ExaEpi
   build_clang_single:
-    name: Clang@18.0 C++17 SP NOMPI Debug [lib]
+    name: Clang@18 C++20 SP NOMPI Debug [lib]
     runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-fno-operator-names -Werror -Wall -Wextra -Wpedantic -Wnull-dereference -Wfloat-conversion -Wshadow -Woverloaded-virtual -Wextra-semi -Wunreachable-code -Wnon-virtual-dtor -Wno-unused-parameter"}
     steps:
@@ -28,12 +26,14 @@ jobs:
             -DAMReX_MPI=OFF                           \
             -DAMReX_PRECISION=SINGLE                  \
             -DAMReX_PARTICLES_PRECISION=SINGLE        \
-            -DCMAKE_C_COMPILER=$(which clang)         \
-            -DCMAKE_CXX_COMPILER=$(which clang++)
+            -DCMAKE_CXX_STANDARD=20                   \
+            -DCMAKE_CXX_STANDARD_REQUIRED=ON           \
+            -DCMAKE_C_COMPILER=$(which clang-18)       \
+            -DCMAKE_CXX_COMPILER=$(which clang++-18)
         make -j 2
 
   build_clang_mixed:
-    name: Clang@18.0 C++17 SP Particles DP Mesh Debug
+    name: Clang@18 C++20 SP Particles DP Mesh Debug
     runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-fno-operator-names -Werror -Wall -Wextra -Wpedantic -Wnull-dereference -Wfloat-conversion -Wshadow -Woverloaded-virtual -Wextra-semi -Wunreachable-code -O1 -Wnon-virtual-dtor -Wno-unused-parameter"}
       # It's too slow with -O0
@@ -51,12 +51,14 @@ jobs:
             -DAMReX_PRECISION=DOUBLE                  \
             -DAMReX_MPI=OFF                           \
             -DAMReX_PARTICLES_PRECISION=SINGLE        \
-            -DCMAKE_C_COMPILER=$(which clang)         \
-            -DCMAKE_CXX_COMPILER=$(which clang++)
+            -DCMAKE_CXX_STANDARD=20                   \
+            -DCMAKE_CXX_STANDARD_REQUIRED=ON           \
+            -DCMAKE_C_COMPILER=$(which clang-18)       \
+            -DCMAKE_CXX_COMPILER=$(which clang++-18)
         make -j 2
 
   build_clang_double:
-    name: Clang@18.0 C++17 DP Particles DP Mesh Debug
+    name: Clang@18 C++20 DP Particles DP Mesh Debug
     runs-on: ubuntu-24.04
     env: {CXXFLAGS: "-fno-operator-names -Werror -Wall -Wextra -Wpedantic -Wnull-dereference -Wfloat-conversion -Wshadow -Woverloaded-virtual -Wextra-semi -Wunreachable-code -O1 -Wnon-virtual-dtor -Wno-unused-parameter"}
       # It's too slow with -O0
@@ -72,6 +74,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug                  \
             -DCMAKE_VERBOSE_MAKEFILE=ON               \
             -DAMReX_MPI=OFF                           \
-            -DCMAKE_C_COMPILER=$(which clang)         \
-            -DCMAKE_CXX_COMPILER=$(which clang++)
+            -DCMAKE_CXX_STANDARD=20                   \
+            -DCMAKE_CXX_STANDARD_REQUIRED=ON           \
+            -DCMAKE_C_COMPILER=$(which clang-18)       \
+            -DCMAKE_CXX_COMPILER=$(which clang++-18)
         make -j 2
