@@ -76,9 +76,9 @@ struct ActiveWeather {
     weatherVars& operator[](int index) { return h_varVec[index]; }
     weatherVars& nextWeekWeather (int curIdx) { return h_varVec[curIdx + numUnitsWithDataOnThisProc]; }
     inline int computeIndex (int unit, int simWeek) {
-        for (size_t lunit = 0; lunit < h_unitVec.size(); lunit++) {
+        for (amrex::Long lunit = 0; lunit < h_unitVec.size(); lunit++) {
             if (h_unitVec[lunit] == unit) {
-                return simWeek * numUnitsWithDataOnThisProc + lunit;
+                return simWeek * numUnitsWithDataOnThisProc + (int)lunit;
             }
         }
         return -1;
