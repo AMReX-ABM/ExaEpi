@@ -146,7 +146,7 @@ void InteractionModWorkNborhood<PCType, PTDType, PType>::fastInteractWorkNborhoo
                 auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
                 auto varVec = agents.awd != nullptr ? agents.awd->varVec.data() : nullptr;
                 auto weather_model = agents.m_weather_model;
-                int a_weather_int = agents.m_weather_int;
+                bool a_do_weather = agents.m_do_weather;
                 Real infect = (1.0_rt - lparm_h->vac_eff);
                 auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
@@ -189,7 +189,7 @@ void InteractionModWorkNborhood<PCType, PTDType, PType>::fastInteractWorkNborhoo
                         AMREX_ALWAYS_ASSERT(num_infected_community >= 0);
 
                         Real weather_scale = 1.0_rt;
-                        if (a_weather_int > 0 && varVec != nullptr && weatherIdxPtr[i] >= 0) {
+                        if (a_do_weather && varVec != nullptr && weatherIdxPtr[i] >= 0) {
                             weatherVars wvar = varVec[weatherIdxPtr[i]];
                             weather_scale = weather_model(wvar);
                         }

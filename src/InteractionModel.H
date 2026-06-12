@@ -152,7 +152,7 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
             auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
             auto varVec = agents.awd != nullptr ? agents.awd->varVec.data() : nullptr;
             auto weather_model = agents.m_weather_model;
-            int a_weather_int = agents.m_weather_int;
+            bool a_do_weather = agents.m_do_weather;
 
             int max_group = 0;
             if (bin_idx != -1) {
@@ -211,7 +211,7 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                             if (infectious_i != susceptible_i && isSusceptible(susceptible_i, ptd, d) &&
                                 isCandidate(susceptible_i, ptd)) {
                                 Real weather_scale = 1.0_prt;
-                                if (a_weather_int > 0 && varVec != nullptr && weatherIdxPtr[susceptible_i] >= 0) {
+                                if (a_do_weather && varVec != nullptr && weatherIdxPtr[susceptible_i] >= 0) {
                                     weatherVars wvar = varVec[weatherIdxPtr[susceptible_i]];
                                     weather_scale = weather_model(wvar);
                                 }

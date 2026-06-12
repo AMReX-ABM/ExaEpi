@@ -41,7 +41,6 @@
 struct WeatherTransmissionModel {
 
     /*! Maximum transmission probability (dimensionless). */
-    /*! This will be multiplied by p_trans later */
     amrex::Real p_max = amrex::Real(1.0);
 
     /*! Absolute-humidity sensitivity coefficient (m^3/g).

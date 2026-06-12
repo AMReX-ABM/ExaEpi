@@ -134,8 +134,8 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     /*! Weather-dependent transmission probability model */
     WeatherTransmissionModel m_weather_model;
-    /*! Controls weather coupling: <= 0 disables weather scaling, > 0 enables it */
-    int m_weather_int = -1;
+    /*! Controls weather coupling: false disables weather scaling, true enables it */
+    bool m_do_weather = false;
 
   protected:
     amrex::Real m_shelter_compliance = 0.95_rt; /*!< Shelter-in-place compliance rate */

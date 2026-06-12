@@ -81,7 +81,7 @@ struct ActiveWeather {
     }
     weatherVars* lookupWeatherVars (int unit, int simWeek) {
         int idx = computeIndex(unit, simWeek);
-        if (idx == -1) { return NULL; }
+        if (idx == -1) { return nullptr; }
         return &h_varVec[idx];
     }
     void print (int unit, int simWeek) { lookupWeatherVars(unit, simWeek)->print(); }

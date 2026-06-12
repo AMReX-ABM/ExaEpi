@@ -140,7 +140,7 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
                 auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
                 auto varVec = agents.awd != nullptr ? agents.awd->varVec.data() : nullptr;
                 auto weather_model = agents.m_weather_model;
-                int a_weather_int = agents.m_weather_int;
+                bool a_do_weather = agents.m_do_weather;
                 Real infect = 1.0_rt - lparm_h->vac_eff;
                 auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
@@ -169,7 +169,7 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
                         int wgroup_i = (community * max_workgroup + workgroup_ptr[i]) * max_naics + naics_ptr[i];
                         int num_infected_workgroup = infected_workgroup_d_ptr[wgroup_i];
                         Real weather_scale = 1.0_rt;
-                        if (a_weather_int > 0 && varVec != nullptr && weatherIdxPtr[i] >= 0) {
+                        if (a_do_weather && varVec != nullptr && weatherIdxPtr[i] >= 0) {
                             weatherVars wvar = varVec[weatherIdxPtr[i]];
                             weather_scale = weather_model(wvar);
                         }

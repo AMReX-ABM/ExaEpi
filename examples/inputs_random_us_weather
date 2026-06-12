@@ -9,7 +9,7 @@ agent.max_box_size = 16
 agent.plot_int = 40
 agent.random_travel_int = 24
 agent.air_travel_int = -1
-agent.weather_int = 1
+agent.do_weather = 1
 agent.weather_filename = "/global/homes/a/atmyers/ExaEpi/data/weatherData_US.csv"
 agent.startdate="2018-1-1"
 

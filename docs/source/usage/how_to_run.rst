@@ -73,16 +73,16 @@ The following are inputs for the overall simulation:
 * ``agent.air_travel_int`` (`integer`, default ``-1``)
     The number of time steps between air travel events. Set to -1 to disable all air travel events. Currently this is implemented
     only for ``ic_type = census``.
-* ``agent.weather_int`` (`integer`, default ``-1``)
-    The number of time steps between weather data updates. Set to -1 to disable the weather-dependent transmission model.
+* ``agent.do_weather`` (`bool`, default ``false``)
+    Set to ``1`` (or ``true``) to enable the weather-dependent transmission model.
     When enabled, ``agent.weather_filename`` and ``agent.startdate`` must also be provided.
 * ``agent.weather_filename`` (`string`)
     Path to the CSV file containing weather data (temperature and humidity by county and week).
-    Required when ``agent.weather_int > 0``. Example data files are provided in ``ExaEpi/data/``.
+    Required when ``agent.do_weather = 1``. Example data files are provided in ``ExaEpi/data/``.
 * ``agent.startdate`` (`string`)
     Start date of the simulation in ``YYYY-MM-DD`` format (e.g. ``2020-01-01``).
     Used to align the weather data with the simulation timeline.
-    Required when ``agent.weather_int > 0``.
+    Required when ``agent.do_weather = 1``.
 * ``agent.aggregated_diag_int`` (`integer`, default ``-1``)
     The number of time steps between writing aggregated data, for example wastewater data. Set to -1 to disable writing.
 * ``agent.aggregated_diag_prefix`` (`string`, default ``cases``)
@@ -265,7 +265,7 @@ where ``[disease name]`` is any of the names specified in ``agent.disease_names`
 default value), and ``[key]`` is any of the parameters listed above.
 
 The following inputs configure the weather-dependent transmission model.  These parameters are only
-used when ``agent.weather_int > 0``.  The model computes a weather-based scale factor for the
+used when ``agent.do_weather = 1``.  The model computes a weather-based scale factor for the
 transmission probability as a function of near-surface air temperature :math:`T` (°C) and absolute
 humidity :math:`AH` (g/m³):
 

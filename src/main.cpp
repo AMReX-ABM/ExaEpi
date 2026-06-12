@@ -170,7 +170,7 @@ void runAgent () {
     }
 
     WeatherData wd;
-    if (params.weather_int > 0) { wd.readDataFromFile(params.weather_filename); }
+    if (params.do_weather) { wd.readDataFromFile(params.weather_filename); }
 
     // The default output filename is:
     // output.dat for a single disease
@@ -368,7 +368,7 @@ void runAgent () {
     int weatherWeekIndex = -1;
     int firstWeatherWeekIndex = -1;
     int daysToWeatherWeekend = -1;
-    if (params.weather_int > 0) {
+    if (params.do_weather) {
         wd.computeIndex(startdate, weatherWeekIndex, daysToWeatherWeekend);
         if (weatherWeekIndex >= 0) {
             firstWeatherWeekIndex = weatherWeekIndex;
