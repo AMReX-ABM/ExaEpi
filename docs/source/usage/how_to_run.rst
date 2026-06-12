@@ -271,7 +271,7 @@ humidity :math:`AH` (g/m³):
 
 .. math::
 
-   p(T,\,AH) = p_{\max} \exp\!\bigl(-\beta_{AH}\,AH - \alpha_T\,\max(0,\,T - T_0)\bigr)
+   p(T,AH) = p_{max} exp(-beta_{AH} * AH - alpha_T * \max(0,T - T_0))
 
 * ``weather_transmission.p_max`` (`float`, default ``1.0``)
     Maximum transmission scale factor (dimensionless).  At low temperature and low humidity the
