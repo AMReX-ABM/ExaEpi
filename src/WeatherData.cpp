@@ -145,7 +145,7 @@ void WeatherData::extractActiveData (DemographicData& demo, int startWeek, int n
     for (int i = 0; i < demo.Nunit; i++) {
         if (demo.Unit_on_proc[i]) { numUnitsOnThisProc++; }
     }
-    activeWeather.unitVec.resize(numUnitsOnThisProc);
+    activeWeather.h_unitVec.resize(numUnitsOnThisProc);
     // set up the map from local unit index to global unit index
     int idx = 0;
     activeWeather.numUnitsWithDataOnThisProc = 0; // we are going to ignore units that don't have weather data
@@ -153,14 +153,14 @@ void WeatherData::extractActiveData (DemographicData& demo, int startWeek, int n
         if (demo.Unit_on_proc[unit]) {
             int FIPS = demo.FIPS[unit];
             if (varMap.find(FIPS) != varMap.end()) {
-                activeWeather.unitVec[idx] = unit;
+                activeWeather.h_unitVec[idx] = unit;
                 activeWeather.numUnitsWithDataOnThisProc++;
                 idx++;
             }
         }
     }
-    activeWeather.unitVec.resize(activeWeather.numUnitsWithDataOnThisProc);
-    activeWeather.varVec.resize(activeWeather.numUnitsWithDataOnThisProc * numSimWeeks);
+    activeWeather.h_unitVec.resize(activeWeather.numUnitsWithDataOnThisProc);
+    activeWeather.h_varVec.resize(activeWeather.numUnitsWithDataOnThisProc * numSimWeeks);
     for (int week = startWeek; week < startWeek + numSimWeeks; week++) {
         int offset = (week - startWeek) * activeWeather.numUnitsWithDataOnThisProc;
         int idx1 = 0;
@@ -168,7 +168,7 @@ void WeatherData::extractActiveData (DemographicData& demo, int startWeek, int n
             if (demo.Unit_on_proc[unit]) {
                 int FIPS = demo.FIPS[unit];
                 if (varMap.find(FIPS) != varMap.end()) {
-                    activeWeather.varVec[offset + idx1] = varMap[FIPS][week];
+                    activeWeather.h_varVec[offset + idx1] = varMap[FIPS][week];
                     idx1++;
                 } else {
                     // amrex::Print() << "Weather data NOT available in county with FIPS code " << FIPS << "\n";
@@ -176,4 +176,5 @@ void WeatherData::extractActiveData (DemographicData& demo, int startWeek, int n
             }
         }
     }
+    activeWeather.copyToDevice();
 }

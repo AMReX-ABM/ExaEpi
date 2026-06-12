@@ -57,29 +57,38 @@ struct week {
 };
 
 struct ActiveWeather {
-    amrex::Gpu::DeviceVector<weatherVars> varVec; // keep weather variables during the simulation time
-    amrex::Gpu::DeviceVector<int> unitVec;
+    amrex::Vector<weatherVars> h_varVec;           // host-side weather variables
+    amrex::Vector<int> h_unitVec;                  // host-side unit IDs
+    amrex::Gpu::DeviceVector<weatherVars> varVec;  // device-side weather variables for GPU kernels
+    amrex::Gpu::DeviceVector<int> unitVec;         // device-side unit IDs for GPU kernels
     int numUnitsWithDataOnThisProc;
-    weatherVars& operator[](int index) { return varVec[index]; }
-    weatherVars& nextWeekWeather (int curIdx) { return varVec[curIdx + numUnitsWithDataOnThisProc]; }
+
+    void copyToDevice () {
+        varVec.resize(h_varVec.size());
+        unitVec.resize(h_unitVec.size());
+        amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
+                              h_varVec.begin(), h_varVec.end(), varVec.begin());
+        amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
+                              h_unitVec.begin(), h_unitVec.end(), unitVec.begin());
+        amrex::Gpu::streamSynchronize();
+    }
+
+    weatherVars& operator[](int index) { return h_varVec[index]; }
+    weatherVars& nextWeekWeather (int curIdx) { return h_varVec[curIdx + numUnitsWithDataOnThisProc]; }
     inline int computeIndex (int unit, int simWeek) {
-        bool found = false;
-        size_t lunit = 0;
-        for (; lunit < unitVec.size(); lunit++) {
-            if (unitVec[lunit] == unit) {
-                found = true;
-                break;
+        for (size_t lunit = 0; lunit < h_unitVec.size(); lunit++) {
+            if (h_unitVec[lunit] == unit) {
+                return simWeek * numUnitsWithDataOnThisProc + lunit;
             }
         }
-        if (!found) { return -1; }
-        return simWeek * numUnitsWithDataOnThisProc + lunit;
+        return -1;
     }
     weatherVars* lookupWeatherVars (int unit, int simWeek) {
         int idx = computeIndex(unit, simWeek);
         if (idx == -1) { return NULL; }
-        return &varVec[idx];
+        return &h_varVec[idx];
     }
-    void print (int unit, int simWeek) { // gpu
+    void print (int unit, int simWeek) {
         lookupWeatherVars(unit, simWeek)->print();
     }
 };
