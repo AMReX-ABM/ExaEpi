@@ -80,6 +80,8 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                                                     MFPtrVec& a_stats /*!< MultiFab to store disease stats */) const {
     BL_PROFILE("DiseaseStatus::updateAgents");
     int n_disease = a_agents.numDiseases();
+    const bool shelter_active = a_agents.shelterActive();
+    const amrex::Real shelter_compliance = a_agents.shelterCompliance();
 
     for (int lev = 0; lev <= a_agents.finestLevel(); ++lev) {
         auto& plev = a_agents.GetParticles(lev);
@@ -198,7 +200,8 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                         counter_ptr[i] = static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine)) +
                                          static_cast<ParticleReal>(immune_length_loc);
                         symptomatic_ptr[i] = SymptomStatus::presymptomatic;
-                        withdrawn_ptr[i] = 0;
+                        // recovery clears symptomatic withdrawal; re-apply shelter-in-place if an order is in force
+                        withdrawn_ptr[i] = (shelter_active && Random(engine) < shelter_compliance) ? 1 : 0;
                     }
                 });
 

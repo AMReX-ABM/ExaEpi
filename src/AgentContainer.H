@@ -132,6 +132,12 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     /*! \brief whether the medical-workers / hospital-capacity model is active */
     inline bool modelMedicalWorkers () const { return m_model_medical_workers; }
 
+    /*! \brief whether a shelter-in-place order is currently in force */
+    inline bool shelterActive () const { return m_shelter_active; }
+
+    /*! \brief shelter-in-place compliance fraction */
+    inline amrex::Real shelterCompliance () const { return m_shelter_compliance; }
+
     /*! \brief initialize the medical-workers model (per-community staffed-bed supply);
      *  call once before the time loop, when agents are at their home communities. For census
      *  initialization with hospital_model.use_HHS_data, pass the per-community FIPS codes
@@ -171,6 +177,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
   protected:
     amrex::Real m_shelter_compliance = 0.95_rt; /*!< Shelter-in-place compliance rate */
+    bool m_shelter_active = false;              /*!< Whether a shelter-in-place order is in force */
 
     std::vector<DiseaseParm*> m_h_parm;         /*!< Disease parameters */
     std::vector<DiseaseParm*> m_d_parm;         /*!< Disease parameters (GPU device) */

@@ -655,6 +655,7 @@ void AgentContainer::shelterStart () {
     BL_PROFILE("AgentContainer::shelterStart");
 
     amrex::Print() << "Starting shelter in place order \n";
+    m_shelter_active = true;
 
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev = GetParticles(lev);
@@ -685,6 +686,7 @@ void AgentContainer::shelterStop () {
     BL_PROFILE("AgentContainer::shelterStop");
 
     amrex::Print() << "Stopping shelter in place order \n";
+    m_shelter_active = false;
 
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev = GetParticles(lev);
