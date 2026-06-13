@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "AgentDefinitions.H"
+#include "NAICS.H"
 
 using namespace amrex;
 
@@ -104,6 +105,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
             auto hosp_i_ptr = soa.GetIntData(IntIdx::hosp_i).data();
             auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
             auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
+            auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
 
             int i_RT = IntIdx::nattribs;
             int r_RT = RealIdx::nattribs;
@@ -200,8 +202,10 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                         counter_ptr[i] = static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine)) +
                                          static_cast<ParticleReal>(immune_length_loc);
                         symptomatic_ptr[i] = SymptomStatus::presymptomatic;
-                        // recovery clears symptomatic withdrawal; re-apply shelter-in-place if an order is in force
-                        withdrawn_ptr[i] = (shelter_active && Random(engine) < shelter_compliance) ? 1 : 0;
+                        // recovery clears symptomatic withdrawal; re-apply shelter-in-place if an order is in
+                        // force, except for medical workers, who are exempt from the order
+                        withdrawn_ptr[i] = (shelter_active && naics_ptr[i] != NAICSCodes::NAICS::med_sca
+                                            && Random(engine) < shelter_compliance) ? 1 : 0;
                     }
                 });
 

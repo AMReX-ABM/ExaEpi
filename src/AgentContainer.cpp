@@ -672,9 +672,12 @@ void AgentContainer::shelterStart () {
             if (np == 0) { continue; }
 
             auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
+            auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
 
             auto shelter_compliance = m_shelter_compliance;
             amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, amrex::RandomEngine const& engine) noexcept {
+                // medical workers stay on duty under a shelter-in-place order (they still withdraw when symptomatic)
+                if (naics_ptr[i] == NAICSCodes::NAICS::med_sca) { return; }
                 if (amrex::Random(engine) < shelter_compliance) { withdrawn_ptr[i] = 1; }
             });
         }
