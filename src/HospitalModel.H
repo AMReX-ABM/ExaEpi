@@ -102,6 +102,7 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
         pp.query("hospital_data_file", m_hospital_data_file);
         pp.query("score_minimum", m_sc_floor);
         pp.query("halfscore_load", m_sc_half_load);
+        pp.query("mortality_multiplier_max", m_mort_mult_max);
         pp.query_enum_case_insensitive("treatment_score_type", m_score_type);
         pp.query("write_pltfiles", m_write_pltfiles);
 
@@ -120,6 +121,7 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
             }
             Print() << "  Minimum score for overloaded hospitals: " << m_sc_floor << "\n";
             Print() << "  Load for score=0.5: " << m_sc_half_load << "\n";
+            Print() << "  Mortality multiplier ceiling at overload: " << m_mort_mult_max << "\n";
             Print() << "  Treatment-quality accumulation: " << amrex::getEnumNameString(m_score_type) << "\n";
             Print() << "  Write hospital data plotfiles: " << (m_write_pltfiles ? "yes" : "no") << "\n";
         }
@@ -202,6 +204,12 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
     /*! Load at which hospital score falls to 0.5 */
     Real m_sc_half_load = 5.0_rt;
 
+    /*! Mortality multiplier at full treatment-quality degradation (the overload ceiling).
+     *  The per-patient death probability is the baseline scaled by a factor in
+     *  [1, m_mort_mult_max] and capped at 1, so the overload multiplier is bounded equally
+     *  across baseline-risk groups (it does not push low-risk patients toward certain death). */
+    Real m_mort_mult_max = 3.0_rt;
+
     /*! How treatment quality accumulates over a hospital stay (minimum or cumulative) */
     TreatmentScoreType m_score_type = TreatmentScoreType::minimum;
 
@@ -239,6 +247,8 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
     int n_disease = a_agents.numDiseases();
     const bool model_mw = m_model_medical_workers;
     const auto score_type = m_score_type;
+    const auto sc_floor = m_sc_floor;
+    const auto mort_mult_max = m_mort_mult_max;
 
     if (model_mw) { computeHospitalScores(a_agents, a_iter); }
     m_num_underserved_patients = 0;
@@ -415,7 +425,14 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                         // medical-workers model active, capacity-limited treatment quality lowers
                         // survival; without it, mortality is exactly the baseline (reproduces development).
                         amrex::Real p_death = disease_parm_d->m_hospToDeath[status_d - 1][age_group_ptr[i]];
-                        if (model_mw) { p_death = 1.0_rt - treat_q_ptrs[d][i] * (1.0_rt - p_death); }
+                        if (model_mw) {
+                            // Capacity-limited care scales the baseline death probability by a
+                            // load-driven multiplier in [1, mort_mult_max] and caps it at 1, so the
+                            // overload penalty is bounded equally across baseline-risk groups. The
+                            // accumulated treat_q in [sc_floor, 1] gives the degradation fraction.
+                            const amrex::Real degr = (1.0_rt - treat_q_ptrs[d][i]) / (1.0_rt - sc_floor);
+                            p_death = amrex::min(1.0_rt, p_death * (1.0_rt + (mort_mult_max - 1.0_rt) * degr));
+                        }
                         if (Random(engine) < p_death) {
                             // patient dies
                             is_alive_ptr[i] = 0;
