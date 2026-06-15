@@ -271,12 +271,14 @@ humidity :math:`AH` (g/m³):
 
 .. math::
 
-   p(T,AH) = p_max exp(-beta_AH * AH - alpha_T * \max(0,T - T_0))
+   p(T,AH) = \min\left(1,\; p_max \exp(-beta_AH (AH - AH_{ref}) - alpha_T \max(0,T - T_0))\right)
 
 * ``weather_transmission.p_max`` (`float`, default ``1.0``)
-    Maximum transmission scale factor (dimensionless).  At low temperature and low humidity the
-    scale factor approaches this value.  It is multiplied by the baseline transmission probability
-    ``disease.p_trans`` to give the effective transmission probability.
+    Maximum transmission scale factor (dimensionless).  The scale factor is multiplied by the
+    baseline transmission probability ``disease.p_trans`` to give the effective transmission
+    probability, and the result is clamped to 1.  With ``p_max = 1`` the scale factor equals 1
+    at/below ``AH_ref`` (and ``T <= T0``), so the calibrated baseline ``disease.p_trans`` is
+    recovered during flu-season conditions; warmer/more humid conditions reduce it.
 * ``weather_transmission.beta_AH`` (`float`, default ``0.18``)
     Absolute-humidity sensitivity coefficient in units of m³/g.  Larger values cause transmission
     to decrease more rapidly as humidity increases.
@@ -286,6 +288,11 @@ humidity :math:`AH` (g/m³):
 * ``weather_transmission.alpha_T`` (`float`, default ``0.015``)
     Temperature sensitivity coefficient in units of °C⁻¹.  Larger values cause transmission
     to decrease more rapidly above ``T0``.
+* ``weather_transmission.AH_ref`` (`float`, default ``6.0``)
+    Reference absolute humidity in g/m³ at which the (unclamped) scale factor equals ``p_max``.
+    Choose it near the flu-season absolute humidity so that the calibrated ``disease.p_trans`` is
+    preserved during the epidemic season rather than being suppressed everywhere.  Set to ``0.0``
+    to recover the un-normalised ``AH = 0`` reference.
 
 In addition to the ExaEpi inputs, there are also a number of runtime options that can be configured for AMReX itself.
 Please see <https://amrex-codes.github.io/amrex/docs_html/GPU.html#inputs-parameters>`__ for more information on these options.

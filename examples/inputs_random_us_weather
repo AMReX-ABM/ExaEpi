@@ -13,6 +13,8 @@ agent.do_weather = 1
 agent.weather_filename = "/global/homes/a/atmyers/ExaEpi/data/weatherData_US.csv"
 agent.startdate="2018-1-1"
 
+# weather_transmission.AH_ref = 6.0   # AH (g/m^3) at which the weather scale = 1 (flu-season ref)
+
 agent.aggregated_diag_int = -1
 
 disease.initial_case_type = "random"

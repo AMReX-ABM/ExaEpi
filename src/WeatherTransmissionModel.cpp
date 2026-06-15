@@ -13,4 +13,5 @@ void WeatherTransmissionModel::readInputs (const std::string& pp_str) {
     pp.query("beta_AH", beta_AH);
     pp.query("T0", T0);
     pp.query("alpha_T", alpha_T);
+    pp.query("AH_ref", AH_ref);
 }
