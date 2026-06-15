@@ -93,7 +93,7 @@ struct WeatherTransmissionModel {
     amrex::Real operator()(amrex::Real T_celsius, amrex::Real AH_g_per_m3) const noexcept {
         amrex::Real T_excess = amrex::max(amrex::Real(0), T_celsius - T0);
         amrex::Real rho = p_max * std::exp(-beta_AH * (AH_g_per_m3 - AH_ref) - alpha_T * T_excess);
-        return amrex::min(amrex::Real(1), rho);   // rho <= 1 keeps 1 - infect*xmit*rho >= 0
+        return amrex::min(amrex::Real(1), rho); // rho <= 1 keeps 1 - infect*xmit*rho >= 0
     }
 
     /*! \brief Evaluate the transmission probability directly from a #weatherVars record.
