@@ -17,10 +17,9 @@ infectious = [0.0] * 4
 infectious.extend([0.1, 0.3, 0.5, 0.7, 0.85, 0.95, 1.0])
 
 transitions = [
-    (exposed_to_presymp, 6.0, 0.73, 0.0, "Exposed to Presymptomatic"),
-    (incubation, 6.0, 0.73, 1.0, "Incubation Period"),
-    #(infectious, 27.0, 0.25, 0.0, "Infectious Period"),
-    (infectious, 3.56, 1.22, 2.5, "Infectious Period"),
+    (exposed_to_presymp, 2.82, 1.36, 0.0, "Exposed to Presymptomatic"),
+    #(incubation, 2.82, 1.36, 1.0, "Incubation Period"),
+    (infectious, 3.0, 1.29, 2.7, "Infectious Period"),
 ]
 
 
@@ -107,7 +106,7 @@ def fit_gamma_to_pmf(days, pmf, title=""):
     return shape_fit, loc_fit, scale_fit
 
 
-fig, axes = plt.subplots(3, 1, figsize=(10, 14))
+fig, axes = plt.subplots(1, 2, figsize=(16, 8))
 
 for idx, (trans_probs, shape, scale, loc, title) in enumerate(transitions):
     ax = axes[idx]
@@ -173,42 +172,43 @@ for idx, (trans_probs, shape, scale, loc, title) in enumerate(transitions):
         gamma_manual,
         "r--",
         lw=2,
-        label=f"Manual gamma (α={shape:.2f}, β={scale:.2f}, loc={loc:.2f} r={corr_manual:.3f})",
+        label=f"Gamma (α={shape:.2f}, β={scale:.2f}, loc={loc:.2f} r={corr_manual:.3f})",
     )
 
-    # --- Plot MLE-fitted gamma (orange) ---
-    gamma_mle = gamma.cdf(x_cont, a=fshape_mle, loc=loc_mle, scale=fscale_mle)
-    corr_mle = pearsonr(
-        np.interp(np.linspace(0, 1, days), np.linspace(0, 1, len(gamma_mle)), gamma_mle),
-        trans_probs,
-    )[0]
-    ax.plot(
-        x_cont,
-        gamma_mle,
-        color="orange",
-        lw=2,
-        linestyle="-.",
-        label=f"MLE gamma (α={fshape_mle:.2f}, β={fscale_mle:.2f}, loc={loc:.2f} , r={corr_mle:.3f})",
-    )
+    if False:
+        # --- Plot MLE-fitted gamma (orange) ---
+        gamma_mle = gamma.cdf(x_cont, a=fshape_mle, loc=loc_mle, scale=fscale_mle)
+        corr_mle = pearsonr(
+            np.interp(np.linspace(0, 1, days), np.linspace(0, 1, len(gamma_mle)), gamma_mle),
+            trans_probs,
+        )[0]
+        ax.plot(
+            x_cont,
+            gamma_mle,
+            color="orange",
+            lw=2,
+            linestyle="-.",
+            label=f"MLE gamma (α={fshape_mle:.2f}, β={fscale_mle:.2f}, loc={loc:.2f} , r={corr_mle:.3f})",
+        )
 
-    # --- Plot optimized gamma (green) ---
-    gamma_opt = gamma.cdf(x_cont, a=shape_opt, loc=loc_opt, scale=scale_opt)
-    corr_opt = pearsonr(
-        np.interp(np.linspace(0, 1, days), np.linspace(0, 1, len(gamma_opt)), gamma_opt),
-        trans_probs,
-    )[0]
-    ax.plot(
-        x_cont,
-        gamma_opt,
-        "g-",
-        lw=2,
-        label=f"Optimized gamma (α={shape_opt:.2f}, β={scale_opt:.2f}, loc={loc:.2f} , r={corr_opt:.3f})",
-    )
+        # --- Plot optimized gamma (green) ---
+        gamma_opt = gamma.cdf(x_cont, a=shape_opt, loc=loc_opt, scale=scale_opt)
+        corr_opt = pearsonr(
+            np.interp(np.linspace(0, 1, days), np.linspace(0, 1, len(gamma_opt)), gamma_opt),
+            trans_probs,
+        )[0]
+        ax.plot(
+            x_cont,
+            gamma_opt,
+            "g-",
+            lw=2,
+            label=f"Optimized gamma (α={shape_opt:.2f}, β={scale_opt:.2f}, loc={loc:.2f} , r={corr_opt:.3f})",
+        )
 
     print(f"  Pearson r vs Epicast cumulative probs:")
     print(f"    Manual:    {corr_manual:.4f}")
-    print(f"    MLE:       {corr_mle:.4f}")
-    print(f"    Optimized: {corr_opt:.4f}")
+    #print(f"    MLE:       {corr_mle:.4f}")
+    #print(f"    Optimized: {corr_opt:.4f}")
     print()
 
     ax.set_xlim(0, days - 1)

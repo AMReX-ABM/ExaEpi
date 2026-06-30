@@ -412,7 +412,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
 
             ax.fill_between(x_vals, y_min, y_max, alpha=0.25, color=color,
                             zorder=1, label="_nolegend_")
-            ax.plot(x_vals, y_mean, label=plot_label, color=color, linewidth=2, zorder=2)
+            ax.plot(x_vals, y_mean, label=plot_label, color=color, linewidth=1, zorder=2)
             auc = float(np.sum(y_mean))
         else:
             df     = entry["dfs"][0]
@@ -420,7 +420,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
             y_vals = df[col]
             auc    = float(np.sum(y_vals[: args.xlimit]))
             lsargs = {"linestyle": "--"} if base_colors[0] == "blue" else {}
-            ax.plot(x_vals, y_vals, label=plot_label, color=color, linewidth=2, zorder=2, **lsargs)
+            ax.plot(x_vals, y_vals, label=plot_label, color=color, linewidth=1, zorder=2, **lsargs)
 
         return legend_label, auc, color, is_wildcard
 
@@ -578,7 +578,7 @@ parser.add_argument(
     "--xlimit", "-l", type=int, default=250, help="X-axis limit for plotting (default: 250)"
 )
 parser.add_argument(
-    "--shift", "-s", type=int, default=0,
+    "--shift", "-s", type=float, default=0,
     help="Shift the ExaEpi curve along the x-axis in days (default: 0)",
 )
 parser.add_argument(
@@ -600,6 +600,16 @@ parser.add_argument("--gamma_h",   type=float, default=0.1,        help="SEIRHD 
 parser.add_argument("--delta",     type=float, default=0.005,      help="SEIRHD H→D death rate (default: 0.005)")
 parser.add_argument("--N",         type=int,   default=1_800_000,  help="SEIRHD total population (default: 1800000)")
 parser.add_argument("--seed",      type=int,   default=1000,       help="SEIRHD initial infectious count (default: 1000)")
+parser.add_argument(
+    "--plots", "-p",
+    nargs="+", metavar="PLOT", default=None,
+    help=(
+        "Which plots to show, in the order given. Rendered in 2-column layout. "
+        "Valid names (case-insensitive): Exposed, Symptomatic, Presymptomatic, "
+        "Asymptomatic, Hospitalized, Dead, Recovered, 'Cumulative Exposed'. "
+        "Default: all 8 (or Exposed/Recovered/Cumulative Exposed when --seir/--fit is used)."
+    ),
+)
 args = parser.parse_args()
 
 # Track which SEIR parameters were explicitly set so fitting can hold them fixed.
@@ -609,6 +619,21 @@ for _tok in sys.argv[1:]:
     if _tok.startswith("--"):
         _argv_flags.add(_tok.lstrip("-").split("=")[0])
 fit_fixed = {p for p in _seir_params if p in _argv_flags}
+
+ALL_PLOTS = [
+    "Exposed", "Symptomatic", "Presymptomatic", "Asymptomatic",
+    "Hospitalized", "Dead", "Recovered", "Cumulative Exposed",
+]
+_plot_map = {p.lower(): p for p in ALL_PLOTS}
+
+if args.plots is not None:
+    resolved = []
+    for name in args.plots:
+        canonical = _plot_map.get(name.lower())
+        if canonical is None:
+            parser.error(f"Unknown plot '{name}'. Valid names: {', '.join(ALL_PLOTS)}")
+        resolved.append(canonical)
+    args.plots = resolved
 
 if not args.epicast_file and not args.exaepi_file:
     parser.error("At least one -e/--epicast_file or -x/--exaepi_file must be specified.")
@@ -705,29 +730,29 @@ if args.fit:
                                                args.xlimit, fixed=fit_fixed)
         fit_results.append((lbl, color, b, s, g, h, gh, d, sd, fdf))
 
-if args.seir or fit_results:
+if args.plots is not None:
+    selected_plots = args.plots
+elif args.seir or fit_results:
     show_hosp = args.hosp_rate != 0
     if show_hosp:
-        fig, ((ax1, ax8), (ax5, ax6), (ax7, _ax)) = plt.subplots(3, 2, figsize=(12, 15))
-        _ax.set_visible(False)
-        plot_series(ax5, epicast_data, exaepi_data, "Hospitalized", seir_df=seir_df, fit_results=fit_results)
-        plot_series(ax6, epicast_data, exaepi_data, "Dead",         seir_df=seir_df, fit_results=fit_results)
+        selected_plots = ["Exposed", "Cumulative Exposed", "Hospitalized", "Dead", "Recovered"]
     else:
-        fig, ((ax1, ax8), (ax7, _ax)) = plt.subplots(2, 2, figsize=(12, 10))
-        _ax.set_visible(False)
-    plot_series(ax1, epicast_data, exaepi_data, "Exposed",           seir_df=seir_df, fit_results=fit_results)
-    plot_series(ax8, epicast_data, exaepi_data, "Cumulative Exposed", seir_df=seir_df, fit_results=fit_results)
-    plot_series(ax7, epicast_data, exaepi_data, "Recovered",          seir_df=seir_df, fit_results=fit_results)
+        selected_plots = ["Exposed", "Cumulative Exposed", "Recovered"]
 else:
-    fig, ((ax1, ax2), (ax3, ax4), (ax5, ax6), (ax7, ax8)) = plt.subplots(4, 2, figsize=(12, 11))
-    plot_series(ax1, epicast_data, exaepi_data, "Exposed")
-    plot_series(ax2, epicast_data, exaepi_data, "Symptomatic")
-    plot_series(ax3, epicast_data, exaepi_data, "Presymptomatic")
-    plot_series(ax4, epicast_data, exaepi_data, "Asymptomatic")
-    plot_series(ax5, epicast_data, exaepi_data, "Hospitalized")
-    plot_series(ax6, epicast_data, exaepi_data, "Dead")
-    plot_series(ax7, epicast_data, exaepi_data, "Recovered")
-    plot_series(ax8, epicast_data, exaepi_data, "Cumulative Exposed")
+    selected_plots = ALL_PLOTS
+
+n = len(selected_plots)
+ncols = 1 if n == 1 else 2
+nrows = (n + ncols - 1) // ncols
+fig, axes_grid = plt.subplots(nrows, ncols, figsize=(6 * ncols, nrows * 3.5), squeeze=False)
+axes = axes_grid.flatten()
+
+for i, plot_name in enumerate(selected_plots):
+    plot_series(axes[i], epicast_data, exaepi_data, plot_name,
+                seir_df=seir_df, fit_results=fit_results)
+
+for i in range(n, len(axes)):
+    axes[i].set_visible(False)
 
 # plt.suptitle("ExaEpi vs Epicast Comparison", y=1.05)
 plt.tight_layout()

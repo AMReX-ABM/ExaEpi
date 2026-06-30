@@ -254,7 +254,7 @@ void setInfected (int* status, int* symptomatic, amrex::ParticleReal* counter, a
 #ifdef COMPARE_TO_EPICAST
     // Sample latent, incubation, and infectious periods from fixed Epicast CDFs
     *latent_period = static_cast<ParticleReal>(sampleFromCDF(latent_period_cdf, latent_period_cdf_size, engine));
-    *incubation_period = static_cast<ParticleReal>(sampleFromCDF(incubation_period_cdf, incubation_period_cdf_size, engine));
+    *incubation_period = *latent_period + 1.0;
     *infectious_period = static_cast<ParticleReal>(sampleFromCDF(infectious_period_cdf, infectious_period_cdf_size, engine));
     *hospital_delay = amrex::Real(2);
 #else
@@ -262,6 +262,7 @@ void setInfected (int* status, int* symptomatic, amrex::ParticleReal* counter, a
     *incubation_period =
             static_cast<ParticleReal>(amrex::RandomGamma(lparm->incubation_length_alpha, lparm->incubation_length_beta, engine)) +
             static_cast<ParticleReal>(lparm->incubation_length_loc);
+    *incubation_period = *latent_period + 1.0;
     *infectious_period =
             static_cast<ParticleReal>(amrex::RandomGamma(lparm->infectious_length_alpha, lparm->infectious_length_beta, engine)) +
             static_cast<ParticleReal>(lparm->infectious_length_loc);
