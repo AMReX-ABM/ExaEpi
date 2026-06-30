@@ -66,6 +66,8 @@ struct DiseaseParm {
     Real xmit_school_a2c[SchoolType::total] = {Real(0), Real(0.001), Real(0.01), Real(0.013), Real(0.043), Real(0.025)};
     /*! for child to adult */
     Real xmit_school_c2a[SchoolType::total] = {Real(0), Real(0.001), Real(0.01), Real(0.013), Real(0.043), Real(0.025)};
+    /*! scale factor applied to all xmit_school* values; single knob to adjust all school transmission */
+    Real xmit_school_scale = Real(1.0);
 
     /*! Probabilities when school is closed */
     Real xmit_comm_SC[AgeGroups::total];

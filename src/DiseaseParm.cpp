@@ -39,6 +39,7 @@ void DiseaseParm::readInputs (const std::string& a_pp_str /*!< Parmparse string 
     queryArray(pp, "xmit_school", xmit_school, SchoolType::total);
     queryArray(pp, "xmit_school_a2c", xmit_school_a2c, SchoolType::total);
     queryArray(pp, "xmit_school_c2a", xmit_school_c2a, SchoolType::total);
+    pp.query("xmit_school_scale", xmit_school_scale);
 
     pp.query("xmit_work", xmit_work);
 
@@ -129,9 +130,9 @@ void DiseaseParm::initialize () {
     }
 
     for (int i = 0; i < SchoolType::total; i++) {
-        xmit_school[i] *= p_trans;
-        xmit_school_a2c[i] *= p_trans;
-        xmit_school_c2a[i] *= p_trans;
+        xmit_school[i] *= xmit_school_scale * p_trans;
+        xmit_school_a2c[i] *= xmit_school_scale * p_trans;
+        xmit_school_c2a[i] *= xmit_school_scale * p_trans;
     }
 
     /*
