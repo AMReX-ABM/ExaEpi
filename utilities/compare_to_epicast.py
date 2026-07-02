@@ -466,7 +466,9 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
     if fit_results and seir_col is not None:
         for (_, _c, _b, _s, _g, _h, _gh, _d, _sd, fdf) in fit_results:
             max_vals.append(fdf[seir_col].values[: args.xlimit].max())
-    if max_vals:
+    if args.ylimit is not None:
+        ax.set_ylim([0, args.ylimit])
+    elif max_vals:
         ax.set_ylim([0, 1.1 * max(max_vals)])
 
     ax.set_title(label)
@@ -513,42 +515,6 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
                 ax.text(0.98, 0.97 - row * 0.10, f"AUC {lbl}: {auc:,.0f}",
                         transform=ax.transAxes, ha="right", va="top", fontsize=7, color=color)
                 row += 1
-        if seir_df is not None and seir_col is not None:
-            r0_m = args.beta / (args.gamma + args.hosp_rate)
-            if args.hosp_rate != 0:
-                hfr_m = args.delta / (args.gamma_h + args.delta)
-                param_txt = (
-                    f"β={args.beta}, σ={args.sigma}, γ={args.gamma}\n"
-                    f"h={args.hosp_rate}, γ_h={args.gamma_h}, δ={args.delta}\n"
-                    f"R0={r0_m:.2f}  HFR={hfr_m:.4f}  N={args.N:,}"
-                )
-            else:
-                param_txt = (
-                    f"β={args.beta}, σ={args.sigma}, γ={args.gamma}\n"
-                    f"R0={r0_m:.2f}  N={args.N:,}"
-                )
-            ax.text(0.98, 0.97 - row * 0.10, param_txt,
-                    transform=ax.transAxes, ha="right", va="top", fontsize=7, color="green")
-            row += 3
-        if fit_results and seir_col is not None:
-            for (series_lbl, color, beta_f, sigma_f, gamma_f, h_f, gh_f, delta_f, seed_f, fdf) in fit_results:
-                r0_f = beta_f / (gamma_f + h_f)
-                if args.hosp_rate != 0:
-                    hfr_f = delta_f / (gh_f + delta_f)
-                    param_txt = (
-                        f"fit ({series_lbl})\n"
-                        f"β={beta_f:.3f}, σ={sigma_f:.3f}, γ={gamma_f:.3f}, h={h_f:.4f}\n"
-                        f"γ_h={gh_f:.3f}, δ={delta_f:.5f}  R0={r0_f:.2f}  HFR={hfr_f:.4f}  seed={seed_f:,}"
-                    )
-                else:
-                    param_txt = (
-                        f"fit ({series_lbl})\n"
-                        f"β={beta_f:.3f}, σ={sigma_f:.3f}, γ={gamma_f:.3f}\n"
-                        f"R0={r0_f:.2f}  seed={seed_f:,}"
-                    )
-                ax.text(0.98, 0.97 - row * 0.10, param_txt,
-                        transform=ax.transAxes, ha="right", va="top", fontsize=7, color="green")
-                row += 3
 
 
 parser = argparse.ArgumentParser(
@@ -576,6 +542,9 @@ parser.add_argument(
 )
 parser.add_argument(
     "--xlimit", "-l", type=int, default=250, help="X-axis limit for plotting (default: 250)"
+)
+parser.add_argument(
+    "--ylimit", "-y", type=float, default=None, help="Y-axis maximum for all plots (default: auto)"
 )
 parser.add_argument(
     "--shift", "-s", type=float, default=0,
