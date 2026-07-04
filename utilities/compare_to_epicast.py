@@ -101,7 +101,7 @@ def load_exaepi(fname):
     return df
 
 
-def run_seir(beta, sigma, gamma, h, gamma_h, delta, N, seed, days):
+def run_seir(beta, sigma, gamma, h, gamma_h, mu, N, seed, days):
     """Run a SEIRHD model and return a DataFrame with daily new counts.
 
     Compartments:
@@ -118,7 +118,7 @@ def run_seir(beta, sigma, gamma, h, gamma_h, delta, N, seed, days):
         I → H  (rate h  – hospitalisation)
         I → R  (rate γ  – direct community recovery)
         H → R  (rate γ_h – hospital recovery)
-        H → D  (rate δ  – death only from hospital)
+        H → D  (rate μ  – death only from hospital)
 
     Parameters
     ----------
@@ -127,7 +127,7 @@ def run_seir(beta, sigma, gamma, h, gamma_h, delta, N, seed, days):
     gamma   : I→R direct recovery rate
     h       : I→H hospitalisation rate
     gamma_h : H→R hospital recovery rate
-    delta   : H→D death rate  (HFR = delta / (gamma_h + delta))
+    mu      : H→D death rate  (HFR = mu / (gamma_h + mu))
     N       : total population
     seed    : initial number of infectious individuals
     days    : number of days to simulate
@@ -139,9 +139,9 @@ def run_seir(beta, sigma, gamma, h, gamma_h, delta, N, seed, days):
         dS   = -inf
         dE   =  inf - sigma * E
         dI   =  sigma * E - (gamma + h) * I
-        dH   =  h * I - (gamma_h + delta) * H
+        dH   =  h * I - (gamma_h + mu) * H
         dR   =  gamma * I + gamma_h * H
-        dD   =  delta * H
+        dD   =  mu * H
         return [dS, dE, dI, dH, dR, dD]
 
     y0 = [float(N - seed), 0.0, float(seed), 0.0, 0.0, 0.0]
@@ -182,7 +182,7 @@ def run_seir(beta, sigma, gamma, h, gamma_h, delta, N, seed, days):
     df["cumulative_exposed"] = new_exposed.cumsum()
 
     r0  = beta / (gamma + h)
-    hfr = delta / (gamma_h + delta)
+    hfr = mu / (gamma_h + mu)
     ifr = (h / (gamma + h)) * hfr
     print(f"SEIRHD  exposed={new_exposed.sum():.0f}  hosp={new_hospitalized.sum():.0f}  dead={new_dead.sum():.0f}")
     print(f"SEIRHD  R0={r0:.2f}  hosp_rate={h/(gamma+h):.4f}  HFR={hfr:.4f}  IFR={ifr:.4f}")
@@ -202,11 +202,11 @@ def fit_seir(target_exposed, target_dead, target_hosp, N, seed, days, fixed=None
     seed           : initial guess for infectious seed count
     days           : number of days to simulate
     fixed          : set of parameter names to hold fixed during optimisation.
-                     Valid names: 'beta', 'sigma', 'gamma', 'hosp_rate', 'gamma_h', 'delta', 'seed'.
+                     Valid names: 'beta', 'sigma', 'gamma', 'hosp_rate', 'gamma_h', 'mu', 'seed'.
 
     Returns
     -------
-    (beta, sigma, gamma, hosp_rate, gamma_h, delta, seed, fitted_df)
+    (beta, sigma, gamma, hosp_rate, gamma_h, mu, seed, fitted_df)
     """
     if fixed is None:
         fixed = set()
@@ -227,7 +227,7 @@ def fit_seir(target_exposed, target_dead, target_hosp, N, seed, days, fixed=None
         ("gamma",     args.gamma,      (1e-4, 5.0)),
         ("hosp_rate", args.hosp_rate,  (1e-6, 2.0)),
         ("gamma_h",   args.gamma_h,    (1e-4, 5.0)),
-        ("delta",     args.delta,      (1e-6, 1.0)),
+        ("mu",        args.mu,         (1e-6, 1.0)),
         ("seed",      float(seed),     (1.0, float(N))),
     ]
     free_params  = [(name, val, bnd) for name, val, bnd in all_params if name not in fixed]
@@ -244,9 +244,9 @@ def fit_seir(target_exposed, target_dead, target_hosp, N, seed, days, fixed=None
 
     def objective(free_vals):
         p = _unpack(free_vals)
-        if any(p[k] <= 0 for k in ("beta", "sigma", "gamma", "hosp_rate", "gamma_h", "delta", "seed")):
+        if any(p[k] <= 0 for k in ("beta", "sigma", "gamma", "hosp_rate", "gamma_h", "mu", "seed")):
             return 1e18
-        df = run_seir(p["beta"], p["sigma"], p["gamma"], p["hosp_rate"], p["gamma_h"], p["delta"],
+        df = run_seir(p["beta"], p["sigma"], p["gamma"], p["hosp_rate"], p["gamma_h"], p["mu"],
                       int(round(p["N"])), int(round(p["seed"])), days)
         w_exp = 1.0 + exp_arr / exp_scale
         res = np.sum(w_exp * ((df["exposed"].values - exp_arr) / exp_scale) ** 2)
@@ -275,20 +275,20 @@ def fit_seir(target_exposed, target_dead, target_hosp, N, seed, days, fixed=None
     gamma_fit     = p["gamma"]
     hosp_rate_fit = p["hosp_rate"]
     gamma_h_fit   = p["gamma_h"]
-    delta_fit     = p["delta"]
+    mu_fit        = p["mu"]
     seed_fit      = int(round(p["seed"]))
     N_fit         = int(round(p["N"]))
 
     fitted_df = run_seir(beta_fit, sigma_fit, gamma_fit, hosp_rate_fit, gamma_h_fit,
-                         delta_fit, N_fit, seed_fit, days)
+                         mu_fit, N_fit, seed_fit, days)
     r0  = beta_fit / (gamma_fit + hosp_rate_fit)
-    hfr = delta_fit / (gamma_h_fit + delta_fit)
+    hfr = mu_fit / (gamma_h_fit + mu_fit)
     ifr = (hosp_rate_fit / (gamma_fit + hosp_rate_fit)) * hfr
     fixed_str = f" [fixed: {', '.join(sorted(fixed))}]" if fixed else ""
     print(f"  Fit converged={converged}  β={beta_fit:.4f}  σ={sigma_fit:.4f}  "
-          f"γ={gamma_fit:.4f}  h={hosp_rate_fit:.4f}  γ_h={gamma_h_fit:.4f}  δ={delta_fit:.5f}  "
+          f"γ={gamma_fit:.4f}  h={hosp_rate_fit:.4f}  γ_h={gamma_h_fit:.4f}  μ={mu_fit:.5f}  "
           f"seed={seed_fit}  R0={r0:.2f}  HFR={hfr:.4f}  IFR={ifr:.4f}{fixed_str}")
-    return beta_fit, sigma_fit, gamma_fit, hosp_rate_fit, gamma_h_fit, delta_fit, seed_fit, fitted_df
+    return beta_fit, sigma_fit, gamma_fit, hosp_rate_fit, gamma_h_fit, mu_fit, seed_fit, fitted_df
 
 
 def parse_file_with_label(file_spec):
@@ -388,7 +388,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
 
     # Plot fitted SEIRHD curves first (under experimental lines)
     if fit_results and seir_col is not None:
-        for (series_lbl, color, beta_f, sigma_f, gamma_f, h_f, gh_f, delta_f, seed_f, fdf) in fit_results:
+        for (series_lbl, _, _, _, _, _, _, _, _, fdf) in fit_results:
             fit_y = fdf[seir_col].values[: args.xlimit]
             ax.plot(np.arange(len(fit_y)), fit_y, color="green", linewidth=3, linestyle="-", zorder=1)
             auc = np.sum(fit_y)
@@ -440,7 +440,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
         seir_y = seir_df[seir_col].values[: args.xlimit]
         ax.plot(
             np.arange(len(seir_y)), seir_y,
-            label=f"SEIRHD (β={args.beta}, h={args.hosp_rate}, δ={args.delta})",
+            label=f"SEIRHD (β={args.beta}, h={args.hosp_rate}, μ={args.mu})",
             color="green", linewidth=2, linestyle="-.",
         )
         auc_lines.append(("SEIRHD", np.sum(seir_y), "green", False))
@@ -561,14 +561,14 @@ parser.add_argument(
     "--fit", action="store_true", default=False,
     help="Fit an SEIR model to each experimental series and overlay the fitted curves",
 )
-parser.add_argument("--beta",      type=float, default=0.44,       help="SEIR transmission rate (default: 0.44)")
-parser.add_argument("--sigma",     type=float, default=0.3,        help="SEIR E→I progression rate (default: 0.3)")
-parser.add_argument("--gamma",     type=float, default=0.173,      help="SEIR I→R recovery rate (default: 0.17)")
-parser.add_argument("--hosp_rate", type=float, default=0.01,       help="SEIRHD I→H hospitalisation rate (default: 0.01)")
-parser.add_argument("--gamma_h",   type=float, default=0.1,        help="SEIRHD H→R hospital recovery rate (default: 0.1)")
-parser.add_argument("--delta",     type=float, default=0.005,      help="SEIRHD H→D death rate (default: 0.005)")
-parser.add_argument("--N",         type=int,   default=1_800_000,  help="SEIRHD total population (default: 1800000)")
-parser.add_argument("--seed",      type=int,   default=1000,       help="SEIRHD initial infectious count (default: 1000)")
+parser.add_argument("--beta",      type=float, default=0.48,       help="SEIR transmission rate (default: 0.44)")
+parser.add_argument("--sigma",     type=float, default=0.263,        help="SEIR E→I progression rate (default: 0.3)")
+parser.add_argument("--gamma",     type=float, default=0.152,      help="SEIR I→R recovery rate (default: 0.17)")
+parser.add_argument("--hosp_rate", type=float, default=0.042,       help="SEIRHD I→H hospitalisation rate (default: 0.01)")
+parser.add_argument("--gamma_h",   type=float, default=0.162,        help="SEIRHD H→R hospital recovery rate (default: 0.1)")
+parser.add_argument("--mu",        type=float, default=0.017,      help="SEIRHD H→D death rate (default: 0.005)")
+parser.add_argument("--N",         type=int,   default=2_100_000,  help="SEIRHD total population (default: 1800000)")
+parser.add_argument("--seed",      type=int,   default=12000,       help="SEIRHD initial infectious count (default: 1000)")
 parser.add_argument(
     "--plots", "-p",
     nargs="+", metavar="PLOT", default=None,
@@ -582,7 +582,7 @@ parser.add_argument(
 args = parser.parse_args()
 
 # Track which SEIR parameters were explicitly set so fitting can hold them fixed.
-_seir_params = {"beta", "sigma", "gamma", "hosp_rate", "gamma_h", "delta", "N", "seed"}
+_seir_params = {"beta", "sigma", "gamma", "hosp_rate", "gamma_h", "mu", "N", "seed"}
 _argv_flags = set()
 for _tok in sys.argv[1:]:
     if _tok.startswith("--"):
@@ -661,9 +661,9 @@ exaepi_data  = _load_grouped(args.exaepi_file,  load_exaepi,  _write_exaepi_csv)
 seir_df = None
 if args.seir:
     seir_df = run_seir(args.beta, args.sigma, args.gamma, args.hosp_rate, args.gamma_h,
-                       args.delta, args.N, args.seed, args.xlimit)
+                       args.mu, args.N, args.seed, args.xlimit)
 
-# fit_results: list of (label, color, beta, sigma, gamma, h, gamma_h, delta, seed, fitted_df)
+# fit_results: list of (label, color, beta, sigma, gamma, h, gamma_h, mu, seed, fitted_df)
 fit_results = []
 if args.fit:
     epicast_colors = ["blue", "green", "purple", "orange", "brown", "pink"]
