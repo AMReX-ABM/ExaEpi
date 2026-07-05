@@ -5,224 +5,234 @@
 #ifndef _INTERACTION_MOD_AIRTRAVEL_H_
 #define _INTERACTION_MOD_AIRTRAVEL_H_
 
+#include <math.h>
+
 #include "AgentDefinitions.H"
 #include "DiseaseParm.H"
 #include "InteractionModel.H"
 
 using namespace amrex;
 
-/*! \brief One-on-one interaction between an infectious agent and a susceptible agent.
+/*! \brief Class describing agent interactions for air travel
  *
- * This function defines the one-on-one interaction between an infectious agent and a
- * susceptible agent on air travel. */
-template <typename PTDType>
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-static void binaryInteractionAirTravel (const int a_i,                    /*!< Index of infectious agent */
-                                        const int a_j,                    /*!< Index of susceptible agent */
-                                        const PTDType& a_ptd_i,           /*!< Particle tile data for infectious agent */
-                                        const PTDType& a_ptd_j,           /*!< Particle tile data for susceptible agent*/
-                                        const DiseaseParm* const a_lparm, /*!< disease parameters */
-                                        const Real a_social_scale,        /*!< Social scale */
-                                        ParticleReal* const a_prob_ptr /*!< infection probability */) {
-    Real infect = a_lparm->infect;
-    infect *= a_lparm->vac_eff;
-
-    auto age_group_ptr_j = a_ptd_j.m_idata[IntIdx::age_group];
-    auto nborhood_ptr_i = a_ptd_i.m_idata[IntIdx::nborhood];
-    auto nborhood_ptr_j = a_ptd_j.m_idata[IntIdx::nborhood];
-    auto school_ptr_i = a_ptd_i.m_idata[IntIdx::school];
-    auto withdrawn_ptr_i = a_ptd_i.m_idata[IntIdx::withdrawn];
-    auto withdrawn_ptr_j = a_ptd_j.m_idata[IntIdx::withdrawn];
-    if (withdrawn_ptr_i[a_i] || withdrawn_ptr_j[a_j]) { return; }
-    auto random_travel_ptr_i = a_ptd_i.m_idata[IntIdx::random_travel];
-    auto random_travel_ptr_j = a_ptd_j.m_idata[IntIdx::random_travel];
-    if (random_travel_ptr_i[a_i] || random_travel_ptr_j[a_j]) { return; }
-    auto air_travel_ptr_i = a_ptd_i.m_idata[IntIdx::air_travel];
-    auto air_travel_ptr_j = a_ptd_j.m_idata[IntIdx::air_travel];
-    auto school_closed_ptr_i = a_ptd_i.m_idata[IntIdx::school_closed];
-    if (air_travel_ptr_i[a_i] || air_travel_ptr_j[a_j]) { return; }
-
-    // infect *= i_mask;
-    // infect *= j_mask;
-    ParticleReal prob = 1.0_prt;
-
-    //  ptd.m_idata[IntIdx::school_closed][infectious_i] == 1 means a child/teacher normally attends school, but not today
-    /* Should always be in the same community = same cell */
-    if (school_closed_ptr_i[a_i] == 1) { // not attending school, use _SC contacts
-        prob *= 1.0_prt - infect * a_lparm->xmit_comm_SC[age_group_ptr_j[a_j]] * a_social_scale;
-    } else {
-        prob *= 1.0_prt - infect * a_lparm->xmit_comm[age_group_ptr_j[a_j]] * a_social_scale;
-    }
-    // /* Neighborhood? */
-    if (nborhood_ptr_i[a_i] == nborhood_ptr_j[a_j]) {
-        if (school_closed_ptr_i[a_i] == 1) {
-            // not attending school, use _SC contacts
-            prob *= 1.0_prt - infect * a_lparm->xmit_hood_SC[age_group_ptr_j[a_j]] * a_social_scale;
-        } else {
-            prob *= 1.0_prt - infect * a_lparm->xmit_hood[age_group_ptr_j[a_j]] * a_social_scale;
-        }
-    }
-
-    Gpu::Atomic::Multiply(&a_prob_ptr[a_j], prob);
-}
-
-/*! \brief Class describing agent interactions for air travel */
-template <typename AC, typename ACT, typename ACTD, typename A>
-class InteractionModAirTravel : public InteractionModel<AC, ACT, ACTD, A> {
+ * Two symmetric sub-interactions are applied:
+ *  1. Infectious air-travel agents (in a_on_air_travel) infect susceptible local agents.
+ *  2. Infectious local agents infect susceptible air-travel agents.
+ *
+ * Both use xmit_comm[age_group] for community-level exposure and xmit_hood[age_group]
+ * for same-neighborhood exposure.  The school_closed flag on the infectious agent selects
+ * the _SC variants.
+ */
+template <typename PCType, typename PTDType, typename PType>
+class InteractionModAirTravel : public InteractionModel<PCType, PTDType, PType> {
   public:
-    /*! \brief null constructor */
-    InteractionModAirTravel () {}
-
-    /*! \brief default destructor */
+    InteractionModAirTravel (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
     virtual ~InteractionModAirTravel() = default;
 
-    /*! \brief Simulate agent interaction for air travel */
-    void interactAgents (AC&, MultiFab&) override { amrex::Abort("Do not use this interface for this interaction model"); }
+    virtual void interactAgents (PCType&, MultiFab&) override {
+        amrex::Abort("InteractionModAirTravel requires two agent containers");
+    }
 
-    /*! \brief Simulate agent interaction for air travel */
-    void interactAgents(AC&, MultiFab&, AC&) override;
+    void interactAgents(PCType& a_agents, MultiFab& a_mask, PCType& a_on_air_travel);
 
-  protected:
-  private:
+    /*! \brief Count infectious agents from src, apply exposure to susceptibles in dst.
+     *
+     * Both src and dst must share the same MFIter structure (same BoxArray/DistributionMapping).
+     * Agents in src with air_travel_flag=true are never excluded — the caller decides which
+     * container is the "traveler" side.
+     *
+     * \param src_is_travel  true when src=a_on_air_travel (skip air_travel<0 filter on src)
+     * \param dst_is_travel  true when dst=a_on_air_travel (skip air_travel<0 filter on dst)
+     */
+    void interactOneWay(PCType& src, PCType& dst, int d, bool src_is_travel, bool dst_is_travel,
+                        Vector<Gpu::DeviceVector<int>>& n_comm_d, Vector<Gpu::DeviceVector<int>>& n_comm_sc_d,
+                        Vector<Gpu::DeviceVector<int>>& n_comm_asymp_d, Vector<Gpu::DeviceVector<int>>& n_comm_sc_asymp_d,
+                        Vector<Gpu::DeviceVector<int>>& n_hood_d, Vector<Gpu::DeviceVector<int>>& n_hood_sc_d,
+                        Vector<Gpu::DeviceVector<int>>& n_hood_asymp_d, Vector<Gpu::DeviceVector<int>>& n_hood_sc_asymp_d);
 };
 
-/*! Simulate the interactions for agents on air travel
- */
-template <typename AC, typename ACT, typename ACTD, typename A>
-void InteractionModAirTravel<AC, ACT, ACTD, A>::interactAgents (AC& a_agents,         /*!< Agent container */
-                                                                MultiFab& /*a_mask*/, /*!< Masking behavior */
-                                                                AC& a_on_air_travel) {
+template <typename PCType, typename PTDType, typename PType>
+void InteractionModAirTravel<PCType, PTDType, PType>::interactAgents (PCType& a_agents, MultiFab& a_mask,
+                                                                      PCType& a_on_air_travel) {
     BL_PROFILE("InteractionModAirTravel::interactAgents");
     int n_disease = a_agents.numDiseases();
 
-    IntVect bin_size = {AMREX_D_DECL(1, 1, 1)};
-    for (int lev = 0; lev < a_agents.numLevels(); ++lev) {
-        const Geometry& geom = a_agents.Geom(lev);
-        const auto dxi = geom.InvCellSizeArray();
-        const auto plo = geom.ProbLoArray();
-        const auto domain = geom.Domain();
+    // Allocate count arrays once; interactOneWay resizes them per tile as needed.
+    Vector<Gpu::DeviceVector<int>> n_comm_d(OMP_MAX_THREADS);
+    Vector<Gpu::DeviceVector<int>> n_comm_sc_d(OMP_MAX_THREADS);
+    Vector<Gpu::DeviceVector<int>> n_comm_asymp_d(OMP_MAX_THREADS);
+    Vector<Gpu::DeviceVector<int>> n_comm_sc_asymp_d(OMP_MAX_THREADS);
+    Vector<Gpu::DeviceVector<int>> n_hood_d(OMP_MAX_THREADS);
+    Vector<Gpu::DeviceVector<int>> n_hood_sc_d(OMP_MAX_THREADS);
+    Vector<Gpu::DeviceVector<int>> n_hood_asymp_d(OMP_MAX_THREADS);
+    Vector<Gpu::DeviceVector<int>> n_hood_sc_asymp_d(OMP_MAX_THREADS);
 
-        this->makeBins(a_agents, bin_size, lev, ExaEpi::InteractionNames::home);
-        this->makeBins(a_on_air_travel, bin_size, lev, ExaEpi::InteractionNames::airTravel);
+    for (int d = 0; d < n_disease; d++) {
+        // Air-travel agents infect local susceptibles
+        interactOneWay(a_on_air_travel, a_agents, d,
+                       /*src_is_travel=*/true, /*dst_is_travel=*/false, n_comm_d, n_comm_sc_d, n_comm_asymp_d, n_comm_sc_asymp_d,
+                       n_hood_d, n_hood_sc_d, n_hood_asymp_d, n_hood_sc_asymp_d);
 
-        // we make two passes here, in the first case, agents on air travel infect local agents
+        // Local agents infect air-travel susceptibles
+        interactOneWay(a_agents, a_on_air_travel, d,
+                       /*src_is_travel=*/false, /*dst_is_travel=*/true, n_comm_d, n_comm_sc_d, n_comm_asymp_d, n_comm_sc_asymp_d,
+                       n_hood_d, n_hood_sc_d, n_hood_asymp_d, n_hood_sc_asymp_d);
+    }
+}
+
+template <typename PCType, typename PTDType, typename PType>
+void InteractionModAirTravel<PCType, PTDType, PType>::interactOneWay (
+        PCType& src, PCType& dst, int d, bool src_is_travel, bool dst_is_travel, Vector<Gpu::DeviceVector<int>>& n_comm_d,
+        Vector<Gpu::DeviceVector<int>>& n_comm_sc_d, Vector<Gpu::DeviceVector<int>>& n_comm_asymp_d,
+        Vector<Gpu::DeviceVector<int>>& n_comm_sc_asymp_d, Vector<Gpu::DeviceVector<int>>& n_hood_d,
+        Vector<Gpu::DeviceVector<int>>& n_hood_sc_d, Vector<Gpu::DeviceVector<int>>& n_hood_asymp_d,
+        Vector<Gpu::DeviceVector<int>>& n_hood_sc_asymp_d) {
+
+    auto lparm_h = src.getDiseaseParameters_h(d);
+    Real infect = 1.0_rt - lparm_h->vac_eff;
+    Real asymp_inf = lparm_h->asymp_relative_inf;
+
+    for (int lev = 0; lev < src.numLevels(); ++lev) {
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for (MFIter mfi = a_agents.MakeMFIter(lev); mfi.isValid(); ++mfi) {
-            auto pair_ind = std::make_pair(mfi.index(), mfi.LocalTileIndex());
-            auto bins_ptr = a_agents.getBins(pair_ind, ExaEpi::InteractionNames::home);
-            auto travel_bins_ptr = a_on_air_travel.getBins(pair_ind, ExaEpi::InteractionNames::airTravel);
+        for (MFIter mfi = src.MakeMFIter(lev); mfi.isValid(); ++mfi) {
 
-            auto& ptile = a_agents.ParticlesAt(lev, mfi);
-            const auto& ptd = ptile.getParticleTileData();
-            auto& travel_ptile = a_on_air_travel.ParticlesAt(lev, mfi);
-            const auto& travel_ptd = travel_ptile.getParticleTileData();
+            // --- Source tile (infectious agents to count) ---
+            auto& src_ptile = src.ParticlesAt(lev, mfi);
+            const auto& src_ptd = src_ptile.getParticleTileData();
+            const auto src_np = src_ptile.GetArrayOfStructs().numParticles();
 
-            auto& aos = ptile.GetArrayOfStructs();
-            const auto np = aos.numParticles();
-            auto pstruct_ptr = aos().dataPtr();
+            // --- Destination tile (susceptible agents to expose) ---
+            auto& dst_ptile = dst.ParticlesAt(lev, mfi);
+            const auto& dst_ptd = dst_ptile.getParticleTileData();
+            const auto dst_np = dst_ptile.GetArrayOfStructs().numParticles();
 
-            auto binner = GetParticleBin{plo, dxi, domain, bin_size, mfi.validbox()};
-            AMREX_ALWAYS_ASSERT(bins_ptr->numBins() >= 0);
-            AMREX_ALWAYS_ASSERT(travel_bins_ptr->numBins() >= 0);
-            auto inds = bins_ptr->permutationPtr();
-            auto travel_inds = travel_bins_ptr->permutationPtr();
-            auto travel_offsets = travel_bins_ptr->offsetsPtr();
+            if (src_np == 0 && dst_np == 0) { continue; }
 
-            for (int d = 0; d < n_disease; d++) {
+            auto& src_soa = src_ptile.GetStructOfArrays();
+            auto& dst_soa = dst_ptile.GetStructOfArrays();
 
-                auto prob_ptr = this->getAgentProbPtr(a_agents, lev, mfi, d);
-                // auto mask_arr = a_mask[mfi].array();
-                auto lparm = a_agents.getDiseaseParameters_d(d);
+            // Community index structure — built from src geometry (same BoxArray for both)
+            GetCommunityIndex<PTDType> getCommunityIndex;
+            getCommunityIndex.init(src.Geom(lev), mfi.tilebox(), src.comm_mf[mfi].array());
+            auto plo = getCommunityIndex.plo;
+            auto dxi = getCommunityIndex.dxi;
+            auto domain = getCommunityIndex.domain;
+            auto valid_box = getCommunityIndex.valid_box;
+            auto bin_size = getCommunityIndex.bin_size;
+            int max_communities = getCommunityIndex.max();
+            auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
-                ParallelFor(bins_ptr->numItems(), [=] AMREX_GPU_DEVICE (int ii) noexcept {
-                    auto i = inds[ii];
-                    int i_cell = binner(pstruct_ptr[i]);
-                    auto cell_start = travel_offsets[i_cell];
-                    auto cell_stop = travel_offsets[i_cell + 1];
+            int max_nborhood = src.getMaxGroup(IntIdx::nborhood) + 1;
 
-                    AMREX_ALWAYS_ASSERT((Long)i < np);
+            int comm_sz = max_communities;
+            int hood_sz = max_communities * max_nborhood;
 
-                    if (notSusceptible<ACTD>(i, ptd, d)) { return; }
+            n_comm_d[OMP_THREAD_NUM].resize(comm_sz);
+            n_comm_sc_d[OMP_THREAD_NUM].resize(comm_sz);
+            n_comm_asymp_d[OMP_THREAD_NUM].resize(comm_sz);
+            n_comm_sc_asymp_d[OMP_THREAD_NUM].resize(comm_sz);
+            n_hood_d[OMP_THREAD_NUM].resize(hood_sz);
+            n_hood_sc_d[OMP_THREAD_NUM].resize(hood_sz);
+            n_hood_asymp_d[OMP_THREAD_NUM].resize(hood_sz);
+            n_hood_sc_asymp_d[OMP_THREAD_NUM].resize(hood_sz);
 
-                    // Real i_mask = mask_arr(home_i_ptr[i], home_j_ptr[i], 0);
-                    for (auto jj = cell_start; jj < cell_stop; ++jj) {
+            auto n_comm_ptr = n_comm_d[OMP_THREAD_NUM].data();
+            auto n_comm_sc_ptr = n_comm_sc_d[OMP_THREAD_NUM].data();
+            auto n_comm_asymp_ptr = n_comm_asymp_d[OMP_THREAD_NUM].data();
+            auto n_comm_sc_asymp_ptr = n_comm_sc_asymp_d[OMP_THREAD_NUM].data();
+            auto n_hood_ptr = n_hood_d[OMP_THREAD_NUM].data();
+            auto n_hood_sc_ptr = n_hood_sc_d[OMP_THREAD_NUM].data();
+            auto n_hood_asymp_ptr = n_hood_asymp_d[OMP_THREAD_NUM].data();
+            auto n_hood_sc_asymp_ptr = n_hood_sc_asymp_d[OMP_THREAD_NUM].data();
 
-                        auto j = travel_inds[jj];
-                        AMREX_ALWAYS_ASSERT((Long)j < np);
+            devMemset(n_comm_ptr, 0, comm_sz * sizeof(int));
+            devMemset(n_comm_sc_ptr, 0, comm_sz * sizeof(int));
+            devMemset(n_comm_asymp_ptr, 0, comm_sz * sizeof(int));
+            devMemset(n_comm_sc_asymp_ptr, 0, comm_sz * sizeof(int));
+            devMemset(n_hood_ptr, 0, hood_sz * sizeof(int));
+            devMemset(n_hood_sc_ptr, 0, hood_sz * sizeof(int));
+            devMemset(n_hood_asymp_ptr, 0, hood_sz * sizeof(int));
+            devMemset(n_hood_sc_asymp_ptr, 0, hood_sz * sizeof(int));
 
-                        // Real j_mask = mask_arr(home_i_ptr[j], home_j_ptr[j], 0);
-                        // if (i == j) continue;
+            auto lparm = src.getDiseaseParameters_d(d);
+            auto src_nborhood_ptr = src_soa.GetIntData(IntIdx::nborhood).data();
+            auto src_school_cl_ptr = src_soa.GetIntData(IntIdx::school_closed).data();
 
-                        if (isInfectious<ACTD>(j, travel_ptd, d)) {
-                            Real social_scale = 1.0_prt; // TODO this should vary based on cell
-                            binaryInteractionAirTravel<ACTD>(j, i, travel_ptd, ptd, lparm, social_scale, prob_ptr);
-                        }
+            // --- Count pass: infectious agents in src tile ---
+            bool is_src_travel = src_is_travel;
+            ParallelFor(src_np, [=] AMREX_GPU_DEVICE (int i) noexcept {
+                if (!isInfectious(i, src_ptd, d)) { return; }
+                if (src_ptd.m_idata[IntIdx::withdrawn][i]) { return; }
+                if (inHospital(i, src_ptd)) { return; }
+                // Only local agents (not relocated travelers) count from the local container
+                if (!is_src_travel && src_ptd.m_idata[IntIdx::air_travel][i] >= 0) { return; }
+                if (src_ptd.m_idata[IntIdx::random_travel][i] >= 0) { return; }
+
+                Box tbx;
+                auto iv = getParticleCell(src_ptd, i, plo, dxi, domain);
+                auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
+                int community = d_ptr[tidx];
+                int nborhood_i = community * max_nborhood + src_nborhood_ptr[i];
+                bool sc = (src_school_cl_ptr[i] == 1);
+                bool asymp = isAsymptomatic(i, src_ptd, d) || isPresymptomatic(i, src_ptd, d);
+
+                if (asymp) {
+                    if (sc) {
+                        Gpu::Atomic::AddNoRet(&n_comm_sc_asymp_ptr[community], 1);
+                        Gpu::Atomic::AddNoRet(&n_hood_sc_asymp_ptr[nborhood_i], 1);
+                    } else {
+                        Gpu::Atomic::AddNoRet(&n_comm_asymp_ptr[community], 1);
+                        Gpu::Atomic::AddNoRet(&n_hood_asymp_ptr[nborhood_i], 1);
                     }
-                });
-                Gpu::synchronize();
-            }
-        }
-
-        // now, the local agents infect the ones on travel
-#ifdef AMREX_USE_OMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-        for (MFIter mfi = a_agents.MakeMFIter(lev); mfi.isValid(); ++mfi) {
-            auto pair_ind = std::make_pair(mfi.index(), mfi.LocalTileIndex());
-            auto bins_ptr = a_agents.getBins(pair_ind, ExaEpi::InteractionNames::home);
-            auto travel_bins_ptr = a_on_air_travel.getBins(pair_ind, ExaEpi::InteractionNames::airTravel);
-
-            auto& ptile = a_agents.ParticlesAt(lev, mfi);
-            const auto& ptd = ptile.getParticleTileData();
-            auto& travel_ptile = a_on_air_travel.ParticlesAt(lev, mfi);
-            const auto& travel_ptd = travel_ptile.getParticleTileData();
-
-            auto& aos = ptile.GetArrayOfStructs();
-            const auto np = aos.numParticles();
-            auto pstruct_ptr = aos().dataPtr();
-
-            auto binner = GetParticleBin{plo, dxi, domain, bin_size, mfi.validbox()};
-            AMREX_ALWAYS_ASSERT(bins_ptr->numBins() >= 0);
-            AMREX_ALWAYS_ASSERT(travel_bins_ptr->numBins() >= 0);
-            auto inds = bins_ptr->permutationPtr();
-            auto offsets = bins_ptr->offsetsPtr();
-            auto travel_inds = travel_bins_ptr->permutationPtr();
-
-            for (int d = 0; d < n_disease; d++) {
-
-                auto prob_ptr = this->getAgentProbPtr(a_on_air_travel, lev, mfi, d);
-                // auto mask_arr = a_mask[mfi].array();
-                auto lparm = a_agents.getDiseaseParameters_d(d);
-
-                ParallelFor(travel_bins_ptr->numItems(), [=] AMREX_GPU_DEVICE (int ii) noexcept {
-                    auto i = travel_inds[ii];
-                    int i_cell = binner(pstruct_ptr[i]);
-                    auto cell_start = offsets[i_cell];
-                    auto cell_stop = offsets[i_cell + 1];
-
-                    AMREX_ALWAYS_ASSERT((Long)i < np);
-
-                    if (notSusceptible<ACTD>(i, ptd, d)) { return; }
-
-                    // Real i_mask = mask_arr(home_i_ptr[i], home_j_ptr[i], 0);
-                    for (auto jj = cell_start; jj < cell_stop; ++jj) {
-
-                        auto j = inds[jj];
-                        AMREX_ALWAYS_ASSERT((Long)j < np);
-
-                        // Real j_mask = mask_arr(home_i_ptr[j], home_j_ptr[j], 0);
-                        // if (i == j) continue;
-
-                        if (isInfectious<ACTD>(j, ptd, d)) {
-                            Real social_scale = 1.0_prt; // TODO this should vary based on cell
-                            binaryInteractionAirTravel<ACTD>(j, i, ptd, travel_ptd, lparm, social_scale, prob_ptr);
-                        }
+                } else {
+                    if (sc) {
+                        Gpu::Atomic::AddNoRet(&n_comm_sc_ptr[community], 1);
+                        Gpu::Atomic::AddNoRet(&n_hood_sc_ptr[nborhood_i], 1);
+                    } else {
+                        Gpu::Atomic::AddNoRet(&n_comm_ptr[community], 1);
+                        Gpu::Atomic::AddNoRet(&n_hood_ptr[nborhood_i], 1);
                     }
-                });
-                Gpu::synchronize();
-            }
+                }
+            });
+            Gpu::synchronize();
+
+            auto dst_nborhood_ptr = dst_soa.GetIntData(IntIdx::nborhood).data();
+            auto prob_ptr = dst_soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
+            bool is_dst_travel = dst_is_travel;
+
+            // --- Apply pass: susceptible agents in dst tile ---
+            ParallelFor(dst_np, [=] AMREX_GPU_DEVICE (int i) noexcept {
+                if (!isSusceptible(i, dst_ptd, d)) { return; }
+                if (dst_ptd.m_idata[IntIdx::withdrawn][i]) { return; }
+                if (inHospital(i, dst_ptd)) { return; }
+                if (!is_dst_travel && dst_ptd.m_idata[IntIdx::air_travel][i] >= 0) { return; }
+                if (dst_ptd.m_idata[IntIdx::random_travel][i] >= 0) { return; }
+
+                Box tbx;
+                auto iv = getParticleCell(dst_ptd, i, plo, dxi, domain);
+                auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
+                int community = d_ptr[tidx];
+                int nborhood_i = community * max_nborhood + dst_nborhood_ptr[i];
+                int age = dst_ptd.m_idata[IntIdx::age_group][i];
+
+                Real p_comm = 1.0_rt - infect * lparm->xmit_comm[age];
+                Real p_comm_sc = 1.0_rt - infect * lparm->xmit_comm_SC[age];
+                Real p_hood = 1.0_rt - infect * lparm->xmit_hood[age];
+                Real p_hood_sc = 1.0_rt - infect * lparm->xmit_hood_SC[age];
+                Real pa_comm = 1.0_rt - asymp_inf * infect * lparm->xmit_comm[age];
+                Real pa_comm_sc = 1.0_rt - asymp_inf * infect * lparm->xmit_comm_SC[age];
+                Real pa_hood = 1.0_rt - asymp_inf * infect * lparm->xmit_hood[age];
+                Real pa_hood_sc = 1.0_rt - asymp_inf * infect * lparm->xmit_hood_SC[age];
+
+                prob_ptr[i] *= static_cast<ParticleReal>(
+                        std::pow(p_comm, n_comm_ptr[community]) * std::pow(p_comm_sc, n_comm_sc_ptr[community]) *
+                        std::pow(pa_comm, n_comm_asymp_ptr[community]) * std::pow(pa_comm_sc, n_comm_sc_asymp_ptr[community]) *
+                        std::pow(p_hood, n_hood_ptr[nborhood_i]) * std::pow(p_hood_sc, n_hood_sc_ptr[nborhood_i]) *
+                        std::pow(pa_hood, n_hood_asymp_ptr[nborhood_i]) * std::pow(pa_hood_sc, n_hood_sc_asymp_ptr[nborhood_i]));
+            });
+            Gpu::synchronize();
         }
     }
 }

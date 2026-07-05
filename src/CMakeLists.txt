@@ -26,6 +26,7 @@ set(_sources
     InteractionModComm.H
     InteractionModSchool.H
     InteractionModWork.H
+    InteractionModAirTravel.H
     InteractionModelLibrary.H
     InitializeInfections.H
     InitializeInfections.cpp

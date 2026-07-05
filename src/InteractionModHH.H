@@ -31,16 +31,16 @@ struct HomeCandidate {
 template <typename PCType, typename PTDType, typename PType>
 class InteractionModHH : public InteractionModel<PCType, PTDType, PType> {
   public:
-    InteractionModHH(bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
+    InteractionModHH (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
     virtual ~InteractionModHH() = default;
 
-    virtual void interactAgents(PCType& agents, MultiFab&) override { fastInteractHH(agents); }
+    virtual void interactAgents (PCType& agents, MultiFab&) override { fastInteractHH(agents); }
 
     void fastInteractHH(PCType& agents);
 };
 
 template <typename PCType, typename PTDType, typename PType>
-void InteractionModHH<PCType, PTDType, PType>::fastInteractHH(PCType& agents) {
+void InteractionModHH<PCType, PTDType, PType>::fastInteractHH (PCType& agents) {
     BL_PROFILE(__func__);
     int n_disease = agents.numDiseases();
 
@@ -94,7 +94,7 @@ void InteractionModHH<PCType, PTDType, PType>::fastInteractHH(PCType& agents) {
                     auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
                     // Count infectious family members (withdrawn members still transmit within HH)
-                    ParallelFor(np, [=] AMREX_GPU_DEVICE(int i) noexcept {
+                    ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                         if (isInfectious(i, ptd, d) && isHomeCandidate(i, ptd) && (isAnAdult(i, ptd) == adults)) {
                             Box tbx;
                             auto iv = getParticleCell(ptd, i, plo, dxi, domain);
@@ -111,11 +111,10 @@ void InteractionModHH<PCType, PTDType, PType>::fastInteractHH(PCType& agents) {
                     Gpu::synchronize();
 
                     // Apply household transmission to susceptible home candidates
-                    ParallelFor(np, [=] AMREX_GPU_DEVICE(int i) noexcept {
+                    ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                         if (isSusceptible(i, ptd, d) && isHomeCandidate(i, ptd)) {
-                            Real xmit_family_prob = adults
-                                ? lparm->xmit_hh_adult[ptd.m_idata[IntIdx::age_group][i]]
-                                : lparm->xmit_hh_child[ptd.m_idata[IntIdx::age_group][i]];
+                            Real xmit_family_prob = adults ? lparm->xmit_hh_adult[ptd.m_idata[IntIdx::age_group][i]]
+                                                           : lparm->xmit_hh_child[ptd.m_idata[IntIdx::age_group][i]];
                             Box tbx;
                             auto iv = getParticleCell(ptd, i, plo, dxi, domain);
                             auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);

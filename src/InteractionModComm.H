@@ -17,8 +17,8 @@
 #include <math.h>
 
 #include "AgentDefinitions.H"
+#include "InteractionModNborhood.H" // for WorkNborhoodCandidate / HomeNborhoodCandidate
 #include "InteractionModel.H"
-#include "InteractionModNborhood.H"  // for WorkNborhoodCandidate / HomeNborhoodCandidate
 
 using namespace amrex;
 
@@ -28,11 +28,10 @@ class InteractionModComm : public InteractionModel<PCType, PTDType, PType> {
   public:
     /*! \param _fast_bin fast binning flag
      *  \param _is_day   true for daytime (work_nborhood), false for nighttime (nborhood) */
-    InteractionModComm(bool _fast_bin, bool _is_day)
-        : InteractionModel<PCType, PTDType, PType>(_fast_bin), m_is_day(_is_day) {}
+    InteractionModComm (bool _fast_bin, bool _is_day) : InteractionModel<PCType, PTDType, PType>(_fast_bin), m_is_day(_is_day) {}
     virtual ~InteractionModComm() = default;
 
-    virtual void interactAgents(PCType& agents, MultiFab&) override { fastInteractComm(agents); }
+    virtual void interactAgents (PCType& agents, MultiFab&) override { fastInteractComm(agents); }
 
     void fastInteractComm(PCType& agents);
 
@@ -41,7 +40,7 @@ class InteractionModComm : public InteractionModel<PCType, PTDType, PType> {
 };
 
 template <typename PCType, typename PTDType, typename PType>
-void InteractionModComm<PCType, PTDType, PType>::fastInteractComm(PCType& agents) {
+void InteractionModComm<PCType, PTDType, PType>::fastInteractComm (PCType& agents) {
     BL_PROFILE(__func__);
     int n_disease = agents.numDiseases();
 
@@ -105,7 +104,7 @@ void InteractionModComm<PCType, PTDType, PType>::fastInteractComm(PCType& agents
                 Real infect = 1.0_rt - lparm_h->vac_eff;
                 auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
-                ParallelFor(np, [=] AMREX_GPU_DEVICE(int i) noexcept {
+                ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                     bool candidate = is_day ? isWorkCandidate(i, ptd) : isHomeCandidate(i, ptd);
                     if (isInfectious(i, ptd, d) && candidate) {
                         Box tbx;
@@ -124,7 +123,7 @@ void InteractionModComm<PCType, PTDType, PType>::fastInteractComm(PCType& agents
                 });
                 Gpu::synchronize();
 
-                ParallelFor(np, [=] AMREX_GPU_DEVICE(int i) noexcept {
+                ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                     bool candidate = is_day ? isWorkCandidate(i, ptd) : isHomeCandidate(i, ptd);
                     if (isSusceptible(i, ptd, d) && candidate) {
                         Box tbx;
@@ -139,13 +138,12 @@ void InteractionModComm<PCType, PTDType, PType>::fastInteractComm(PCType& agents
                         // Subtract neighborhood agents — they are handled by InteractionModNborhood
                         int num_infected_community = infected_community_d_ptr[community] - num_infected_nborhood;
                         int num_infected_community_asymp =
-                            infected_community_asymp_d_ptr[community] - num_infected_nborhood_asymp;
+                                infected_community_asymp_d_ptr[community] - num_infected_nborhood_asymp;
 
                         AMREX_ALWAYS_ASSERT(num_infected_community >= 0);
-                        Real comm_prob =
-                            1.0_prt - infect * lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * scale;
+                        Real comm_prob = 1.0_prt - infect * lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * scale;
                         Real comm_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect *
-                                                             lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * scale;
+                                                                 lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * scale;
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(comm_prob, num_infected_community));
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(comm_prob_asymp, num_infected_community_asymp));
                     }

@@ -45,11 +45,11 @@ class InteractionModNborhood : public InteractionModel<PCType, PTDType, PType> {
     /*! \param _fast_bin fast binning flag
      *  \param _is_day   true for daytime (uses work_nborhood + WorkNborhoodCandidate),
      *                   false for nighttime (uses nborhood + HomeNborhoodCandidate) */
-    InteractionModNborhood(bool _fast_bin, bool _is_day)
+    InteractionModNborhood (bool _fast_bin, bool _is_day)
         : InteractionModel<PCType, PTDType, PType>(_fast_bin), m_is_day(_is_day) {}
     virtual ~InteractionModNborhood() = default;
 
-    virtual void interactAgents(PCType& agents, MultiFab&) override { fastInteractNborhood(agents); }
+    virtual void interactAgents (PCType& agents, MultiFab&) override { fastInteractNborhood(agents); }
 
     void fastInteractNborhood(PCType& agents);
 
@@ -58,7 +58,7 @@ class InteractionModNborhood : public InteractionModel<PCType, PTDType, PType> {
 };
 
 template <typename PCType, typename PTDType, typename PType>
-void InteractionModNborhood<PCType, PTDType, PType>::fastInteractNborhood(PCType& agents) {
+void InteractionModNborhood<PCType, PTDType, PType>::fastInteractNborhood (PCType& agents) {
     BL_PROFILE(__func__);
     int n_disease = agents.numDiseases();
 
@@ -113,7 +113,7 @@ void InteractionModNborhood<PCType, PTDType, PType>::fastInteractNborhood(PCType
                 Real infect = 1.0_rt - lparm_h->vac_eff;
                 auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
-                ParallelFor(np, [=] AMREX_GPU_DEVICE(int i) noexcept {
+                ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                     bool candidate = is_day ? isWorkCandidate(i, ptd) : isHomeCandidate(i, ptd);
                     if (isInfectious(i, ptd, d) && candidate) {
                         Box tbx;
@@ -130,7 +130,7 @@ void InteractionModNborhood<PCType, PTDType, PType>::fastInteractNborhood(PCType
                 });
                 Gpu::synchronize();
 
-                ParallelFor(np, [=] AMREX_GPU_DEVICE(int i) noexcept {
+                ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                     bool candidate = is_day ? isWorkCandidate(i, ptd) : isHomeCandidate(i, ptd);
                     if (isSusceptible(i, ptd, d) && candidate) {
                         Box tbx;
@@ -142,10 +142,9 @@ void InteractionModNborhood<PCType, PTDType, PType>::fastInteractNborhood(PCType
                         int num_infected_nborhood = infected_nborhood_d_ptr[nborhood_i];
                         int num_infected_nborhood_asymp = infected_nborhood_asymp_d_ptr[nborhood_i];
 
-                        Real nborhood_prob =
-                            1.0_prt - infect * lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * scale;
+                        Real nborhood_prob = 1.0_prt - infect * lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * scale;
                         Real nborhood_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect *
-                                                                 lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * scale;
+                                                                     lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * scale;
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nborhood_prob, num_infected_nborhood));
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nborhood_prob_asymp, num_infected_nborhood_asymp));
                     }

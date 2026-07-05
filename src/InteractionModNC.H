@@ -13,8 +13,8 @@
 
 #include "AgentDefinitions.H"
 #include "DiseaseParm.H"
+#include "InteractionModHH.H" // for HomeCandidate
 #include "InteractionModel.H"
-#include "InteractionModHH.H"  // for HomeCandidate
 
 using namespace amrex;
 
@@ -22,16 +22,16 @@ using namespace amrex;
 template <typename PCType, typename PTDType, typename PType>
 class InteractionModNC : public InteractionModel<PCType, PTDType, PType> {
   public:
-    InteractionModNC(bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
+    InteractionModNC (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
     virtual ~InteractionModNC() = default;
 
-    virtual void interactAgents(PCType& agents, MultiFab&) override { fastInteractNC(agents); }
+    virtual void interactAgents (PCType& agents, MultiFab&) override { fastInteractNC(agents); }
 
     void fastInteractNC(PCType& agents);
 };
 
 template <typename PCType, typename PTDType, typename PType>
-void InteractionModNC<PCType, PTDType, PType>::fastInteractNC(PCType& agents) {
+void InteractionModNC<PCType, PTDType, PType>::fastInteractNC (PCType& agents) {
     BL_PROFILE(__func__);
     int n_disease = agents.numDiseases();
 
@@ -100,7 +100,7 @@ void InteractionModNC<PCType, PTDType, PType>::fastInteractNC(PCType& agents) {
 
                     // Count non-withdrawn infectious agents in family and NC cluster buckets.
                     // family_not_withdrawn is subtracted from nc to avoid double-counting.
-                    ParallelFor(np, [=] AMREX_GPU_DEVICE(int i) noexcept {
+                    ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                         if (isInfectious(i, ptd, d) && isHomeCandidate(i, ptd) && (isAnAdult(i, ptd) == adults) &&
                             !ptd.m_idata[IntIdx::withdrawn][i]) {
                             Box tbx;
@@ -122,7 +122,7 @@ void InteractionModNC<PCType, PTDType, PType>::fastInteractNC(PCType& agents) {
 
                     // Apply NC transmission to non-withdrawn susceptible home candidates.
                     // Subtract same-family non-withdrawn agents from NC count to avoid double-counting with HH.
-                    ParallelFor(np, [=] AMREX_GPU_DEVICE(int i) noexcept {
+                    ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                         if (isSusceptible(i, ptd, d) && isHomeCandidate(i, ptd) && !ptd.m_idata[IntIdx::withdrawn][i]) {
                             Real xmit_nc_prob = adults ? lparm->xmit_nc_adult[ptd.m_idata[IntIdx::age_group][i]]
                                                        : lparm->xmit_nc_child[ptd.m_idata[IntIdx::age_group][i]];
@@ -140,7 +140,8 @@ void InteractionModNC<PCType, PTDType, PType>::fastInteractNC(PCType& agents) {
                             prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nc_prob, num_infected_nc));
 
                             int num_infected_family_not_withdrawn_asymp = infected_family_not_withdrawn_asymp_d_ptr[family_i];
-                            int num_infected_nc_asymp = infected_nc_asymp_d_ptr[cluster_i] - num_infected_family_not_withdrawn_asymp;
+                            int num_infected_nc_asymp =
+                                    infected_nc_asymp_d_ptr[cluster_i] - num_infected_family_not_withdrawn_asymp;
                             AMREX_ALWAYS_ASSERT(num_infected_nc_asymp >= 0);
                             Real nc_prob_asymp = 1.0_rt - lparm->asymp_relative_inf * infect * xmit_nc_prob * scale;
                             prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nc_prob_asymp, num_infected_nc_asymp));
