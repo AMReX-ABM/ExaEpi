@@ -352,7 +352,8 @@ def _align_arrays(dfs, col, xlimit):
 
 
 _CONTEXT_COLS = {
-    "EWork":   ("Work/Hosp",           "tab:blue"),
+    "EWork":   ("Work",                "tab:blue"),
+    "EHosp":   ("Hospital",            "tab:cyan"),
     "ESchool": ("School",              "tab:orange"),
     "ENbhD":   ("Neighborhood (day)",  "tab:green"),
     "ECommD":  ("Community (day)",     "tab:olive"),

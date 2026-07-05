@@ -977,6 +977,7 @@ void AgentContainer::eveningCommute (MultiFab& /*a_mask_behavior*/ /*!< Masking 
 void AgentContainer::interactDay (MultiFab& a_mask_behavior /*!< Masking behavior */) {
     BL_PROFILE("AgentContainer::interactDay");
     interactWork(a_mask_behavior);
+    interactHospital(a_mask_behavior);
     interactSchool(a_mask_behavior);
     interactNborhoodDay(a_mask_behavior);
     interactCommDay(a_mask_behavior);
@@ -987,6 +988,10 @@ void AgentContainer::interactWork (MultiFab& a_mask_behavior) {
     if (haveInteractionModel(ExaEpi::InteractionNames::work)) {
         m_interactions[ExaEpi::InteractionNames::work]->interactAgents(*this, a_mask_behavior);
     }
+}
+
+void AgentContainer::interactHospital (MultiFab& a_mask_behavior) {
+    BL_PROFILE("AgentContainer::interactHospital");
     m_hospital->interactAgents(*this, a_mask_behavior);
 }
 

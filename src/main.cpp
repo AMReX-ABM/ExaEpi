@@ -193,10 +193,10 @@ void runAgent () {
                 std::ofstream File;
                 File.open(output_filename[d].c_str(), std::ios::out | std::ios::trunc);
                 if (!File.good()) { amrex::FileOpenFailed(output_filename[d]); }
-                Vector<string> headers = {"Day",    "Su",   "PS/PI", "S/PI/NH", "S/PI/H", "PS/I",  "S/I/NH",  "S/I/H",
-                                          "A/PI",   "A/I",  "H/NI",  "H/I",     "ICU",    "V",     "R",       "D",
-                                          "NewI",   "NewS", "NewH",  "NewA",    "NewP",   "EWork", "ESchool", "ENbhD",
-                                          "ECommD", "EHH",  "ENC",   "ENbhN",   "ECommN"};
+                Vector<string> headers = {"Day",    "Su",    "PS/PI", "S/PI/NH", "S/PI/H",  "PS/I",  "S/I/NH", "S/I/H",
+                                          "A/PI",   "A/I",   "H/NI",  "H/I",     "ICU",     "V",     "R",      "D",
+                                          "NewI",   "NewS",  "NewH",  "NewA",    "NewP",    "EWork", "EHosp",  "ESchool",
+                                          "ENbhD",  "ECommD","EHH",   "ENC",     "ENbhN",   "ECommN"};
                 for (const auto& header : headers) {
                     File << std::setw(header == "Day" ? 5 : 12) << header;
                 }
@@ -386,6 +386,7 @@ void runAgent () {
         BL_PROFILE_REGION("Evolution");
         // Per-context expected-infection diagnostics (1-step lag: written on day i+1).
         amrex::Real diag_exp_work = 0.0;
+        amrex::Real diag_exp_hosp = 0.0;
         amrex::Real diag_exp_school = 0.0;
         amrex::Real diag_exp_nbhd = 0.0;
         amrex::Real diag_exp_commd = 0.0;
@@ -524,6 +525,7 @@ void runAgent () {
                         File << std::setw(11) << counts[j];
                     }
                     File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_work;
+                    File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_hosp;
                     File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_school;
                     File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_nbhd;
                     File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_commd;
@@ -566,6 +568,8 @@ void runAgent () {
             pc.morningCommute(mask_behavior);
             pc.snapshotProbs(0); pc.interactWork(mask_behavior);
             diag_exp_work = pc.sumContextInfections(0);
+            pc.snapshotProbs(0); pc.interactHospital(mask_behavior);
+            diag_exp_hosp = pc.sumContextInfections(0);
             pc.snapshotProbs(0); pc.interactSchool(mask_behavior);
             diag_exp_school = pc.sumContextInfections(0);
             pc.snapshotProbs(0); pc.interactNborhoodDay(mask_behavior);

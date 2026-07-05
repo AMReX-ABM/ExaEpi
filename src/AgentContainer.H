@@ -51,6 +51,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     void interactDay(amrex::MultiFab&);
 
     void interactWork(amrex::MultiFab&);
+    void interactHospital(amrex::MultiFab&);
     void interactSchool(amrex::MultiFab&);
     void interactNborhoodDay(amrex::MultiFab&);
     void interactCommDay(amrex::MultiFab&);
