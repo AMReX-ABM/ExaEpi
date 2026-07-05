@@ -25,7 +25,7 @@ using namespace amrex;
 namespace ExaEpi {
 
 /*! \brief Name of models */
-AMREX_ENUM(InteractionNames, home, work, school, home_nborhood, work_nborhood, transit, random, airTravel);
+AMREX_ENUM(InteractionNames, hh, nc, nborhood_day, nborhood_night, comm_day, comm_night, work, school, transit, random, airTravel);
 } // namespace ExaEpi
 
 /*! \brief Base class for defining interaction models

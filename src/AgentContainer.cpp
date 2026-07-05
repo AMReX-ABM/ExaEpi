@@ -115,11 +115,14 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
 
         /* Create the interaction model objects and push to container */
         m_interactions.clear();
-        m_interactions[InteractionNames::home] = new InteractionModHome<PCType, PTDType, PType>(fast);
+        m_interactions[InteractionNames::hh] = new InteractionModHH<PCType, PTDType, PType>(fast);
+        m_interactions[InteractionNames::nc] = new InteractionModNC<PCType, PTDType, PType>(fast);
+        m_interactions[InteractionNames::nborhood_day] = new InteractionModNborhood<PCType, PTDType, PType>(fast, true);
+        m_interactions[InteractionNames::nborhood_night] = new InteractionModNborhood<PCType, PTDType, PType>(fast, false);
+        m_interactions[InteractionNames::comm_day] = new InteractionModComm<PCType, PTDType, PType>(fast, true);
+        m_interactions[InteractionNames::comm_night] = new InteractionModComm<PCType, PTDType, PType>(fast, false);
         m_interactions[InteractionNames::work] = new InteractionModWork<PCType, PTDType, PType>(fast);
         m_interactions[InteractionNames::school] = new InteractionModSchool<PCType, PTDType, PType>(fast);
-        m_interactions[InteractionNames::home_nborhood] = new InteractionModHomeNborhood<PCType, PTDType, PType>(fast);
-        m_interactions[InteractionNames::work_nborhood] = new InteractionModWorkNborhood<PCType, PTDType, PType>(fast);
 
         m_hospital = std::make_unique<HospitalModel<PCType, PTDType, PType>>(fast);
     }
@@ -973,16 +976,39 @@ void AgentContainer::eveningCommute (MultiFab& /*a_mask_behavior*/ /*!< Masking 
 /*! \brief Interaction of agents during day time - work and school */
 void AgentContainer::interactDay (MultiFab& a_mask_behavior /*!< Masking behavior */) {
     BL_PROFILE("AgentContainer::interactDay");
+    interactWork(a_mask_behavior);
+    interactSchool(a_mask_behavior);
+    interactNborhoodDay(a_mask_behavior);
+    interactCommDay(a_mask_behavior);
+}
+
+void AgentContainer::interactWork (MultiFab& a_mask_behavior) {
+    BL_PROFILE("AgentContainer::interactWork");
     if (haveInteractionModel(ExaEpi::InteractionNames::work)) {
         m_interactions[ExaEpi::InteractionNames::work]->interactAgents(*this, a_mask_behavior);
     }
+    m_hospital->interactAgents(*this, a_mask_behavior);
+}
+
+void AgentContainer::interactSchool (MultiFab& a_mask_behavior) {
+    BL_PROFILE("AgentContainer::interactSchool");
     if (haveInteractionModel(ExaEpi::InteractionNames::school)) {
         m_interactions[ExaEpi::InteractionNames::school]->interactAgents(*this, a_mask_behavior);
     }
-    if (haveInteractionModel(ExaEpi::InteractionNames::work_nborhood)) {
-        m_interactions[ExaEpi::InteractionNames::work_nborhood]->interactAgents(*this, a_mask_behavior);
+}
+
+void AgentContainer::interactNborhoodDay (MultiFab& a_mask_behavior) {
+    BL_PROFILE("AgentContainer::interactNborhoodDay");
+    if (haveInteractionModel(ExaEpi::InteractionNames::nborhood_day)) {
+        m_interactions[ExaEpi::InteractionNames::nborhood_day]->interactAgents(*this, a_mask_behavior);
     }
-    m_hospital->interactAgents(*this, a_mask_behavior);
+}
+
+void AgentContainer::interactCommDay (MultiFab& a_mask_behavior) {
+    BL_PROFILE("AgentContainer::interactCommDay");
+    if (haveInteractionModel(ExaEpi::InteractionNames::comm_day)) {
+        m_interactions[ExaEpi::InteractionNames::comm_day]->interactAgents(*this, a_mask_behavior);
+    }
 }
 
 /*! \brief Interaction of agents during evening (after work) - social stuff */
@@ -990,15 +1016,62 @@ void AgentContainer::interactEvening (MultiFab& /*a_mask_behavior*/ /*!< Masking
     BL_PROFILE("AgentContainer::interactEvening");
 }
 
-/*! \brief Interaction of agents during nighttime time - at home */
+void AgentContainer::interactHH (MultiFab& a_mask_behavior) {
+    BL_PROFILE("AgentContainer::interactHH");
+    if (haveInteractionModel(ExaEpi::InteractionNames::hh)) {
+        m_interactions[ExaEpi::InteractionNames::hh]->interactAgents(*this, a_mask_behavior);
+    }
+}
+
+void AgentContainer::interactNC (MultiFab& a_mask_behavior) {
+    BL_PROFILE("AgentContainer::interactNC");
+    if (haveInteractionModel(ExaEpi::InteractionNames::nc)) {
+        m_interactions[ExaEpi::InteractionNames::nc]->interactAgents(*this, a_mask_behavior);
+    }
+}
+
+void AgentContainer::interactNborhoodNight (MultiFab& a_mask_behavior) {
+    BL_PROFILE("AgentContainer::interactNborhoodNight");
+    if (haveInteractionModel(ExaEpi::InteractionNames::nborhood_night)) {
+        m_interactions[ExaEpi::InteractionNames::nborhood_night]->interactAgents(*this, a_mask_behavior);
+    }
+}
+
+void AgentContainer::interactCommNight (MultiFab& a_mask_behavior) {
+    BL_PROFILE("AgentContainer::interactCommNight");
+    if (haveInteractionModel(ExaEpi::InteractionNames::comm_night)) {
+        m_interactions[ExaEpi::InteractionNames::comm_night]->interactAgents(*this, a_mask_behavior);
+    }
+}
+
+/*! \brief Interaction of agents during nighttime - at home */
 void AgentContainer::interactNight (MultiFab& a_mask_behavior /*!< Masking behavior */) {
     BL_PROFILE("AgentContainer::interactNight");
-    if (haveInteractionModel(ExaEpi::InteractionNames::home)) {
-        m_interactions[ExaEpi::InteractionNames::home]->interactAgents(*this, a_mask_behavior);
-    }
-    if (haveInteractionModel(ExaEpi::InteractionNames::home_nborhood)) {
-        m_interactions[ExaEpi::InteractionNames::home_nborhood]->interactAgents(*this, a_mask_behavior);
-    }
+    interactHH(a_mask_behavior);
+    interactNC(a_mask_behavior);
+    interactNborhoodNight(a_mask_behavior);
+    interactCommNight(a_mask_behavior);
+}
+
+/*! \brief Sum of expected infections (1 - prob_ptr) over susceptible agents for disease d.
+    Call after interactions but before infectAgents. The difference between successive calls
+    gives the marginal expected infections from each interaction context. */
+amrex::Real AgentContainer::sumExpectedInfections (int d) const {
+    BL_PROFILE("AgentContainer::sumExpectedInfections");
+    amrex::ReduceOps<amrex::ReduceOpSum> reduce_ops;
+    auto r = amrex::ParticleReduce<amrex::ReduceData<amrex::Real>>(
+            *this,
+            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
+                                 const int i) noexcept -> amrex::GpuTuple<amrex::Real> {
+                auto status = ptd.m_runtime_idata[i0(d) + IntIdxDisease::status][i];
+                if (status == Status::never || status == Status::susceptible) {
+                    amrex::Real prob = ptd.m_runtime_rdata[r0(d) + RealIdxDisease::prob][i];
+                    return {amrex::max(0.0_rt, 1.0_rt - prob)};
+                }
+                return {0.0_rt};
+            },
+            reduce_ops);
+    return amrex::get<0>(r);
 }
 
 void AgentContainer::printStudentTeacherCounts () const {

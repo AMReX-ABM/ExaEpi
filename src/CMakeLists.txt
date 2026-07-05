@@ -20,9 +20,10 @@ set(_sources
     IO.H
     IO.cpp
     InteractionModel.H
-    InteractionModHome.H
-    InteractionModHomeNborhood.H
-    InteractionModWorkNborhood.H
+    InteractionModHH.H
+    InteractionModNC.H
+    InteractionModNborhood.H
+    InteractionModComm.H
     InteractionModSchool.H
     InteractionModWork.H
     InteractionModelLibrary.H

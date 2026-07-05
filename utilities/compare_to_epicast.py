@@ -351,6 +351,39 @@ def _align_arrays(dfs, col, xlimit):
     return np.vstack([df[col].values[:max_len] for df in dfs])
 
 
+_CONTEXT_COLS = {
+    "EWork":   ("Work/Hosp",           "tab:blue"),
+    "ESchool": ("School",              "tab:orange"),
+    "ENbhD":   ("Neighborhood (day)",  "tab:green"),
+    "ECommD":  ("Community (day)",     "tab:olive"),
+    "EHH":     ("Household",           "tab:red"),
+    "ENC":     ("NC cluster",          "tab:brown"),
+    "ENbhN":   ("Neighborhood (night)","tab:purple"),
+    "ECommN":  ("Community (night)",   "tab:pink"),
+}
+
+
+def plot_context(ax, exaepi_data):
+    """Plot per-context expected infections from ExaEpi diagnostic columns."""
+    ax.set_title("Expected infections by context (ExaEpi)")
+    ax.set_xlabel("Days")
+    ax.set_ylabel("Expected new infections")
+    ax.set_xlim([0, args.xlimit])
+    ax.grid(True, which="major")
+    ax.grid(True, which="minor", alpha=0.3)
+    ax.minorticks_on()
+
+    for entry in exaepi_data:
+        for df in entry["dfs"]:
+            x = (df["Day"] + args.shift).values[:args.xlimit]
+            for col, (label_str, color) in _CONTEXT_COLS.items():
+                if col in df.columns:
+                    y = df[col].values[:args.xlimit]
+                    ax.plot(x, y, label=label_str, color=color, linewidth=1)
+
+    ax.legend(fontsize=7)
+
+
 def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=None):
     """Plot time series data from multiple files.
 
@@ -591,7 +624,7 @@ fit_fixed = {p for p in _seir_params if p in _argv_flags}
 
 ALL_PLOTS = [
     "Exposed", "Symptomatic", "Presymptomatic", "Asymptomatic",
-    "Hospitalized", "Dead", "Recovered", "Cumulative Exposed",
+    "Hospitalized", "Dead", "Recovered", "Cumulative Exposed", "Context",
 ]
 _plot_map = {p.lower(): p for p in ALL_PLOTS}
 
@@ -708,7 +741,7 @@ elif args.seir or fit_results:
     else:
         selected_plots = ["Exposed", "Cumulative Exposed", "Recovered"]
 else:
-    selected_plots = ALL_PLOTS
+    selected_plots = [p for p in ALL_PLOTS if p != "Context"]
 
 n = len(selected_plots)
 ncols = 1 if n == 1 else 2
@@ -717,8 +750,11 @@ fig, axes_grid = plt.subplots(nrows, ncols, figsize=(6 * ncols, nrows * 3.5), sq
 axes = axes_grid.flatten()
 
 for i, plot_name in enumerate(selected_plots):
-    plot_series(axes[i], epicast_data, exaepi_data, plot_name,
-                seir_df=seir_df, fit_results=fit_results)
+    if plot_name == "Context":
+        plot_context(axes[i], exaepi_data)
+    else:
+        plot_series(axes[i], epicast_data, exaepi_data, plot_name,
+                    seir_df=seir_df, fit_results=fit_results)
 
 for i in range(n, len(axes)):
     axes[i].set_visible(False)
