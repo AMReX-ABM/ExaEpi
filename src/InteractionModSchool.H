@@ -10,67 +10,6 @@
 
 using namespace amrex;
 
-#ifndef FAST_INTERACTIONS
-/*! \brief One-on-one interaction between an infectious agent and a susceptible agent.
- *
- * This function defines the one-on-one interaction between an infectious agent and a
- * susceptible agent at school. */
-template <typename PTDType>
-struct BinaryInteractionSchool {
-    AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-    ParticleReal operator()(const int infectious_i,           /*!< Index of infectious agent */
-                            const int susceptible_i,          /*!< Index of susceptible agent */
-                            const PTDType& a_ptd,             /*!< Particle tile data */
-                            const DiseaseParm* const a_lparm, /*!< disease parameters */
-                            const Real a_social_scale /*!< Social scale */) const noexcept {
-        AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::school_id][infectious_i] == a_ptd.m_idata[IntIdx::school_id][susceptible_i]);
-        AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::school_grade][infectious_i] ==
-                            a_ptd.m_idata[IntIdx::school_grade][susceptible_i]);
-        AMREX_ALWAYS_ASSERT(a_ptd.m_idata[IntIdx::work_i][infectious_i] == a_ptd.m_idata[IntIdx::work_i][susceptible_i] &&
-                            a_ptd.m_idata[IntIdx::work_j][infectious_i] == a_ptd.m_idata[IntIdx::work_j][susceptible_i]);
-
-        auto age_group_ptr = a_ptd.m_idata[IntIdx::age_group];
-        auto nborhood_ptr = a_ptd.m_idata[IntIdx::nborhood];
-        auto school_id_ptr = a_ptd.m_idata[IntIdx::school_id];
-
-        // binned so that infectious and susceptible are in the same school
-        int school_id = school_id_ptr[susceptible_i];
-        // infect *= i_mask;
-        // infect *= j_mask;
-        //  Elementary/middle/high school in common
-        if (school_id > 0 && school_id < 5) {
-            if (age_group_ptr[infectious_i] <= 1) {      // Transmitter i is a child
-                if (age_group_ptr[susceptible_i] <= 1) { // Receiver j is a child
-                    return a_lparm->xmit_school[school_id] * a_social_scale;
-                } else {                                 // Child student -> adult teacher/staff transmission
-                    return a_lparm->xmit_school_c2a[school_id] * a_social_scale; // * 0.5; // hack for testing
-                }
-            } else {                                                             // transmitter is an adult
-                if (age_group_ptr[susceptible_i] <= 1) {                         // Adult teacher/staff -> child student
-                    return a_lparm->xmit_school_a2c[school_id] * a_social_scale; // * 0.25; // hack for testing
-                } else {                                                         // adult to adult
-                    return 0.0_prt; // a_lparm->xmit_school[school_id] * a_social_scale;  //adults-adults interaction accounted
-                                    // for in InteractionModWork.H
-                }
-            }
-
-        } else {
-            if (nborhood_ptr[infectious_i] == nborhood_ptr[susceptible_i]) {
-                if (age_group_ptr[infectious_i] <= 1 ||
-                    age_group_ptr[susceptible_i] <= 1) { // Account only for adult -- child interactions
-                    if (school_id > 5) {                 // Playgroup - currently not implemented in the initialization
-                        return 0.; // return a_lparm->xmit_school[6] * a_social_scale; // xmit_school[6] not defined yet!
-                    } else if (school_id == 5) { // Day care
-                        return a_lparm->xmit_school[5] * a_social_scale;
-                    }
-                }
-            }
-        }
-        return 0.0_prt;
-    }
-};
-#endif
-
 template <typename PTDType>
 struct SchoolCandidate {
     AMREX_GPU_HOST_DEVICE
@@ -92,14 +31,7 @@ class InteractionModSchool : public InteractionModel<PCType, PTDType, PType> {
     virtual ~InteractionModSchool() = default;
 
     /*! \brief Simulate agent interaction at school */
-    virtual void interactAgents (PCType& agents, MultiFab&) override {
-#ifdef FAST_INTERACTIONS
-        fastInteractSchool(agents);
-#else
-        interactAgentsImpl<InteractionModSchool<PCType, PTDType, PType>, PCType, PTDType, SchoolCandidate<PTDType>,
-                           BinaryInteractionSchool<PTDType>>(*this, agents, IntIdx::school_id);
-#endif
-    }
+    virtual void interactAgents (PCType& agents, MultiFab&) override { fastInteractSchool(agents); }
 
     void fastInteractSchool(PCType& agents);
 };
