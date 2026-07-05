@@ -22,16 +22,10 @@ struct WorkCandidate {
 
 /*! \brief Class describing agent interactions at work */
 template <typename PCType, typename PTDType, typename PType>
-class InteractionModWork : public InteractionModel<PCType, PTDType, PType> {
+class InteractionModWork {
   public:
-    /*! \brief null constructor */
-    InteractionModWork (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
-
-    /*! \brief default destructor */
-    virtual ~InteractionModWork() = default;
-
     /*! \brief Simulate agent interaction at work */
-    virtual void interactAgents (PCType& agents, MultiFab&) override { fastInteractWork(agents); }
+    void interactAgents (PCType& agents, MultiFab&) { fastInteractWork(agents); }
 
     void fastInteractWork(PCType& agents);
 };

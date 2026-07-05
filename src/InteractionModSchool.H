@@ -22,16 +22,10 @@ struct SchoolCandidate {
 
 /*! \brief Class describing agent interactions at school */
 template <typename PCType, typename PTDType, typename PType>
-class InteractionModSchool : public InteractionModel<PCType, PTDType, PType> {
+class InteractionModSchool {
   public:
-    /*! \brief null constructor */
-    InteractionModSchool (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
-
-    /*! \brief default destructor */
-    virtual ~InteractionModSchool() = default;
-
     /*! \brief Simulate agent interaction at school */
-    virtual void interactAgents (PCType& agents, MultiFab&) override { fastInteractSchool(agents); }
+    void interactAgents (PCType& agents, MultiFab&) { fastInteractSchool(agents); }
 
     void fastInteractSchool(PCType& agents);
 };

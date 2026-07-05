@@ -40,16 +40,13 @@ struct HomeNborhoodCandidate {
 
 /*! \brief Neighborhood contact model — applies xmit_hood only */
 template <typename PCType, typename PTDType, typename PType>
-class InteractionModNborhood : public InteractionModel<PCType, PTDType, PType> {
+class InteractionModNborhood {
   public:
-    /*! \param _fast_bin fast binning flag
-     *  \param _is_day   true for daytime (uses work_nborhood + WorkNborhoodCandidate),
-     *                   false for nighttime (uses nborhood + HomeNborhoodCandidate) */
-    InteractionModNborhood (bool _fast_bin, bool _is_day)
-        : InteractionModel<PCType, PTDType, PType>(_fast_bin), m_is_day(_is_day) {}
-    virtual ~InteractionModNborhood() = default;
+    /*! \param _is_day true for daytime (uses work_nborhood + WorkNborhoodCandidate),
+     *                 false for nighttime (uses nborhood + HomeNborhoodCandidate) */
+    InteractionModNborhood (bool _is_day) : m_is_day(_is_day) {}
 
-    virtual void interactAgents (PCType& agents, MultiFab&) override { fastInteractNborhood(agents); }
+    void interactAgents (PCType& agents, MultiFab&) { fastInteractNborhood(agents); }
 
     void fastInteractNborhood(PCType& agents);
 

@@ -1,11 +1,8 @@
 /*! @file InteractionModel.H
-    \brief Defines interaction model base class */
+    \brief Interaction model utilities shared by all interaction model classes */
 
 #ifndef _INTERACTION_MODEL_H_
 #define _INTERACTION_MODEL_H_
-
-#include <map>
-#include <string>
 
 #include "AgentDefinitions.H"
 #include <AMReX_BoxArray.H>
@@ -17,47 +14,6 @@
 #include <AMReX_Particles.H>
 
 using namespace amrex;
-
-namespace ExaEpi {
-
-/*! \brief Name of models */
-AMREX_ENUM(InteractionNames, hh, nc, nborhood_day, nborhood_night, comm_day, comm_night, work, school, transit, random,
-           airTravel);
-} // namespace ExaEpi
-
-/*! \brief Base class for defining interaction models
- *
- *  Contains things that are common to all interaction model classes.
- *  + The member data pointers are used to temporarily point to the SoA attributes of
- *    the agents for a given level and MFIter; for the various interaction models
- *    inheriting from this class, InteractionModel::getAgentAttribs() is called
- *    to set these pointers before using them.
- */
-template <typename PCType,  /*!< agent container type */
-          typename PTDType, /*!< agent container tile data type */
-          typename PType /*!< agent type */>
-class InteractionModel {
-  public:
-    /*! \brief null constructor */
-    InteractionModel (bool _fast_bin) : fast_bin(_fast_bin) {}
-
-    /*! \brief default destructor */
-    virtual ~InteractionModel() = default;
-
-    /*! \brief Interact agents for a model */
-    virtual void interactAgents(PCType&, MultiFab&) = 0;
-
-    std::pair<amrex::DenseBins<PTDType>*, bool> getBins (const std::pair<int, int>& pair_idx) {
-        bool found = false;
-        if (m_bins.find(pair_idx) != m_bins.end()) { found = true; }
-        return {&m_bins[pair_idx], found};
-    }
-
-    bool fast_bin;
-
-  private:
-    std::map<std::pair<int, int>, amrex::DenseBins<PTDType>> m_bins;
-};
 
 template <typename PTDType>
 struct GetCommunityIndex {

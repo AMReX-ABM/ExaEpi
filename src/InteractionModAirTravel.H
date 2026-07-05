@@ -24,15 +24,8 @@ using namespace amrex;
  * the _SC variants.
  */
 template <typename PCType, typename PTDType, typename PType>
-class InteractionModAirTravel : public InteractionModel<PCType, PTDType, PType> {
+class InteractionModAirTravel {
   public:
-    InteractionModAirTravel (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
-    virtual ~InteractionModAirTravel() = default;
-
-    virtual void interactAgents (PCType&, MultiFab&) override {
-        amrex::Abort("InteractionModAirTravel requires two agent containers");
-    }
-
     void interactAgents(PCType& a_agents, MultiFab& a_mask, PCType& a_on_air_travel);
 
     /*! \brief Count infectious agents from src, apply exposure to susceptibles in dst.

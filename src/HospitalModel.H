@@ -14,27 +14,16 @@ using namespace amrex;
 
 /*! \brief Class describing agent interactions and treatment at hospital */
 template <typename PCType, typename PTDType, typename PType>
-class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
+class HospitalModel {
   public:
-    /*! \brief null constructor */
-    HospitalModel (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
-
-    /*! \brief default destructor */
-    virtual ~HospitalModel() = default;
-
-    /*! \brief Simulate agent interaction at hospital */
-    virtual void interactAgents (PCType&, MultiFab&) override {
-        // not yet implemented
-    }
+    /*! \brief Simulate agent interaction at hospital (not yet implemented) */
+    void interactAgents (PCType&, MultiFab&) {}
 
     using MFPtr = std::unique_ptr<MultiFab>;
     using MFPtrVec = std::vector<MFPtr>;
 
     /*! \brief Simulate treatment of agents in a hospital */
-    virtual void treatAgents(PCType&, MFPtrVec&);
-
-  protected:
-  private:
+    void treatAgents(PCType&, MFPtrVec&);
 };
 
 /*! Simulate the treatment of agents and interactions between agents at a hospital

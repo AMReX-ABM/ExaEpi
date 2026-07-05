@@ -20,12 +20,9 @@ using namespace amrex;
 
 /*! \brief NC cluster contact model — applies xmit_nc only */
 template <typename PCType, typename PTDType, typename PType>
-class InteractionModNC : public InteractionModel<PCType, PTDType, PType> {
+class InteractionModNC {
   public:
-    InteractionModNC (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
-    virtual ~InteractionModNC() = default;
-
-    virtual void interactAgents (PCType& agents, MultiFab&) override { fastInteractNC(agents); }
+    void interactAgents (PCType& agents, MultiFab&) { fastInteractNC(agents); }
 
     void fastInteractNC(PCType& agents);
 };

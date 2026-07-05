@@ -24,14 +24,12 @@ using namespace amrex;
 
 /*! \brief Community contact model — applies xmit_comm only */
 template <typename PCType, typename PTDType, typename PType>
-class InteractionModComm : public InteractionModel<PCType, PTDType, PType> {
+class InteractionModComm {
   public:
-    /*! \param _fast_bin fast binning flag
-     *  \param _is_day   true for daytime (work_nborhood), false for nighttime (nborhood) */
-    InteractionModComm (bool _fast_bin, bool _is_day) : InteractionModel<PCType, PTDType, PType>(_fast_bin), m_is_day(_is_day) {}
-    virtual ~InteractionModComm() = default;
+    /*! \param _is_day true for daytime (work_nborhood), false for nighttime (nborhood) */
+    InteractionModComm (bool _is_day) : m_is_day(_is_day) {}
 
-    virtual void interactAgents (PCType& agents, MultiFab&) override { fastInteractComm(agents); }
+    void interactAgents (PCType& agents, MultiFab&) { fastInteractComm(agents); }
 
     void fastInteractComm(PCType& agents);
 

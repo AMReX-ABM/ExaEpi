@@ -89,7 +89,8 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
                                 const bool fast,                                 /*!< faster but non-deterministic computation*/
                                 const short a_ic_type /*!< type of initialization */)
     : amrex::ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>(a_geom, a_dmap, a_ba),
-      m_student_counts(a_ba, a_dmap, SchoolCensusIDType::total - 1, 0) {
+      m_student_counts(a_ba, a_dmap, SchoolCensusIDType::total - 1, 0), m_mod_nborhood_day(true), m_mod_nborhood_night(false),
+      m_mod_comm_day(true), m_mod_comm_night(false) {
     BL_PROFILE("AgentContainer::AgentContainer");
 
     ic_type = a_ic_type;
@@ -110,22 +111,7 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
     queryGpuArray<Real, AgeGroups::total>(pp, "symptomatic_withdraw_compliance_day_1", m_symptomatic_withdraw_compliance_day_1);
     queryGpuArray<Real, AgeGroups::total>(pp, "symptomatic_withdraw_compliance_day_2", m_symptomatic_withdraw_compliance_day_2);
 
-    {
-        using namespace ExaEpi;
-
-        /* Create the interaction model objects and push to container */
-        m_interactions.clear();
-        m_interactions[InteractionNames::hh] = new InteractionModHH<PCType, PTDType, PType>(fast);
-        m_interactions[InteractionNames::nc] = new InteractionModNC<PCType, PTDType, PType>(fast);
-        m_interactions[InteractionNames::nborhood_day] = new InteractionModNborhood<PCType, PTDType, PType>(fast, true);
-        m_interactions[InteractionNames::nborhood_night] = new InteractionModNborhood<PCType, PTDType, PType>(fast, false);
-        m_interactions[InteractionNames::comm_day] = new InteractionModComm<PCType, PTDType, PType>(fast, true);
-        m_interactions[InteractionNames::comm_night] = new InteractionModComm<PCType, PTDType, PType>(fast, false);
-        m_interactions[InteractionNames::work] = new InteractionModWork<PCType, PTDType, PType>(fast);
-        m_interactions[InteractionNames::school] = new InteractionModSchool<PCType, PTDType, PType>(fast);
-
-        m_hospital = std::make_unique<HospitalModel<PCType, PTDType, PType>>(fast);
-    }
+    m_hospital = std::make_unique<HospitalModel<PCType, PTDType, PType>>();
 
     m_h_parm.resize(m_num_diseases);
     m_d_parm.resize(m_num_diseases);
@@ -950,9 +936,6 @@ int AgentContainer::getMaxGroup (const int group_idx) {
  */
 void AgentContainer::morningCommute (MultiFab& /*a_mask_behavior*/ /*!< Masking behavior */) {
     BL_PROFILE("AgentContainer::morningCommute");
-    // if (haveInteractionModel(ExaEpi::InteractionNames::transit)) {
-    //      m_interactions[ExaEpi::InteractionNames::transit]->interactAgents(*this, a_mask_behavior);
-    // }
     moveAgentsToWork();
 }
 
@@ -964,12 +947,6 @@ void AgentContainer::morningCommute (MultiFab& /*a_mask_behavior*/ /*!< Masking 
  */
 void AgentContainer::eveningCommute (MultiFab& /*a_mask_behavior*/ /*!< Masking behavior */) {
     BL_PROFILE("AgentContainer::eveningCommute");
-    // if (haveInteractionModel(ExaEpi::InteractionNames::transit)) {
-    //     m_interactions[ExaEpi::InteractionNames::transit]->interactAgents( *this, a_mask_behavior);
-    // }
-    // if (haveInteractionModel(ExaEpi::InteractionNames::grocery_store)) {
-    //     m_interactions[ExaEpi::InteractionNames::grocery_store]->interactAgents( *this, a_mask_behavior);
-    // }
     moveAgentsToHome();
 }
 
@@ -985,9 +962,7 @@ void AgentContainer::interactDay (MultiFab& a_mask_behavior /*!< Masking behavio
 
 void AgentContainer::interactWork (MultiFab& a_mask_behavior) {
     BL_PROFILE("AgentContainer::interactWork");
-    if (haveInteractionModel(ExaEpi::InteractionNames::work)) {
-        m_interactions[ExaEpi::InteractionNames::work]->interactAgents(*this, a_mask_behavior);
-    }
+    m_mod_work.interactAgents(*this, a_mask_behavior);
 }
 
 void AgentContainer::interactHospital (MultiFab& a_mask_behavior) {
@@ -997,23 +972,17 @@ void AgentContainer::interactHospital (MultiFab& a_mask_behavior) {
 
 void AgentContainer::interactSchool (MultiFab& a_mask_behavior) {
     BL_PROFILE("AgentContainer::interactSchool");
-    if (haveInteractionModel(ExaEpi::InteractionNames::school)) {
-        m_interactions[ExaEpi::InteractionNames::school]->interactAgents(*this, a_mask_behavior);
-    }
+    m_mod_school.interactAgents(*this, a_mask_behavior);
 }
 
 void AgentContainer::interactNborhoodDay (MultiFab& a_mask_behavior) {
     BL_PROFILE("AgentContainer::interactNborhoodDay");
-    if (haveInteractionModel(ExaEpi::InteractionNames::nborhood_day)) {
-        m_interactions[ExaEpi::InteractionNames::nborhood_day]->interactAgents(*this, a_mask_behavior);
-    }
+    m_mod_nborhood_day.interactAgents(*this, a_mask_behavior);
 }
 
 void AgentContainer::interactCommDay (MultiFab& a_mask_behavior) {
     BL_PROFILE("AgentContainer::interactCommDay");
-    if (haveInteractionModel(ExaEpi::InteractionNames::comm_day)) {
-        m_interactions[ExaEpi::InteractionNames::comm_day]->interactAgents(*this, a_mask_behavior);
-    }
+    m_mod_comm_day.interactAgents(*this, a_mask_behavior);
 }
 
 /*! \brief Interaction of agents during evening (after work) - social stuff */
@@ -1023,30 +992,22 @@ void AgentContainer::interactEvening (MultiFab& /*a_mask_behavior*/ /*!< Masking
 
 void AgentContainer::interactHH (MultiFab& a_mask_behavior) {
     BL_PROFILE("AgentContainer::interactHH");
-    if (haveInteractionModel(ExaEpi::InteractionNames::hh)) {
-        m_interactions[ExaEpi::InteractionNames::hh]->interactAgents(*this, a_mask_behavior);
-    }
+    m_mod_hh.interactAgents(*this, a_mask_behavior);
 }
 
 void AgentContainer::interactNC (MultiFab& a_mask_behavior) {
     BL_PROFILE("AgentContainer::interactNC");
-    if (haveInteractionModel(ExaEpi::InteractionNames::nc)) {
-        m_interactions[ExaEpi::InteractionNames::nc]->interactAgents(*this, a_mask_behavior);
-    }
+    m_mod_nc.interactAgents(*this, a_mask_behavior);
 }
 
 void AgentContainer::interactNborhoodNight (MultiFab& a_mask_behavior) {
     BL_PROFILE("AgentContainer::interactNborhoodNight");
-    if (haveInteractionModel(ExaEpi::InteractionNames::nborhood_night)) {
-        m_interactions[ExaEpi::InteractionNames::nborhood_night]->interactAgents(*this, a_mask_behavior);
-    }
+    m_mod_nborhood_night.interactAgents(*this, a_mask_behavior);
 }
 
 void AgentContainer::interactCommNight (MultiFab& a_mask_behavior) {
     BL_PROFILE("AgentContainer::interactCommNight");
-    if (haveInteractionModel(ExaEpi::InteractionNames::comm_night)) {
-        m_interactions[ExaEpi::InteractionNames::comm_night]->interactAgents(*this, a_mask_behavior);
-    }
+    m_mod_comm_night.interactAgents(*this, a_mask_behavior);
 }
 
 /*! \brief Interaction of agents during nighttime - at home */

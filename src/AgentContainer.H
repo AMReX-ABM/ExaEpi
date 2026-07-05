@@ -34,7 +34,6 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     using PType = ParticleType;
     using PTileType = ParticleTileType;
     using PTDType = PTileType::ParticleTileDataType;
-    using IntModel = InteractionModel<PCType, PTDType, PType>;
 
     using MFPtr = std::unique_ptr<MultiFab>;
     using MFPtrVec = std::vector<MFPtr>;
@@ -155,7 +154,15 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     std::unique_ptr<DiseaseCouplingParm<PTDType>> m_disease_coupling;
 
-    std::map<ExaEpi::InteractionNames, IntModel*> m_interactions;      /*!< Map of interaction models */
+    InteractionModWork<PCType, PTDType, PType> m_mod_work;
+    InteractionModSchool<PCType, PTDType, PType> m_mod_school;
+    InteractionModHH<PCType, PTDType, PType> m_mod_hh;
+    InteractionModNC<PCType, PTDType, PType> m_mod_nc;
+    InteractionModNborhood<PCType, PTDType, PType> m_mod_nborhood_day;
+    InteractionModNborhood<PCType, PTDType, PType> m_mod_nborhood_night;
+    InteractionModComm<PCType, PTDType, PType> m_mod_comm_day;
+    InteractionModComm<PCType, PTDType, PType> m_mod_comm_night;
+    InteractionModAirTravel<PCType, PTDType, PType> m_mod_air_travel;
     std::unique_ptr<HospitalModel<PCType, PTDType, PType>> m_hospital; /*!< hospital model */
 
     /*! Flag to indicate if agents are at work */
@@ -167,11 +174,6 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     Array<int, IntIdx::nattribs> max_attribute_values;
 
     std::vector<amrex::Gpu::DeviceVector<amrex::Real>> m_prob_snapshot; /*!< per-tile prob snapshot for context diagnostics */
-
-    /*! \brief queries if a given interaction type (model) is available */
-    inline bool haveInteractionModel (ExaEpi::InteractionNames a_mod_name) const {
-        return (m_interactions.find(a_mod_name) != m_interactions.end());
-    }
 
     /*! \brief Add runtime SoA attributes */
     void addAttributes();

@@ -29,12 +29,9 @@ struct HomeCandidate {
 
 /*! \brief Household (family) contact model — applies xmit_hh only */
 template <typename PCType, typename PTDType, typename PType>
-class InteractionModHH : public InteractionModel<PCType, PTDType, PType> {
+class InteractionModHH {
   public:
-    InteractionModHH (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
-    virtual ~InteractionModHH() = default;
-
-    virtual void interactAgents (PCType& agents, MultiFab&) override { fastInteractHH(agents); }
+    void interactAgents (PCType& agents, MultiFab&) { fastInteractHH(agents); }
 
     void fastInteractHH(PCType& agents);
 };
