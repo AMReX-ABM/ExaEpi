@@ -82,6 +82,9 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     amrex::Real sumExpectedInfections(int d) const;
 
+    void snapshotProbs(int d);
+    amrex::Real sumContextInfections(int d);
+
     void shelterStart();
 
     void shelterStop();
@@ -161,6 +164,8 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     DiseaseStatus<PCType, PTileType, PTDType, PType> m_disease_status;
 
     Array<int, IntIdx::nattribs> max_attribute_values;
+
+    std::vector<amrex::Gpu::DeviceVector<amrex::Real>> m_prob_snapshot; /*!< per-tile prob snapshot for context diagnostics */
 
     /*! \brief queries if a given interaction type (model) is available */
     inline bool haveInteractionModel (ExaEpi::InteractionNames a_mod_name) const {

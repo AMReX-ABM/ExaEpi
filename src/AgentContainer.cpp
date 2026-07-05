@@ -1074,6 +1074,74 @@ amrex::Real AgentContainer::sumExpectedInfections (int d) const {
     return amrex::get<0>(r);
 }
 
+/*! \brief Snapshot the current prob_ptr for all susceptible agents into m_prob_snapshot.
+    Call immediately before an interaction; follow with sumContextInfections to get the
+    order-independent contribution of that interaction. */
+void AgentContainer::snapshotProbs (int d) {
+    BL_PROFILE("AgentContainer::snapshotProbs");
+    m_prob_snapshot.clear();
+    for (int lev = 0; lev < numLevels(); ++lev) {
+        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
+            auto& ptile = ParticlesAt(lev, mfi);
+            auto& soa = ptile.GetStructOfArrays();
+            const auto np = ptile.numParticles();
+            auto& snap = m_prob_snapshot.emplace_back();
+            snap.resize(np);
+            if (np > 0) {
+                auto& prob_vec = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob);
+                amrex::Gpu::copy(amrex::Gpu::deviceToDevice, prob_vec.begin(), prob_vec.begin() + np, snap.begin());
+            }
+        }
+    }
+}
+
+/*! \brief Order-independent contribution of the last interaction to expected new infections.
+    Computes sum_i( max(0, 1 - prob_after[i] / prob_before[i]) ) over susceptible agents,
+    where prob_before comes from the preceding snapshotProbs() call.
+    The ratio recovers the standalone survival factor for each agent regardless of what
+    prior interactions have already applied. */
+amrex::Real AgentContainer::sumContextInfections (int d) {
+    BL_PROFILE("AgentContainer::sumContextInfections");
+    amrex::Real total = 0.0_rt;
+    int snap_idx = 0;
+    for (int lev = 0; lev < numLevels(); ++lev) {
+        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
+            auto& ptile = ParticlesAt(lev, mfi);
+            const auto& ptd = ptile.getParticleTileData();
+            auto& soa = ptile.GetStructOfArrays();
+            const auto np = ptile.numParticles();
+
+            if (np == 0) {
+                ++snap_idx;
+                continue;
+            }
+
+            AMREX_ASSERT(snap_idx < (int)m_prob_snapshot.size());
+            AMREX_ASSERT((int)m_prob_snapshot[snap_idx].size() == np);
+
+            auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
+            auto before_ptr = m_prob_snapshot[snap_idx].dataPtr();
+
+            amrex::Gpu::DeviceScalar<amrex::Real> tile_sum_d(0.0_rt);
+            auto* sum_ptr = tile_sum_d.dataPtr();
+
+            amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
+                if (isSusceptible(i, ptd, d)) {
+                    amrex::Real before = amrex::max(before_ptr[i], amrex::Real(1e-30));
+                    amrex::Real contribution = amrex::max(0.0_rt, 1.0_rt - prob_ptr[i] / before);
+                    amrex::Gpu::Atomic::AddNoRet(sum_ptr, contribution);
+                }
+            });
+            amrex::Gpu::synchronize();
+
+            total += tile_sum_d.dataValue();
+            ++snap_idx;
+        }
+    }
+    amrex::ParallelDescriptor::ReduceRealSum(&total, 1);
+    return total;
+}
+
 void AgentContainer::printStudentTeacherCounts () const {
     ReduceOps<REPEAT(10, ReduceOpSum)> reduce_ops;
     auto r = ParticleReduce<ReduceData<REPEAT(10, int)>>(

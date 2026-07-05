@@ -193,10 +193,10 @@ void runAgent () {
                 std::ofstream File;
                 File.open(output_filename[d].c_str(), std::ios::out | std::ios::trunc);
                 if (!File.good()) { amrex::FileOpenFailed(output_filename[d]); }
-                Vector<string> headers = {"Day",   "Su",    "PS/PI", "S/PI/NH", "S/PI/H",  "PS/I",    "S/I/NH", "S/I/H",
-                                          "A/PI",  "A/I",   "H/NI",  "H/I",     "ICU",     "V",       "R",      "D",
-                                          "NewI",  "NewS",  "NewH",  "NewA",    "NewP",    "EWork",   "ESchool",
-                                          "ENbhD", "ECommD","EHH",   "ENC",     "ENbhN",   "ECommN"};
+                Vector<string> headers = {"Day",    "Su",   "PS/PI", "S/PI/NH", "S/PI/H", "PS/I",  "S/I/NH",  "S/I/H",
+                                          "A/PI",   "A/I",  "H/NI",  "H/I",     "ICU",    "V",     "R",       "D",
+                                          "NewI",   "NewS", "NewH",  "NewA",    "NewP",   "EWork", "ESchool", "ENbhD",
+                                          "ECommD", "EHH",  "ENC",   "ENbhN",   "ECommN"};
                 for (const auto& header : headers) {
                     File << std::setw(header == "Day" ? 5 : 12) << header;
                 }
@@ -561,37 +561,27 @@ void runAgent () {
                 pc.moveAirTravel(censusData.unit_mf, air, censusData.demo);
             }
 
-            // Typical day — call each interaction context individually so we can
-            // snapshot expected infections between steps for per-context diagnostics.
+            // Snapshot prob_ptr before each context; sumContextInfections computes
+            // 1 - prob_after/prob_before per agent — order-independent attribution.
             pc.morningCommute(mask_behavior);
-            {
-                amrex::Real exp_base = 0.0;
-                pc.interactWork(mask_behavior);
-                diag_exp_work = pc.sumExpectedInfections(0) - exp_base;
-                exp_base += diag_exp_work;
-                pc.interactSchool(mask_behavior);
-                diag_exp_school = pc.sumExpectedInfections(0) - exp_base;
-                exp_base += diag_exp_school;
-                pc.interactNborhoodDay(mask_behavior);
-                diag_exp_nbhd = pc.sumExpectedInfections(0) - exp_base;
-                exp_base += diag_exp_nbhd;
-                pc.interactCommDay(mask_behavior);
-                diag_exp_commd = pc.sumExpectedInfections(0) - exp_base;
-                exp_base += diag_exp_commd;
-                pc.eveningCommute(mask_behavior);
-                pc.interactEvening(mask_behavior);
-                pc.interactHH(mask_behavior);
-                diag_exp_hh = pc.sumExpectedInfections(0) - exp_base;
-                exp_base += diag_exp_hh;
-                pc.interactNC(mask_behavior);
-                diag_exp_nc = pc.sumExpectedInfections(0) - exp_base;
-                exp_base += diag_exp_nc;
-                pc.interactNborhoodNight(mask_behavior);
-                diag_exp_nbhn = pc.sumExpectedInfections(0) - exp_base;
-                exp_base += diag_exp_nbhn;
-                pc.interactCommNight(mask_behavior);
-                diag_exp_commn = pc.sumExpectedInfections(0) - exp_base;
-            }
+            pc.snapshotProbs(0); pc.interactWork(mask_behavior);
+            diag_exp_work = pc.sumContextInfections(0);
+            pc.snapshotProbs(0); pc.interactSchool(mask_behavior);
+            diag_exp_school = pc.sumContextInfections(0);
+            pc.snapshotProbs(0); pc.interactNborhoodDay(mask_behavior);
+            diag_exp_nbhd = pc.sumContextInfections(0);
+            pc.snapshotProbs(0); pc.interactCommDay(mask_behavior);
+            diag_exp_commd = pc.sumContextInfections(0);
+            pc.eveningCommute(mask_behavior);
+            pc.interactEvening(mask_behavior);
+            pc.snapshotProbs(0); pc.interactHH(mask_behavior);
+            diag_exp_hh = pc.sumContextInfections(0);
+            pc.snapshotProbs(0); pc.interactNC(mask_behavior);
+            diag_exp_nc = pc.sumContextInfections(0);
+            pc.snapshotProbs(0); pc.interactNborhoodNight(mask_behavior);
+            diag_exp_nbhn = pc.sumContextInfections(0);
+            pc.snapshotProbs(0); pc.interactCommNight(mask_behavior);
+            diag_exp_commn = pc.sumContextInfections(0);
 
             if ((params.random_travel_int > 0) && (i % params.random_travel_int == 0)) { pc.returnRandomTravel(); }
 
