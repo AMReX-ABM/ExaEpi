@@ -3,6 +3,9 @@
 
 #include <AMReX_ParticleUtil.H>
 
+#include <fstream>
+#include <map>
+
 #include "InitializeInfections.H"
 
 using namespace amrex;
@@ -161,7 +164,7 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
     std::map<std::pair<int, int>, amrex::DenseBins<AgentContainer::ParticleType>> bin_map;
 
     Print() << "Initializing infections for " << d_name << "\n";
-#ifdef COMPARE_TO_EPICAST
+#ifndef COMPARE_TO_EPICAST
     Print() << "WARNINNG: limited version for comparing to Epicast\n";
     const int NTRY = 1;
 #else
@@ -203,6 +206,7 @@ void setInitialCasesRandom (AgentContainer& pc,                      /*!< Agent 
                             int num_cases,                           /*!< Number of initial cases */
                             const std::string& d_name,               /*!< Disease name */
                             int d_idx,                               /*!< Disease index */
+                            const Vector<int>& FIPS_codes,           /*!< FIPS code for each unit */
                             const Vector<int>& unit_community_start, /*!< Start community number for each unit */
                             iMultiFab& comm_mf, const bool fast_bin) {
     BL_PROFILE("setInitialCasesRandom");
@@ -210,6 +214,8 @@ void setInitialCasesRandom (AgentContainer& pc,                      /*!< Agent 
     std::map<std::pair<int, int>, amrex::DenseBins<AgentContainer::ParticleType>> bin_map;
 
     Print() << "Initializing infections for " << d_name << "\n";
+
+    std::map<int, int> fips_infection_counts;
 
     int ninf = 0;
     for (int ihub = 0; ihub < num_cases; ++ihub) {
@@ -219,9 +225,20 @@ void setInitialCasesRandom (AgentContainer& pc,                      /*!< Agent 
             if (ParallelDescriptor::IOProcessor()) { unit = Random_int(unit_community_start.size() - 1); }
             ParallelDescriptor::Bcast(&unit, 1);
             int nSuccesses = infectRandomCommunity(pc, unit_community_start, comm_mf, bin_map, unit, d_idx, 1, fast_bin);
+            if (nSuccesses > 0) { fips_infection_counts[FIPS_codes[unit]] += nSuccesses; }
             ninf += nSuccesses;
             i += nSuccesses;
         }
     }
+
+    if (ParallelDescriptor::IOProcessor()) {
+        std::string out_filename = d_name + "_random_initial.cases";
+        std::ofstream ofs(out_filename);
+        for (auto& [fips, count] : fips_infection_counts) {
+            ofs << fips << " " << count << " " << count << "\n";
+        }
+        Print() << "Wrote random initial case locations to " << out_filename << " (use with disease.initial_case_type = file)\n";
+    }
+
     amrex::ignore_unused(ninf);
 }

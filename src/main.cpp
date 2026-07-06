@@ -276,6 +276,7 @@ void runAgent () {
                                             params.fast);
                 } else {
                     setInitialCasesRandom(pc, disease_params->num_initial_cases, disease_params->disease_name, d,
+                                          (params.ic_type == ICType::Census ? censusData.demo.FIPS : urbanPopData.FIPS_codes),
                                           (params.ic_type == ICType::Census ? censusData.demo.Start
                                                                             : urbanPopData.fips_community_start),
                                           (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.community_mf),
