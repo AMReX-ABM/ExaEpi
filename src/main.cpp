@@ -193,10 +193,13 @@ void runAgent () {
                 std::ofstream File;
                 File.open(output_filename[d].c_str(), std::ios::out | std::ios::trunc);
                 if (!File.good()) { amrex::FileOpenFailed(output_filename[d]); }
-                Vector<string> headers = {"Day",   "Su",     "PS/PI", "S/PI/NH", "S/PI/H", "PS/I",  "S/I/NH", "S/I/H",
-                                          "A/PI",  "A/I",    "H/NI",  "H/I",     "ICU",    "V",     "R",      "D",
-                                          "NewI",  "NewS",   "NewH",  "NewA",    "NewP",   "EWork", "EHosp",  "ESchool",
-                                          "ENbhD", "ECommD", "EHH",   "ENC",     "ENbhN",  "ECommN"};
+                Vector<string> headers = {"Day",   "Su",   "PS/PI", "S/PI/NH", "S/PI/H", "PS/I", "S/I/NH",
+                                          "S/I/H", "A/PI", "A/I",   "H/NI",    "H/I",    "ICU",  "V",
+                                          "R",     "D",    "NewI",  "NewS",    "NewH",   "NewA", "NewP"};
+                if (params.context_diag) {
+                    headers.insert(headers.end(),
+                                   {"EWork", "EHosp", "ESchool", "ENbhD", "ECommD", "EHH", "ENC", "ENbhN", "ECommN"});
+                }
                 for (const auto& header : headers) {
                     File << std::setw(header == "Day" ? 5 : 12) << header;
                 }
