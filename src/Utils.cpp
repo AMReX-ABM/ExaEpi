@@ -86,4 +86,5 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
     }
 
     pp.query("fast", params.fast);
+    pp.query("context_diag", params.context_diag);
 }

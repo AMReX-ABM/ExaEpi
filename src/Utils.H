@@ -79,8 +79,11 @@ struct TestParams {
     int nborhood_size = 500;
     int workgroup_size = 20;
 
-    bool fast = false; /*!< Use the fast implementations for various operations, e.g. binning, at the cost of
-                           exact reproducibility for a given random seed. */
+    bool fast = false;         /*!< Use the fast implementations for various operations, e.g. binning, at the cost of
+                                   exact reproducibility for a given random seed. */
+
+    bool context_diag = false; /*!< If true, attribute infections to interaction contexts via snapshotProbs /
+                                    sumContextInfections and write per-context columns to the output file. */
 };
 
 /**

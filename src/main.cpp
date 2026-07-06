@@ -193,10 +193,10 @@ void runAgent () {
                 std::ofstream File;
                 File.open(output_filename[d].c_str(), std::ios::out | std::ios::trunc);
                 if (!File.good()) { amrex::FileOpenFailed(output_filename[d]); }
-                Vector<string> headers = {"Day",    "Su",    "PS/PI", "S/PI/NH", "S/PI/H",  "PS/I",  "S/I/NH", "S/I/H",
-                                          "A/PI",   "A/I",   "H/NI",  "H/I",     "ICU",     "V",     "R",      "D",
-                                          "NewI",   "NewS",  "NewH",  "NewA",    "NewP",    "EWork", "EHosp",  "ESchool",
-                                          "ENbhD",  "ECommD","EHH",   "ENC",     "ENbhN",   "ECommN"};
+                Vector<string> headers = {"Day",   "Su",     "PS/PI", "S/PI/NH", "S/PI/H", "PS/I",  "S/I/NH", "S/I/H",
+                                          "A/PI",  "A/I",    "H/NI",  "H/I",     "ICU",    "V",     "R",      "D",
+                                          "NewI",  "NewS",   "NewH",  "NewA",    "NewP",   "EWork", "EHosp",  "ESchool",
+                                          "ENbhD", "ECommD", "EHH",   "ENC",     "ENbhN",  "ECommN"};
                 for (const auto& header : headers) {
                     File << std::setw(header == "Day" ? 5 : 12) << header;
                 }
@@ -525,15 +525,17 @@ void runAgent () {
                         AMREX_ALWAYS_ASSERT(counts[j] >= 0);
                         File << std::setw(11) << counts[j];
                     }
-                    File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_work;
-                    File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_hosp;
-                    File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_school;
-                    File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_nbhd;
-                    File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_commd;
-                    File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_hh;
-                    File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_nc;
-                    File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_nbhn;
-                    File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_commn;
+                    if (params.context_diag) {
+                        File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_work;
+                        File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_hosp;
+                        File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_school;
+                        File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_nbhd;
+                        File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_commd;
+                        File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_hh;
+                        File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_nc;
+                        File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_nbhn;
+                        File << std::setw(12) << std::fixed << std::setprecision(1) << diag_exp_commn;
+                    }
                     for (int j = 0; j < AgeGroups::total; j++) {
                         File << std::setw(12) << symp_age_counts[j];
                     }
@@ -564,29 +566,25 @@ void runAgent () {
                 pc.moveAirTravel(censusData.unit_mf, air, censusData.demo);
             }
 
-            // Snapshot prob_ptr before each context; sumContextInfections computes
-            // 1 - prob_after/prob_before per agent — order-independent attribution.
+            using InteractFn = void (AgentContainer::*)(amrex::MultiFab&);
+            auto interact = [&] (InteractFn fn, amrex::Real& diag) {
+                if (params.context_diag) { pc.snapshotProbs(0); }
+                (pc.*fn)(mask_behavior);
+                if (params.context_diag) { diag = pc.sumContextInfections(0); }
+            };
+
             pc.morningCommute(mask_behavior);
-            pc.snapshotProbs(0); pc.interactWork(mask_behavior);
-            diag_exp_work = pc.sumContextInfections(0);
-            pc.snapshotProbs(0); pc.interactHospital(mask_behavior);
-            diag_exp_hosp = pc.sumContextInfections(0);
-            pc.snapshotProbs(0); pc.interactSchool(mask_behavior);
-            diag_exp_school = pc.sumContextInfections(0);
-            pc.snapshotProbs(0); pc.interactNborhoodDay(mask_behavior);
-            diag_exp_nbhd = pc.sumContextInfections(0);
-            pc.snapshotProbs(0); pc.interactCommDay(mask_behavior);
-            diag_exp_commd = pc.sumContextInfections(0);
+            interact(&AgentContainer::interactWork, diag_exp_work);
+            interact(&AgentContainer::interactHospital, diag_exp_hosp);
+            interact(&AgentContainer::interactSchool, diag_exp_school);
+            interact(&AgentContainer::interactNborhoodDay, diag_exp_nbhd);
+            interact(&AgentContainer::interactCommDay, diag_exp_commd);
             pc.eveningCommute(mask_behavior);
             pc.interactEvening(mask_behavior);
-            pc.snapshotProbs(0); pc.interactHH(mask_behavior);
-            diag_exp_hh = pc.sumContextInfections(0);
-            pc.snapshotProbs(0); pc.interactNC(mask_behavior);
-            diag_exp_nc = pc.sumContextInfections(0);
-            pc.snapshotProbs(0); pc.interactNborhoodNight(mask_behavior);
-            diag_exp_nbhn = pc.sumContextInfections(0);
-            pc.snapshotProbs(0); pc.interactCommNight(mask_behavior);
-            diag_exp_commn = pc.sumContextInfections(0);
+            interact(&AgentContainer::interactHH, diag_exp_hh);
+            interact(&AgentContainer::interactNC, diag_exp_nc);
+            interact(&AgentContainer::interactNborhoodNight, diag_exp_nbhn);
+            interact(&AgentContainer::interactCommNight, diag_exp_commn);
 
             if ((params.random_travel_int > 0) && (i % params.random_travel_int == 0)) { pc.returnRandomTravel(); }
 
