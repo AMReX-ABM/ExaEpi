@@ -164,7 +164,7 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
     std::map<std::pair<int, int>, amrex::DenseBins<AgentContainer::ParticleType>> bin_map;
 
     Print() << "Initializing infections for " << d_name << "\n";
-#ifndef COMPARE_TO_EPICAST
+#ifdef COMPARE_TO_EPICAST
     Print() << "WARNINNG: limited version for comparing to Epicast\n";
     const int NTRY = 1;
 #else
