@@ -119,7 +119,7 @@ def get_raw_data_hdf5(name: str, plot_option: str = "infected"):
     f.close()
     return raw_df
 
-# example: prefix = "../data/San_Francisco_Bay_Region_2020_Census_Tracts/region_2020_censustract"
+# example: prefix = "../data/San_Francisco_Bay_Region_2000_Census_Tracts/region_2000_censustract"
 def get_gdf(prefix: str):
     """Generates a GeoDataFrame from .shp, .dbf, and .prj files.
     All files must be present and must begin with prefix
@@ -138,7 +138,8 @@ def get_gdf(prefix: str):
 
     cols = list(gdf.columns)
 
-    # Try to find county code columns. CAPS for CA/US state data, lowercase for BA data
+    # Try to find county code columns. Uppercase in the TIGER-derived CA/US/BA
+    # shapefiles; lowercase in some alternate sources.
     if "STATEFP" in cols and "COUNTYFP" in cols:
         gdf["FIPS"] = (gdf["STATEFP"] + gdf["COUNTYFP"]).astype("int")
     elif "statefp" in cols and "countyfp" in cols:
@@ -178,10 +179,10 @@ if __name__ == "__main__":
     data_dir = sys.argv[1] if argc > 1 else "/global/cfs/projectdirs/m3623/test/output_usa/"
     data_names = sorted([os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith(".h5")])
 
-    # BA: data/San_Francisco_Bay_Region_2020_Census_Tracts/region_2020_censustract
-    # CA: data/CA_2020_Census_Tracts/tl_2020_06_tract
-    # US: data/US_2020_Census_Tracts/tl_2020_us_county
-    prefix = sys.argv[2] if argc > 2 else "../../data/tl_2020_us_county"
+    # BA: data/San_Francisco_Bay_Region_2000_Census_Tracts/region_2000_censustract
+    # CA: data/CA_2000_Census_Tracts/tl_2000_06_tract
+    # US: data/US_2000_Counties/tl_2000_us_county
+    prefix = sys.argv[2] if argc > 2 else "../../data/US_2000_Counties/tl_2000_us_county"
     gdf = get_gdf(prefix)
     crop_usa = "_us_" in prefix
 

@@ -30,8 +30,8 @@ void runAgent();
 /*! \brief Set ExaEpi-specific defaults for memory-management and tiling */
 void overrideAmrexDefaults () {
     amrex::ParmParse pp("amrex");
-    // ExaEpi should never require mananaged memory in the Arena
-    bool the_arena_is_managed = true;
+    // ExaEpi should not require managed memory in the Arena.
+    bool the_arena_is_managed = false;
     pp.queryAdd("the_arena_is_managed", the_arena_is_managed);
 
     bool use_comms_arena = true;
