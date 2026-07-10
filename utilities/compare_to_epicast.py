@@ -433,7 +433,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
         """Plot one group entry; return (legend_label, auc, color)."""
         legend_label = entry["label"]
         is_wildcard  = entry["is_wildcard"]
-        color        = base_colors[0] if is_wildcard else base_colors[i % len(base_colors)]
+        color        = base_colors[i % len(base_colors)]
         plot_label   = legend_label if legend_label is not None else "_nolegend_"
 
         if is_wildcard and len(entry["dfs"]) > 1:
@@ -529,7 +529,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
                 row += 1
         for i, entry in enumerate(exaepi_data):
             legend_label = entry["label"]
-            color = "red" if entry["is_wildcard"] else exaepi_colors[i % len(exaepi_colors)]
+            color = exaepi_colors[i % len(exaepi_colors)]
             if entry["is_wildcard"] and len(entry["dfs"]) > 1:
                 max_val = float(_align_arrays(entry["dfs"], exaepi_col, args.xlimit).mean(axis=0).max())
             else:
@@ -705,7 +705,7 @@ if args.fit:
 
     for i, entry in enumerate(epicast_data):
         lbl   = entry["label"] or f"Epicast {i+1}"
-        color = "blue" if entry["is_wildcard"] else epicast_colors[i % len(epicast_colors)]
+        color = epicast_colors[i % len(epicast_colors)]
         print(f"Fitting SEIRHD to {lbl} ...")
         if entry["is_wildcard"] and len(entry["dfs"]) > 1:
             exp  = _align_arrays(entry["dfs"], "exposed",      args.xlimit).mean(axis=0)
@@ -720,7 +720,7 @@ if args.fit:
 
     for i, entry in enumerate(exaepi_data):
         lbl   = entry["label"] or f"ExaEpi {i+1}"
-        color = "red" if entry["is_wildcard"] else exaepi_colors[i % len(exaepi_colors)]
+        color = exaepi_colors[i % len(exaepi_colors)]
         print(f"Fitting SEIRHD to {lbl} ...")
         if entry["is_wildcard"] and len(entry["dfs"]) > 1:
             new_i = _align_arrays(entry["dfs"], "NewI",       args.xlimit).mean(axis=0)

@@ -264,7 +264,8 @@ void setInfected (int* status, int* symptomatic, amrex::ParticleReal* counter, a
     *incubation_period =
             static_cast<ParticleReal>(amrex::RandomGamma(lparm->incubation_length_alpha, lparm->incubation_length_beta, engine)) +
             static_cast<ParticleReal>(lparm->incubation_length_loc);
-    *incubation_period = *latent_period + 1.0;
+    // Hack to match EPICAST hospitalization rates better
+    //*incubation_period = *latent_period + 1.0;
     *infectious_period =
             static_cast<ParticleReal>(amrex::RandomGamma(lparm->infectious_length_alpha, lparm->infectious_length_beta, engine)) +
             static_cast<ParticleReal>(lparm->infectious_length_loc);
