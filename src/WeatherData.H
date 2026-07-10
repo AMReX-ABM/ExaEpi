@@ -67,7 +67,7 @@ struct ActiveWeather {
     weatherVars& nextWeekWeather (int curIdx) { return varVec[curIdx + numUnitsWithDataOnThisProc]; }
     inline int computeIndex (int unit, int simWeek) {
         bool found = false;
-        size_t lunit = 0;
+        int lunit = 0;
         for (; lunit < h_unitVec.size(); lunit++) {
             if (h_unitVec[lunit] == unit) {
                 found = true;
