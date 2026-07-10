@@ -2,6 +2,7 @@
 #define WEATHER_H_
 
 #include "DemographicData.H"
+#include "UrbanPopData.H"
 #include "Utils.H"
 #include <AMReX_GpuContainers.H>
 #include <AMReX_Vector.H>
@@ -80,11 +81,16 @@ struct ActiveWeather {
         return -1;
     }
     weatherVars* lookupWeatherVars (int unit, int simWeek) {
-        int idx = computeIndex(unit, simWeek);
-        if (idx == -1) { return nullptr; }
-        return &h_varVec[idx];
+        if (computeIndex(unit, simWeek) == -1) { return NULL; }
+        return &varVec[computeIndex(unit, simWeek)];
     }
-    void print (int unit, int simWeek) { lookupWeatherVars(unit, simWeek)->print(); }
+    weatherVars* h_lookupWeatherVars (int unit, int simWeek) {
+        if (computeIndex(unit, simWeek) == -1) { return NULL; }
+        return &h_varVec[computeIndex(unit, simWeek)];
+    }
+    void print (int unit, int simWeek) { // gpu
+        h_lookupWeatherVars(unit, simWeek)->print();
+    }
 };
 
 struct WeatherData {
@@ -100,6 +106,7 @@ struct WeatherData {
     bool computeIndex(date d, int& weekIndex, int& daysToWeatherWeekend);
     bool lookupWeatherVars(int stateFP, int countyFP, date d, int& weatherWeekIndex, weatherVars& vars);
     void extractActiveData(DemographicData& demo, int startWeek, int numSimWeeks);
+    void extractActiveData(UrbanPopData& upop, int startWeek, int numSimWeeks);
     void print () {
         amrex::Print() << "STATEFP " << "COUNTYFP " << "hurs " << "huss " << "pr " << "rlds " << "rsds " << "sfcWind " << "tas "
                        << "tasmax " << "tasmin " << "Week\n";

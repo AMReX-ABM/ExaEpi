@@ -178,3 +178,41 @@ void WeatherData::extractActiveData (DemographicData& demo, int startWeek, int n
     }
     activeWeather.copyToDevice();
 }
+
+void WeatherData::extractActiveData (UrbanPopData& upop, int startWeek, int numSimWeeks) {
+    int numWeatherUnits = upop.FIPS_codes.size();
+    activeWeather.h_unitVec.resize(numWeatherUnits);
+    // set up the map from local unit index to global unit index
+    int idx = 0;
+    activeWeather.numUnitsWithDataOnThisProc = 0; // we are going to ignore units that don't have weather data
+    for (int unit = 0; unit < numWeatherUnits; unit++) {
+        if (upop.County_on_proc[unit]) {
+            int FIPS = upop.FIPS_codes[unit];
+            if (varMap.find(FIPS) != varMap.end()) {
+                activeWeather.h_unitVec[idx] = FIPS;
+                activeWeather.numUnitsWithDataOnThisProc++;
+                idx++;
+            }
+        }
+    }
+
+    activeWeather.h_unitVec.resize(activeWeather.numUnitsWithDataOnThisProc);
+    activeWeather.h_varVec.resize(activeWeather.numUnitsWithDataOnThisProc * numSimWeeks);
+
+    for (int week = startWeek; week < startWeek + numSimWeeks; week++) {
+        int offset = (week - startWeek) * activeWeather.numUnitsWithDataOnThisProc;
+        int idx1 = 0;
+        for (int unit = 0; unit < numWeatherUnits; unit++) {
+            if (upop.County_on_proc[unit]) {
+                int FIPS = upop.FIPS_codes[unit];
+                if (varMap.find(FIPS) != varMap.end()) {
+                    activeWeather.h_varVec[offset + idx1] = varMap[FIPS][week];
+                    idx1++;
+                } else {
+                    // amrex::Print() << "Weather data NOT available in county with FIPS code " << FIPS << "\n";
+                }
+            }
+        }
+    }
+    activeWeather.copyToDevice();
+}
