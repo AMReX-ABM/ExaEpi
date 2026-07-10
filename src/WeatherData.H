@@ -59,15 +59,17 @@ struct week {
 
 struct ActiveWeather {
     amrex::Gpu::DeviceVector<weatherVars> varVec; // keep weather variables during the simulation time
+    amrex::Vector<weatherVars> h_varVec;
     amrex::Gpu::DeviceVector<int> unitVec;
+    amrex::Vector<int> h_unitVec;
     int numUnitsWithDataOnThisProc;
     weatherVars& operator[](int index) { return varVec[index]; }
     weatherVars& nextWeekWeather (int curIdx) { return varVec[curIdx + numUnitsWithDataOnThisProc]; }
     inline int computeIndex (int unit, int simWeek) {
         bool found = false;
         size_t lunit = 0;
-        for (; lunit < unitVec.size(); lunit++) {
-            if (unitVec[lunit] == unit) {
+        for (; lunit < h_unitVec.size(); lunit++) {
+            if (h_unitVec[lunit] == unit) {
                 found = true;
                 break;
             }
@@ -79,8 +81,12 @@ struct ActiveWeather {
         if (computeIndex(unit, simWeek) == -1) { return NULL; }
         return &varVec[computeIndex(unit, simWeek)];
     }
+    weatherVars* h_lookupWeatherVars (int unit, int simWeek) {
+        if (computeIndex(unit, simWeek) == -1) { return NULL; }
+        return &h_varVec[computeIndex(unit, simWeek)];
+    }
     void print (int unit, int simWeek) { // gpu
-        lookupWeatherVars(unit, simWeek)->print();
+        h_lookupWeatherVars(unit, simWeek)->print();
     }
 };
 

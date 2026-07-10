@@ -366,6 +366,8 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     num_students += block_group.num_students;
                     num_educators += block_group.num_educators;
                     num_communities++;
+                    //  FIPS is the first 5 digits of the GEOID, which is 12 digits
+                    int64_t fips = static_cast<int64_t>(block_group.geoid / 1e7);
                     num_nborhoods += get_max_nborhood(nborhood_size, block_group.home_population);
                     for (int i = 0; i < FIPS_codes.size(); i++) {
                         if (FIPS_codes[i] == fips) {
