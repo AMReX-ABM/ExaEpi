@@ -1,0 +1,12 @@
+##
+agent.ic_type = "urbanpop"
+agent.urbanpop_filename = "data/UrbanPop/urbanpop_nm.bin"
+
+agent.nsteps = 4
+agent.plot_int = 1
+
+agent.aggregated_diag_int = 1
+agent.aggregated_diag_prefix = "cases"
+
+disease.initial_case_type = "file"
+disease.case_filename = "data/CaseData/nm-july4.cases"

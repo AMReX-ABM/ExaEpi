@@ -266,6 +266,26 @@ void runAgent () {
             }
 #endif
 
+            // Build a per-unit (county) population-weighted cumulative distribution over
+            // communities, so that index cases are drawn independently and proportional to each
+            // community's population -- matching Epicast's scheme of giving every susceptible
+            // agent in a county equal probability of being seeded, rather than concentrating
+            // batches of cases in a single, uniformly-chosen community. For the deprecated Census
+            // path, a uniform placeholder reproduces the previous (uniform) seeding behavior.
+            const Vector<int>& unit_community_start_seed =
+                    (params.ic_type == ICType::Census ? censusData.demo.Start : urbanPopData.fips_community_start);
+            Vector<int> community_population;
+            if (params.ic_type == ICType::UrbanPop) {
+                community_population.resize(urbanPopData.block_groups.size());
+                for (int c = 0; c < (int)urbanPopData.block_groups.size(); ++c) {
+                    community_population[c] = urbanPopData.block_groups[c].home_population;
+                }
+            } else {
+                community_population.assign(censusData.demo.Ncommunity, 1);
+            }
+            Vector<float> community_cum_prob =
+                    ExaEpi::Initialization::buildCommunityCumProb(unit_community_start_seed, community_population);
+
             for (int d = 0; d < params.num_diseases; d++) {
                 auto disease_params = pc.getDiseaseParameters_h(d);
                 if (disease_params->initial_case_type == CaseTypes::file) {
@@ -273,15 +293,13 @@ void runAgent () {
                     cases.initFromFile(disease_params->disease_name, std::string(disease_params->case_filename));
                     setInitialCasesFromFile(pc, cases, disease_params->disease_name, d,
                                             (params.ic_type == ICType::Census ? censusData.demo.FIPS : urbanPopData.FIPS_codes),
-                                            (params.ic_type == ICType::Census ? censusData.demo.Start
-                                                                              : urbanPopData.fips_community_start),
+                                            unit_community_start_seed, community_cum_prob,
                                             (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.community_mf),
                                             params.fast);
                 } else {
                     setInitialCasesRandom(pc, disease_params->num_initial_cases, disease_params->disease_name, d,
                                           (params.ic_type == ICType::Census ? censusData.demo.FIPS : urbanPopData.FIPS_codes),
-                                          (params.ic_type == ICType::Census ? censusData.demo.Start
-                                                                            : urbanPopData.fips_community_start),
+                                          unit_community_start_seed, community_cum_prob,
                                           (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.community_mf),
                                           params.fast);
                 }
