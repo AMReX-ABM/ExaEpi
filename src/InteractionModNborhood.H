@@ -84,6 +84,7 @@ void InteractionModNborhood<PCType, PTDType, PType>::fastInteractNborhood (PCTyp
 
             GetCommunityIndex<PTDType> getCommunityIndex;
             getCommunityIndex.init(agents.Geom(lev), mfi.tilebox(), agents.comm_mf[mfi].array());
+            auto density_scale_arr = agents.comm_density_scale[mfi].const_array();
             auto plo = getCommunityIndex.plo;
             auto dxi = getCommunityIndex.dxi;
             auto domain = getCommunityIndex.domain;
@@ -106,7 +107,6 @@ void InteractionModNborhood<PCType, PTDType, PType>::fastInteractNborhood (PCTyp
                 auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                 auto lparm = agents.getDiseaseParameters_d(d);
                 auto lparm_h = agents.getDiseaseParameters_h(d);
-                Real scale = 1.0_rt;
                 Real infect = 1.0_rt - lparm_h->vac_eff;
                 auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
@@ -135,6 +135,7 @@ void InteractionModNborhood<PCType, PTDType, PType>::fastInteractNborhood (PCTyp
                         auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                         auto community = d_ptr[tidx];
                         auto nborhood_i = community * max_nborhood + nborhood_ptr[i];
+                        Real scale = density_scale_arr(iv[0], iv[1], 0);
 
                         int num_infected_nborhood = infected_nborhood_d_ptr[nborhood_i];
                         int num_infected_nborhood_asymp = infected_nborhood_asymp_d_ptr[nborhood_i];

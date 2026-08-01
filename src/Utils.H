@@ -58,6 +58,18 @@ struct TestParams {
      */
     std::string urbanpop_filename;
 
+    /*! Optional side file mapping UrbanPop block-group GEOIDs to land area (km^2), used to scale
+        xmit_comm/xmit_hood by local population density (see DensityData). "" (default) disables
+        density scaling entirely -- UrbanPop only; has no effect on the deprecated Census path. */
+    std::string density_filename = "";
+    amrex::Real density_ref_density = -1.0; /*!< reference density; <=0 means "auto": population-weighted
+                                                 mean density over matched communities */
+    amrex::Real density_beta = 0.3;         /*!< exponent in scale = clip((density/ref_density)^beta, ...) --
+                                                 placeholder, not yet empirically validated */
+    amrex::Real density_min_scale = 0.5;    /*!< lower clip bound on the density scale factor -- placeholder */
+    amrex::Real density_max_scale = 2.0;    /*!< upper clip bound on the density scale factor -- placeholder */
+    bool density_diag = false;              /*!< if true, dump a per-community density/scale diagnostic CSV */
+
     /*! Worker flow filename (ExaEpi::Initialization::readWorkerflow):
         It is a binary file that contains 3 x (number of work patthers) unsigned integer
         data. The 3 integers are: from, to, and the number of workers with this from and to.

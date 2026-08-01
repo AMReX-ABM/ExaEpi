@@ -13,6 +13,7 @@
 #include <AMReX_Geometry.H>
 #include <AMReX_GpuDevice.H>
 #include <AMReX_IntVect.H>
+#include <AMReX_MultiFab.H>
 #include <AMReX_Particles.H>
 #include <AMReX_Vector.H>
 #include <AMReX_iMultiFab.H>
@@ -140,6 +141,11 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     int m_num_diseases; /*!< Number of diseases */
 
     amrex::iMultiFab comm_mf;
+
+    /*! Per-community density scale factor multiplying xmit_comm/xmit_hood (UrbanPop only).
+        Always valid (flat 1.0 unless DensityData supplies real values in main.cpp) -- see
+        InteractionModComm.H / InteractionModNborhood.H. */
+    amrex::MultiFab comm_density_scale;
 
     short ic_type;
 

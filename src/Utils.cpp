@@ -57,6 +57,13 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
         params.ic_type = ICType::UrbanPop;
         pp.get("urbanpop_filename", params.urbanpop_filename);
         params.max_box_size = 16;
+
+        pp.query("density_filename", params.density_filename);
+        pp.query("density_ref_density", params.density_ref_density);
+        pp.query("density_beta", params.density_beta);
+        pp.query("density_min_scale", params.density_min_scale);
+        pp.query("density_max_scale", params.density_max_scale);
+        pp.query("density_diag", params.density_diag);
     } else {
         amrex::Abort("ic_type not recognized (currently supported 'census')");
     }

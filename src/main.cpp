@@ -14,6 +14,7 @@
 #include "AirTravelFlow.H"
 #include "CaseData.H"
 #include "DemographicData.H"
+#include "DensityData.H"
 #include "IO.H"
 #include "InitializeInfections.H"
 #include "UrbanPopData.H"
@@ -161,6 +162,12 @@ void runAgent () {
     } else if (params.ic_type == ICType::UrbanPop) {
         urbanPopData.init(params, geom, ba, dm);
     }
+
+    // Optional side file scaling xmit_comm/xmit_hood by local population density (UrbanPop only).
+    // If density_filename is unset or unreadable, densityData.has_data stays false and
+    // AgentContainer::comm_density_scale is left at its default flat 1.0 -- see DensityData.H.
+    DensityData densityData;
+    if (params.ic_type == ICType::UrbanPop) { densityData.readDataFromFile(params.density_filename); }
 
     AirTravelFlow air;
     if (params.air_travel_int > 0) {
@@ -318,6 +325,45 @@ void runAgent () {
             } else {
                 IO::readCheckpointFile(params.restart_chkfile, pc, disease_stats, nullptr, &(urbanPopData.geoid_mf),
                                        &(urbanPopData.community_mf), cur_time, start_day);
+            }
+        }
+
+        // Populate pc.comm_density_scale from the optional density side file. Done after both the
+        // fresh-init and restart branches above (urbanPopData.community_mf is valid either way), so
+        // restarted runs get the same density scaling as a fresh run rather than silently reverting
+        // to flat 1.0.
+        if (params.ic_type == ICType::UrbanPop && densityData.has_data) {
+            Vector<Real> comm_scale = densityData.computeCommunityScale(urbanPopData.block_groups, params);
+            Gpu::DeviceVector<Real> comm_scale_d(comm_scale.size());
+            Gpu::copyAsync(Gpu::hostToDevice, comm_scale.begin(), comm_scale.end(), comm_scale_d.begin());
+            Gpu::streamSynchronize();
+            auto* comm_scale_ptr = comm_scale_d.data();
+            for (MFIter mfi(urbanPopData.community_mf); mfi.isValid(); ++mfi) {
+                auto comm_arr = urbanPopData.community_mf.const_array(mfi);
+                auto scale_arr = pc.comm_density_scale.array(mfi);
+                ParallelFor(mfi.tilebox(), [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
+                    int c = comm_arr(i, j, k);
+                    scale_arr(i, j, k, 0) = (c >= 0) ? comm_scale_ptr[c] : 1.0_rt;
+                });
+            }
+            Gpu::streamSynchronize();
+
+            if (params.density_diag && ParallelDescriptor::IOProcessor()) {
+                std::ofstream diagFile("community_density.csv", std::ios::out | std::ios::trunc);
+                diagFile << "geoid,population,area_km2,density,scale\n";
+                for (int c = 0; c < (int)urbanPopData.block_groups.size(); ++c) {
+                    const auto& bg = urbanPopData.block_groups[c];
+                    auto it = densityData.geoid_to_area_km2.find(bg.geoid);
+                    if (it == densityData.geoid_to_area_km2.end()) {
+                        diagFile << bg.geoid << "," << bg.home_population << ",,," << comm_scale[c] << "\n";
+                    } else {
+                        Real area_km2 = it->second;
+                        Real density = (Real)bg.home_population / area_km2;
+                        diagFile << bg.geoid << "," << bg.home_population << "," << area_km2 << "," << density << ","
+                                 << comm_scale[c] << "\n";
+                    }
+                }
+                diagFile.close();
             }
         }
     }

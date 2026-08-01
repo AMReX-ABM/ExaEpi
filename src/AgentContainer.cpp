@@ -89,8 +89,8 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
                                 const bool fast,                                 /*!< faster but non-deterministic computation*/
                                 const short a_ic_type /*!< type of initialization */)
     : amrex::ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>(a_geom, a_dmap, a_ba),
-      m_student_counts(a_ba, a_dmap, SchoolCensusIDType::total - 1, 0), m_mod_nborhood_day(true), m_mod_nborhood_night(false),
-      m_mod_comm_day(true), m_mod_comm_night(false) {
+      m_student_counts(a_ba, a_dmap, SchoolCensusIDType::total - 1, 0), comm_density_scale(a_ba, a_dmap, 1, 0),
+      m_mod_nborhood_day(true), m_mod_nborhood_night(false), m_mod_comm_day(true), m_mod_comm_night(false) {
     BL_PROFILE("AgentContainer::AgentContainer");
 
     ic_type = a_ic_type;
@@ -98,7 +98,8 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
     m_num_diseases = a_num_diseases;
     AMREX_ASSERT(m_num_diseases < ExaEpi::max_num_diseases);
 
-    m_student_counts.setVal(0); // Initialize the MultiFab to zero
+    m_student_counts.setVal(0);        // Initialize the MultiFab to zero
+    comm_density_scale.setVal(1.0_rt); // Default: no density scaling until DensityData supplies real values
 
     addAttributes();
 
