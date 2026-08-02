@@ -328,12 +328,15 @@ void runAgent () {
             }
         }
 
-        // Populate pc.comm_density_scale from the optional density side file. Done after both the
-        // fresh-init and restart branches above (urbanPopData.community_mf is valid either way), so
-        // restarted runs get the same density scaling as a fresh run rather than silently reverting
-        // to flat 1.0.
-        if (params.ic_type == ICType::UrbanPop && densityData.has_data) {
-            Vector<Real> comm_scale = densityData.computeCommunityScale(urbanPopData.block_groups, params);
+        // Populate pc.comm_density_scale from the population-size scale or the optional density
+        // side file (mutually exclusive -- size_scale_enabled takes priority over density; used to
+        // isolate each effect). Done after both the fresh-init and restart branches above
+        // (urbanPopData.community_mf is valid either way), so restarted runs get the same scaling
+        // as a fresh run rather than silently reverting to flat 1.0.
+        if (params.ic_type == ICType::UrbanPop && (params.size_scale_enabled || densityData.has_data)) {
+            Vector<Real> comm_scale = params.size_scale_enabled
+                                              ? computeCommunitySizeScale(urbanPopData.block_groups, params)
+                                              : densityData.computeCommunityScale(urbanPopData.block_groups, params);
             Gpu::DeviceVector<Real> comm_scale_d(comm_scale.size());
             Gpu::copyAsync(Gpu::hostToDevice, comm_scale.begin(), comm_scale.end(), comm_scale_d.begin());
             Gpu::streamSynchronize();

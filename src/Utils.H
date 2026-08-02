@@ -64,11 +64,31 @@ struct TestParams {
     std::string density_filename = "";
     amrex::Real density_ref_density = -1.0; /*!< reference density; <=0 means "auto": population-weighted
                                                  mean density over matched communities */
-    amrex::Real density_beta = 0.3;         /*!< exponent in scale = clip((density/ref_density)^beta, ...) --
-                                                 placeholder, not yet empirically validated */
+    amrex::Real density_beta = 0.3;         /*!< exponent reshaping transmission by density; renormalized so it
+                                                 doesn't change the population-weighted average scale (see
+                                                 DensityData::computeCommunityScale) -- placeholder, not validated */
+    amrex::Real density_global_scale = 1.0; /*!< population-weighted average density scale factor (decoupled
+                                                 from density_beta's shape); beta=0 gives a flat scale equal to
+                                                 this value everywhere -- placeholder, not yet empirically validated */
     amrex::Real density_min_scale = 0.5;    /*!< lower clip bound on the density scale factor -- placeholder */
     amrex::Real density_max_scale = 2.0;    /*!< upper clip bound on the density scale factor -- placeholder */
     bool density_diag = false;              /*!< if true, dump a per-community density/scale diagnostic CSV */
+
+    /*! Population-size-based alternative to density scaling (see DensityData::computeCommunitySizeScale).
+        No side file needed -- home_population is always available. When true, this takes over
+        populating AgentContainer::comm_density_scale instead of the density side file; mutually
+        exclusive with density scaling (used to isolate the size effect from the density effect). */
+    bool size_scale_enabled = false;
+    amrex::Real size_ref_population = -1.0; /*!< reference population; <=0 means "auto": population-weighted
+                                                 mean community population */
+    amrex::Real size_beta = 0.0;            /*!< exponent reshaping transmission by community population size;
+                                                 renormalized so it doesn't change the population-weighted
+                                                 average scale -- placeholder, not yet empirically validated */
+    amrex::Real size_global_scale = 1.0;    /*!< population-weighted average size scale factor (decoupled
+                                                 from size_beta's shape); beta=0 gives a flat scale equal to
+                                                 this value everywhere -- placeholder, not yet empirically validated */
+    amrex::Real size_min_scale = 0.05;      /*!< lower clip bound on the size scale factor -- placeholder */
+    amrex::Real size_max_scale = 20.0;      /*!< upper clip bound on the size scale factor -- placeholder */
 
     /*! Worker flow filename (ExaEpi::Initialization::readWorkerflow):
         It is a binary file that contains 3 x (number of work patthers) unsigned integer

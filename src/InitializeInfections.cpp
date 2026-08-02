@@ -19,7 +19,7 @@ static constexpr int NTRY_MAX = 10;
 /*! \brief Build a per-unit cumulative population distribution over its communities. See header
     for details. */
 Vector<float> ExaEpi::Initialization::buildCommunityCumProb (const Vector<int>& unit_community_start,
-                                                              const Vector<int>& community_population) {
+                                                             const Vector<int>& community_population) {
     int ncomm_total = unit_community_start.back();
     AMREX_ALWAYS_ASSERT((int)community_population.size() == ncomm_total);
 
@@ -29,7 +29,9 @@ Vector<float> ExaEpi::Initialization::buildCommunityCumProb (const Vector<int>& 
         int lo = unit_community_start[u];
         int hi = unit_community_start[u + 1];
         double total_pop = 0.0;
-        for (int c = lo; c < hi; ++c) { total_pop += community_population[c]; }
+        for (int c = lo; c < hi; ++c) {
+            total_pop += community_population[c];
+        }
         if (total_pop <= 0.0) {
             // leave this unit's slice at 0.0 -- sentinel for "fall back to uniform draw"
             continue;
@@ -50,8 +52,8 @@ Vector<float> ExaEpi::Initialization::buildCommunityCumProb (const Vector<int>& 
     population, once per case). Falls back to a uniform draw if the unit has zero total
     population (see #buildCommunityCumProb). Drawn on the IOProcessor and broadcast, mirroring
     the existing single-draw pattern used elsewhere in this file (and in AirTravelFlow). */
-static void drawWeightedCommunities (const Vector<int>& unit_community_start, const Vector<float>& community_cum_prob,
-                                     int unit, int n, Vector<int>& out /*!< resized to n */) {
+static void drawWeightedCommunities (const Vector<int>& unit_community_start, const Vector<float>& community_cum_prob, int unit,
+                                     int n, Vector<int>& out /*!< resized to n */) {
     out.resize(n);
     int lo = unit_community_start[unit];
     int hi = unit_community_start[unit + 1];
@@ -70,7 +72,11 @@ static void drawWeightedCommunities (const Vector<int>& unit_community_start, co
                 int a = lo, b = hi - 1;
                 while (a < b) {
                     int mid = a + (b - a) / 2;
-                    if (community_cum_prob[mid] < r) { a = mid + 1; } else { b = mid; }
+                    if (community_cum_prob[mid] < r) {
+                        a = mid + 1;
+                    } else {
+                        b = mid;
+                    }
                 }
                 idx = a;
             }
@@ -115,7 +121,9 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
     Vector<int> batch_h;
     drawWeightedCommunities(unit_community_start, community_cum_prob, unit, ninfect, batch_h);
     GpuArray<int, NTRY_MAX> batch{};
-    for (int b = 0; b < ninfect; ++b) { batch[b] = batch_h[b]; }
+    for (int b = 0; b < ninfect; ++b) {
+        batch[b] = batch_h[b];
+    }
     const int n_batch = ninfect;
 
     const Geometry& geom = pc.Geom(0);
@@ -172,7 +180,9 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
         ParallelForRNG(box, [=] AMREX_GPU_DEVICE (int i, int j, int k, amrex::RandomEngine const& engine) noexcept {
             int this_comm = comm_arr(i, j, k);
             int n_here = 0;
-            for (int b = 0; b < n_batch; ++b) { if (batch[b] == this_comm) { ++n_here; } }
+            for (int b = 0; b < n_batch; ++b) {
+                if (batch[b] == this_comm) { ++n_here; }
+            }
             if (n_here == 0) { return; }
 
             Box tbx;
@@ -239,12 +249,7 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
     std::map<std::pair<int, int>, amrex::DenseBins<AgentContainer::ParticleType>> bin_map;
 
     Print() << "Initializing infections for " << d_name << "\n";
-#ifdef COMPARE_TO_EPICAST
-    Print() << "WARNINNG: limited version for comparing to Epicast\n";
-    const int NTRY = 1;
-#else
     const int NTRY = 10;
-#endif
 
     int ntry = NTRY;
     int ninf = 0;
@@ -300,8 +305,8 @@ void setInitialCasesRandom (AgentContainer& pc,                      /*!< Agent 
             int unit = 0;
             if (ParallelDescriptor::IOProcessor()) { unit = Random_int(unit_community_start.size() - 1); }
             ParallelDescriptor::Bcast(&unit, 1);
-            int nSuccesses =
-                    infectRandomCommunity(pc, unit_community_start, community_cum_prob, comm_mf, bin_map, unit, d_idx, 1, fast_bin);
+            int nSuccesses = infectRandomCommunity(pc, unit_community_start, community_cum_prob, comm_mf, bin_map, unit, d_idx, 1,
+                                                   fast_bin);
             if (nSuccesses > 0) { fips_infection_counts[FIPS_codes[unit]] += nSuccesses; }
             ninf += nSuccesses;
             i += nSuccesses;

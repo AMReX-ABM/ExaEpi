@@ -61,9 +61,17 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
         pp.query("density_filename", params.density_filename);
         pp.query("density_ref_density", params.density_ref_density);
         pp.query("density_beta", params.density_beta);
+        pp.query("density_global_scale", params.density_global_scale);
         pp.query("density_min_scale", params.density_min_scale);
         pp.query("density_max_scale", params.density_max_scale);
         pp.query("density_diag", params.density_diag);
+
+        pp.query("size_scale_enabled", params.size_scale_enabled);
+        pp.query("size_ref_population", params.size_ref_population);
+        pp.query("size_beta", params.size_beta);
+        pp.query("size_global_scale", params.size_global_scale);
+        pp.query("size_min_scale", params.size_min_scale);
+        pp.query("size_max_scale", params.size_max_scale);
     } else {
         amrex::Abort("ic_type not recognized (currently supported 'census')");
     }

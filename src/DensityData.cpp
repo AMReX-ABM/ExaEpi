@@ -64,11 +64,18 @@ bool DensityData::readDataFromFile (const std::string& fname) {
     return has_data;
 }
 
-/*! \brief Compute a per-community density scale factor: scale[c] = clip((density[c]/ref_density)
- *  ^beta, min_scale, max_scale), where density[c] = home_population[c] / area_km2[c]. Communities
- *  whose GEOID has no matching area record (or a near-zero area) default to scale=1.0. If
- *  params.density_ref_density <= 0 ("auto"), ref_density is the population-weighted mean density
- *  over matched communities, so a sensible baseline needs no manual calibration. */
+/*! \brief Compute a per-community density scale factor, decoupling *how much* total transmission
+ *  (density_global_scale) from *how it's redistributed* by density (density_beta):
+ *    raw[c]   = (density[c]/ref_density)^beta                  -- shape only
+ *    scale[c] = clip(global_scale * raw[c]/mean(raw), min_scale, max_scale)
+ *  where density[c] = home_population[c]/area_km2[c] and mean(raw) is the population-weighted
+ *  mean of raw[] over matched communities. Renormalizing by mean(raw) pins the population-weighted
+ *  average of scale[] to global_scale regardless of beta, so beta can be tuned to reshape
+ *  transmission by density without also changing the overall transmission level -- beta=0 gives a
+ *  flat scale[c]=global_scale everywhere. Communities whose GEOID has no matching area record (or
+ *  a near-zero area) default to scale=1.0, unaffected by global_scale. If params.density_ref_density
+ *  <= 0 ("auto"), ref_density is the population-weighted mean density over matched communities, so
+ *  a sensible baseline needs no manual calibration. */
 amrex::Vector<amrex::Real> DensityData::computeCommunityScale (const amrex::Vector<BlockGroup>& block_groups,
                                                                const ExaEpi::TestParams& params) const {
     Vector<Real> scale(block_groups.size(), 1.0_rt);
@@ -93,14 +100,69 @@ amrex::Vector<amrex::Real> DensityData::computeCommunityScale (const amrex::Vect
     Real ref_density = params.density_ref_density;
     if (ref_density <= 0.0_rt) { ref_density = (weight_sum > 0.0_rt) ? (weighted_density_sum / weight_sum) : 1.0_rt; }
 
+    Vector<Real> raw(block_groups.size(), 1.0_rt);
+    Real weighted_raw_sum = 0.0_rt;
     for (int c = 0; c < (int)block_groups.size(); ++c) {
         if (density[c] < 0.0_rt) { continue; }
-        Real s = std::pow(density[c] / ref_density, params.density_beta);
+        raw[c] = std::pow(density[c] / ref_density, params.density_beta);
+        weighted_raw_sum += (Real)block_groups[c].home_population * raw[c];
+    }
+    Real mean_raw = (weight_sum > 0.0_rt) ? (weighted_raw_sum / weight_sum) : 1.0_rt;
+
+    for (int c = 0; c < (int)block_groups.size(); ++c) {
+        if (density[c] < 0.0_rt) { continue; }
+        Real s = params.density_global_scale * raw[c] / mean_raw;
         scale[c] = std::max(params.density_min_scale, std::min(params.density_max_scale, s));
     }
 
     amrex::Print() << "DensityData: matched " << matched << " / " << block_groups.size()
-                   << " communities to a density record (ref_density=" << ref_density << ")\n";
+                   << " communities to a density record (ref_density=" << ref_density
+                   << ", global_scale=" << params.density_global_scale << ")\n";
+
+    return scale;
+}
+
+/*! \brief Compute a per-community population-size scale factor, decoupling *how much* total
+ *  transmission (size_global_scale) from *how it's redistributed* by community population
+ *  (size_beta), exactly mirroring DensityData::computeCommunityScale:
+ *    raw[c]   = (population[c]/ref_population)^beta               -- shape only
+ *    scale[c] = clip(global_scale * raw[c]/mean(raw), min_scale, max_scale)
+ *  where mean(raw) is the population-weighted mean of raw[] over all communities. No side file or
+ *  GEOID matching is needed -- home_population is always available -- so every community
+ *  participates (unlike density's matched/unmatched split). If params.size_ref_population <= 0
+ *  ("auto"), ref_population is the population-weighted mean community population. */
+amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockGroup>& block_groups,
+                                                      const ExaEpi::TestParams& params) {
+    Vector<Real> scale(block_groups.size(), 1.0_rt);
+    if (block_groups.empty()) { return scale; }
+
+    Real weighted_pop_sum = 0.0_rt;
+    Real weight_sum = 0.0_rt;
+    for (const auto& bg : block_groups) {
+        Real pop = (Real)bg.home_population;
+        weighted_pop_sum += pop * pop;
+        weight_sum += pop;
+    }
+
+    Real ref_population = params.size_ref_population;
+    if (ref_population <= 0.0_rt) { ref_population = (weight_sum > 0.0_rt) ? (weighted_pop_sum / weight_sum) : 1.0_rt; }
+
+    Vector<Real> raw(block_groups.size(), 1.0_rt);
+    Real weighted_raw_sum = 0.0_rt;
+    for (int c = 0; c < (int)block_groups.size(); ++c) {
+        Real pop = (Real)block_groups[c].home_population;
+        raw[c] = std::pow(pop / ref_population, params.size_beta);
+        weighted_raw_sum += pop * raw[c];
+    }
+    Real mean_raw = (weight_sum > 0.0_rt) ? (weighted_raw_sum / weight_sum) : 1.0_rt;
+
+    for (int c = 0; c < (int)block_groups.size(); ++c) {
+        Real s = params.size_global_scale * raw[c] / mean_raw;
+        scale[c] = std::max(params.size_min_scale, std::min(params.size_max_scale, s));
+    }
+
+    amrex::Print() << "SizeScale: " << block_groups.size() << " communities (ref_population=" << ref_population
+                   << ", global_scale=" << params.size_global_scale << ")\n";
 
     return scale;
 }
