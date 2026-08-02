@@ -54,6 +54,8 @@ void DiseaseParm::readInputs (const std::string& a_pp_str /*!< Parmparse string 
     pp.query("child_compliance", child_compliance);
     pp.query("child_hh_closure", child_HH_closure);
 
+    pp.query("compare_to_epicast", compare_to_epicast);
+
     pp.query("latent_length_alpha", latent_length_alpha);
     pp.query("infectious_length_alpha", infectious_length_alpha);
     pp.query("incubation_length_alpha", incubation_length_alpha);
