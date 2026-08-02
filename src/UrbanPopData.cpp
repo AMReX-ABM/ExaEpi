@@ -429,7 +429,18 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             naics_ptr[i] = agent.naics;
             // set up workers
             if (agent.naics != -1) {
-                if (agent.school_id == 0) {
+                if (agent.travel == TRAVEL::_wfh) {
+                    // declared work-from-home: no real commute, and no physical collocation with
+                    // real workplace colleagues, so treat like a non-worker for workgroup/
+                    // work_nborhood purposes (naics_population/work_population describe the
+                    // assigned-but-never-visited work_geoid's community, not home, so they're not
+                    // a meaningful size for a group this agent never physically joins). Still
+                    // nominally employed (naics_ptr set above) for other purposes.
+                    workgroup_ptr[i] = 0;
+                    work_nborhood_ptr[i] = nborhood_ptr[i];
+                    work_i_ptr[i] = home_i_ptr[i];
+                    work_j_ptr[i] = home_j_ptr[i];
+                } else if (agent.school_id == 0) {
                     // the group work population for this agent is for the NAICS category for the agent
                     int max_workgroup = agents_extras_ptr[i].naics_population / workgroup_size + 1;
                     // a workgroup of 0 indicates not working
@@ -443,8 +454,6 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     workgroup_ptr[i] = school_id_ptr[i];
                     work_nborhood_ptr[i] = school_id_ptr[i];
                 }
-                work_i_ptr[i] = home_i_ptr[i];
-                work_j_ptr[i] = home_j_ptr[i];
             } else {
                 workgroup_ptr[i] = 0;
                 // everyone interacts in the work nborhood, even thoes that don't work (they interact during the day in their
