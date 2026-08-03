@@ -125,33 +125,27 @@ amrex::Vector<amrex::Real> DensityData::computeCommunityScale (const amrex::Vect
 /*! \brief Compute a per-community population-size scale factor, decoupling *how much* total
  *  transmission (size_global_scale) from *how it's redistributed* by community population
  *  (size_beta), exactly mirroring DensityData::computeCommunityScale:
- *    raw[c]   = (population[c]/ref_population)^beta               -- shape only
+ *    raw[c]   = population[c]^beta                                  -- shape only
  *    scale[c] = clip(global_scale * raw[c]/mean(raw), min_scale, max_scale)
  *  where mean(raw) is the population-weighted mean of raw[] over all communities. No side file or
  *  GEOID matching is needed -- home_population is always available -- so every community
- *  participates (unlike density's matched/unmatched split). If params.size_ref_population <= 0
- *  ("auto"), ref_population is the population-weighted mean community population. */
+ *  participates (unlike density's matched/unmatched split). (There is deliberately no reference
+ *  population to normalize population[c] against before raising it to beta: the mean(raw)
+ *  division below renormalizes it away exactly -- raw[c]/mean(raw) is unaffected by any constant
+ *  factor applied uniformly to raw[], which is all a reference population could contribute.) */
 amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockGroup>& block_groups,
                                                       const ExaEpi::TestParams& params) {
     Vector<Real> scale(block_groups.size(), 1.0_rt);
     if (block_groups.empty()) { return scale; }
 
-    Real weighted_pop_sum = 0.0_rt;
     Real weight_sum = 0.0_rt;
-    for (const auto& bg : block_groups) {
-        Real pop = (Real)bg.home_population;
-        weighted_pop_sum += pop * pop;
-        weight_sum += pop;
-    }
-
-    Real ref_population = params.size_ref_population;
-    if (ref_population <= 0.0_rt) { ref_population = (weight_sum > 0.0_rt) ? (weighted_pop_sum / weight_sum) : 1.0_rt; }
+    for (const auto& bg : block_groups) { weight_sum += (Real)bg.home_population; }
 
     Vector<Real> raw(block_groups.size(), 1.0_rt);
     Real weighted_raw_sum = 0.0_rt;
     for (int c = 0; c < (int)block_groups.size(); ++c) {
         Real pop = (Real)block_groups[c].home_population;
-        raw[c] = std::pow(pop / ref_population, params.size_beta);
+        raw[c] = std::pow(pop, params.size_beta);
         weighted_raw_sum += pop * raw[c];
     }
     Real mean_raw = (weight_sum > 0.0_rt) ? (weighted_raw_sum / weight_sum) : 1.0_rt;
@@ -161,59 +155,53 @@ amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockG
         scale[c] = std::max(params.size_min_scale, std::min(params.size_max_scale, s));
     }
 
-    amrex::Print() << "SizeScale: " << block_groups.size() << " communities (ref_population=" << ref_population
-                   << ", global_scale=" << params.size_global_scale << ")\n";
+    amrex::Print() << "SizeScale: " << block_groups.size() << " communities (global_scale="
+                   << params.size_global_scale << ")\n";
 
     return scale;
 }
 
 /*! \brief Compute a per-community work-population scale factor, decoupling *how much* total
- *  daytime transmission (work_size_global_scale) from *how it's redistributed* by community work
- *  population (work_size_beta), exactly mirroring computeCommunitySizeScale but keyed on
+ *  daytime transmission (size_global_scale) from *how it's redistributed* by community work
+ *  population (size_beta), exactly mirroring computeCommunitySizeScale but keyed on
  *  work_populations[0] (total workers whose workplace is this community) instead of
  *  home_population:
- *    raw[c]   = (work_population[c]/ref_work_population)^beta        -- shape only
+ *    raw[c]   = work_population[c]^beta                          -- shape only
  *    scale[c] = clip(global_scale * raw[c]/mean(raw), min_scale, max_scale)
  *  where mean(raw) is the work-population-weighted mean of raw[] over all communities. Communities
  *  with zero work population (no one's workplace is there) get scale=1.0, unaffected by
- *  global_scale, and don't contribute to the weighted mean. If params.work_size_ref_population <=
- *  0 ("auto"), ref_work_population is the work-population-weighted mean community work
- *  population. */
+ *  global_scale, and don't contribute to the weighted mean. Shares beta/global_scale/min_scale/
+ *  max_scale with computeCommunitySizeScale (a decoupled sweep found no benefit to tuning them
+ *  separately from the home/night values). */
 amrex::Vector<amrex::Real> computeCommunityWorkSizeScale (const amrex::Vector<BlockGroup>& block_groups,
                                                           const ExaEpi::TestParams& params) {
     Vector<Real> scale(block_groups.size(), 1.0_rt);
     if (block_groups.empty()) { return scale; }
 
-    Real weighted_pop_sum = 0.0_rt;
     Real weight_sum = 0.0_rt;
     for (const auto& bg : block_groups) {
         Real pop = (Real)bg.work_populations[0];
-        if (pop <= 0.0_rt) { continue; }
-        weighted_pop_sum += pop * pop;
-        weight_sum += pop;
+        if (pop > 0.0_rt) { weight_sum += pop; }
     }
-
-    Real ref_population = params.work_size_ref_population;
-    if (ref_population <= 0.0_rt) { ref_population = (weight_sum > 0.0_rt) ? (weighted_pop_sum / weight_sum) : 1.0_rt; }
 
     Vector<Real> raw(block_groups.size(), 1.0_rt);
     Real weighted_raw_sum = 0.0_rt;
     for (int c = 0; c < (int)block_groups.size(); ++c) {
         Real pop = (Real)block_groups[c].work_populations[0];
         if (pop <= 0.0_rt) { continue; }
-        raw[c] = std::pow(pop / ref_population, params.work_size_beta);
+        raw[c] = std::pow(pop, params.size_beta);
         weighted_raw_sum += pop * raw[c];
     }
     Real mean_raw = (weight_sum > 0.0_rt) ? (weighted_raw_sum / weight_sum) : 1.0_rt;
 
     for (int c = 0; c < (int)block_groups.size(); ++c) {
         if (block_groups[c].work_populations[0] <= 0) { continue; }
-        Real s = params.work_size_global_scale * raw[c] / mean_raw;
-        scale[c] = std::max(params.work_size_min_scale, std::min(params.work_size_max_scale, s));
+        Real s = params.size_global_scale * raw[c] / mean_raw;
+        scale[c] = std::max(params.size_min_scale, std::min(params.size_max_scale, s));
     }
 
-    amrex::Print() << "WorkSizeScale: " << block_groups.size() << " communities (ref_work_population=" << ref_population
-                   << ", global_scale=" << params.work_size_global_scale << ")\n";
+    amrex::Print() << "WorkSizeScale: " << block_groups.size() << " communities (global_scale="
+                   << params.size_global_scale << ")\n";
 
     return scale;
 }
