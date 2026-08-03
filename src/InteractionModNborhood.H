@@ -6,7 +6,7 @@
  *
  * Unlike InteractionModComm.H, this does NOT apply the population-size correction
  * (AgentContainer::comm_density_scale / comm_density_scale_work, see
- * DensityData::computeCommunitySizeScale). That correction targets community-level
+ * computeCommunitySizeScale). That correction targets community-level
  * headcount variance, which is substantial (CV ~0.6 in NM UrbanPop data); neighborhood
  * sizes, by contrast, are kept close to the nborhood_size target regardless of their
  * parent community's size (UrbanPopData.cpp's get_max_nborhood adds more neighborhoods

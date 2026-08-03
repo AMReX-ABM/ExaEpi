@@ -100,7 +100,7 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
     AMREX_ASSERT(m_num_diseases < ExaEpi::max_num_diseases);
 
     m_student_counts.setVal(0);             // Initialize the MultiFab to zero
-    comm_density_scale.setVal(1.0_rt);      // Default: no density scaling until DensityData supplies real values
+    comm_density_scale.setVal(1.0_rt);      // Default: no size scaling until main.cpp supplies real values
     comm_density_scale_work.setVal(1.0_rt); // Default: no work-size scaling until main.cpp supplies real values
 
     addAttributes();
@@ -403,7 +403,7 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
 }
 
 /*! \brief Compute AgentContainer::school_class_scale, a per-school_class_group frequency-dependence
-    correction analogous to comm_hood_scale (see DensityData.cpp), but keyed on each class's actual
+    correction analogous to comm_hood_scale (see UrbanPopData.cpp), but keyed on each class's actual
     realized enrollment instead of community population -- see TestParams::school_group_scale_enabled/
     min/max and AgentContainer::assignSchoolClasses for how school_class_group is assigned.
 

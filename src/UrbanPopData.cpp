@@ -2,6 +2,7 @@
     \brief Implementation of #UrbanPopData class
 */
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <sstream>
@@ -520,4 +521,91 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
     AMREX_ALWAYS_ASSERT(num_employed == work_population);
 
     num_communities = all_num_communities;
+}
+
+/*! \brief Compute a per-community population-size scale factor that corrects the community/
+ *  neighborhood interaction models (InteractionModComm.H/InteractionModNborhood.H) from
+ *  density-dependent to frequency-dependent transmission, decoupled from the overall calibrated
+ *  magnitude (comm_hood_scale):
+ *    raw[c]   = 1 / population[c]                                   -- fixed correction, not tunable
+ *    scale[c] = clip(comm_hood_scale * raw[c]/mean(raw), min_scale, max_scale)
+ *  where mean(raw) is the population-weighted mean of raw[] over all communities. Those interaction
+ *  models multiply a susceptible's infection probability once per *raw count* of infectious agents
+ *  in their entire community/neighborhood, so without correction the force of infection scales with
+ *  the absolute size of the community (num_infected ~= population[c] * prevalence) rather than with
+ *  local prevalence alone. Dividing by population[c] exactly cancels that out: num_infected *
+ *  raw[c] ~= prevalence, independent of population[c]. This is a fixed correction for how the
+ *  interaction code counts contacts, not an epidemiological hypothesis to calibrate per scenario --
+ *  every fit sweep converged on this same 1/population form (previously exposed as a size_beta
+ *  parameter that always landed on -1.0), so it's built in rather than left tunable. home_population
+ *  is always available, so every community participates. */
+amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockGroup>& block_groups,
+                                                      const ExaEpi::TestParams& params) {
+    Vector<Real> scale(block_groups.size(), 1.0_rt);
+    if (block_groups.empty()) { return scale; }
+
+    Real weight_sum = 0.0_rt;
+    for (const auto& bg : block_groups) { weight_sum += (Real)bg.home_population; }
+
+    Vector<Real> raw(block_groups.size(), 1.0_rt);
+    Real weighted_raw_sum = 0.0_rt;
+    for (int c = 0; c < (int)block_groups.size(); ++c) {
+        Real pop = (Real)block_groups[c].home_population;
+        raw[c] = 1.0_rt / pop;
+        weighted_raw_sum += pop * raw[c];
+    }
+    Real mean_raw = (weight_sum > 0.0_rt) ? (weighted_raw_sum / weight_sum) : 1.0_rt;
+
+    for (int c = 0; c < (int)block_groups.size(); ++c) {
+        Real s = params.comm_hood_scale * raw[c] / mean_raw;
+        scale[c] = std::max(params.size_min_scale, std::min(params.size_max_scale, s));
+    }
+
+    amrex::Print() << "SizeScale: " << block_groups.size() << " communities (comm_hood_scale="
+                   << params.comm_hood_scale << ")\n";
+
+    return scale;
+}
+
+/*! \brief Compute a per-community work-population scale factor, exactly mirroring
+ *  computeCommunitySizeScale but keyed on work_populations[0] (total workers whose workplace is
+ *  this community) instead of home_population:
+ *    raw[c]   = 1 / work_population[c]                           -- fixed correction, not tunable
+ *    scale[c] = clip(comm_hood_scale * raw[c]/mean(raw), min_scale, max_scale)
+ *  where mean(raw) is the work-population-weighted mean of raw[] over all communities. Communities
+ *  with zero work population (no one's workplace is there) get scale=1.0, unaffected by
+ *  comm_hood_scale, and don't contribute to the weighted mean. Shares comm_hood_scale/min_scale/
+ *  max_scale with computeCommunitySizeScale (a decoupled sweep found no benefit to tuning them
+ *  separately from the home/night values). */
+amrex::Vector<amrex::Real> computeCommunityWorkSizeScale (const amrex::Vector<BlockGroup>& block_groups,
+                                                          const ExaEpi::TestParams& params) {
+    Vector<Real> scale(block_groups.size(), 1.0_rt);
+    if (block_groups.empty()) { return scale; }
+
+    Real weight_sum = 0.0_rt;
+    for (const auto& bg : block_groups) {
+        Real pop = (Real)bg.work_populations[0];
+        if (pop > 0.0_rt) { weight_sum += pop; }
+    }
+
+    Vector<Real> raw(block_groups.size(), 1.0_rt);
+    Real weighted_raw_sum = 0.0_rt;
+    for (int c = 0; c < (int)block_groups.size(); ++c) {
+        Real pop = (Real)block_groups[c].work_populations[0];
+        if (pop <= 0.0_rt) { continue; }
+        raw[c] = 1.0_rt / pop;
+        weighted_raw_sum += pop * raw[c];
+    }
+    Real mean_raw = (weight_sum > 0.0_rt) ? (weighted_raw_sum / weight_sum) : 1.0_rt;
+
+    for (int c = 0; c < (int)block_groups.size(); ++c) {
+        if (block_groups[c].work_populations[0] <= 0) { continue; }
+        Real s = params.comm_hood_scale * raw[c] / mean_raw;
+        scale[c] = std::max(params.size_min_scale, std::min(params.size_max_scale, s));
+    }
+
+    amrex::Print() << "WorkSizeScale: " << block_groups.size() << " communities (comm_hood_scale="
+                   << params.comm_hood_scale << ")\n";
+
+    return scale;
 }

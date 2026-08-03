@@ -40,6 +40,21 @@ struct BlockGroup {
                     const std::map<int64_t, int>& geoid_to_block_groups, const amrex::Vector<BlockGroup>& block_groups);
 };
 
+/*! \brief Compute a per-community population-size scale factor that converts the community/
+    neighborhood interaction models from density-dependent to frequency-dependent transmission
+    (a fixed 1/population correction, not a tunable exponent -- see the .cpp for why), keyed on
+    home_population (population is always available from the UrbanPop binary). */
+amrex::Vector<amrex::Real> computeCommunitySizeScale(const amrex::Vector<BlockGroup>& block_groups,
+                                                     const ExaEpi::TestParams& params);
+
+/*! \brief Daytime analog of computeCommunitySizeScale, keyed on each community's *work* population
+    (BlockGroup::work_populations[0]) instead of home_population. Meant to populate a separate
+    scale array used only for daytime interactions, since home_population is not a meaningful
+    covariate for the population physically present in a community during the day (see
+    AgentContainer::comm_density_scale_work). */
+amrex::Vector<amrex::Real> computeCommunityWorkSizeScale(const amrex::Vector<BlockGroup>& block_groups,
+                                                         const ExaEpi::TestParams& params);
+
 struct UrbanPopData {
     // these three data structures are used for setting the initial cases
     amrex::Vector<int> FIPS_codes;

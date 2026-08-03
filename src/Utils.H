@@ -58,29 +58,11 @@ struct TestParams {
      */
     std::string urbanpop_filename;
 
-    /*! Optional side file mapping UrbanPop block-group GEOIDs to land area (km^2), used to scale
-        xmit_comm/xmit_hood by local population density (see DensityData). "" (default) disables
-        density scaling entirely -- UrbanPop only; has no effect on the deprecated Census path. */
-    std::string density_filename = "";
-    amrex::Real density_ref_density = -1.0; /*!< reference density; <=0 means "auto": population-weighted
-                                                 mean density over matched communities */
-    amrex::Real density_beta = 0.3;         /*!< exponent reshaping transmission by density; renormalized so it
-                                                 doesn't change the population-weighted average scale (see
-                                                 DensityData::computeCommunityScale) -- placeholder, not validated */
-    amrex::Real density_global_scale = 1.0; /*!< population-weighted average density scale factor (decoupled
-                                                 from density_beta's shape); beta=0 gives a flat scale equal to
-                                                 this value everywhere -- placeholder, not yet empirically validated */
-    amrex::Real density_min_scale = 0.5;    /*!< lower clip bound on the density scale factor -- placeholder */
-    amrex::Real density_max_scale = 2.0;    /*!< upper clip bound on the density scale factor -- placeholder */
-    bool density_diag = false;              /*!< if true, dump a per-community density/scale diagnostic CSV */
-
-    /*! Population-size-based alternative to density scaling (see DensityData::computeCommunitySizeScale
-        / computeCommunityWorkSizeScale). No side file needed -- home_population and work_populations[0]
-        are always available. When true, this takes over populating AgentContainer::comm_density_scale
-        (nighttime, keyed on home_population) and comm_density_scale_work (daytime, keyed on
-        work_populations[0]) instead of the density side file; mutually exclusive with density scaling
-        (used to isolate the size effect from the density effect). comm_hood_scale/min_scale/max_scale
-        below are shared by both mechanisms -- a decoupled sweep (fixing home, tuning work
+    /*! Population-size-based scale factor (see computeCommunitySizeScale / computeCommunityWorkSizeScale).
+        home_population and work_populations[0] are always available, no side file needed. When true,
+        this populates AgentContainer::comm_density_scale (nighttime, keyed on home_population) and
+        comm_density_scale_work (daytime, keyed on work_populations[0]). comm_hood_scale/min_scale/
+        max_scale below are shared by both -- a decoupled sweep (fixing home, tuning work
         independently) found no fit improvement over keeping them equal, so a single set is kept
         rather than duplicating home/work variants.
 

@@ -17,8 +17,6 @@ set(_sources
     DiseaseParm.cpp
     DemographicData.H
     DemographicData.cpp
-    DensityData.H
-    DensityData.cpp
     IO.H
     IO.cpp
     InteractionModel.H
