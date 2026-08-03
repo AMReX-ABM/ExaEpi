@@ -35,12 +35,11 @@ struct DensityData {
                                                      const ExaEpi::TestParams& params) const;
 };
 
-/*! \brief Compute a per-community population-size scale factor -- mirrors
-    DensityData::computeCommunityScale's decoupled global_scale/beta renormalization, but keys on
+/*! \brief Compute a per-community population-size scale factor that converts the community/
+    neighborhood interaction models from density-dependent to frequency-dependent transmission
+    (a fixed 1/population correction, not a tunable exponent -- see the .cpp for why), keyed on
     home_population directly instead of density (no side file needed: population is always
-    available from the UrbanPop binary). Tests whether community headcount, independent of
-    physical density, drives the ExaEpi/Epicast mismatch -- larger well-mixed communities have a
-    per-capita community-transmission growth rate proportional to their size. */
+    available from the UrbanPop binary). */
 amrex::Vector<amrex::Real> computeCommunitySizeScale(const amrex::Vector<BlockGroup>& block_groups,
                                                      const ExaEpi::TestParams& params);
 

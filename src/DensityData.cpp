@@ -122,17 +122,23 @@ amrex::Vector<amrex::Real> DensityData::computeCommunityScale (const amrex::Vect
     return scale;
 }
 
-/*! \brief Compute a per-community population-size scale factor, decoupling *how much* total
- *  transmission (size_global_scale) from *how it's redistributed* by community population
- *  (size_beta), exactly mirroring DensityData::computeCommunityScale:
- *    raw[c]   = population[c]^beta                                  -- shape only
+/*! \brief Compute a per-community population-size scale factor that corrects the community/
+ *  neighborhood interaction models (InteractionModComm.H/InteractionModNborhood.H) from
+ *  density-dependent to frequency-dependent transmission, decoupled from the overall calibrated
+ *  magnitude (size_global_scale):
+ *    raw[c]   = 1 / population[c]                                   -- fixed correction, not tunable
  *    scale[c] = clip(global_scale * raw[c]/mean(raw), min_scale, max_scale)
- *  where mean(raw) is the population-weighted mean of raw[] over all communities. No side file or
- *  GEOID matching is needed -- home_population is always available -- so every community
- *  participates (unlike density's matched/unmatched split). (There is deliberately no reference
- *  population to normalize population[c] against before raising it to beta: the mean(raw)
- *  division below renormalizes it away exactly -- raw[c]/mean(raw) is unaffected by any constant
- *  factor applied uniformly to raw[], which is all a reference population could contribute.) */
+ *  where mean(raw) is the population-weighted mean of raw[] over all communities. Those interaction
+ *  models multiply a susceptible's infection probability once per *raw count* of infectious agents
+ *  in their entire community/neighborhood, so without correction the force of infection scales with
+ *  the absolute size of the community (num_infected ~= population[c] * prevalence) rather than with
+ *  local prevalence alone. Dividing by population[c] exactly cancels that out: num_infected *
+ *  raw[c] ~= prevalence, independent of population[c]. This is a fixed correction for how the
+ *  interaction code counts contacts, not an epidemiological hypothesis to calibrate per scenario --
+ *  every fit sweep converged on this same 1/population form (previously exposed as a size_beta
+ *  parameter that always landed on -1.0), so it's built in rather than left tunable. No side file
+ *  or GEOID matching is needed -- home_population is always available -- so every community
+ *  participates (unlike density's matched/unmatched split). */
 amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockGroup>& block_groups,
                                                       const ExaEpi::TestParams& params) {
     Vector<Real> scale(block_groups.size(), 1.0_rt);
@@ -145,7 +151,7 @@ amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockG
     Real weighted_raw_sum = 0.0_rt;
     for (int c = 0; c < (int)block_groups.size(); ++c) {
         Real pop = (Real)block_groups[c].home_population;
-        raw[c] = std::pow(pop, params.size_beta);
+        raw[c] = 1.0_rt / pop;
         weighted_raw_sum += pop * raw[c];
     }
     Real mean_raw = (weight_sum > 0.0_rt) ? (weighted_raw_sum / weight_sum) : 1.0_rt;
@@ -161,16 +167,14 @@ amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockG
     return scale;
 }
 
-/*! \brief Compute a per-community work-population scale factor, decoupling *how much* total
- *  daytime transmission (size_global_scale) from *how it's redistributed* by community work
- *  population (size_beta), exactly mirroring computeCommunitySizeScale but keyed on
- *  work_populations[0] (total workers whose workplace is this community) instead of
- *  home_population:
- *    raw[c]   = work_population[c]^beta                          -- shape only
+/*! \brief Compute a per-community work-population scale factor, exactly mirroring
+ *  computeCommunitySizeScale but keyed on work_populations[0] (total workers whose workplace is
+ *  this community) instead of home_population:
+ *    raw[c]   = 1 / work_population[c]                           -- fixed correction, not tunable
  *    scale[c] = clip(global_scale * raw[c]/mean(raw), min_scale, max_scale)
  *  where mean(raw) is the work-population-weighted mean of raw[] over all communities. Communities
  *  with zero work population (no one's workplace is there) get scale=1.0, unaffected by
- *  global_scale, and don't contribute to the weighted mean. Shares beta/global_scale/min_scale/
+ *  global_scale, and don't contribute to the weighted mean. Shares global_scale/min_scale/
  *  max_scale with computeCommunitySizeScale (a decoupled sweep found no benefit to tuning them
  *  separately from the home/night values). */
 amrex::Vector<amrex::Real> computeCommunityWorkSizeScale (const amrex::Vector<BlockGroup>& block_groups,
@@ -189,7 +193,7 @@ amrex::Vector<amrex::Real> computeCommunityWorkSizeScale (const amrex::Vector<Bl
     for (int c = 0; c < (int)block_groups.size(); ++c) {
         Real pop = (Real)block_groups[c].work_populations[0];
         if (pop <= 0.0_rt) { continue; }
-        raw[c] = std::pow(pop, params.size_beta);
+        raw[c] = 1.0_rt / pop;
         weighted_raw_sum += pop * raw[c];
     }
     Real mean_raw = (weight_sum > 0.0_rt) ? (weighted_raw_sum / weight_sum) : 1.0_rt;

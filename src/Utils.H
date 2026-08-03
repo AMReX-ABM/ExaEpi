@@ -79,20 +79,30 @@ struct TestParams {
         are always available. When true, this takes over populating AgentContainer::comm_density_scale
         (nighttime, keyed on home_population) and comm_density_scale_work (daytime, keyed on
         work_populations[0]) instead of the density side file; mutually exclusive with density scaling
-        (used to isolate the size effect from the density effect). The same beta/global_scale/min_scale/
-        max_scale below are applied to both mechanisms -- a decoupled sweep (fixing home, tuning work
-        independently) found no fit improvement over keeping them equal, so a single set is kept rather
-        than duplicating home/work variants. There is deliberately no reference-population parameter:
-        each mechanism divides by the population-weighted mean of raw[] (see computeCommunitySizeScale),
-        which exactly cancels out any constant reference population raw[] would otherwise be normalized
-        by before exponentiation -- such a parameter would have no effect on the resulting scale. */
+        (used to isolate the size effect from the density effect). global_scale/min_scale/max_scale
+        below are shared by both mechanisms -- a decoupled sweep (fixing home, tuning work
+        independently) found no fit improvement over keeping them equal, so a single set is kept
+        rather than duplicating home/work variants.
+
+        There is no beta exponent to tune: both mechanisms hard-code a 1/population correction (see
+        computeCommunitySizeScale). InteractionModComm.H/InteractionModNborhood.H count the *raw
+        number* of infectious agents in a susceptible's entire community/neighborhood, so without
+        correction, a susceptible's force of infection from these venues scales with the absolute
+        size of their community (density-dependent transmission) rather than with local disease
+        prevalence (frequency-dependent transmission, the standard and more realistic assumption --
+        a person's number of meaningful community-level contacts doesn't grow just because their
+        census block group happens to have more people in it). Dividing by population[c] exactly
+        cancels that artifact: num_infected ~= population[c] * prevalence, so scale[c] ~ 1/population[c]
+        makes num_infected * scale[c] ~= prevalence, independent of population[c]. This was
+        discovered empirically as size_beta fitting to -1.0 across every calibration sweep, but it's
+        a correction for how the interaction code counts contacts, not a real epidemiological
+        hypothesis about large communities transmitting differently -- so it's built in rather than
+        left tunable. */
     bool size_scale_enabled = false;
-    amrex::Real size_beta = 0.0;            /*!< exponent reshaping transmission by community population size;
-                                                 renormalized so it doesn't change the population-weighted
-                                                 average scale -- placeholder, not yet empirically validated */
-    amrex::Real size_global_scale = 1.0;    /*!< population-weighted average size scale factor (decoupled
-                                                 from size_beta's shape); beta=0 gives a flat scale equal to
-                                                 this value everywhere -- placeholder, not yet empirically validated */
+    amrex::Real size_global_scale = 1.0;    /*!< population-weighted average size scale factor -- the
+                                                 overall calibrated magnitude of community/neighborhood
+                                                 transmission once the 1/population correction above
+                                                 has removed the community-size artifact */
     amrex::Real size_min_scale = 0.05;      /*!< lower clip bound on the size scale factor -- placeholder */
     amrex::Real size_max_scale = 20.0;      /*!< upper clip bound on the size scale factor -- placeholder */
 
