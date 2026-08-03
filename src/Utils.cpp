@@ -67,7 +67,7 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
         pp.query("density_diag", params.density_diag);
 
         pp.query("size_scale_enabled", params.size_scale_enabled);
-        pp.query("size_global_scale", params.size_global_scale);
+        pp.query("comm_hood_scale", params.comm_hood_scale);
         pp.query("size_min_scale", params.size_min_scale);
         pp.query("size_max_scale", params.size_max_scale);
     } else {

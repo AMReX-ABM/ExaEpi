@@ -79,7 +79,7 @@ struct TestParams {
         are always available. When true, this takes over populating AgentContainer::comm_density_scale
         (nighttime, keyed on home_population) and comm_density_scale_work (daytime, keyed on
         work_populations[0]) instead of the density side file; mutually exclusive with density scaling
-        (used to isolate the size effect from the density effect). global_scale/min_scale/max_scale
+        (used to isolate the size effect from the density effect). comm_hood_scale/min_scale/max_scale
         below are shared by both mechanisms -- a decoupled sweep (fixing home, tuning work
         independently) found no fit improvement over keeping them equal, so a single set is kept
         rather than duplicating home/work variants.
@@ -99,12 +99,15 @@ struct TestParams {
         hypothesis about large communities transmitting differently -- so it's built in rather than
         left tunable. */
     bool size_scale_enabled = false;
-    amrex::Real size_global_scale = 1.0;    /*!< population-weighted average size scale factor -- the
-                                                 overall calibrated magnitude of community/neighborhood
-                                                 transmission once the 1/population correction above
-                                                 has removed the community-size artifact */
-    amrex::Real size_min_scale = 0.05;      /*!< lower clip bound on the size scale factor -- placeholder */
-    amrex::Real size_max_scale = 20.0;      /*!< upper clip bound on the size scale factor -- placeholder */
+    amrex::Real comm_hood_scale = 1.0;      /*!< population-weighted average scale factor applied only to
+                                                 xmit_comm/xmit_hood (see InteractionModComm.H /
+                                                 InteractionModNborhood.H) -- the overall calibrated
+                                                 magnitude of community/neighborhood transmission once
+                                                 the 1/population correction above has removed the
+                                                 community-size artifact. Does not affect household,
+                                                 workgroup, school, or any other venue. */
+    amrex::Real size_min_scale = 0.05;      /*!< lower clip bound on comm_hood_scale -- placeholder */
+    amrex::Real size_max_scale = 20.0;      /*!< upper clip bound on comm_hood_scale -- placeholder */
 
     /*! Worker flow filename (ExaEpi::Initialization::readWorkerflow):
         It is a binary file that contains 3 x (number of work patthers) unsigned integer
