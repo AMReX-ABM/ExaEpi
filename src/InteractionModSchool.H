@@ -1,10 +1,13 @@
 /*! @file InteractionModSchool.H
  * \brief Contains the class describing agent interactions at school
  *
- * Applies a per-(community, school_id, grade) frequency-dependence correction to xmit_school/
- * xmit_school_a2c/xmit_school_c2a (see AgentContainer::computeSchoolGroupScale) -- flat 1.0 unless
- * TestParams::school_group_scale_enabled, analogous to comm_hood_scale for InteractionModComm.H, but
- * needed even more here: grade-at-school groups vary far more in size than communities do.
+ * Transmission happens within a school_class_group -- a compact ID for an agent's actual
+ * (community, school_id, grade, class) mixing bucket, assigned once by
+ * AgentContainer::assignSchoolClasses (see IntIdx::school_class_group / TestParams::school_class_size)
+ * -- rather than across an entire grade at a school. Also applies a per-school_class_group
+ * frequency-dependence correction to xmit_school/xmit_school_a2c/xmit_school_c2a (see
+ * AgentContainer::computeSchoolClassScale) -- flat 1.0 unless TestParams::school_group_scale_enabled,
+ * analogous to comm_hood_scale for InteractionModComm.H.
  */
 
 #ifndef _INTERACTION_MOD_SCHOOL_H_
@@ -59,43 +62,24 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
 
             auto& soa = ptile.GetStructOfArrays();
             auto school_grade_ptr = soa.GetIntData(IntIdx::school_grade).data();
-            auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
+            auto school_class_group_ptr = soa.GetIntData(IntIdx::school_class_group).data();
             auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
 
-            GetCommunityIndex<PTDType> getCommunityIndex;
-            getCommunityIndex.init(agents.Geom(lev), mfi.tilebox(), agents.comm_mf[mfi].array());
-            auto plo = getCommunityIndex.plo;
-            auto dxi = getCommunityIndex.dxi;
-            auto domain = getCommunityIndex.domain;
-            auto valid_box = getCommunityIndex.valid_box;
-            auto bin_size = getCommunityIndex.bin_size;
-            auto comm_to_local_index_d = getCommunityIndex.comm_to_local_index_d;
-            // Per-(community, school_id, grade) frequency-dependence correction (see
-            // AgentContainer::computeSchoolGroupScale) -- flat 1.0 unless school_group_scale_enabled.
-            // Indexed by cell position directly (the cell already identifies the community, so the
-            // array's own component only needs school_id/grade), unlike infected_school_d_ptr's "pos"
-            // key below which additionally folds in the tile-local community index.
-            auto school_scale_arr = agents.school_group_scale[mfi].const_array();
+            // Per-school_class_group frequency-dependence correction (see
+            // AgentContainer::computeSchoolClassScale) -- flat 1.0 unless school_group_scale_enabled.
+            auto school_scale_ptr = agents.school_class_scale.data();
 
-            int max_communities = getCommunityIndex.max();
-            int max_school_grade = agents.getMaxGroup(IntIdx::school_grade) + 1;
-            int max_school_id = agents.getMaxGroup(IntIdx::school_id) + 1;
+            int max_class_group = agents.getMaxGroup(IntIdx::school_class_group) + 1;
 
-            infected_school_d[OMP_THREAD_NUM].resize(max_communities * max_school_id * max_school_grade);
-            infected_daycare_d[OMP_THREAD_NUM].resize(max_communities * max_school_id * max_school_grade);
-            infected_school_asymp_d[OMP_THREAD_NUM].resize(max_communities * max_school_id * max_school_grade);
-            infected_daycare_asymp_d[OMP_THREAD_NUM].resize(max_communities * max_school_id * max_school_grade);
+            infected_school_d[OMP_THREAD_NUM].resize(max_class_group);
+            infected_daycare_d[OMP_THREAD_NUM].resize(max_class_group);
+            infected_school_asymp_d[OMP_THREAD_NUM].resize(max_class_group);
+            infected_daycare_asymp_d[OMP_THREAD_NUM].resize(max_class_group);
             auto infected_school_d_ptr = infected_school_d[OMP_THREAD_NUM].data();
             auto infected_daycare_d_ptr = infected_daycare_d[OMP_THREAD_NUM].data();
             auto infected_school_asymp_d_ptr = infected_school_asymp_d[OMP_THREAD_NUM].data();
             auto infected_daycare_asymp_d_ptr = infected_daycare_asymp_d[OMP_THREAD_NUM].data();
 
-            /*
-            Print() << mfi.tilebox() << " np " << np << " max communities " << max_communities
-                    << " max school id " << max_school_id << " max school grade " << max_school_grade
-                    << " school vector size " << max_communities * max_school_id * max_school_grade
-                    << "\n";
-            */
             for (int d = 0; d < n_disease; d++) {
                 for (auto adults : {true, false}) {
                     devMemset(infected_school_d_ptr, 0, infected_school_d[OMP_THREAD_NUM].size() * sizeof(int));
@@ -108,15 +92,10 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                     auto lparm = agents.getDiseaseParameters_d(d);
                     auto lparm_h = agents.getDiseaseParameters_h(d);
                     Real infect = (1.0_rt - lparm_h->vac_eff);
-                    auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
                     ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                         if (isInfectious(i, ptd, d) && isCandidate(i, ptd) && isAnAdult(i, ptd) == adults) {
-                            Box tbx;
-                            auto iv = getParticleCell(ptd, i, plo, dxi, domain);
-                            auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
-                            auto community = d_ptr[tidx];
-                            int pos = (community * max_school_id + school_id_ptr[i]) * max_school_grade + school_grade_ptr[i];
+                            int pos = school_class_group_ptr[i];
                             if (getSchoolType(school_grade_ptr[i]) == SchoolType::daycare) {
                                 if (isAsymptomatic(i, ptd, d) || isPresymptomatic(i, ptd, d)) {
                                     Gpu::Atomic::AddNoRet(&infected_daycare_asymp_d_ptr[pos], 1);
@@ -136,13 +115,8 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
 
                     ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                         if (isSusceptible(i, ptd, d) && isCandidate(i, ptd)) {
-                            Box tbx;
-                            auto iv = getParticleCell(ptd, i, plo, dxi, domain);
-                            auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
-                            auto community = d_ptr[tidx];
-                            int pos = (community * max_school_id + school_id_ptr[i]) * max_school_grade + school_grade_ptr[i];
-                            int scomp = school_id_ptr[i] * max_school_grade + school_grade_ptr[i];
-                            Real scale = school_scale_arr(iv[0], iv[1], 0, scomp);
+                            int pos = school_class_group_ptr[i];
+                            Real scale = school_scale_ptr[pos];
                             if (getSchoolType(school_grade_ptr[i]) == SchoolType::daycare) {
                                 if (adults && age_group_ptr[i] > AgeGroups::a5to17) { // adults-adults interaction accounted for
                                                                                       // in InteractionModWork.H

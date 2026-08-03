@@ -102,7 +102,9 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void moveAgentsToHome();
 
-    void computeSchoolGroupScale(const ExaEpi::TestParams& params);
+    void assignSchoolClasses(const ExaEpi::TestParams& params);
+
+    void computeSchoolClassScale(const ExaEpi::TestParams& params);
 
     void setTileSize (IntVect newTileSize) { tile_size = newTileSize; }
 
@@ -156,14 +158,13 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
         (flat 1.0 unless work-size-scale supplies real values in main.cpp). */
     amrex::MultiFab comm_density_scale_work;
 
-    /*! Per-(community, school_id, grade) frequency-dependence scale factor multiplying xmit_school/
+    /*! Per-school_class_group frequency-dependence scale factor multiplying xmit_school/
         xmit_school_a2c/xmit_school_c2a/xmit_school_scale -- see InteractionModSchool.H /
-        computeSchoolGroupScale. One MultiFab component per (school_id, grade) combination
-        (component index = school_id * max_school_grade + grade), same BoxArray/DistributionMapping
-        as comm_mf so each cell's components hold every school-grade group's scale at that community.
-        Always valid: flat 1.0 (ncomp=1) unless TestParams::school_group_scale_enabled populates it
-        with real per-group values. */
-    amrex::MultiFab school_group_scale;
+        AgentContainer::computeSchoolClassScale. Flat, rank-replicated (indexed directly by
+        IntIdx::school_class_group, which already encodes community+school_id+grade+class -- no
+        spatial MultiFab lookup needed). Always valid: sized 1 with a flat 1.0_rt entry until
+        computeSchoolClassScale populates it with real per-class values. */
+    amrex::Gpu::DeviceVector<amrex::Real> school_class_scale;
 
     short ic_type;
 

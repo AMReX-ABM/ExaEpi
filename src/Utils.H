@@ -110,23 +110,32 @@ struct TestParams {
     amrex::Real size_max_scale = 20.0;      /*!< upper clip bound on comm_hood_scale -- placeholder */
 
     /*! Frequency-dependence correction for school transmission (see InteractionModSchool.H /
-        AgentContainer::computeSchoolGroupScale), analogous to comm_hood_scale/size_scale_enabled but
-        keyed on each (community, school_id, grade) group's actual daytime enrollment instead of
-        community population. InteractionModSchool.H counts the raw number of infectious agents in a
-        susceptible's own grade-at-school group and applies xmit_school once per infectious agent
-        counted, so without correction, force of infection scales with that group's size (density-
-        dependent) rather than with local prevalence -- and NM UrbanPop grade-at-school groups vary
-        far more than communities do (median enrollment 31, but CV ~5.6 driven by a long tail of large
-        schools/colleges; see the school-group-size analysis in emerge-model-comparisons). No separate
-        magnitude knob is needed here: unlike comm_hood_scale, this correction's own population-weighted
-        mean is pinned to exactly 1.0 (not tunable), since xmit_school_scale already serves as the
-        overall school-transmission magnitude knob -- introducing a second one would be redundant. */
+        AgentContainer::computeSchoolClassScale), analogous to comm_hood_scale/size_scale_enabled but
+        keyed on each (community, school_id, grade, class) group's actual realized enrollment instead
+        of community population. InteractionModSchool.H counts the raw number of infectious agents in
+        a susceptible's own class and applies xmit_school once per infectious agent counted, so without
+        correction, force of infection scales with that group's size (density-dependent) rather than
+        with local prevalence. No separate magnitude knob is needed here: unlike comm_hood_scale, this
+        correction's own population-weighted mean is pinned to exactly 1.0 (not tunable), since
+        xmit_school_scale already serves as the overall school-transmission magnitude knob --
+        introducing a second one would be redundant. */
     bool school_group_scale_enabled = false;
     amrex::Real school_group_min_scale = 0.05; /*!< lower clip bound on the school-group scale factor */
     amrex::Real school_group_max_scale = 100.0; /*!< upper clip bound -- wider than size_max_scale since
                                                     school-group sizes are far more skewed than community
                                                     sizes (a group of 1 needs a raw ~ mean_group_size
                                                     multiplier, which is ~60 for NM) */
+
+    /*! Split each (community, school_id, grade) group into fixed-size classes (see
+        AgentContainer::assignSchoolClasses) so school transmission happens within a class (~15
+        classmates) rather than across an entire grade at a school -- a grade-at-school group averages
+        ~62 students statewide (NM UrbanPop), with a long tail into the thousands for colleges, far
+        larger than a real classroom. Educators teaching that grade are spread uniformly across its
+        classes the same way regular workers are spread across a workplace's workgroup buckets (see
+        agent.workgroup_size). Set school_class_enabled=false to fall back to one class per group
+        (today's whole-grade-mixing behavior). */
+    bool school_class_enabled = true;
+    int school_class_size = 15; /*!< target number of students per class */
 
     /*! Worker flow filename (ExaEpi::Initialization::readWorkerflow):
         It is a binary file that contains 3 x (number of work patthers) unsigned integer

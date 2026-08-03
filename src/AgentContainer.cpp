@@ -259,45 +259,47 @@ void AgentContainer::moveAgentsToHome () {
     AMREX_ASSERT(OK());
 }
 
-/*! \brief Compute AgentContainer::school_group_scale, a per-(community, school_id, grade)
-    frequency-dependence correction analogous to comm_hood_scale (see DensityData.cpp), but keyed on
-    each grade-at-school group's actual daytime enrollment instead of community population.
+/*! \brief Assign each school_id>0 agent to a class within its (community, school_id, grade) group --
+    see IntIdx::school_class / IntIdx::school_class_group and TestParams::school_class_size /
+    school_class_enabled. Splits each raw group into ceil(child_count / school_class_size) fixed-size
+    classes (or exactly 1 class per group if school_class_enabled is false, reproducing the
+    pre-class-splitting whole-grade-mixing behavior). Educators teaching that grade are drawn into the
+    same set of classes independently of the students, the same idiom already used to spread regular
+    workers across a workplace's workgroup buckets (see agent.workgroup_size / UrbanPopData.cpp) --
+    not an attempt at exact balance.
 
-    InteractionModSchool.H counts the raw number of infectious agents in a susceptible's own
-    (community, school_id, grade) group and applies xmit_school once per infectious agent counted, so
-    without correction force of infection scales with that group's enrollment (density-dependent)
-    rather than with local prevalence. NM UrbanPop grade-at-school groups vary far more than
-    communities do (median enrollment ~31 but a long tail out to thousands for colleges), so this
-    matters more here than it did for xmit_comm.
-
-    Precondition: agents must already be at their work position (isAtWork() -- i.e. called after
-    moveAgentsToWork(), not right after initial agent load). Tallying is done directly into a
-    box-partitioned MultiFab keyed on (work_i, work_j), the same way DiseaseStatus.H/HospitalModel.H
-    already tally home-position diagnostics keyed on (home_i, home_j) -- this relies on
-    Redistribute() placing every agent in the box that geometrically contains its work_i/work_j cell,
-    which was verified directly (BoxArray::intersections() as independent ground truth, checked
-    against the box/rank a particle actually lands in): 0 mismatches across 1/4/8-rank runs and 5
-    simulated days, once agents moveAgentsToWork() itself skips (hospitalized/traveling) are excluded.
-    An earlier version of this function avoided box-partitioned tallying entirely, based on a
-    since-retracted finding that Redistribute() was unreliable here (~72% mismatch) -- that finding
-    did not reproduce under a properly GPU-synced check and is no longer believed to reflect real
-    AMReX behavior. */
-void AgentContainer::computeSchoolGroupScale (const ExaEpi::TestParams& params) {
-    BL_PROFILE("AgentContainer::computeSchoolGroupScale");
+    Called once, on a FRESH run only (never on restart): IntIdx::school_class/school_class_group are
+    persistent per-agent attributes, checkpointed/restored like any other SoA attribute, so redrawing
+    them on restart would silently reshuffle students into different classmates than the original run
+    had, breaking continuity for restarted or branched runs. Tallies enrollment directly from the
+    static work_i/work_j/school_id/school_grade attributes (not particle position), so unlike
+    computeSchoolClassScale this doesn't need agents at their work position. The resulting
+    school_class_group numbering is computed identically on every rank (from a globally-reduced flat
+    array), so it stays meaningful even if a later restart uses a different rank count. */
+void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
+    BL_PROFILE("AgentContainer::assignSchoolClasses");
 
     int max_school_id = getMaxGroup(IntIdx::school_id) + 1;
     int max_grade = getMaxGroup(IntIdx::school_grade) + 1;
     int ncomp = max_school_id * max_grade;
 
-    school_group_scale.define(comm_mf.boxArray(), comm_mf.DistributionMap(), ncomp, 0);
-    school_group_scale.setVal(1.0_rt);
+    const Box& domain = Geom(0).Domain();
+    int domain_x = domain.length(0);
+    int domain_y = domain.length(1);
+    long n_flat = (long)domain_x * (long)domain_y * (long)ncomp;
 
-    if (!params.school_group_scale_enabled) { return; }
-
-    AMREX_ALWAYS_ASSERT(isAtWork());
-
-    MultiFab counts(comm_mf.boxArray(), comm_mf.DistributionMap(), ncomp, 0);
-    counts.setVal(0.0_rt);
+    // Pass 1: tally student enrollment (naics == -1, i.e. not employed -- the same distinction
+    // UrbanPopData.cpp already uses to tell students from educators, since school_grade alone doesn't
+    // work here: college students are adults by age_group, but are not employees) and total
+    // enrollment (students + educators) per (community, school_id, grade) raw group. Both are needed
+    // in Pass 2: class *count* scales with student enrollment, but a group with educators and no
+    // students still needs at least one class for them to land in, and a genuinely empty group needs
+    // none (avoiding reserving a wasted slot for every unoccupied community/school_id/grade
+    // combination in the domain, most of which no agent ever touches).
+    Gpu::DeviceVector<Real> student_count_d(n_flat, 0.0_rt);
+    Gpu::DeviceVector<Real> total_count_d(n_flat, 0.0_rt);
+    auto* student_count_ptr = student_count_d.data();
+    auto* total_count_ptr = total_count_d.data();
 
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev = GetParticles(lev);
@@ -311,60 +313,168 @@ void AgentContainer::computeSchoolGroupScale (const ExaEpi::TestParams& params) 
             auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
             auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
             auto school_grade_ptr = soa.GetIntData(IntIdx::school_grade).data();
+            auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
 
-            auto counts_arr = counts[mfi].array();
             amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
                 if (school_id_ptr[ip] > 0) {
-                    int comp = school_id_ptr[ip] * max_grade + school_grade_ptr[ip];
-                    Gpu::Atomic::AddNoRet(&counts_arr(work_i_ptr[ip], work_j_ptr[ip], 0, comp), 1.0_rt);
+                    long flat_comm = (long)work_j_ptr[ip] * domain_x + (long)work_i_ptr[ip];
+                    long idx = flat_comm * ncomp + school_id_ptr[ip] * max_grade + school_grade_ptr[ip];
+                    Gpu::Atomic::AddNoRet(&total_count_ptr[idx], 1.0_rt);
+                    if (naics_ptr[ip] == -1) { Gpu::Atomic::AddNoRet(&student_count_ptr[idx], 1.0_rt); }
                 }
             });
         }
     }
-    Gpu::synchronize();
+    Gpu::streamSynchronize();
 
-    // mean_raw = (population-weighted mean of 1/enrollment) = (# nonzero buckets) / (# agents), since
-    // sum_over_agents(1/enrollment[bucket]) == sum_over_buckets(enrollment * 1/enrollment) == #
-    // buckets touched.
-    Gpu::DeviceScalar<Real> n_nonzero_d(0.0_rt);
-    Gpu::DeviceScalar<Real> n_agents_d(0.0_rt);
-    auto* n_nonzero_ptr = n_nonzero_d.dataPtr();
-    auto* n_agents_ptr = n_agents_d.dataPtr();
-    for (MFIter mfi(counts); mfi.isValid(); ++mfi) {
-        auto counts_arr = counts.const_array(mfi);
-        amrex::ParallelFor(mfi.tilebox(), ncomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n) noexcept {
-            Real c = counts_arr(i, j, k, n);
-            if (c > 0.0_rt) {
-                Gpu::Atomic::AddNoRet(n_nonzero_ptr, 1.0_rt);
-                Gpu::Atomic::AddNoRet(n_agents_ptr, c);
+    Vector<Real> student_count_h(n_flat);
+    Vector<Real> total_count_h(n_flat);
+    Gpu::copyAsync(Gpu::deviceToHost, student_count_d.begin(), student_count_d.end(), student_count_h.begin());
+    Gpu::copyAsync(Gpu::deviceToHost, total_count_d.begin(), total_count_d.end(), total_count_h.begin());
+    Gpu::streamSynchronize();
+    ParallelDescriptor::ReduceRealSum(student_count_h.data(), (int)n_flat);
+    ParallelDescriptor::ReduceRealSum(total_count_h.data(), (int)n_flat);
+
+    // Pass 2: host-side compaction, identical on every rank -- decide how many classes each raw group
+    // needs, and assign every raw group a base offset into a densely-packed, no-wasted-slots global
+    // school_class_group space.
+    Vector<int> n_classes_h(n_flat);
+    Vector<long> class_group_base_h(n_flat);
+    long max_class_group = 0;
+    for (long idx = 0; idx < n_flat; ++idx) {
+        int n_classes = 0;
+        if (total_count_h[idx] > 0.0_rt) {
+            n_classes = 1;
+            if (params.school_class_enabled && student_count_h[idx] > 0.0_rt) {
+                n_classes = std::max(1, (int)std::ceil(student_count_h[idx] / (Real)params.school_class_size));
             }
-        });
+        }
+        n_classes_h[idx] = n_classes;
+        class_group_base_h[idx] = max_class_group;
+        max_class_group += n_classes;
     }
-    Gpu::synchronize();
 
-    Real n_nonzero = n_nonzero_d.dataValue();
-    Real n_agents = n_agents_d.dataValue();
-    ParallelDescriptor::ReduceRealSum(n_nonzero);
-    ParallelDescriptor::ReduceRealSum(n_agents);
+    Gpu::DeviceVector<int> n_classes_d(n_flat);
+    Gpu::DeviceVector<long> class_group_base_d(n_flat);
+    Gpu::copyAsync(Gpu::hostToDevice, n_classes_h.begin(), n_classes_h.end(), n_classes_d.begin());
+    Gpu::copyAsync(Gpu::hostToDevice, class_group_base_h.begin(), class_group_base_h.end(), class_group_base_d.begin());
+    Gpu::streamSynchronize();
+    auto* n_classes_ptr = n_classes_d.data();
+    auto* class_group_base_ptr = class_group_base_d.data();
+
+    // Pass 3: assign each school_id>0 agent (student or educator) a class within its raw group via an
+    // independent per-agent random draw.
+    for (int lev = 0; lev <= finestLevel(); ++lev) {
+        auto& plev = GetParticles(lev);
+        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
+            auto& ptile = plev[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
+            const size_t np = ptile.GetArrayOfStructs().numParticles();
+            if (np == 0) { continue; }
+
+            auto& soa = ptile.GetStructOfArrays();
+            auto work_i_ptr = soa.GetIntData(IntIdx::work_i).data();
+            auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
+            auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
+            auto school_grade_ptr = soa.GetIntData(IntIdx::school_grade).data();
+            auto school_class_ptr = soa.GetIntData(IntIdx::school_class).data();
+            auto school_class_group_ptr = soa.GetIntData(IntIdx::school_class_group).data();
+
+            amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int ip, RandomEngine const& engine) noexcept {
+                if (school_id_ptr[ip] > 0) {
+                    long flat_comm = (long)work_j_ptr[ip] * domain_x + (long)work_i_ptr[ip];
+                    long raw_group = flat_comm * ncomp + school_id_ptr[ip] * max_grade + school_grade_ptr[ip];
+                    int n_classes = n_classes_ptr[raw_group];
+                    int school_class = Random_int(n_classes, engine);
+                    school_class_ptr[ip] = school_class;
+                    school_class_group_ptr[ip] = (int)(class_group_base_ptr[raw_group] + school_class);
+                } else {
+                    school_class_ptr[ip] = 0;
+                    school_class_group_ptr[ip] = -1;
+                }
+            });
+        }
+    }
+    Gpu::streamSynchronize();
+
+    amrex::Print() << "SchoolClasses: " << max_class_group << " classes across " << max_school_id
+                   << " school_ids x " << max_grade << " grades (school_class_size="
+                   << params.school_class_size << ", enabled=" << (params.school_class_enabled ? "true" : "false")
+                   << ")\n";
+}
+
+/*! \brief Compute AgentContainer::school_class_scale, a per-school_class_group frequency-dependence
+    correction analogous to comm_hood_scale (see DensityData.cpp), but keyed on each class's actual
+    realized enrollment instead of community population -- see TestParams::school_group_scale_enabled/
+    min/max and AgentContainer::assignSchoolClasses for how school_class_group is assigned.
+
+    InteractionModSchool.H counts the raw number of infectious agents in a susceptible's own class and
+    applies xmit_school once per infectious agent counted, so without correction force of infection
+    scales with that class's realized size (density-dependent) rather than with local prevalence --
+    classes are much more uniform in size than whole grade-at-school groups were, but the last class in
+    a group can still be partially filled.
+
+    Unlike assignSchoolClasses, this recomputes on every run (fresh or restart): it's a pure,
+    deterministic function of the (by now fixed, whether freshly assigned or restored from a
+    checkpoint) school_class_group attribute, so rerunning it has no continuity downside. */
+void AgentContainer::computeSchoolClassScale (const ExaEpi::TestParams& params) {
+    BL_PROFILE("AgentContainer::computeSchoolClassScale");
+
+    int max_class_group = getMaxGroup(IntIdx::school_class_group) + 1;
+
+    school_class_scale.resize(max_class_group);
+    auto* init_scale_ptr = school_class_scale.data();
+    amrex::ParallelFor(max_class_group, [=] AMREX_GPU_DEVICE (int i) noexcept { init_scale_ptr[i] = 1.0_rt; });
+    Gpu::streamSynchronize();
+
+    if (!params.school_group_scale_enabled) { return; }
+
+    Gpu::DeviceVector<Real> counts_d(max_class_group, 0.0_rt);
+    auto* counts_ptr = counts_d.data();
+
+    for (int lev = 0; lev <= finestLevel(); ++lev) {
+        auto& plev = GetParticles(lev);
+        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
+            auto& ptile = plev[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
+            const size_t np = ptile.GetArrayOfStructs().numParticles();
+            if (np == 0) { continue; }
+
+            auto& soa = ptile.GetStructOfArrays();
+            auto school_class_group_ptr = soa.GetIntData(IntIdx::school_class_group).data();
+
+            amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
+                int g = school_class_group_ptr[ip];
+                if (g >= 0) { Gpu::Atomic::AddNoRet(&counts_ptr[g], 1.0_rt); }
+            });
+        }
+    }
+    Gpu::streamSynchronize();
+
+    Vector<Real> counts_h(max_class_group);
+    Gpu::copyAsync(Gpu::deviceToHost, counts_d.begin(), counts_d.end(), counts_h.begin());
+    Gpu::streamSynchronize();
+    ParallelDescriptor::ReduceRealSum(counts_h.data(), max_class_group);
+
+    Real n_nonzero = 0.0_rt;
+    Real n_agents = 0.0_rt;
+    Vector<Real> scale_h(max_class_group, 1.0_rt);
+    for (int idx = 0; idx < max_class_group; ++idx) {
+        if (counts_h[idx] > 0.0_rt) { n_nonzero += 1.0_rt; n_agents += counts_h[idx]; }
+    }
     Real mean_raw = (n_agents > 0.0_rt) ? (n_nonzero / n_agents) : 1.0_rt;
 
     Real min_scale = params.school_group_min_scale;
     Real max_scale = params.school_group_max_scale;
-    for (MFIter mfi(counts); mfi.isValid(); ++mfi) {
-        auto counts_arr = counts.const_array(mfi);
-        auto scale_arr = school_group_scale[mfi].array();
-        amrex::ParallelFor(mfi.tilebox(), ncomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n) noexcept {
-            Real c = counts_arr(i, j, k, n);
-            Real raw = (c > 0.0_rt) ? (1.0_rt / c) : 1.0_rt;
-            Real s = raw / mean_raw;
-            scale_arr(i, j, k, n) = amrex::max(min_scale, amrex::min(max_scale, s));
-        });
+    for (int idx = 0; idx < max_class_group; ++idx) {
+        Real raw = (counts_h[idx] > 0.0_rt) ? (1.0_rt / counts_h[idx]) : 1.0_rt;
+        Real s = raw / mean_raw;
+        scale_h[idx] = std::max(min_scale, std::min(max_scale, s));
     }
-    Gpu::synchronize();
 
-    amrex::Print() << "SchoolGroupScale: " << (long)n_agents << " enrolled agents across " << max_school_id
-                   << " school_ids x " << max_grade << " grades (" << (long)n_nonzero
-                   << " groups, mean_raw=" << mean_raw << ")\n";
+    Gpu::copyAsync(Gpu::hostToDevice, scale_h.begin(), scale_h.end(), school_class_scale.begin());
+    Gpu::streamSynchronize();
+
+    amrex::Print() << "SchoolClassScale: " << (long)n_agents << " enrolled agents across " << max_class_group
+                   << " classes, mean_raw=" << mean_raw << "\n";
 }
 
 /*! \brief Move agents randomly

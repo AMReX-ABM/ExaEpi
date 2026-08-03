@@ -668,12 +668,18 @@ void runAgent () {
 
             pc.morningCommute(mask_behavior);
 
-            // Populate pc.school_group_scale (frequency-dependence correction for xmit_school, see
-            // AgentContainer::computeSchoolGroupScale) -- a no-op (flat 1.0) unless
-            // school_group_scale_enabled. Must run after morningCommute() (agents at work) since the
-            // tally is keyed on (work_i, work_j) box position; only needs to happen once per run, on
-            // whichever day (fresh start or restart) this run begins on.
-            if (i == start_day && params.ic_type == ICType::UrbanPop) { pc.computeSchoolGroupScale(params); }
+            // Split each (community, school_id, grade) group into fixed-size classes (see
+            // AgentContainer::assignSchoolClasses) and populate pc.school_class_scale (frequency-
+            // dependence correction for xmit_school, see AgentContainer::computeSchoolClassScale --
+            // a no-op, flat 1.0, unless school_group_scale_enabled). Only needs to happen once per
+            // run, on whichever day (fresh start or restart) this run begins on. assignSchoolClasses
+            // itself only runs on a fresh start: IntIdx::school_class/school_class_group are
+            // persistent, checkpointed attributes, so a restart must keep whatever classes the
+            // original run assigned rather than redrawing them.
+            if (i == start_day) {
+                if (params.restart_chkfile.empty()) { pc.assignSchoolClasses(params); }
+                pc.computeSchoolClassScale(params);
+            }
 
             interact(&AgentContainer::interactWork, diag_exp_work);
             interact(&AgentContainer::interactHospital, diag_exp_hosp);

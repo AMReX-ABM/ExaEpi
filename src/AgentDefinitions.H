@@ -53,6 +53,13 @@ struct IntIdx {
         school_grade,  /*!< school grade, including universities */
         school_id,     /*!< ID for a given school */
         school_closed, /*!< 0 for open, 1 for closed */
+        school_class,  /*!< 0-based class index within this agent's (school_id, grade) group at its
+                            work community -- diagnostic only, see AgentContainer::assignSchoolClasses
+                            / school_class_group below */
+        school_class_group, /*!< compact, densely-packed ID for this agent's actual (community,
+                                 school_id, grade, school_class) mixing bucket -- see
+                                 AgentContainer::assignSchoolClasses / InteractionModSchool.H. -1 for
+                                 agents not enrolled (school_id == 0) */
         naics,         /*!< industry NAICS code for business employed at */
         workgroup,     /*!< workgroup ID */
         work_nborhood, /*!< work neighborhood ID */
@@ -382,6 +389,8 @@ void setAgentData (PTDType& ptd, int ip, int i, int j, const amrex::GpuArray<amr
     ptd.m_idata[IntIdx::work_nborhood][ip] = nborhood;
     ptd.m_idata[IntIdx::workgroup][ip] = 0;
     ptd.m_idata[IntIdx::naics][ip] = 0;
+    ptd.m_idata[IntIdx::school_class][ip] = 0;
+    ptd.m_idata[IntIdx::school_class_group][ip] = -1;
     ptd.m_idata[IntIdx::random_travel][ip] = -1;
     ptd.m_idata[IntIdx::air_travel][ip] = -1;
 }

@@ -78,6 +78,9 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
         amrex::Abort("ic_type not recognized (currently supported 'census')");
     }
 
+    pp.query("school_class_enabled", params.school_class_enabled);
+    pp.query("school_class_size", params.school_class_size);
+
     pp.query("max_box_size", params.max_box_size);
 
     pp.query("aggregated_diag_int", params.aggregated_diag_int);
