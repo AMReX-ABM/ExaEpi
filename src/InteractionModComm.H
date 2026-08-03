@@ -2,9 +2,11 @@
  * \brief Community transmission only — xmit_comm
  *
  * Counts infectious agents at the community level and applies transmission to
- * susceptible agents in the same community.  Agents already counted by
- * InteractionModNborhood (same-neighborhood agents) are subtracted from the
- * community count to avoid double-counting.
+ * susceptible agents in the same community. Same-neighborhood agents are NOT
+ * excluded from this count: they are counted here AND separately by
+ * InteractionModNborhood, matching Epicast's venue model, where venues are not
+ * mutually exclusive -- two agents sharing a neighborhood interact via both the
+ * neighborhood venue and the community venue concurrently, not one or the other.
  *
  * Parameterized for day vs. night — same convention as InteractionModNborhood:
  *   - Day (m_is_day=true):  uses IntIdx::work_nborhood + WorkNborhoodCandidate
@@ -46,14 +48,8 @@ void InteractionModComm<PCType, PTDType, PType>::fastInteractComm (PCType& agent
     HomeNborhoodCandidate<PTDType> isHomeCandidate;
     bool is_day = m_is_day;
 
-    int nborhood_attr = is_day ? IntIdx::work_nborhood : IntIdx::nborhood;
-
-    // nborhood counts are needed to subtract neighborhood agents from the
-    // community count (they are handled by InteractionModNborhood).
     Vector<Gpu::DeviceVector<int>> infected_community_d(OMP_MAX_THREADS);
     Vector<Gpu::DeviceVector<int>> infected_community_asymp_d(OMP_MAX_THREADS);
-    Vector<Gpu::DeviceVector<int>> infected_nborhood_d(OMP_MAX_THREADS);
-    Vector<Gpu::DeviceVector<int>> infected_nborhood_asymp_d(OMP_MAX_THREADS);
 
     for (int lev = 0; lev < agents.numLevels(); ++lev) {
 #ifdef AMREX_USE_OMP
@@ -66,7 +62,6 @@ void InteractionModComm<PCType, PTDType, PType>::fastInteractComm (PCType& agent
             if (np == 0) { continue; }
 
             auto& soa = ptile.GetStructOfArrays();
-            auto nborhood_ptr = soa.GetIntData(nborhood_attr).data();
 
             GetCommunityIndex<PTDType> getCommunityIndex;
             getCommunityIndex.init(agents.Geom(lev), mfi.tilebox(), agents.comm_mf[mfi].array());
@@ -78,23 +73,16 @@ void InteractionModComm<PCType, PTDType, PType>::fastInteractComm (PCType& agent
             auto bin_size = getCommunityIndex.bin_size;
 
             int max_communities = getCommunityIndex.max();
-            int max_nborhood = agents.getMaxGroup(nborhood_attr) + 1;
 
             infected_community_d[OMP_THREAD_NUM].resize(max_communities);
             infected_community_asymp_d[OMP_THREAD_NUM].resize(max_communities);
-            infected_nborhood_d[OMP_THREAD_NUM].resize(max_communities * max_nborhood);
-            infected_nborhood_asymp_d[OMP_THREAD_NUM].resize(max_communities * max_nborhood);
 
             auto infected_community_d_ptr = infected_community_d[OMP_THREAD_NUM].data();
             auto infected_community_asymp_d_ptr = infected_community_asymp_d[OMP_THREAD_NUM].data();
-            auto infected_nborhood_d_ptr = infected_nborhood_d[OMP_THREAD_NUM].data();
-            auto infected_nborhood_asymp_d_ptr = infected_nborhood_asymp_d[OMP_THREAD_NUM].data();
 
             for (int d = 0; d < n_disease; d++) {
                 devMemset(infected_community_d_ptr, 0, infected_community_d[OMP_THREAD_NUM].size() * sizeof(int));
                 devMemset(infected_community_asymp_d_ptr, 0, infected_community_asymp_d[OMP_THREAD_NUM].size() * sizeof(int));
-                devMemset(infected_nborhood_d_ptr, 0, infected_nborhood_d[OMP_THREAD_NUM].size() * sizeof(int));
-                devMemset(infected_nborhood_asymp_d_ptr, 0, infected_nborhood_asymp_d[OMP_THREAD_NUM].size() * sizeof(int));
 
                 auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                 auto lparm = agents.getDiseaseParameters_d(d);
@@ -109,13 +97,10 @@ void InteractionModComm<PCType, PTDType, PType>::fastInteractComm (PCType& agent
                         auto iv = getParticleCell(ptd, i, plo, dxi, domain);
                         auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                         auto community = d_ptr[tidx];
-                        auto nborhood_i = community * max_nborhood + nborhood_ptr[i];
                         if (isAsymptomatic(i, ptd, d) || isPresymptomatic(i, ptd, d)) {
                             Gpu::Atomic::AddNoRet(&infected_community_asymp_d_ptr[community], 1);
-                            Gpu::Atomic::AddNoRet(&infected_nborhood_asymp_d_ptr[nborhood_i], 1);
                         } else {
                             Gpu::Atomic::AddNoRet(&infected_community_d_ptr[community], 1);
-                            Gpu::Atomic::AddNoRet(&infected_nborhood_d_ptr[nborhood_i], 1);
                         }
                     }
                 });
@@ -128,18 +113,11 @@ void InteractionModComm<PCType, PTDType, PType>::fastInteractComm (PCType& agent
                         auto iv = getParticleCell(ptd, i, plo, dxi, domain);
                         auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                         auto community = d_ptr[tidx];
-                        auto nborhood_i = community * max_nborhood + nborhood_ptr[i];
                         Real scale = density_scale_arr(iv[0], iv[1], 0);
 
-                        int num_infected_nborhood = infected_nborhood_d_ptr[nborhood_i];
-                        int num_infected_nborhood_asymp = infected_nborhood_asymp_d_ptr[nborhood_i];
+                        int num_infected_community = infected_community_d_ptr[community];
+                        int num_infected_community_asymp = infected_community_asymp_d_ptr[community];
 
-                        // Subtract neighborhood agents — they are handled by InteractionModNborhood
-                        int num_infected_community = infected_community_d_ptr[community] - num_infected_nborhood;
-                        int num_infected_community_asymp =
-                                infected_community_asymp_d_ptr[community] - num_infected_nborhood_asymp;
-
-                        AMREX_ALWAYS_ASSERT(num_infected_community >= 0);
                         Real comm_prob = 1.0_prt - infect * lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * scale;
                         Real comm_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect *
                                                                  lparm->xmit_comm[ptd.m_idata[IntIdx::age_group][i]] * scale;

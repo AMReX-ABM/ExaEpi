@@ -4,6 +4,18 @@
  * Counts infectious agents in each neighborhood and applies transmission to
  * susceptible agents in the same neighborhood.
  *
+ * Unlike InteractionModComm.H, this does NOT apply the population-size correction
+ * (AgentContainer::comm_density_scale / comm_density_scale_work, see
+ * DensityData::computeCommunitySizeScale). That correction targets community-level
+ * headcount variance, which is substantial (CV ~0.6 in NM UrbanPop data); neighborhood
+ * sizes, by contrast, are kept close to the nborhood_size target regardless of their
+ * parent community's size (UrbanPopData.cpp's get_max_nborhood adds more neighborhoods
+ * to bigger communities rather than growing each one), so their actual measured
+ * population is nearly constant (CV ~0.16 in NM UrbanPop data) and essentially
+ * uncorrelated with community size (Pearson r ~ -0.07). Applying the community-keyed
+ * correction here would scale xmit_hood by a covariate (community population) that has
+ * little to do with what actually determines a neighborhood's infectious headcount.
+ *
  * Parameterized for day vs. night:
  *   - Day (m_is_day=true):  uses IntIdx::work_nborhood; requires random_travel < 0
  *   - Night (m_is_day=false): uses IntIdx::nborhood; allows random travelers
@@ -84,7 +96,6 @@ void InteractionModNborhood<PCType, PTDType, PType>::fastInteractNborhood (PCTyp
 
             GetCommunityIndex<PTDType> getCommunityIndex;
             getCommunityIndex.init(agents.Geom(lev), mfi.tilebox(), agents.comm_mf[mfi].array());
-            auto density_scale_arr = (is_day ? agents.comm_density_scale_work : agents.comm_density_scale)[mfi].const_array();
             auto plo = getCommunityIndex.plo;
             auto dxi = getCommunityIndex.dxi;
             auto domain = getCommunityIndex.domain;
@@ -135,14 +146,13 @@ void InteractionModNborhood<PCType, PTDType, PType>::fastInteractNborhood (PCTyp
                         auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                         auto community = d_ptr[tidx];
                         auto nborhood_i = community * max_nborhood + nborhood_ptr[i];
-                        Real scale = density_scale_arr(iv[0], iv[1], 0);
 
                         int num_infected_nborhood = infected_nborhood_d_ptr[nborhood_i];
                         int num_infected_nborhood_asymp = infected_nborhood_asymp_d_ptr[nborhood_i];
 
-                        Real nborhood_prob = 1.0_prt - infect * lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * scale;
+                        Real nborhood_prob = 1.0_prt - infect * lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]];
                         Real nborhood_prob_asymp = 1.0_prt - lparm->asymp_relative_inf * infect *
-                                                                     lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]] * scale;
+                                                                     lparm->xmit_hood[ptd.m_idata[IntIdx::age_group][i]];
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nborhood_prob, num_infected_nborhood));
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(nborhood_prob_asymp, num_infected_nborhood_asymp));
                     }
