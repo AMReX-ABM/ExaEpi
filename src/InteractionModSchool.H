@@ -1,5 +1,10 @@
 /*! @file InteractionModSchool.H
  * \brief Contains the class describing agent interactions at school
+ *
+ * Applies a per-(community, school_id, grade) frequency-dependence correction to xmit_school/
+ * xmit_school_a2c/xmit_school_c2a (see AgentContainer::computeSchoolGroupScale) -- flat 1.0 unless
+ * TestParams::school_group_scale_enabled, analogous to comm_hood_scale for InteractionModComm.H, but
+ * needed even more here: grade-at-school groups vary far more in size than communities do.
  */
 
 #ifndef _INTERACTION_MOD_SCHOOL_H_
@@ -65,6 +70,12 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
             auto valid_box = getCommunityIndex.valid_box;
             auto bin_size = getCommunityIndex.bin_size;
             auto comm_to_local_index_d = getCommunityIndex.comm_to_local_index_d;
+            // Per-(community, school_id, grade) frequency-dependence correction (see
+            // AgentContainer::computeSchoolGroupScale) -- flat 1.0 unless school_group_scale_enabled.
+            // Indexed by cell position directly (the cell already identifies the community, so the
+            // array's own component only needs school_id/grade), unlike infected_school_d_ptr's "pos"
+            // key below which additionally folds in the tile-local community index.
+            auto school_scale_arr = agents.school_group_scale[mfi].const_array();
 
             int max_communities = getCommunityIndex.max();
             int max_school_grade = agents.getMaxGroup(IntIdx::school_grade) + 1;
@@ -96,7 +107,6 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                     auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                     auto lparm = agents.getDiseaseParameters_d(d);
                     auto lparm_h = agents.getDiseaseParameters_h(d);
-                    Real scale = 1.0_rt; // TODO this should vary based on cell
                     Real infect = (1.0_rt - lparm_h->vac_eff);
                     auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
@@ -131,6 +141,8 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                             auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                             auto community = d_ptr[tidx];
                             int pos = (community * max_school_id + school_id_ptr[i]) * max_school_grade + school_grade_ptr[i];
+                            int scomp = school_id_ptr[i] * max_school_grade + school_grade_ptr[i];
+                            Real scale = school_scale_arr(iv[0], iv[1], 0, scomp);
                             if (getSchoolType(school_grade_ptr[i]) == SchoolType::daycare) {
                                 if (adults && age_group_ptr[i] > AgeGroups::a5to17) { // adults-adults interaction accounted for
                                                                                       // in InteractionModWork.H

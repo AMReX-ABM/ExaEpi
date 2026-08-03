@@ -392,6 +392,12 @@ void runAgent () {
             }
             Gpu::streamSynchronize();
         }
+
+        // Populate pc.school_group_scale (frequency-dependence correction for xmit_school, see
+        // AgentContainer::computeSchoolGroupScale) -- a no-op (flat 1.0) unless
+        // school_group_scale_enabled. Independent of size_scale_enabled/densityData above: this
+        // corrects a different venue (school groups, not communities).
+        if (params.ic_type == ICType::UrbanPop) { pc.computeSchoolGroupScale(params); }
     }
 
     // if we are doing a restart, we need to fix up the output_file

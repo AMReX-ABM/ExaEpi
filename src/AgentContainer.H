@@ -102,6 +102,8 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void moveAgentsToHome();
 
+    void computeSchoolGroupScale(const ExaEpi::TestParams& params);
+
     void setTileSize (IntVect newTileSize) { tile_size = newTileSize; }
 
     void setActiveWeatherWeek (int week) { activeWeatherWeek = week; }
@@ -153,6 +155,15 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
         TestParams::size_scale_enabled / DensityData::computeCommunityWorkSizeScale. Always valid
         (flat 1.0 unless work-size-scale supplies real values in main.cpp). */
     amrex::MultiFab comm_density_scale_work;
+
+    /*! Per-(community, school_id, grade) frequency-dependence scale factor multiplying xmit_school/
+        xmit_school_a2c/xmit_school_c2a/xmit_school_scale -- see InteractionModSchool.H /
+        computeSchoolGroupScale. One MultiFab component per (school_id, grade) combination
+        (component index = school_id * max_school_grade + grade), same BoxArray/DistributionMapping
+        as comm_mf so each cell's components hold every school-grade group's scale at that community.
+        Always valid: flat 1.0 (ncomp=1) unless TestParams::school_group_scale_enabled populates it
+        with real per-group values. */
+    amrex::MultiFab school_group_scale;
 
     short ic_type;
 
