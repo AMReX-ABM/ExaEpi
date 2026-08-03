@@ -90,6 +90,25 @@ struct TestParams {
     amrex::Real size_min_scale = 0.05;      /*!< lower clip bound on the size scale factor -- placeholder */
     amrex::Real size_max_scale = 20.0;      /*!< upper clip bound on the size scale factor -- placeholder */
 
+    /*! Daytime analog of the size scale above, keyed on each community's *work* population
+        (BlockGroup::work_populations[0]) instead of home_population (see
+        DensityData::computeCommunityWorkSizeScale). Populates a separate scale array
+        (AgentContainer::comm_density_scale_work) that InteractionModComm.H/InteractionModNborhood.H
+        use only for daytime interactions -- home_population-based scaling still governs nighttime
+        interactions via comm_density_scale. Both switch on together under size_scale_enabled (one
+        mechanism, applied with the covariate appropriate to each time of day); beta/global_scale/
+        ref_population are kept separate below since home and work population distributions differ
+        and may need independent tuning. */
+    amrex::Real work_size_ref_population = -1.0; /*!< reference work population; <=0 means "auto":
+                                                       work-population-weighted mean community work population */
+    amrex::Real work_size_beta = 0.0;            /*!< exponent reshaping daytime transmission by community work
+                                                       population; renormalized so it doesn't change the
+                                                       work-population-weighted average scale */
+    amrex::Real work_size_global_scale = 1.0;    /*!< work-population-weighted average work-size scale factor
+                                                       (decoupled from work_size_beta's shape) */
+    amrex::Real work_size_min_scale = 0.05;      /*!< lower clip bound on the work-size scale factor */
+    amrex::Real work_size_max_scale = 20.0;      /*!< upper clip bound on the work-size scale factor */
+
     /*! Worker flow filename (ExaEpi::Initialization::readWorkerflow):
         It is a binary file that contains 3 x (number of work patthers) unsigned integer
         data. The 3 integers are: from, to, and the number of workers with this from and to.

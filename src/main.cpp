@@ -369,6 +369,29 @@ void runAgent () {
                 diagFile.close();
             }
         }
+
+        // Populate pc.comm_density_scale_work from the work-population size scale -- switches on
+        // together with the (home-population-based) block above under the same size_scale_enabled
+        // flag, since it's one mechanism applied with the covariate appropriate to each time of day.
+        // Used only for daytime interactions (see InteractionModComm.H / InteractionModNborhood.H),
+        // since home_population isn't a meaningful covariate for the population physically present
+        // in a community during the day.
+        if (params.ic_type == ICType::UrbanPop && params.size_scale_enabled) {
+            Vector<Real> work_scale = computeCommunityWorkSizeScale(urbanPopData.block_groups, params);
+            Gpu::DeviceVector<Real> work_scale_d(work_scale.size());
+            Gpu::copyAsync(Gpu::hostToDevice, work_scale.begin(), work_scale.end(), work_scale_d.begin());
+            Gpu::streamSynchronize();
+            auto* work_scale_ptr = work_scale_d.data();
+            for (MFIter mfi(urbanPopData.community_mf); mfi.isValid(); ++mfi) {
+                auto comm_arr = urbanPopData.community_mf.const_array(mfi);
+                auto scale_arr = pc.comm_density_scale_work.array(mfi);
+                ParallelFor(mfi.tilebox(), [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
+                    int c = comm_arr(i, j, k);
+                    scale_arr(i, j, k, 0) = (c >= 0) ? work_scale_ptr[c] : 1.0_rt;
+                });
+            }
+            Gpu::streamSynchronize();
+        }
     }
 
     // if we are doing a restart, we need to fix up the output_file

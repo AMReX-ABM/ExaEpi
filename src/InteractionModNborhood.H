@@ -84,7 +84,7 @@ void InteractionModNborhood<PCType, PTDType, PType>::fastInteractNborhood (PCTyp
 
             GetCommunityIndex<PTDType> getCommunityIndex;
             getCommunityIndex.init(agents.Geom(lev), mfi.tilebox(), agents.comm_mf[mfi].array());
-            auto density_scale_arr = agents.comm_density_scale[mfi].const_array();
+            auto density_scale_arr = (is_day ? agents.comm_density_scale_work : agents.comm_density_scale)[mfi].const_array();
             auto plo = getCommunityIndex.plo;
             auto dxi = getCommunityIndex.dxi;
             auto domain = getCommunityIndex.domain;

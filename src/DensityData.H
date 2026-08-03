@@ -44,4 +44,12 @@ struct DensityData {
 amrex::Vector<amrex::Real> computeCommunitySizeScale(const amrex::Vector<BlockGroup>& block_groups,
                                                      const ExaEpi::TestParams& params);
 
+/*! \brief Daytime analog of computeCommunitySizeScale, keyed on each community's *work* population
+    (BlockGroup::work_populations[0]) instead of home_population. Meant to populate a separate
+    scale array used only for daytime interactions, since home_population is not a meaningful
+    covariate for the population physically present in a community during the day (see
+    AgentContainer::comm_density_scale_work). */
+amrex::Vector<amrex::Real> computeCommunityWorkSizeScale(const amrex::Vector<BlockGroup>& block_groups,
+                                                         const ExaEpi::TestParams& params);
+
 #endif

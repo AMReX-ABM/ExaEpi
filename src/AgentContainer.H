@@ -142,10 +142,17 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     amrex::iMultiFab comm_mf;
 
-    /*! Per-community density scale factor multiplying xmit_comm/xmit_hood (UrbanPop only).
-        Always valid (flat 1.0 unless DensityData supplies real values in main.cpp) -- see
-        InteractionModComm.H / InteractionModNborhood.H. */
+    /*! Per-community density/size scale factor multiplying xmit_comm/xmit_hood for NIGHTTIME
+        interactions (UrbanPop only), keyed on home_population. Always valid (flat 1.0 unless
+        DensityData/size-scale supplies real values in main.cpp) -- see InteractionModComm.H /
+        InteractionModNborhood.H. */
     amrex::MultiFab comm_density_scale;
+
+    /*! Per-community scale factor multiplying xmit_comm/xmit_hood for DAYTIME interactions
+        (UrbanPop only), keyed on work_populations[0] instead of home_population -- see
+        TestParams::size_scale_enabled / DensityData::computeCommunityWorkSizeScale. Always valid
+        (flat 1.0 unless work-size-scale supplies real values in main.cpp). */
+    amrex::MultiFab comm_density_scale_work;
 
     short ic_type;
 

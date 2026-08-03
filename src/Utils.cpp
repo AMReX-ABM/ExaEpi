@@ -72,6 +72,12 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
         pp.query("size_global_scale", params.size_global_scale);
         pp.query("size_min_scale", params.size_min_scale);
         pp.query("size_max_scale", params.size_max_scale);
+
+        pp.query("work_size_ref_population", params.work_size_ref_population);
+        pp.query("work_size_beta", params.work_size_beta);
+        pp.query("work_size_global_scale", params.work_size_global_scale);
+        pp.query("work_size_min_scale", params.work_size_min_scale);
+        pp.query("work_size_max_scale", params.work_size_max_scale);
     } else {
         amrex::Abort("ic_type not recognized (currently supported 'census')");
     }
