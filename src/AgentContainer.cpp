@@ -270,22 +270,18 @@ void AgentContainer::moveAgentsToHome () {
     communities do (median enrollment ~31 but a long tail out to thousands for colleges), so this
     matters more here than it did for xmit_comm.
 
-    Implementation note: this deliberately does NOT move agents to their work position or rely on
-    Redistribute() at all. work_i/work_j (IntIdx) are static per-agent attributes set once at
-    UrbanPopData::initAgents time and don't depend on which box currently stores a particle, so they
-    can be read correctly regardless of physical particle placement -- confirmed by direct
-    instrumentation (iterating particles via MakeMFIter and reading work_i/work_j always finds the
-    right totals). An earlier version of this function called moveAgentsToWork() and tallied directly
-    into a box-partitioned MultiFab keyed by (work_i, work_j); that silently corrupted results because
-    a particle physically stored under box A (its actual, current box) but with work_i/work_j pointing
-    into box B's region writes out of B's local bounds when you index box A's FAB with B's
-    coordinates -- and Redistribute() does not guarantee every particle's box matches its work
-    position (observed ~72% mismatched on the very first home->work transition of a run, not fully
-    resolved even after several repeated home<->work cycles). Tallying into one small, flat,
-    rank-replicated array (indexed purely by attribute values, independent of box membership) avoids
-    the whole class of bug: every rank contributes a partial sum for whichever particles it happens to
-    currently own, and a single ReduceRealSum over the whole flat array combines them correctly
-    regardless of placement. */
+    Precondition: agents must already be at their work position (isAtWork() -- i.e. called after
+    moveAgentsToWork(), not right after initial agent load). Tallying is done directly into a
+    box-partitioned MultiFab keyed on (work_i, work_j), the same way DiseaseStatus.H/HospitalModel.H
+    already tally home-position diagnostics keyed on (home_i, home_j) -- this relies on
+    Redistribute() placing every agent in the box that geometrically contains its work_i/work_j cell,
+    which was verified directly (BoxArray::intersections() as independent ground truth, checked
+    against the box/rank a particle actually lands in): 0 mismatches across 1/4/8-rank runs and 5
+    simulated days, once agents moveAgentsToWork() itself skips (hospitalized/traveling) are excluded.
+    An earlier version of this function avoided box-partitioned tallying entirely, based on a
+    since-retracted finding that Redistribute() was unreliable here (~72% mismatch) -- that finding
+    did not reproduce under a properly GPU-synced check and is no longer believed to reflect real
+    AMReX behavior. */
 void AgentContainer::computeSchoolGroupScale (const ExaEpi::TestParams& params) {
     BL_PROFILE("AgentContainer::computeSchoolGroupScale");
 
@@ -298,17 +294,11 @@ void AgentContainer::computeSchoolGroupScale (const ExaEpi::TestParams& params) 
 
     if (!params.school_group_scale_enabled) { return; }
 
-    const Box& domain = Geom(0).Domain();
-    int domain_x = domain.length(0);
-    int domain_y = domain.length(1);
-    long n_flat = (long)domain_x * (long)domain_y * (long)ncomp;
+    AMREX_ALWAYS_ASSERT(isAtWork());
 
-    Gpu::DeviceVector<Real> counts_d(n_flat, 0.0_rt);
-    auto* counts_ptr = counts_d.data();
+    MultiFab counts(comm_mf.boxArray(), comm_mf.DistributionMap(), ncomp, 0);
+    counts.setVal(0.0_rt);
 
-    // Tally enrollment per (community, school_id, grade) bucket directly from the static work_i/
-    // work_j/school_id/school_grade attributes -- see the function comment for why this avoids a
-    // box-partitioned MultiFab entirely.
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev = GetParticles(lev);
         for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
@@ -322,58 +312,55 @@ void AgentContainer::computeSchoolGroupScale (const ExaEpi::TestParams& params) 
             auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
             auto school_grade_ptr = soa.GetIntData(IntIdx::school_grade).data();
 
+            auto counts_arr = counts[mfi].array();
             amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
                 if (school_id_ptr[ip] > 0) {
-                    long flat_comm = (long)work_j_ptr[ip] * domain_x + (long)work_i_ptr[ip];
-                    long idx = flat_comm * ncomp + school_id_ptr[ip] * max_grade + school_grade_ptr[ip];
-                    Gpu::Atomic::AddNoRet(&counts_ptr[idx], 1.0_rt);
+                    int comp = school_id_ptr[ip] * max_grade + school_grade_ptr[ip];
+                    Gpu::Atomic::AddNoRet(&counts_arr(work_i_ptr[ip], work_j_ptr[ip], 0, comp), 1.0_rt);
                 }
             });
         }
     }
-    Gpu::streamSynchronize();
-
-    Vector<Real> counts_h(n_flat);
-    Gpu::copyAsync(Gpu::deviceToHost, counts_d.begin(), counts_d.end(), counts_h.begin());
-    Gpu::streamSynchronize();
-    ParallelDescriptor::ReduceRealSum(counts_h.data(), (int)n_flat);
+    Gpu::synchronize();
 
     // mean_raw = (population-weighted mean of 1/enrollment) = (# nonzero buckets) / (# agents), since
     // sum_over_agents(1/enrollment[bucket]) == sum_over_buckets(enrollment * 1/enrollment) == #
-    // buckets touched. counts_h is now globally correct (summed across ranks above), so this is a
-    // plain host-side pass over a small (domain_x*domain_y*ncomp) array.
-    Real n_nonzero = 0.0_rt;
-    Real n_agents = 0.0_rt;
-    Vector<Real> scale_h(n_flat, 1.0_rt);
-    for (long idx = 0; idx < n_flat; ++idx) {
-        if (counts_h[idx] > 0.0_rt) { n_nonzero += 1.0_rt; n_agents += counts_h[idx]; }
+    // buckets touched.
+    Gpu::DeviceScalar<Real> n_nonzero_d(0.0_rt);
+    Gpu::DeviceScalar<Real> n_agents_d(0.0_rt);
+    auto* n_nonzero_ptr = n_nonzero_d.dataPtr();
+    auto* n_agents_ptr = n_agents_d.dataPtr();
+    for (MFIter mfi(counts); mfi.isValid(); ++mfi) {
+        auto counts_arr = counts.const_array(mfi);
+        amrex::ParallelFor(mfi.tilebox(), ncomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n) noexcept {
+            Real c = counts_arr(i, j, k, n);
+            if (c > 0.0_rt) {
+                Gpu::Atomic::AddNoRet(n_nonzero_ptr, 1.0_rt);
+                Gpu::Atomic::AddNoRet(n_agents_ptr, c);
+            }
+        });
     }
+    Gpu::synchronize();
+
+    Real n_nonzero = n_nonzero_d.dataValue();
+    Real n_agents = n_agents_d.dataValue();
+    ParallelDescriptor::ReduceRealSum(n_nonzero);
+    ParallelDescriptor::ReduceRealSum(n_agents);
     Real mean_raw = (n_agents > 0.0_rt) ? (n_nonzero / n_agents) : 1.0_rt;
 
     Real min_scale = params.school_group_min_scale;
     Real max_scale = params.school_group_max_scale;
-    for (long idx = 0; idx < n_flat; ++idx) {
-        Real raw = (counts_h[idx] > 0.0_rt) ? (1.0_rt / counts_h[idx]) : 1.0_rt;
-        Real s = raw / mean_raw;
-        scale_h[idx] = std::max(min_scale, std::min(max_scale, s));
-    }
-
-    Gpu::DeviceVector<Real> scale_d(n_flat);
-    Gpu::copyAsync(Gpu::hostToDevice, scale_h.begin(), scale_h.end(), scale_d.begin());
-    Gpu::streamSynchronize();
-    auto* scale_ptr = scale_d.data();
-
-    // Project the flat scale array into school_group_scale, one MultiFab component per (school_id,
-    // grade). Safe (unlike the tally above) because each box only ever writes its OWN (i,j) cells,
-    // read from the flat array purely as data -- no box-membership assumption involved.
-    for (MFIter mfi(school_group_scale); mfi.isValid(); ++mfi) {
+    for (MFIter mfi(counts); mfi.isValid(); ++mfi) {
+        auto counts_arr = counts.const_array(mfi);
         auto scale_arr = school_group_scale[mfi].array();
         amrex::ParallelFor(mfi.tilebox(), ncomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n) noexcept {
-            long flat_comm = (long)j * domain_x + (long)i;
-            scale_arr(i, j, k, n) = scale_ptr[flat_comm * ncomp + n];
+            Real c = counts_arr(i, j, k, n);
+            Real raw = (c > 0.0_rt) ? (1.0_rt / c) : 1.0_rt;
+            Real s = raw / mean_raw;
+            scale_arr(i, j, k, n) = amrex::max(min_scale, amrex::min(max_scale, s));
         });
     }
-    Gpu::streamSynchronize();
+    Gpu::synchronize();
 
     amrex::Print() << "SchoolGroupScale: " << (long)n_agents << " enrolled agents across " << max_school_id
                    << " school_ids x " << max_grade << " grades (" << (long)n_nonzero
@@ -1048,7 +1035,14 @@ int AgentContainer::getMaxGroup (const int group_idx) {
                     return {ptd.m_idata[group_idx][i]};
                 },
                 reduce_ops);
-        max_attribute_values[group_idx] = amrex::get<0>(r);
+        int local_max = amrex::get<0>(r);
+        // ParticleReduce only reduces over this rank's own particles -- AMReX performs no MPI
+        // reduction internally (confirmed both by AMReX_ParticleReduce.H's own doc comments and by
+        // direct observation: different ranks reported different local maxima for school_id on the
+        // same run). Every caller relies on this being the true GLOBAL max (e.g. to size a MultiFab's
+        // component count consistently across ranks), so reduce across ranks before caching.
+        ParallelDescriptor::ReduceIntMax(local_max);
+        max_attribute_values[group_idx] = local_max;
     }
     return max_attribute_values[group_idx];
 }
