@@ -143,6 +143,10 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
         write_int_comp.push_back(static_cast<int>(step == 0));
         int_varnames.push_back("school_closed");
         write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("school_class");
+        write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("school_class_group");
+        write_int_comp.push_back(static_cast<int>(step == 0));
         int_varnames.push_back("naics");
         write_int_comp.push_back(static_cast<int>(step == 0));
         int_varnames.push_back("workgroup");
