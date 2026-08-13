@@ -27,6 +27,68 @@ using namespace ExaEpi;
 
 void runAgent();
 
+/*! \brief Print usage and the list of recognized "agent.*" input-file parameters, with defaults */
+void printHelp (const char* prog) {
+    std::cout <<
+        "Usage: \n"
+        "  " << prog << " --version               Print the ExaEpi and AMReX versions\n"
+        "  " << prog << " -h | --help              Print this help message\n"
+        "  " << prog << " <inputs_file> [overrides...]\n"
+        "                            Run the model, reading parameters from <inputs_file>.\n"
+        "                            Any parameter may be overridden on the command line as\n"
+        "                            key=value pairs, e.g. agent.nsteps=10\n"
+        "\n"
+        "Recognized \"agent.*\" parameters (name, default, description):\n"
+        "  nsteps                          (1)          number of simulation steps\n"
+        "  plot_int                        (-1)         plot file interval, in steps; <=0 disables\n"
+        "  check_int                       (-1)         checkpoint file interval, in steps; <=0 disables\n"
+        "  random_travel_int               (-1)         interval between random travel events, in steps; <=0 disables\n"
+        "  random_travel_prob              (0.0001)     probability of an agent going on random travel\n"
+        "  air_travel_int                  (-1)         interval between air travel events, in steps; <=0 disables\n"
+        "  number_of_diseases              (1)          number of diseases to track\n"
+        "  disease_names                   (default00, default01, ...)\n"
+        "                                               names of the diseases (array of number_of_diseases strings)\n"
+        "  weather_int                     (-1)         interval for weather effects, in steps; <=0 disables\n"
+        "  weather_filename                (required if weather_int > 0)\n"
+        "                                               weather data file\n"
+        "  startdate                       (\"\")         simulation start date (YYYY-MM-DD)\n"
+        "  ic_type                         (urbanpop)   initial condition type: \"census\" or \"urbanpop\"\n"
+        "  census_filename                 (required if ic_type=census)\n"
+        "                                               census data file\n"
+        "  workerflow_filename             (required if ic_type=census)\n"
+        "                                               worker flow binary file\n"
+        "  air_traffic_filename            (required if ic_type=census and air_travel_int > 0)\n"
+        "                                               air traffic flow file\n"
+        "  airports_filename               (required if ic_type=census and air_travel_int > 0)\n"
+        "                                               airports file\n"
+        "  urbanpop_filename               (required if ic_type=urbanpop)\n"
+        "                                               UrbanPop data file\n"
+        "  size_scale_enabled              (false)      enable population-size-based transmission scaling (urbanpop only)\n"
+        "  comm_hood_scale                 (1.0)        overall magnitude of community/neighborhood transmission scale\n"
+        "  size_min_scale                  (0.05)       lower clip bound on comm_hood_scale\n"
+        "  size_max_scale                  (20.0)       upper clip bound on comm_hood_scale\n"
+        "  school_group_scale_enabled      (false)      enable frequency-dependence correction for school transmission\n"
+        "  school_group_min_scale          (0.05)       lower clip bound on the school-group scale factor\n"
+        "  school_group_max_scale          (100.0)      upper clip bound on the school-group scale factor\n"
+        "  school_class_enabled            (true)       split each school grade group into fixed-size classes\n"
+        "  school_class_size               (15)         target number of students per class\n"
+        "  max_box_size                    (16)         box size for domain decomposition\n"
+        "  aggregated_diag_int             (-1)         interval for aggregated diagnostic output, in steps; <=0 disables\n"
+        "  aggregated_diag_prefix          (cases)      filename prefix for aggregated diagnostic output\n"
+        "  restart                         (\"\")         checkpoint file to restart from\n"
+        "  shelter_start                   (-1)         step at which to start sheltering; <=0 disables\n"
+        "  shelter_length                  (0)          number of steps to shelter for\n"
+        "  nborhood_size                   (500)        target neighborhood size\n"
+        "  workgroup_size                  (20)         target workgroup size\n"
+        "  seed                            (unset)      RNG seed\n"
+        "  fast                            (false)      use fast, non-bitwise-reproducible implementations\n"
+        "  context_diag                    (false)      attribute infections to interaction contexts in the output file\n"
+        "\n"
+        "Other parameters:\n"
+        "  diag.output_filename            (output.dat, or output_<disease>.dat for multiple diseases)\n"
+        "                                               output filename(s)\n";
+}
+
 /*! \brief Set ExaEpi-specific defaults for memory-management and tiling */
 void overrideAmrexDefaults () {
     amrex::ParmParse pp("amrex");
@@ -56,11 +118,15 @@ int main (int argc, /*!< Number of command line arguments */
 #endif
 
     if (argc < 2) {
-        if (my_rank == 0) {
-            std::cout << "Usage: \n"
-                      << "Either run ./agent --version to print the ExaEpi and AMReX versions, or \n"
-                      << "           ./agent <inputs_file> <optional> <command> <line> <arguments> to run the model. \n";
-        }
+        if (my_rank == 0) { printHelp(argv[0]); }
+#ifdef AMREX_USE_MPI
+        MPI_Finalize();
+#endif
+        return 0;
+    }
+
+    if (std::string(argv[1]) == "-h" || std::string(argv[1]) == "--help") {
+        if (my_rank == 0) { printHelp(argv[0]); }
 #ifdef AMREX_USE_MPI
         MPI_Finalize();
 #endif
