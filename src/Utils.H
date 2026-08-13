@@ -80,16 +80,16 @@ struct TestParams {
         a correction for how the interaction code counts contacts, not a real epidemiological
         hypothesis about large communities transmitting differently -- so it's built in rather than
         left tunable. */
-    bool size_scale_enabled = false;
+    bool size_scale_enabled = true;
     amrex::Real comm_hood_scale = 1.0;      /*!< population-weighted average scale factor applied only to
                                                  xmit_comm/xmit_hood (see InteractionModComm.H /
                                                  InteractionModNborhood.H) -- the overall calibrated
                                                  magnitude of community/neighborhood transmission once
                                                  the 1/population correction above has removed the
                                                  community-size artifact. Does not affect household,
-                                                 workgroup, school, or any other venue. */
-    amrex::Real size_min_scale = 0.05;      /*!< lower clip bound on comm_hood_scale -- placeholder */
-    amrex::Real size_max_scale = 20.0;      /*!< upper clip bound on comm_hood_scale -- placeholder */
+                                                 workgroup, school, or any other venue. The clip bounds
+                                                 on the per-community scale factor are compile-time
+                                                 constants in UrbanPopData.cpp, not user-tunable. */
 
     /*! Frequency-dependence correction for school transmission (see InteractionModSchool.H /
         AgentContainer::computeSchoolClassScale), analogous to comm_hood_scale/size_scale_enabled but
@@ -100,13 +100,9 @@ struct TestParams {
         with local prevalence. No separate magnitude knob is needed here: unlike comm_hood_scale, this
         correction's own population-weighted mean is pinned to exactly 1.0 (not tunable), since
         xmit_school_scale already serves as the overall school-transmission magnitude knob --
-        introducing a second one would be redundant. */
+        introducing a second one would be redundant. The clip bounds on the per-class scale factor
+        are compile-time constants in AgentContainer.cpp, not user-tunable. */
     bool school_group_scale_enabled = false;
-    amrex::Real school_group_min_scale = 0.05; /*!< lower clip bound on the school-group scale factor */
-    amrex::Real school_group_max_scale = 100.0; /*!< upper clip bound -- wider than size_max_scale since
-                                                    school-group sizes are far more skewed than community
-                                                    sizes (a group of 1 needs a raw ~ mean_group_size
-                                                    multiplier, which is ~60 for NM) */
 
     /*! Split each (community, school_id, grade) group into fixed-size classes (see
         AgentContainer::assignSchoolClasses) so school transmission happens within a class (~15

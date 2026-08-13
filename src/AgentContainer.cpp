@@ -462,8 +462,12 @@ void AgentContainer::computeSchoolClassScale (const ExaEpi::TestParams& params) 
     }
     Real mean_raw = (n_agents > 0.0_rt) ? (n_nonzero / n_agents) : 1.0_rt;
 
-    Real min_scale = params.school_group_min_scale;
-    Real max_scale = params.school_group_max_scale;
+    // Clip bounds on the per-class scale factor -- not exposed as user-tunable parameters
+    // (see the analogous size_min_scale/size_max_scale in UrbanPopData.cpp). Wider than those
+    // since school-group sizes are far more skewed than community sizes (a class of 1 needs a
+    // raw ~ mean_class_size multiplier, which is ~60 for NM).
+    constexpr Real min_scale = 0.05_rt;
+    constexpr Real max_scale = 100.0_rt;
     for (int idx = 0; idx < max_class_group; ++idx) {
         Real raw = (counts_h[idx] > 0.0_rt) ? (1.0_rt / counts_h[idx]) : 1.0_rt;
         Real s = raw / mean_raw;

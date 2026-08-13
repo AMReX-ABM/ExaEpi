@@ -539,6 +539,14 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
  *  every fit sweep converged on this same 1/population form (previously exposed as a size_beta
  *  parameter that always landed on -1.0), so it's built in rather than left tunable. home_population
  *  is always available, so every community participates. */
+namespace {
+    /*! Clip bounds on the per-community size-scale factor -- not exposed as user-tunable
+        parameters since every fit sweep converged on the same 1/population form and these
+        bounds only guard against extreme multipliers for unusually small/large communities. */
+    constexpr Real size_min_scale = 0.05_rt;
+    constexpr Real size_max_scale = 20.0_rt;
+}
+
 amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockGroup>& block_groups,
                                                       const ExaEpi::TestParams& params) {
     Vector<Real> scale(block_groups.size(), 1.0_rt);
@@ -558,7 +566,7 @@ amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockG
 
     for (int c = 0; c < (int)block_groups.size(); ++c) {
         Real s = params.comm_hood_scale * raw[c] / mean_raw;
-        scale[c] = std::max(params.size_min_scale, std::min(params.size_max_scale, s));
+        scale[c] = std::max(size_min_scale, std::min(size_max_scale, s));
     }
 
     amrex::Print() << "SizeScale: " << block_groups.size() << " communities (comm_hood_scale="
@@ -601,7 +609,7 @@ amrex::Vector<amrex::Real> computeCommunityWorkSizeScale (const amrex::Vector<Bl
     for (int c = 0; c < (int)block_groups.size(); ++c) {
         if (block_groups[c].work_populations[0] <= 0) { continue; }
         Real s = params.comm_hood_scale * raw[c] / mean_raw;
-        scale[c] = std::max(params.size_min_scale, std::min(params.size_max_scale, s));
+        scale[c] = std::max(size_min_scale, std::min(size_max_scale, s));
     }
 
     amrex::Print() << "WorkSizeScale: " << block_groups.size() << " communities (comm_hood_scale="
