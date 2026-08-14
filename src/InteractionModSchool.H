@@ -4,10 +4,7 @@
  * Transmission happens within a school_class_group -- a compact ID for an agent's actual
  * (community, school_id, grade, class) mixing bucket, assigned once by
  * AgentContainer::assignSchoolClasses (see IntIdx::school_class_group / TestParams::school_class_size)
- * -- rather than across an entire grade at a school. Also applies a per-school_class_group
- * frequency-dependence correction to xmit_school/xmit_school_a2c/xmit_school_c2a (see
- * AgentContainer::computeSchoolClassScale) -- flat 1.0 unless TestParams::school_group_scale_enabled,
- * analogous to comm_hood_scale for InteractionModComm.H.
+ * -- rather than across an entire grade at a school.
  */
 
 #ifndef _INTERACTION_MOD_SCHOOL_H_
@@ -65,10 +62,6 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
             auto school_class_group_ptr = soa.GetIntData(IntIdx::school_class_group).data();
             auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
 
-            // Per-school_class_group frequency-dependence correction (see
-            // AgentContainer::computeSchoolClassScale) -- flat 1.0 unless school_group_scale_enabled.
-            auto school_scale_ptr = agents.school_class_scale.data();
-
             int max_class_group = agents.getMaxGroup(IntIdx::school_class_group) + 1;
 
             infected_school_d[OMP_THREAD_NUM].resize(max_class_group);
@@ -116,18 +109,17 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                     ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                         if (isSusceptible(i, ptd, d) && isCandidate(i, ptd)) {
                             int pos = school_class_group_ptr[i];
-                            Real scale = school_scale_ptr[pos];
                             if (getSchoolType(school_grade_ptr[i]) == SchoolType::daycare) {
                                 if (adults && age_group_ptr[i] > AgeGroups::a5to17) { // adults-adults interaction accounted for
                                                                                       // in InteractionModWork.H
                                     // do nothing!
                                 } else {
                                     int num_infected_daycare = infected_daycare_d_ptr[pos];
-                                    Real daycare_prob = 1.0_rt - infect * lparm->xmit_school[SchoolType::daycare] * scale;
+                                    Real daycare_prob = 1.0_rt - infect * lparm->xmit_school[SchoolType::daycare];
                                     prob_ptr[i] *= static_cast<ParticleReal>(std::pow(daycare_prob, num_infected_daycare));
                                     int num_infected_daycare_asymp = infected_daycare_asymp_d_ptr[pos];
-                                    Real daycare_prob_asymp = 1.0_rt - lparm->asymp_relative_inf * infect *
-                                                                               lparm->xmit_school[SchoolType::daycare] * scale;
+                                    Real daycare_prob_asymp =
+                                            1.0_rt - lparm->asymp_relative_inf * infect * lparm->xmit_school[SchoolType::daycare];
                                     prob_ptr[i] *=
                                             static_cast<ParticleReal>(std::pow(daycare_prob_asymp, num_infected_daycare_asymp));
                                 }
@@ -150,9 +142,9 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                                         xmit = lparm->xmit_school_c2a[getSchoolType(school_grade_ptr[i])];
                                     }
                                 }
-                                Real school_prob = 1.0_rt - infect * xmit * scale;
+                                Real school_prob = 1.0_rt - infect * xmit;
                                 prob_ptr[i] *= static_cast<ParticleReal>(std::pow(school_prob, num_infected_school));
-                                Real school_prob_asymp = 1.0_rt - lparm->asymp_relative_inf * infect * xmit * scale;
+                                Real school_prob_asymp = 1.0_rt - lparm->asymp_relative_inf * infect * xmit;
                                 prob_ptr[i] *= static_cast<ParticleReal>(std::pow(school_prob_asymp, num_infected_school_asymp));
                             }
                         }

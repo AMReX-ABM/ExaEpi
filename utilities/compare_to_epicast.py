@@ -351,6 +351,81 @@ def _align_arrays(dfs, col, xlimit):
     return np.vstack([df[col].values[:max_len] for df in dfs])
 
 
+def _auto_shift(epicast_data, exaepi_data, xlimit, shift_range=60):
+    """Find the integer day-shift (same convention as --shift: positive delays the ExaEpi curve)
+    that minimizes RMSE between the first Epicast group's 'exposed' curve and the first ExaEpi
+    group's 'NewI' curve. Wildcard groups (multiple files matched by one -e/-x pattern) are
+    averaged first, same as elsewhere in this script. Only the first -e/-x pair is used even if
+    both were repeated -- shift is a single global x-axis offset applied to every ExaEpi curve.
+    """
+    if not epicast_data or not exaepi_data:
+        return 0.0
+
+    e_entry = epicast_data[0]
+    x_entry = exaepi_data[0]
+
+    if e_entry["is_wildcard"] and len(e_entry["dfs"]) > 1:
+        e = _align_arrays(e_entry["dfs"], "exposed", xlimit).mean(axis=0)
+    else:
+        e = e_entry["dfs"][0]["exposed"].values[:xlimit]
+
+    if x_entry["is_wildcard"] and len(x_entry["dfs"]) > 1:
+        x = _align_arrays(x_entry["dfs"], "NewI", xlimit).mean(axis=0)
+    else:
+        x = x_entry["dfs"][0]["NewI"].values[:xlimit]
+
+    n = min(len(e), xlimit)
+    e = e[:n] if len(e) >= n else np.pad(e, (0, n - len(e)))
+    x = np.asarray(x, dtype=float)
+
+    best_shift, best_rmse = 0, float("inf")
+    for s in range(-shift_range, shift_range + 1):
+        d = np.arange(n)
+        src = d - s
+        x_shifted = np.where((src >= 0) & (src < len(x)), x[np.clip(src, 0, len(x) - 1)], 0.0)
+        rmse = np.sqrt(np.mean((e - x_shifted) ** 2))
+        if rmse < best_rmse:
+            best_rmse, best_shift = rmse, s
+    return float(best_shift)
+
+
+_EPICAST_EXTENT_COLS = ["exposed", "symptomatic", "asymptomatic", "presymptomatic", "hospitalized", "dead", "recovered"]
+_EXAEPI_EXTENT_COLS  = ["NewI", "NewS", "NewA", "NewP", "NewH", "delta_dead", "delta_recovered"]
+
+
+def _furthest_nonzero_day(df, cols, threshold=10):
+    """Last day index (0-based) at which any of the given columns is still >= threshold, i.e. this
+    curve's day-numbering-native extent before it drops into stray-case noise. A >= threshold test
+    (rather than != 0) keeps a single lingering case reported long after the real tail from forcing
+    the whole plot to keep a long, mostly-empty trailing window. Returns the last row index if
+    every column stays at/above threshold throughout (nothing to trim), or 0 if none ever reaches it.
+    """
+    cols = [c for c in cols if c in df.columns]
+    if not cols:
+        return len(df) - 1 if len(df) else 0
+    above = np.flatnonzero((df[cols].to_numpy() >= threshold).any(axis=1))
+    return int(above[-1]) if len(above) else 0
+
+
+def _auto_xlimit(epicast_data, exaepi_data, shift, margin=5):
+    """Size the x-axis to the minimum, across every -e/-x input file, of that file's furthest
+    above-threshold day (see _furthest_nonzero_day) -- i.e. trim to whichever curve runs out of
+    signal first, so no plot is padded with a long trailing flat tail from a shorter-lived curve.
+    ExaEpi files are measured in their OWN day-numbering then offset by `shift` (already resolved
+    to a number by the time this runs), since that's where they actually land once plotted.
+    """
+    extents = []
+    for entry in epicast_data:
+        for df in entry["dfs"]:
+            extents.append(_furthest_nonzero_day(df, _EPICAST_EXTENT_COLS))
+    for entry in exaepi_data:
+        for df in entry["dfs"]:
+            extents.append(_furthest_nonzero_day(df, _EXAEPI_EXTENT_COLS) + shift)
+    if not extents:
+        return 250
+    return max(1, int(np.ceil(min(extents))) + margin)
+
+
 _CONTEXT_COLS = {
     "EWork":   ("Work",                "tab:blue"),
     "EHosp":   ("Hospital",            "tab:cyan"),
@@ -574,15 +649,32 @@ parser.add_argument(
         "Multiple matched files are averaged with a min/max band."
     ),
 )
+def _xlimit_type(value):
+    if isinstance(value, str) and value.strip().lower() == "auto":
+        return "auto"
+    return int(value)
+
+
 parser.add_argument(
-    "--xlimit", "-l", type=int, default=250, help="X-axis limit for plotting (default: 250)"
+    "--xlimit", "-l", type=_xlimit_type, default=250,
+    help="X-axis limit for plotting, or 'auto' to size it to the minimum, across all -e/-x "
+         "inputs, of each input's furthest day with an exposed/symptomatic/asymptomatic/"
+         "presymptomatic/hospitalized/dead/recovered value >= 10 (default: 250)",
 )
 parser.add_argument(
     "--ylimit", "-y", type=float, default=None, help="Y-axis maximum for all plots (default: auto)"
 )
+def _shift_type(value):
+    if isinstance(value, str) and value.strip().lower() == "auto":
+        return "auto"
+    return float(value)
+
+
 parser.add_argument(
-    "--shift", "-s", type=float, default=0,
-    help="Shift the ExaEpi curve along the x-axis in days (default: 0)",
+    "--shift", "-s", type=_shift_type, default=0.0,
+    help="Shift the ExaEpi curve along the x-axis in days, or 'auto' to pick the shift "
+         "(searched over +/-60 days) that minimizes RMSE between the first -e and -x curves' "
+         "'exposed'/NewI series (default: 0)",
 )
 parser.add_argument(
     "--output", "-o", required=True, help="Output file name for the plot (e.g., comparison.png)"
@@ -690,7 +782,25 @@ def _write_exaepi_csv(fname, df):
 
 
 epicast_data = _load_grouped(args.epicast_file, load_epicast, _write_epicast_csv)
-exaepi_data  = _load_grouped(args.exaepi_file,  load_exaepi,  _write_exaepi_csv)
+# CSV-writing is deferred until after args.shift is resolved below (it embeds args.shift into the
+# "day" column, which isn't known yet if --shift auto was requested).
+exaepi_data  = _load_grouped(args.exaepi_file,  load_exaepi,  None)
+
+if args.shift == "auto":
+    # args.xlimit may itself still be "auto" here -- it only bounds how much of the curve the
+    # shift search looks at, so fall back to the parser's own default (250) rather than depending
+    # on the xlimit auto-sizing below (which in turn depends on args.shift already being resolved).
+    _shift_window = args.xlimit if isinstance(args.xlimit, (int, float)) else 250
+    args.shift = _auto_shift(epicast_data, exaepi_data, _shift_window)
+    print(f"Auto-detected shift: {args.shift:+.0f} days (minimizes RMSE of the 'exposed'/NewI curve)")
+
+if args.xlimit == "auto":
+    args.xlimit = _auto_xlimit(epicast_data, exaepi_data, args.shift)
+    print(f"Auto-detected xlimit: {args.xlimit} days (minimum furthest >=10 extent across all inputs)")
+
+for _entry in exaepi_data:
+    for _fname, _df in zip(_entry["fnames"], _entry["dfs"]):
+        _write_exaepi_csv(_fname, _df)
 
 seir_df = None
 if args.seir:
@@ -763,4 +873,4 @@ for i in range(n, len(axes)):
 # plt.suptitle("ExaEpi vs Epicast Comparison", y=1.05)
 plt.tight_layout()
 plt.savefig(args.output, bbox_inches="tight")
-plt.show()
+#plt.show()

@@ -17,9 +17,12 @@ infectious = [0.0] * 4
 infectious.extend([0.1, 0.3, 0.5, 0.7, 0.85, 0.95, 1.0])
 
 transitions = [
-    (exposed_to_presymp, 2.82, 1.36, 0.0, "Exposed to Presymptomatic"),
-    #(incubation, 2.82, 1.36, 1.0, "Incubation Period"),
-    (infectious, 3.0, 1.29, 2.7, "Infectious Period"),
+    # (exposed_to_presymp, 2.82, 1.36, 0.0, "Exposed to Presymptomatic"),
+    # (incubation, 2.82, 1.36, 1.0, "Incubation Period"),
+    # (infectious, 3.0, 1.29, 2.7, "Infectious Period"),
+    (exposed_to_presymp, 2.55, 1.34, 0.0, "Exposed to Presymptomatic"),
+    #(incubation, 2.55, 1.34, 1.0, "Incubation Period"),
+    (infectious, 11.95, 0.51, 0.0, "Infectious Period"),
 ]
 
 
@@ -106,7 +109,7 @@ def fit_gamma_to_pmf(days, pmf, title=""):
     return shape_fit, loc_fit, scale_fit
 
 
-fig, axes = plt.subplots(1, 2, figsize=(16, 8))
+fig, axes = plt.subplots(1, len(transitions), figsize=(16, 8))
 
 for idx, (trans_probs, shape, scale, loc, title) in enumerate(transitions):
     ax = axes[idx]

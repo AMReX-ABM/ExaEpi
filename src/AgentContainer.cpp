@@ -260,20 +260,17 @@ void AgentContainer::moveAgentsToHome () {
 }
 
 /*! \brief Assign each school_id>0 agent to a class within its (community, school_id, grade) group --
-    see IntIdx::school_class / IntIdx::school_class_group and TestParams::school_class_size /
-    school_class_enabled. Splits each raw group into ceil(child_count / school_class_size) fixed-size
-    classes (or exactly 1 class per group if school_class_enabled is false, reproducing the
-    pre-class-splitting whole-grade-mixing behavior). Educators teaching that grade are drawn into the
-    same set of classes independently of the students, the same idiom already used to spread regular
-    workers across a workplace's workgroup buckets (see agent.workgroup_size / UrbanPopData.cpp) --
-    not an attempt at exact balance.
+    see IntIdx::school_class / IntIdx::school_class_group and TestParams::school_class_size. Splits
+    each raw group into ceil(child_count / school_class_size) fixed-size classes. Educators teaching
+    that grade are drawn into the same set of classes independently of the students, the same idiom
+    already used to spread regular workers across a workplace's workgroup buckets (see
+    agent.workgroup_size / UrbanPopData.cpp) -- not an attempt at exact balance.
 
     Called once, on a FRESH run only (never on restart): IntIdx::school_class/school_class_group are
     persistent per-agent attributes, checkpointed/restored like any other SoA attribute, so redrawing
     them on restart would silently reshuffle students into different classmates than the original run
     had, breaking continuity for restarted or branched runs. Tallies enrollment directly from the
-    static work_i/work_j/school_id/school_grade attributes (not particle position), so unlike
-    computeSchoolClassScale this doesn't need agents at their work position. The resulting
+    static work_i/work_j/school_id/school_grade attributes, not particle position. The resulting
     school_class_group numbering is computed identically on every rank (from a globally-reduced flat
     array), so it stays meaningful even if a later restart uses a different rank count. */
 void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
@@ -345,7 +342,7 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
         int n_classes = 0;
         if (total_count_h[idx] > 0.0_rt) {
             n_classes = 1;
-            if (params.school_class_enabled && student_count_h[idx] > 0.0_rt) {
+            if (student_count_h[idx] > 0.0_rt) {
                 n_classes = std::max(1, (int)std::ceil(student_count_h[idx] / (Real)params.school_class_size));
             }
         }
@@ -396,89 +393,8 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
     }
     Gpu::streamSynchronize();
 
-    amrex::Print() << "SchoolClasses: " << max_class_group << " classes across " << max_school_id
-                   << " school_ids x " << max_grade << " grades (school_class_size="
-                   << params.school_class_size << ", enabled=" << (params.school_class_enabled ? "true" : "false")
-                   << ")\n";
-}
-
-/*! \brief Compute AgentContainer::school_class_scale, a per-school_class_group frequency-dependence
-    correction analogous to comm_hood_scale (see UrbanPopData.cpp), but keyed on each class's actual
-    realized enrollment instead of community population -- see TestParams::school_group_scale_enabled/
-    min/max and AgentContainer::assignSchoolClasses for how school_class_group is assigned.
-
-    InteractionModSchool.H counts the raw number of infectious agents in a susceptible's own class and
-    applies xmit_school once per infectious agent counted, so without correction force of infection
-    scales with that class's realized size (density-dependent) rather than with local prevalence --
-    classes are much more uniform in size than whole grade-at-school groups were, but the last class in
-    a group can still be partially filled.
-
-    Unlike assignSchoolClasses, this recomputes on every run (fresh or restart): it's a pure,
-    deterministic function of the (by now fixed, whether freshly assigned or restored from a
-    checkpoint) school_class_group attribute, so rerunning it has no continuity downside. */
-void AgentContainer::computeSchoolClassScale (const ExaEpi::TestParams& params) {
-    BL_PROFILE("AgentContainer::computeSchoolClassScale");
-
-    int max_class_group = getMaxGroup(IntIdx::school_class_group) + 1;
-
-    school_class_scale.resize(max_class_group);
-    auto* init_scale_ptr = school_class_scale.data();
-    amrex::ParallelFor(max_class_group, [=] AMREX_GPU_DEVICE (int i) noexcept { init_scale_ptr[i] = 1.0_rt; });
-    Gpu::streamSynchronize();
-
-    if (!params.school_group_scale_enabled) { return; }
-
-    Gpu::DeviceVector<Real> counts_d(max_class_group, 0.0_rt);
-    auto* counts_ptr = counts_d.data();
-
-    for (int lev = 0; lev <= finestLevel(); ++lev) {
-        auto& plev = GetParticles(lev);
-        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
-            auto& ptile = plev[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
-            const size_t np = ptile.GetArrayOfStructs().numParticles();
-            if (np == 0) { continue; }
-
-            auto& soa = ptile.GetStructOfArrays();
-            auto school_class_group_ptr = soa.GetIntData(IntIdx::school_class_group).data();
-
-            amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
-                int g = school_class_group_ptr[ip];
-                if (g >= 0) { Gpu::Atomic::AddNoRet(&counts_ptr[g], 1.0_rt); }
-            });
-        }
-    }
-    Gpu::streamSynchronize();
-
-    Vector<Real> counts_h(max_class_group);
-    Gpu::copyAsync(Gpu::deviceToHost, counts_d.begin(), counts_d.end(), counts_h.begin());
-    Gpu::streamSynchronize();
-    ParallelDescriptor::ReduceRealSum(counts_h.data(), max_class_group);
-
-    Real n_nonzero = 0.0_rt;
-    Real n_agents = 0.0_rt;
-    Vector<Real> scale_h(max_class_group, 1.0_rt);
-    for (int idx = 0; idx < max_class_group; ++idx) {
-        if (counts_h[idx] > 0.0_rt) { n_nonzero += 1.0_rt; n_agents += counts_h[idx]; }
-    }
-    Real mean_raw = (n_agents > 0.0_rt) ? (n_nonzero / n_agents) : 1.0_rt;
-
-    // Clip bounds on the per-class scale factor -- not exposed as user-tunable parameters
-    // (see the analogous size_min_scale/size_max_scale in UrbanPopData.cpp). Wider than those
-    // since school-group sizes are far more skewed than community sizes (a class of 1 needs a
-    // raw ~ mean_class_size multiplier, which is ~60 for NM).
-    constexpr Real min_scale = 0.05_rt;
-    constexpr Real max_scale = 100.0_rt;
-    for (int idx = 0; idx < max_class_group; ++idx) {
-        Real raw = (counts_h[idx] > 0.0_rt) ? (1.0_rt / counts_h[idx]) : 1.0_rt;
-        Real s = raw / mean_raw;
-        scale_h[idx] = std::max(min_scale, std::min(max_scale, s));
-    }
-
-    Gpu::copyAsync(Gpu::hostToDevice, scale_h.begin(), scale_h.end(), school_class_scale.begin());
-    Gpu::streamSynchronize();
-
-    amrex::Print() << "SchoolClassScale: " << (long)n_agents << " enrolled agents across " << max_class_group
-                   << " classes, mean_raw=" << mean_raw << "\n";
+    amrex::Print() << "SchoolClasses: " << max_class_group << " classes across " << max_school_id << " school_ids x " << max_grade
+                   << " grades (school_class_size=" << params.school_class_size << ")\n";
 }
 
 /*! \brief Move agents randomly

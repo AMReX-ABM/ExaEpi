@@ -60,13 +60,10 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
 
         pp.query("size_scale_enabled", params.size_scale_enabled);
         pp.query("comm_hood_scale", params.comm_hood_scale);
-
-        pp.query("school_group_scale_enabled", params.school_group_scale_enabled);
     } else {
         amrex::Abort("ic_type not recognized (currently supported 'census')");
     }
 
-    pp.query("school_class_enabled", params.school_class_enabled);
     pp.query("school_class_size", params.school_class_size);
 
     pp.query("max_box_size", params.max_box_size);

@@ -104,8 +104,6 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void assignSchoolClasses(const ExaEpi::TestParams& params);
 
-    void computeSchoolClassScale(const ExaEpi::TestParams& params);
-
     void setTileSize (IntVect newTileSize) { tile_size = newTileSize; }
 
     void setActiveWeatherWeek (int week) { activeWeatherWeek = week; }
@@ -157,14 +155,6 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
         TestParams::size_scale_enabled / computeCommunityWorkSizeScale. Always valid (flat 1.0
         unless work-size-scale supplies real values in main.cpp). */
     amrex::MultiFab comm_density_scale_work;
-
-    /*! Per-school_class_group frequency-dependence scale factor multiplying xmit_school/
-        xmit_school_a2c/xmit_school_c2a/xmit_school_scale -- see InteractionModSchool.H /
-        AgentContainer::computeSchoolClassScale. Flat, rank-replicated (indexed directly by
-        IntIdx::school_class_group, which already encodes community+school_id+grade+class -- no
-        spatial MultiFab lookup needed). Always valid: sized 1 with a flat 1.0_rt entry until
-        computeSchoolClassScale populates it with real per-class values. */
-    amrex::Gpu::DeviceVector<amrex::Real> school_class_scale;
 
     short ic_type;
 
