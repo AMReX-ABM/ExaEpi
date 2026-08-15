@@ -61,7 +61,7 @@ struct TestParams {
     /*! Population-size-based scale factor (see computeCommunitySizeScale / computeCommunityWorkSizeScale).
         home_population and work_populations[0] are always available, no side file needed. When true,
         this populates AgentContainer::comm_density_scale (nighttime, keyed on home_population) and
-        comm_density_scale_work (daytime, keyed on work_populations[0]). comm_hood_scale/min_scale/
+        comm_density_scale_work (daytime, keyed on work_populations[0]). xmit_comm_scale/min_scale/
         max_scale below are shared by both -- a decoupled sweep (fixing home, tuning work
         independently) found no fit improvement over keeping them equal, so a single set is kept
         rather than duplicating home/work variants.
@@ -81,15 +81,20 @@ struct TestParams {
         hypothesis about large communities transmitting differently -- so it's built in rather than
         left tunable. */
     bool size_scale_enabled = true;
-    amrex::Real comm_hood_scale = 1.0; /*!< population-weighted average scale factor applied only to
-                                            xmit_comm/xmit_hood (see InteractionModComm.H /
-                                            InteractionModNborhood.H) -- the overall calibrated
-                                            magnitude of community/neighborhood transmission once
-                                            the 1/population correction above has removed the
+    amrex::Real xmit_comm_scale = 1.0; /*!< population-weighted average scale factor applied only to
+                                            xmit_comm (see InteractionModComm.H) -- the overall
+                                            calibrated magnitude of community transmission once the
+                                            1/population correction above has removed the
                                             community-size artifact. Does not affect household,
-                                            workgroup, school, or any other venue. The clip bounds
-                                            on the per-community scale factor are compile-time
-                                            constants in UrbanPopData.cpp, not user-tunable. */
+                                            neighborhood, workgroup, school, or any other venue
+                                            (InteractionModNborhood.H deliberately skips this
+                                            correction -- see its file header). Parsed under the
+                                            "disease" ParmParse prefix (disease.xmit_comm_scale), like
+                                            the other transmission-scale knobs, even though it lives
+                                            on TestParams alongside the other UrbanPop/agent settings.
+                                            The clip bounds on the per-community scale factor are
+                                            compile-time constants in UrbanPopData.cpp, not
+                                            user-tunable. */
 
     /*! Split each (community, school_id, grade) group into fixed-size classes (see
         AgentContainer::assignSchoolClasses) so school transmission happens within a class (~15

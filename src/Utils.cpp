@@ -59,7 +59,8 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
         params.max_box_size = 16;
 
         pp.query("size_scale_enabled", params.size_scale_enabled);
-        pp.query("comm_hood_scale", params.comm_hood_scale);
+        ParmParse pp_disease("disease");
+        pp_disease.query("xmit_comm_scale", params.xmit_comm_scale);
     } else {
         amrex::Abort("ic_type not recognized (currently supported 'census')");
     }
