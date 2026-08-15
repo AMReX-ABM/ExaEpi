@@ -351,10 +351,62 @@ def _align_arrays(dfs, col, xlimit):
     return np.vstack([df[col].values[:max_len] for df in dfs])
 
 
+def _get_group_y(entry, col, xlimit):
+    """Return the (possibly averaged, for wildcard groups) y-array for a group entry."""
+    if entry["is_wildcard"] and len(entry["dfs"]) > 1:
+        return _align_arrays(entry["dfs"], col, xlimit).mean(axis=0)
+    return entry["dfs"][0][col].values[:xlimit]
+
+
+def _shift_array(y, shift, n):
+    """Shift array y by `shift` days (same convention as --shift: positive delays it) and
+    pad/truncate the result to length n, so it lines up day-for-day with an unshifted reference.
+    """
+    y = np.asarray(y, dtype=float)
+    s = int(round(shift))
+    d = np.arange(n)
+    src = d - s
+    return np.where((src >= 0) & (src < len(y)), y[np.clip(src, 0, len(y) - 1)], 0.0)
+
+
+def _goodness_of_fit(ref_y, y):
+    """Return (R^2, NRMSE) of curve y against reference curve ref_y, comparing over their
+    common length. NRMSE is RMSE normalized by the reference curve's mean absolute value.
+    Either value is NaN if it isn't computable (e.g. a constant-zero reference).
+    """
+    n = min(len(ref_y), len(y))
+    if n == 0:
+        return None
+    r = np.asarray(ref_y[:n], dtype=float)
+    v = np.asarray(y[:n], dtype=float)
+    ss_res = np.sum((r - v) ** 2)
+    ss_tot = np.sum((r - r.mean()) ** 2)
+    r2 = (1.0 - ss_res / ss_tot) if ss_tot > 0 else float("nan")
+    ref_mean = np.mean(np.abs(r))
+    nrmse = (np.sqrt(ss_res / n) / ref_mean) if ref_mean > 0 else float("nan")
+    return r2, nrmse
+
+
+def _peak_day(y, smooth_window=5):
+    """Day-index of y's peak, located on a short moving-average of y rather than the raw series
+    so a single noisy day-to-day spike isn't mistaken for the true peak.
+    """
+    y = np.asarray(y, dtype=float)
+    if len(y) == 0:
+        return 0
+    w = min(smooth_window, len(y))
+    smoothed = np.convolve(y, np.ones(w) / w, mode="same")
+    return int(np.argmax(smoothed))
+
+
 def _auto_shift(epicast_data, exaepi_data, xlimit, shift_range=60):
     """Find the integer day-shift (same convention as --shift: positive delays the ExaEpi curve)
-    that minimizes RMSE between the first Epicast group's 'exposed' curve and the first ExaEpi
-    group's 'NewI' curve. Wildcard groups (multiple files matched by one -e/-x pattern) are
+    that lines up the peak of the first ExaEpi group's 'NewI' curve with the peak of the first
+    Epicast group's 'exposed' curve. Peak-matching is used instead of minimizing RMSE over the
+    whole curve because RMSE picks a poor alignment whenever the two curves' overall shapes
+    disagree (e.g. one is still rising while the other has already peaked and is declining) --
+    even though the peaks themselves are well separated and matching them is what actually gives
+    a sensible alignment. Wildcard groups (multiple files matched by one -e/-x pattern) are
     averaged first, same as elsewhere in this script. Only the first -e/-x pair is used even if
     both were repeated -- shift is a single global x-axis offset applied to every ExaEpi curve.
     """
@@ -374,18 +426,8 @@ def _auto_shift(epicast_data, exaepi_data, xlimit, shift_range=60):
     else:
         x = x_entry["dfs"][0]["NewI"].values[:xlimit]
 
-    n = min(len(e), xlimit)
-    e = e[:n] if len(e) >= n else np.pad(e, (0, n - len(e)))
-    x = np.asarray(x, dtype=float)
-
-    best_shift, best_rmse = 0, float("inf")
-    for s in range(-shift_range, shift_range + 1):
-        d = np.arange(n)
-        src = d - s
-        x_shifted = np.where((src >= 0) & (src < len(x)), x[np.clip(src, 0, len(x) - 1)], 0.0)
-        rmse = np.sqrt(np.mean((e - x_shifted) ** 2))
-        if rmse < best_rmse:
-            best_rmse, best_shift = rmse, s
+    shift = _peak_day(e) - _peak_day(x)
+    return float(np.clip(shift, -shift_range, shift_range))
     return float(best_shift)
 
 
@@ -495,6 +537,9 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
     _seird_cols = {"exposed", "cumulative_exposed", "hospitalized", "dead", "recovered"}
     seir_col = col_name if col_name in _seird_cols else None
 
+    # Reference curve for goodness-of-fit: the first Epicast group's curve for this series.
+    reference_y = _get_group_y(epicast_data[0], col_name, args.xlimit) if epicast_data else None
+
     # Plot fitted SEIRHD curves first (under experimental lines)
     if fit_results and seir_col is not None:
         for (series_lbl, _, _, _, _, _, _, _, _, fdf) in fit_results:
@@ -502,10 +547,10 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
             ax.plot(np.arange(len(fit_y)), fit_y, color="green", linewidth=3, linestyle="-", zorder=1)
             auc = np.sum(fit_y)
             fit_lbl = f"SEIRHD fit ({series_lbl})" if series_lbl else "SEIRHD fit"
-            auc_lines.append((fit_lbl, auc, "green", False))
+            auc_lines.append((fit_lbl, auc, "green", False, _shift_array(fit_y, 0, args.xlimit), False))
 
     def _plot_group(entry, i, base_colors, col, x_col=None, x_shift=0):
-        """Plot one group entry; return (legend_label, auc, color)."""
+        """Plot one group entry; return (legend_label, auc, color, is_wildcard, y_for_gof)."""
         legend_label = entry["label"]
         is_wildcard  = entry["is_wildcard"]
         color        = base_colors[i % len(base_colors)]
@@ -523,6 +568,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
                             zorder=1, label="_nolegend_")
             ax.plot(x_vals, y_mean, label=plot_label, color=color, linewidth=1, zorder=2)
             auc = float(np.sum(y_mean))
+            y_for_gof = _shift_array(y_mean, x_shift, args.xlimit)
         else:
             df     = entry["dfs"][0]
             x_vals = (df[x_col] + x_shift) if x_col else np.arange(len(df[col]))
@@ -530,19 +576,20 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
             auc    = float(np.sum(y_vals[: args.xlimit]))
             lsargs = {"linestyle": "--"} if base_colors[0] == "blue" else {}
             ax.plot(x_vals, y_vals, label=plot_label, color=color, linewidth=1, zorder=2, **lsargs)
+            y_for_gof = _shift_array(y_vals.values, x_shift, args.xlimit)
 
-        return legend_label, auc, color, is_wildcard
+        return legend_label, auc, color, is_wildcard, y_for_gof
 
     # Plot each Epicast group
     for i, entry in enumerate(epicast_data):
-        lbl, auc, color, is_wc = _plot_group(entry, i, epicast_colors, col_name)
-        auc_lines.append((lbl, auc, color, is_wc))
+        lbl, auc, color, is_wc, y_for_gof = _plot_group(entry, i, epicast_colors, col_name)
+        auc_lines.append((lbl, auc, color, is_wc, y_for_gof, i == 0))
 
     # Plot each ExaEpi group
     for i, entry in enumerate(exaepi_data):
-        lbl, auc, color, is_wc = _plot_group(entry, i, exaepi_colors, exaepi_col,
+        lbl, auc, color, is_wc, y_for_gof = _plot_group(entry, i, exaepi_colors, exaepi_col,
                                               x_col="Day", x_shift=args.shift)
-        auc_lines.append((lbl, auc, color, is_wc))
+        auc_lines.append((lbl, auc, color, is_wc, y_for_gof, False))
 
     # Plot manual SEIRD curve
     if seir_df is not None and seir_col is not None:
@@ -552,7 +599,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
             label=f"SEIRHD (β={args.beta}, h={args.hosp_rate}, μ={args.mu})",
             color="green", linewidth=2, linestyle="-.",
         )
-        auc_lines.append(("SEIRHD", np.sum(seir_y), "green", False))
+        auc_lines.append(("SEIRHD", np.sum(seir_y), "green", False, _shift_array(seir_y, 0, args.xlimit), False))
 
     ax.set_xlabel("Days")
     ax.set_ylabel("Number of " + label)
@@ -617,9 +664,17 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
                 row += 1
     else:
         row = 0
-        for lbl, auc, color, is_wildcard in auc_lines:
+        for lbl, auc, color, is_wildcard, y_for_gof, is_reference in auc_lines:
             lbl_str = lbl if lbl is not None else "(unlabelled)"
-            print(f"  AUC {lbl_str}: {auc:,.0f}")
+            gof_str = ""
+            if not is_reference and reference_y is not None:
+                gof = _goodness_of_fit(reference_y, y_for_gof)
+                if gof is not None:
+                    r2, nrmse = gof
+                    r2_str    = f"{r2:.3f}"    if np.isfinite(r2)    else "N/A"
+                    nrmse_str = f"{nrmse:.3f}" if np.isfinite(nrmse) else "N/A"
+                    gof_str = f"  R²={r2_str}  NRMSE={nrmse_str}"
+            print(f"  AUC {lbl_str}: {auc:,.0f}{gof_str}")
             if lbl is not None:
                 ax.text(0.98, 0.97 - row * 0.10, f"AUC {lbl}: {auc:,.0f}",
                         transform=ax.transAxes, ha="right", va="top", fontsize=7, color=color)
@@ -673,7 +728,7 @@ def _shift_type(value):
 parser.add_argument(
     "--shift", "-s", type=_shift_type, default=0.0,
     help="Shift the ExaEpi curve along the x-axis in days, or 'auto' to pick the shift "
-         "(searched over +/-60 days) that minimizes RMSE between the first -e and -x curves' "
+         "(clamped to +/-60 days) that lines up the peak of the first -e and -x curves' "
          "'exposed'/NewI series (default: 0)",
 )
 parser.add_argument(
@@ -792,7 +847,7 @@ if args.shift == "auto":
     # on the xlimit auto-sizing below (which in turn depends on args.shift already being resolved).
     _shift_window = args.xlimit if isinstance(args.xlimit, (int, float)) else 250
     args.shift = _auto_shift(epicast_data, exaepi_data, _shift_window)
-    print(f"Auto-detected shift: {args.shift:+.0f} days (minimizes RMSE of the 'exposed'/NewI curve)")
+    print(f"Auto-detected shift: {args.shift:+.0f} days (aligns the peak of the 'exposed'/NewI curve)")
 
 if args.xlimit == "auto":
     args.xlimit = _auto_xlimit(epicast_data, exaepi_data, args.shift)
