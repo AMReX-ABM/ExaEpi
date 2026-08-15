@@ -25,7 +25,8 @@ def main():
         "-s",
         required=True,
         nargs="+",
-        help="Shape files census block group shape files (.shp). Available from\n"
+        help="Census block group shape files (.shp), or Census tract shape files if --tract_level "
+        "is passed. Available from\n"
         + "https://www.census.gov/cgi-bin/geo/shapefiles/index.php?year=2010&layergroup=Block+Groups",
     )
     parser.add_argument(
@@ -46,6 +47,15 @@ def main():
         default=[-170, -66.6, 18.5, 71.5],
         nargs="+",
         help="Range for longitude: min,max",
+    )
+    parser.add_argument(
+        "--tract_level",
+        "-t",
+        action="store_true",
+        default=False,
+        help="Aggregate and plot at the Census tract level (11-digit GEOID, summed across all "
+        "block groups in each tract) instead of the default block group level (12-digit GEOID10). "
+        "Pass a Census tract shapefile (not a block group one) via --shape_files when using this.",
     )
 
     args = parser.parse_args()
@@ -72,6 +82,16 @@ def main():
     grid_stats_df.Tract = grid_stats_df.Tract.astype("int").astype(str).str.zfill(7)
     grid_stats_df["GEOID10"] = grid_stats_df.FIPS + grid_stats_df.Tract
     grid_stats_df.GEOID10 = grid_stats_df.GEOID10.astype("int64")
+
+    if args.tract_level:
+        # Drop the last digit (the block group number) to get the 11-digit Census tract GEOID,
+        # then sum every block group that shares a tract into one row before merging with a
+        # tract-level shapefile (otherwise each block group would re-attach to the same tract
+        # geometry and inflate the per-tract counts).
+        grid_stats_df["GEOID10"] = grid_stats_df["GEOID10"] // 10
+        grid_stats_df = grid_stats_df.groupby("GEOID10", as_index=False)[
+            ["pop", "never_infected", "infected", "immune"]
+        ].sum()
     # grid_stats_df.to_csv("grid_stats.csv")
 
     shp_dfs = []
@@ -98,6 +118,16 @@ def main():
     max_count = 30000  # never_infected_agents["count"].max()
 
     df = pd.merge(shp_data, grid_stats_df, on=["GEOID10"], how="inner")
+    if df.empty:
+        if args.tract_level:
+            fix = "pass a Census tract shapefile (e.g. tl_2010_35_tract10.shp), or drop --tract_level"
+        else:
+            fix = "pass a Census block group shapefile (e.g. tl_2010_35_bg10.shp), or add --tract_level"
+        raise SystemExit(
+            f"No rows matched after merging: 0 of {len(grid_stats_df)} ExaEpi GEOIDs were found "
+            f"among the {len(shp_data)} shapefile rows. This almost always means --shape_files "
+            f"is at the wrong granularity for the current --tract_level setting -- {fix}."
+        )
     # df.to_csv("merged.csv")
     # df[["GEOID10", "pop", "never_infected", "infected", "immune", "dead"]].to_csv("merged.csv")
     # df[["GEOID10", "pop", "never_infected", "infected", "immune"]].to_csv("merged.csv")
