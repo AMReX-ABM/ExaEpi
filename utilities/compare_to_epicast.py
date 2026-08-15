@@ -399,36 +399,53 @@ def _peak_day(y, smooth_window=5):
     return int(np.argmax(smoothed))
 
 
-def _auto_shift(epicast_data, exaepi_data, xlimit, shift_range=60):
-    """Find the integer day-shift (same convention as --shift: positive delays the ExaEpi curve)
-    that lines up the peak of the first ExaEpi group's 'NewI' curve with the peak of the first
-    Epicast group's 'exposed' curve. Peak-matching is used instead of minimizing RMSE over the
-    whole curve because RMSE picks a poor alignment whenever the two curves' overall shapes
-    disagree (e.g. one is still rising while the other has already peaked and is declining) --
-    even though the peaks themselves are well separated and matching them is what actually gives
-    a sensible alignment. Wildcard groups (multiple files matched by one -e/-x pattern) are
-    averaged first, same as elsewhere in this script. Only the first -e/-x pair is used even if
-    both were repeated -- shift is a single global x-axis offset applied to every ExaEpi curve.
+# Mapping from plot/series labels to ExaEpi column names, shared by plot_series below.
+COL_MAPPING = {
+    "exposed": "NewI",
+    "symptomatic": "NewS",
+    "presymptomatic": "NewP",
+    "asymptomatic": "NewA",
+    "hospitalized": "NewH",
+    "dead": "delta_dead",
+    "recovered": "delta_recovered",
+    "cumulative_exposed": "cum_exposed",
+}
+
+
+def _auto_shift_per_exaepi_group(epicast_data, exaepi_data, xlimit, shift_range=60):
+    """For each ExaEpi input group (i.e. each -x file or wildcard pattern), find the integer
+    day-shift (same convention as --shift: positive delays the ExaEpi curve) that lines up the
+    peak of THAT group's own 'NewI' curve with the peak of the first Epicast group's 'exposed'
+    curve. Every series (Symptomatic, Hospitalized, Dead, ...) plotted for a given ExaEpi group
+    reuses that one group-level shift -- shifting is a per-input-file thing, driven by the
+    exposed/NewI peak, not something recomputed per series. Peak-matching (rather than minimizing
+    RMSE over the whole curve) is used because RMSE picks a poor alignment whenever the two
+    curves' overall shapes disagree, even though the peaks themselves are well separated and
+    matching them is what actually gives a sensible alignment. Wildcard groups (multiple files
+    matched by one -e/-x pattern) are averaged first, same as elsewhere in this script.
+
+    Returns a list parallel to exaepi_data (one shift per group), or a list of 0.0s if there's no
+    Epicast reference to align against.
     """
     if not epicast_data or not exaepi_data:
-        return 0.0
+        return [0.0] * len(exaepi_data)
 
     e_entry = epicast_data[0]
-    x_entry = exaepi_data[0]
-
     if e_entry["is_wildcard"] and len(e_entry["dfs"]) > 1:
         e = _align_arrays(e_entry["dfs"], "exposed", xlimit).mean(axis=0)
     else:
         e = e_entry["dfs"][0]["exposed"].values[:xlimit]
+    e_peak = _peak_day(e)
 
-    if x_entry["is_wildcard"] and len(x_entry["dfs"]) > 1:
-        x = _align_arrays(x_entry["dfs"], "NewI", xlimit).mean(axis=0)
-    else:
-        x = x_entry["dfs"][0]["NewI"].values[:xlimit]
-
-    shift = _peak_day(e) - _peak_day(x)
-    return float(np.clip(shift, -shift_range, shift_range))
-    return float(best_shift)
+    shifts = []
+    for x_entry in exaepi_data:
+        if x_entry["is_wildcard"] and len(x_entry["dfs"]) > 1:
+            x = _align_arrays(x_entry["dfs"], "NewI", xlimit).mean(axis=0)
+        else:
+            x = x_entry["dfs"][0]["NewI"].values[:xlimit]
+        shift = e_peak - _peak_day(x)
+        shifts.append(float(np.clip(shift, -shift_range, shift_range)))
+    return shifts
 
 
 _EPICAST_EXTENT_COLS = ["exposed", "symptomatic", "asymptomatic", "presymptomatic", "hospitalized", "dead", "recovered"]
@@ -449,23 +466,43 @@ def _furthest_nonzero_day(df, cols, threshold=10):
     return int(above[-1]) if len(above) else 0
 
 
-def _auto_xlimit(epicast_data, exaepi_data, shift, margin=5):
+def _auto_xlimit(epicast_data, exaepi_data, shift_by_group, margin=5):
     """Size the x-axis to the minimum, across every -e/-x input file, of that file's furthest
     above-threshold day (see _furthest_nonzero_day) -- i.e. trim to whichever curve runs out of
     signal first, so no plot is padded with a long trailing flat tail from a shorter-lived curve.
-    ExaEpi files are measured in their OWN day-numbering then offset by `shift` (already resolved
-    to a number by the time this runs), since that's where they actually land once plotted.
+    ExaEpi files are measured in their OWN day-numbering then offset by their own group's shift
+    (shift_by_group, parallel to exaepi_data, already resolved to numbers by the time this runs),
+    since that's where they actually land once plotted.
     """
     extents = []
     for entry in epicast_data:
         for df in entry["dfs"]:
             extents.append(_furthest_nonzero_day(df, _EPICAST_EXTENT_COLS))
-    for entry in exaepi_data:
+    for entry, shift in zip(exaepi_data, shift_by_group):
         for df in entry["dfs"]:
             extents.append(_furthest_nonzero_day(df, _EXAEPI_EXTENT_COLS) + shift)
     if not extents:
         return 250
     return max(1, int(np.ceil(min(extents))) + margin)
+
+
+def _mark_exaepi_start(ax, shifts, colors=None):
+    """Draw a vertical marker at the x-position where each ExaEpi group's own day 0 lands after
+    its shift is applied, so a shifted curve's origin stays visible instead of implicit. `shifts`
+    is a list (one per ExaEpi group); when groups differ, each distinct shift gets its own marker,
+    colored to match that group's plotted curve if `colors` (parallel to `shifts`) is given.
+    """
+    colors = colors if colors is not None else ["#aa0000"] * len(shifts)
+    seen = set()
+    for shift, color in zip(shifts, colors):
+        if shift in seen:
+            continue  # groups sharing a shift don't need a duplicate line/label
+        seen.add(shift)
+        ax.axvline(shift, color=color, linestyle=":", linewidth=1, zorder=0, alpha=0.7)
+        ax.annotate(
+            "ExaEpi day 0", xy=(shift, 0.98), xycoords=("data", "axes fraction"),
+            rotation=90, va="top", ha="right", fontsize=6, color=color, alpha=0.8,
+        )
 
 
 _CONTEXT_COLS = {
@@ -491,13 +528,16 @@ def plot_context(ax, exaepi_data):
     ax.grid(True, which="minor", alpha=0.3)
     ax.minorticks_on()
 
-    for entry in exaepi_data:
+    for entry, group_shift in zip(exaepi_data, shift_by_group):
         for df in entry["dfs"]:
-            x = (df["Day"] + args.shift).values[:args.xlimit]
+            x = (df["Day"] + group_shift).values[:args.xlimit]
             for col, (label_str, color) in _CONTEXT_COLS.items():
                 if col in df.columns:
                     y = df[col].values[:args.xlimit]
                     ax.plot(x, y, label=label_str, color=color, linewidth=1)
+
+    if exaepi_data:
+        _mark_exaepi_start(ax, shift_by_group)
 
     ax.legend(fontsize=7)
 
@@ -515,22 +555,11 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
         seir_df: optional DataFrame from run_seir()
         fit_results: optional list of (series_label, color, beta, sigma, gamma, fitted_df)
     """
-    # Mapping from plot labels to ExaEpi column names
-    col_mapping = {
-        "exposed": "NewI",
-        "symptomatic": "NewS",
-        "presymptomatic": "NewP",
-        "asymptomatic": "NewA",
-        "hospitalized": "NewH",
-        "dead": "delta_dead",
-        "recovered": "delta_recovered",
-        "cumulative_exposed": "cum_exposed",
-    }
     epicast_colors = ["blue", "green", "purple", "orange", "brown", "pink"]
     exaepi_colors  = ["red", "darkred", "crimson", "firebrick", "maroon", "indianred"]
 
     col_name   = label.lower().replace(" ", "_")
-    exaepi_col = col_mapping.get(col_name, col_name)
+    exaepi_col = COL_MAPPING.get(col_name, col_name)
 
     auc_lines = []
 
@@ -585,10 +614,11 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
         lbl, auc, color, is_wc, y_for_gof = _plot_group(entry, i, epicast_colors, col_name)
         auc_lines.append((lbl, auc, color, is_wc, y_for_gof, i == 0))
 
-    # Plot each ExaEpi group
+    # Plot each ExaEpi group, each shifted by its OWN group-level shift (from matching that
+    # group's exposed/NewI peak -- see _auto_shift_per_exaepi_group).
     for i, entry in enumerate(exaepi_data):
         lbl, auc, color, is_wc, y_for_gof = _plot_group(entry, i, exaepi_colors, exaepi_col,
-                                              x_col="Day", x_shift=args.shift)
+                                              x_col="Day", x_shift=shift_by_group[i])
         auc_lines.append((lbl, auc, color, is_wc, y_for_gof, False))
 
     # Plot manual SEIRD curve
@@ -604,6 +634,9 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
     ax.set_xlabel("Days")
     ax.set_ylabel("Number of " + label)
     ax.set_xlim([0, args.xlimit])
+
+    if exaepi_data:
+        _mark_exaepi_start(ax, shift_by_group, [exaepi_colors[i % len(exaepi_colors)] for i in range(len(exaepi_data))])
 
     # ylim from all series (use max of the band ceiling for wildcard groups)
     max_vals = []
@@ -727,9 +760,12 @@ def _shift_type(value):
 
 parser.add_argument(
     "--shift", "-s", type=_shift_type, default=0.0,
-    help="Shift the ExaEpi curve along the x-axis in days, or 'auto' to pick the shift "
-         "(clamped to +/-60 days) that lines up the peak of the first -e and -x curves' "
-         "'exposed'/NewI series (default: 0)",
+    help="Shift the ExaEpi curve(s) along the x-axis in days, or 'auto' to pick a shift "
+         "independently per -x input file/group (clamped to +/-60 days each) that lines up that "
+         "group's own 'NewI' (exposed) peak with the first -e input's 'exposed' peak. Every "
+         "series (Symptomatic, Hospitalized, Dead, ...) plotted for a given ExaEpi group reuses "
+         "that same group-level shift -- only different -x inputs can end up with different "
+         "shifts, not different series of the same input (default: 0)",
 )
 parser.add_argument(
     "--output", "-o", required=True, help="Output file name for the plot (e.g., comparison.png)"
@@ -819,9 +855,9 @@ def _write_epicast_csv(fname, df):
     print(f"Wrote plot values to {csv_out}")
 
 
-def _write_exaepi_csv(fname, df):
+def _write_exaepi_csv(fname, df, shift):
     out = pd.DataFrame({
-        "day":               df["Day"] + args.shift,
+        "day":               df["Day"] + shift,
         "exposed":           df["NewI"].values,
         "symptomatic":       df["NewS"].values,
         "asymptomatic":      df["NewA"].values,
@@ -837,25 +873,33 @@ def _write_exaepi_csv(fname, df):
 
 
 epicast_data = _load_grouped(args.epicast_file, load_epicast, _write_epicast_csv)
-# CSV-writing is deferred until after args.shift is resolved below (it embeds args.shift into the
-# "day" column, which isn't known yet if --shift auto was requested).
+# CSV-writing is deferred until after shift_by_group is resolved below (it embeds each group's
+# own shift into the "day" column, which isn't known yet if --shift auto was requested).
 exaepi_data  = _load_grouped(args.exaepi_file,  load_exaepi,  None)
 
 if args.shift == "auto":
     # args.xlimit may itself still be "auto" here -- it only bounds how much of the curve the
     # shift search looks at, so fall back to the parser's own default (250) rather than depending
-    # on the xlimit auto-sizing below (which in turn depends on args.shift already being resolved).
+    # on the xlimit auto-sizing below (which in turn depends on shift_by_group already being
+    # resolved).
     _shift_window = args.xlimit if isinstance(args.xlimit, (int, float)) else 250
-    args.shift = _auto_shift(epicast_data, exaepi_data, _shift_window)
-    print(f"Auto-detected shift: {args.shift:+.0f} days (aligns the peak of the 'exposed'/NewI curve)")
+    shift_by_group = _auto_shift_per_exaepi_group(epicast_data, exaepi_data, _shift_window)
+    for _i, _s in enumerate(shift_by_group):
+        _lbl = exaepi_data[_i]["label"] or f"ExaEpi input {_i + 1}"
+        print(f"Auto-detected shift for {_lbl}: {_s:+.0f} days (aligns that file's exposed/NewI peak)")
+    # args.shift keeps a single scalar for callers with no per-group concept (just the xlimit
+    # fallback default below): the first group's shift.
+    args.shift = shift_by_group[0] if shift_by_group else 0.0
+else:
+    shift_by_group = [args.shift] * len(exaepi_data)
 
 if args.xlimit == "auto":
-    args.xlimit = _auto_xlimit(epicast_data, exaepi_data, args.shift)
+    args.xlimit = _auto_xlimit(epicast_data, exaepi_data, shift_by_group)
     print(f"Auto-detected xlimit: {args.xlimit} days (minimum furthest >=10 extent across all inputs)")
 
-for _entry in exaepi_data:
+for _entry, _shift in zip(exaepi_data, shift_by_group):
     for _fname, _df in zip(_entry["fnames"], _entry["dfs"]):
-        _write_exaepi_csv(_fname, _df)
+        _write_exaepi_csv(_fname, _df, _shift)
 
 seir_df = None
 if args.seir:
