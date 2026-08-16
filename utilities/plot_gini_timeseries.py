@@ -215,13 +215,14 @@ def main():
 
     ax.set_xlabel("Day")
     if args.metric == "moran":
-        ax.axhline(0.0, color="gray", linestyle="--", linewidth=1, alpha=0.7, label="Spatial randomness (I=0)")
+        #ax.axhline(0.0, color="gray", linestyle="--", linewidth=1, alpha=0.7, label="Spatial randomness (I=0)")
+        ax.axhline(0.0, color="gray", linestyle="--", linewidth=1, alpha=0.7)
         ax.set_ylabel(f"Global Moran's I of infected count (per {geo_unit})")
-        ax.set_title("Spatial autocorrelation of infections over time")
+        #ax.set_title("Spatial autocorrelation of infections over time")
     else:
         ax.set_ylim(0, 1)
         ax.set_ylabel(f"Gini coefficient of infected count (per {geo_unit})")
-        ax.set_title("Geographic spread of infections over time")
+        #ax.set_title("Geographic spread of infections over time")
     ax.grid(True, alpha=0.3)
     ax.legend()
 
