@@ -32,8 +32,6 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from plot_geo import load_exaepi_grid_stats, _parse_day_from_plot_dir  # noqa: E402
 from plot_geo_epicast import reconstruct_epicast_snapshot  # noqa: E402
-
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from read_epicast_events import read_events_bin  # noqa: E402
 
 import geopandas as gp  # noqa: E402

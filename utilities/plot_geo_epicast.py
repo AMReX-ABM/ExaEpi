@@ -27,10 +27,8 @@ import geopandas as gp
 import matplotlib.pyplot as plt
 import matplotlib as mp
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from read_epicast_events import read_events_bin  # noqa: E402
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from read_epicast_events import read_events_bin  # noqa: E402
 from geo_agg_utils import aggregate_to_county  # noqa: E402
 
 _ACTIVE_STATES = {"exposed", "presymptomatic", "symptomatic", "asymptomatic"}
