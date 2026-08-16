@@ -1365,7 +1365,7 @@ def alloc_teachers_for_school_type(
     schools_df = schools_df.with_columns([pl.col("adj_teachers").alias("alloc_teachers")])
     # Get teachers with the appropriate NAICS code
     teachers_df = workers_df.filter(pl.col("naics") == naics_code)
-    num_reqd_teachers = schools_df["adj_teachers"].sum()
+    num_reqd_teachers = float(schools_df["adj_teachers"].sum())
     print(
         f"Found {len(teachers_df)} workers with NAICS code {naics_code} for "
         f"{num_reqd_teachers} required teachers, ratio {len(students_df) / num_reqd_teachers:.2f}"

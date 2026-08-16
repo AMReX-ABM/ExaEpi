@@ -578,7 +578,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
             fit_lbl = f"SEIRHD fit ({series_lbl})" if series_lbl else "SEIRHD fit"
             auc_lines.append((fit_lbl, auc, "green", False, _shift_array(fit_y, 0, args.xlimit), False))
 
-    def _plot_group(entry, i, base_colors, col, x_col=None, x_shift=0):
+    def _plot_group(entry, i, base_colors, col, x_col=None, x_shift=0.0):
         """Plot one group entry; return (legend_label, auc, color, is_wildcard, y_for_gof)."""
         legend_label = entry["label"]
         is_wildcard  = entry["is_wildcard"]

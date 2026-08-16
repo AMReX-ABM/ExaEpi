@@ -229,8 +229,8 @@ def aggregate_events(events_df: pd.DataFrame, split_day_night: bool = False) -> 
     each calendar day are merged and the result has one row per day.
 
     When *split_day_night* is ``True`` the periods are kept separate and the
-    result has two rows per calendar day: one for the day period (even timestep)
-    and one for the night period (odd timestep).  An extra ``period`` column
+    result has two rows per calendar day: one for the night period (even timestep)
+    and one for the day period (odd timestep).  An extra ``period`` column
     contains ``"day"`` or ``"night"``.
 
     In both cases each row contains one column per disease_state category, one
@@ -256,8 +256,10 @@ def aggregate_events(events_df: pd.DataFrame, split_day_night: bool = False) -> 
     df = events_df.copy()
     # day = which 24-hour calendar day (timestep // 2)
     df["day"] = (df["timestep"] // 2).astype(int)
-    # period: even timestep → "day" half, odd timestep → "night" half
-    df["period"] = np.where(df["timestep"] % 2 == 0, "day", "night")
+    # period: even timestep → "night" half (household/household_cluster context events occur
+    # exclusively here), odd timestep → "day" half (school/work/teacher context events occur
+    # exclusively here) -- confirmed empirically via context vs. timestep-parity cross-tabulation.
+    df["period"] = np.where(df["timestep"] % 2 == 0, "night", "day")
 
     group_keys = ["day", "period"] if split_day_night else ["day"]
 

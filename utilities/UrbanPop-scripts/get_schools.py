@@ -13,6 +13,7 @@ import censusgeocode as cg
 import sys
 import shapely.geometry
 from colorama import Fore
+from typing import cast
 
 
 def timer(func):
@@ -237,9 +238,9 @@ def get_hifld_childcare(args, census_bgs_df):
     childcare_with_geoids.loc[(childcare_with_geoids.students <= 0), "students"] = avg_childcare
     # childcare_with_geoids = childcare_with_geoids[childcare_with_geoids.students > 0]
     # assume 5 children per adult
-    childcare_with_geoids.insert(childcare_with_geoids.columns.get_loc("students") + 1, "teachers", int(0))
-    childcare_with_geoids.insert(childcare_with_geoids.columns.get_loc("teachers") + 1, "level", "C")
-    childcare_with_geoids.teachers = np.int32(np.ceil(childcare_with_geoids.students / 7))
+    childcare_with_geoids.insert(cast(int, childcare_with_geoids.columns.get_loc("students")) + 1, "teachers", int(0))
+    childcare_with_geoids.insert(cast(int, childcare_with_geoids.columns.get_loc("teachers")) + 1, "level", "C")
+    childcare_with_geoids["teachers"] = np.int32(np.ceil(childcare_with_geoids.students / 7))
     sum_children = childcare_with_geoids.students.sum()
     childcare_with_geoids.to_csv("childcare_with_geoids.csv", index=False)
     print("Wrote", len(childcare_with_geoids), "childcare records to childcare_with_geoids.csv")
@@ -364,7 +365,7 @@ def main():
     )
     cfg_parser.add_argument("-c", "--config", help="Config file", metavar="FILE")
     args, remaining_argv = cfg_parser.parse_known_args()
-    main_args = {
+    main_args: dict[str, str | list[str]] = {
         "private_school_files": "",
         "public_school_files": "",
         "public_nces_school_files": "",
@@ -377,7 +378,7 @@ def main():
         cfg.read([args.config])
         main_args.update(dict(cfg.items("main")))
         for key in main_args.keys():
-            files = main_args[key].split()
+            files = str(main_args[key]).split()
             file_list = []
             for f in files:
                 file_list.extend(glob.glob(f))

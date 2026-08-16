@@ -6,6 +6,8 @@ from scipy.stats import gamma, pearsonr
 from scipy.optimize import minimize, differential_evolution
 import sys
 
+plt.rcParams.update({"font.size": 20})
+
 # latent period
 exposed_to_presymp = [0.0] * 1
 exposed_to_presymp.extend([0.1, 0.25, 0.55, 0.66, 0.78, 0.85, 1.0])
@@ -109,7 +111,7 @@ def fit_gamma_to_pmf(days, pmf, title=""):
     return shape_fit, loc_fit, scale_fit
 
 
-fig, axes = plt.subplots(1, len(transitions), figsize=(16, 8))
+fig, axes = plt.subplots(1, len(transitions), figsize=(20, 8))
 
 for idx, (trans_probs, shape, scale, loc, title) in enumerate(transitions):
     ax = axes[idx]
@@ -159,7 +161,7 @@ for idx, (trans_probs, shape, scale, loc, title) in enumerate(transitions):
                 f"{prob:.2f}",
                 ha="center",
                 va="bottom",
-                fontsize=10,
+                fontsize=20,
             )
 
     x_cont = np.linspace(0, days - 1, 10000)
@@ -215,11 +217,12 @@ for idx, (trans_probs, shape, scale, loc, title) in enumerate(transitions):
     print()
 
     ax.set_xlim(0, days - 1)
+    ax.set_ylim(0, 1.2)
     ax.set_xlabel("Days")
     ax.set_ylabel("Cumulative Probability")
     ax.set_title(title)
     ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=9)
+    ax.legend(fontsize=16, loc="upper center", bbox_to_anchor=(0.5, 1.0))
 
 plt.tight_layout()
 plt.savefig("epicast_transitions_comparison.png", bbox_inches="tight", dpi=300)

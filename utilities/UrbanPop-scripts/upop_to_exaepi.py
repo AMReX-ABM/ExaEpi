@@ -396,7 +396,7 @@ def process_upop_nt_dt(up_nt_dt_files, upop_df):
     )
     df.loc[idx, "grade"] = df.loc[idx, "grade"].str.split("_", n=1, expand=True).iloc[:, 0]
     df.loc[~idx, "grade"] = df.loc[~idx, "grade"].str.split("_", n=1, expand=True).iloc[:, 1]
-    df.grade = df.grade.astype(categ_types["pr_grade"]).cat.codes
+    df["grade"] = df.grade.astype(categ_types["pr_grade"]).cat.codes
     df.loc[df.grade != -1, "grade"] += 3  # add 3 to the grade to match UrbanPop data
     df.rename(
         columns={
@@ -431,7 +431,7 @@ def process_upop_nt_dt(up_nt_dt_files, upop_df):
 
     dump_intermediate(df, "upop_with_nt_dt")
     # copy the grades from the upop nt/dt data
-    df.grade = df.nt_dt_grade.astype("int8")
+    df["grade"] = df.nt_dt_grade.astype("int8")
     df.loc[(df.role == "worker") | (df.role == "nope"), "grade"] = np.int8(-1)
     df.loc[(df.role == "worker") | (df.role == "nope"), "school_id"] = ""
     df.drop(columns=["nt_dt_grade"], inplace=True)
@@ -449,7 +449,7 @@ def process_upop_nt_dt(up_nt_dt_files, upop_df):
         warn(f"Found {students_without_schools} students without school assignments")
     students_df = df[(df.role == "student") & (df.school_id != "")].reset_index(drop=True)
     students_df.drop(columns=["role"], inplace=True)
-    students_df.naics = -1
+    students_df["naics"] = -1
     dump_intermediate(students_df, "students_from_upop_nt_dt")
 
     schools_df = (
@@ -545,8 +545,8 @@ def get_lodes_groups(lodes_fnames):
         )[["w_geocode", "h_geocode", "S000"]]
         # print("Loaded", len(lodes_df), "entries")
         # truncate geoids to first 12, i.e. just census block groups
-        lodes_df.h_geocode = lodes_df.h_geocode.str[:12]
-        lodes_df.w_geocode = lodes_df.w_geocode.str[:12]
+        lodes_df["h_geocode"] = lodes_df.h_geocode.str[:12]
+        lodes_df["w_geocode"] = lodes_df.w_geocode.str[:12]
         lodes_df = (
             lodes_df.groupby(["w_geocode", "h_geocode"])
             .S000.sum()
@@ -1382,9 +1382,9 @@ def compute_worker_populations(df):
     # ensure every GEOID has entries for all the NAICS codes, even ones for count 0
     full_naics_df = pd.DataFrame()
     full_naics_df["work_geoid"] = work_geoids
-    full_naics_df["naics"] = Fake(naics_types)
+    full_naics_df["naics"] = Fake(naics_types)  # type: ignore[reportArgumentType, reportCallIssue]
     full_naics_df["num"] = 0
-    full_naics_df.naics = full_naics_df.naics.apply(lambda x: x.obj)
+    full_naics_df["naics"] = full_naics_df.naics.apply(lambda x: x.obj)
     full_naics_df = full_naics_df.explode("naics")
     work_geoids_pops_df = work_geoids_df.merge(
         full_naics_df, on=["work_geoid", "naics"], how="outer"
@@ -1529,10 +1529,10 @@ def main():
         ]
     ]
     # set the location types
-    df.home_geoid = df.home_geoid.astype("int64")
-    df.work_geoid = df.work_geoid.fillna(-1).astype("int64")
+    df["home_geoid"] = df.home_geoid.astype("int64")
+    df["work_geoid"] = df.work_geoid.fillna(-1).astype("int64")
     df.loc[df.work_geoid == -1, "work_geoid"] = df.home_geoid
-    df.naics = df.naics.astype("int16")
+    df["naics"] = df.naics.astype("int16")
 
     dump_intermediate(df, args.output + "_nt_dt")
     adjust_indexes(df, args.output)
