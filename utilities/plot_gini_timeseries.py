@@ -189,7 +189,7 @@ def main():
         order = np.argsort(days)
         days = np.array(days)[order]
         values = np.array(values)[order]
-        ax.plot(days, values, "-", label="ExaEpi", color="tab:red")
+        ax.plot(days, values, "-", label="ExaEpi", color="tab:red", lw=5)
 
     if args.events_file:
         print("Reading Epicast data from", args.events_file)
@@ -211,7 +211,7 @@ def main():
                 v = gini(grid_stats_df["infected"].values)
             values.append(v)
             print(f"Epicast day {resolved_day}: {args.metric} = {v:.4f} (n={len(grid_stats_df)} {geo_unit}s)")
-        ax.plot(days, values, "-", label="Epicast", color="tab:blue")
+        ax.plot(days, values, "-", label="Epicast", color="tab:blue", lw=5)
 
     ax.set_xlabel("Day")
     if args.metric == "moran":

@@ -66,8 +66,9 @@ def load_community_density(plot_dir, shape_files):
 
 
 def plot_community_size_vs_density(df, output):
+    plt.rcParams.update({"font.size": 20})
     fig, ax = plt.subplots(figsize=(9, 7))
-    ax.scatter(df["density"], df["pop"], s=10, alpha=0.35, color=SERIES_COLOR, linewidths=0, label="Community")
+    ax.scatter(df["pop"], df["density"], s=100, alpha=0.35, color=SERIES_COLOR, linewidths=0)
 
     # Median community size within log-spaced density bins -- shows the trend through the
     # scatter's heavy overplotting rather than relying on the eye to average it.
@@ -80,12 +81,12 @@ def plot_community_size_vs_density(df, output):
         if len(sel) >= MIN_BIN_COUNT:
             bin_centers.append(10 ** ((bins[i - 1] + bins[i]) / 2))
             bin_medians.append(sel.median())
-    ax.plot(bin_centers, bin_medians, color=TREND_COLOR, lw=2, label="Median (binned)")
+    ax.plot(bin_medians, bin_centers, color=TREND_COLOR, lw=5, label="Median community size (binned)")
 
     ax.set_xscale("log")
-    ax.set_xlabel("Population density (people / km²)")
-    ax.set_ylabel("Community size (population)")
-    ax.set_title("ExaEpi community size vs. population density")
+    ax.set_yscale("log")
+    ax.set_xlabel("Community size (population)")
+    ax.set_ylabel("Population density (people / km²)")
     ax.legend(frameon=False)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
