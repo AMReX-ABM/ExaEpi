@@ -7,6 +7,8 @@ EducationData/*
 LODES7
 US_2010_Census_BlockGroups
 US_2010_Census_States
+US_2010_Census_County
+US_2010_Census_Tracts
 UrbanPop
 !UrbanPop/urbanpop_nm.bin.gz
 !UrbanPop/urbanpop_nm.idx
