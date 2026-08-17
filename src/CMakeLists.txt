@@ -39,7 +39,12 @@ set(_sources
 # List of input files
 set(_input_files)
 
-setup_agent(_sources _input_files)
+set(_extra_definitions)
+if(EXAEPI_DISABLE_SCHOOL)
+  list(APPEND _extra_definitions EXAEPI_DISABLE_SCHOOL)
+endif()
+
+setup_agent(_sources _input_files EXTRA_DEFINITIONS "${_extra_definitions}")
 
 unset(_sources)
 unset(_input_files)

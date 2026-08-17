@@ -8,6 +8,11 @@ project(ExaEpi
 # Defines a DEBUG symbol for use in the code
 add_compile_options("$<$<CONFIG:DEBUG>:-DDEBUG>")
 
+# Experimental: keep students/teachers home during the day (skip their daytime commute to school)
+# and skip school transmission entirely -- see InteractionModSchool.H / AgentContainer::interactSchool
+# and AgentContainer::moveAgentsToWork
+option(EXAEPI_DISABLE_SCHOOL "Disable daytime school commute and school transmission (experimental)" OFF)
+
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)
 
 set(AMReX_PARTICLES ON)

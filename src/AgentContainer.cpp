@@ -175,7 +175,11 @@ void AgentContainer::moveAgentsRandomWalk () {
 
 /*! \brief Move agents to work
 
-    For each agent, set its position to the work community (IntIdx::work_i, IntIdx::work_j)
+    For each agent, set its position to the work community (IntIdx::work_i, IntIdx::work_j).
+
+    If EXAEPI_DISABLE_SCHOOL is defined, agents enrolled in school (IntIdx::school_id > 0 --
+    students and teachers alike, see InteractionModSchool.H) are left at their current (home)
+    position instead, so they never commute to school for the day.
 */
 void AgentContainer::moveAgentsToWork () {
     BL_PROFILE("AgentContainer::moveAgentsToWork");
@@ -199,9 +203,16 @@ void AgentContainer::moveAgentsToWork () {
             auto& soa = ptile.GetStructOfArrays();
             auto work_i_ptr = soa.GetIntData(IntIdx::work_i).data();
             auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
+#ifdef EXAEPI_DISABLE_SCHOOL
+#warning School Interactions and student/teacher movement disabled
+            auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
+#endif
 
             amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
                 if (!inHospital(ip, ptd) && !isOnTravel(ip, ptd)) {
+#ifdef EXAEPI_DISABLE_SCHOOL
+                    if (school_id_ptr[ip] > 0) { return; }
+#endif
                     ParticleType& p = pstruct[ip];
                     p.pos(0) = static_cast<ParticleReal>((work_i_ptr[ip] + 0.5_rt) * dx[0]);
                     p.pos(1) = static_cast<ParticleReal>((work_j_ptr[ip] + 0.5_rt) * dx[1]);
@@ -1120,7 +1131,11 @@ void AgentContainer::interactHospital (MultiFab& a_mask_behavior) {
 
 void AgentContainer::interactSchool (MultiFab& a_mask_behavior) {
     BL_PROFILE("AgentContainer::interactSchool");
+#ifndef EXAEPI_DISABLE_SCHOOL
     m_mod_school.interactAgents(*this, a_mask_behavior);
+#else
+    amrex::ignore_unused(a_mask_behavior);
+#endif
 }
 
 void AgentContainer::interactNborhoodDay (MultiFab& a_mask_behavior) {
