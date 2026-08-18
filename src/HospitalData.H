@@ -68,12 +68,12 @@ class HospitalData {
      *  capacity (load <= 1) or its county has a single hospital, else the lowest-load county peer.
      *  Fills m_transfer_i/j_d and the per-hospital target index m_transfer_target from the current
      *  per-hospital load in a_hosp_data (HospMod::load), and resets the per-day transfer counter. */
-    void computeTransferTargets (const amrex::MultiFab& a_hosp_data);
+    void computeTransferTargets(const amrex::MultiFab& a_hosp_data);
 
     /*! Append the current day's patient transfers to the transfer log (one line per source hospital
      *  that sent patients away): day, from FIPS/tract, to FIPS/tract, and the patient count. Gathers
      *  the per-source counts across ranks; writes on the I/O rank only. */
-    void writeTransferLog (int a_iter);
+    void writeTransferLog(int a_iter);
 
   private:
     /*! Per-community assigned hospital community (component 0,1 = hospital i,j; component 2 = the
@@ -91,13 +91,13 @@ class HospitalData {
     /*! Global hospital tables, identical on every rank (built from the global demographic data at
      *  init). A "hospital" is a tract with a positive bed supply. */
     int m_nhosp = 0;
-    amrex::Gpu::DeviceVector<int> m_hosp_i_d;        /*!< hospital cell i, per hospital */
-    amrex::Gpu::DeviceVector<int> m_hosp_j_d;        /*!< hospital cell j, per hospital */
-    std::vector<int> m_hosp_i_h, m_hosp_j_h;         /*!< host copies of the hospital cells */
-    std::vector<int> m_hosp_county;                  /*!< county FIPS, per hospital */
-    std::vector<int> m_hosp_tract;                   /*!< census tract, per hospital (for the transfer log) */
-    std::vector<std::vector<int>> m_county_hosps;    /*!< hospital indices grouped by county */
-    std::vector<int> m_hosp_county_slot;             /*!< index into m_county_hosps, per hospital */
+    amrex::Gpu::DeviceVector<int> m_hosp_i_d;     /*!< hospital cell i, per hospital */
+    amrex::Gpu::DeviceVector<int> m_hosp_j_d;     /*!< hospital cell j, per hospital */
+    std::vector<int> m_hosp_i_h, m_hosp_j_h;      /*!< host copies of the hospital cells */
+    std::vector<int> m_hosp_county;               /*!< county FIPS, per hospital */
+    std::vector<int> m_hosp_tract;                /*!< census tract, per hospital (for the transfer log) */
+    std::vector<std::vector<int>> m_county_hosps; /*!< hospital indices grouped by county */
+    std::vector<int> m_hosp_county_slot;          /*!< index into m_county_hosps, per hospital */
 
     /*! Per-hospital routing target cell for the current day (filled by computeTransferTargets). */
     amrex::Gpu::DeviceVector<int> m_transfer_i_d;
@@ -107,7 +107,7 @@ class HospitalData {
      *  to its lowest-load county peer (set hospital_model.transfer_output_file to enable). */
     bool m_write_transfers = false;
     std::string m_transfer_file;
-    std::vector<int> m_transfer_target;              /*!< per-hospital routing target index, current day */
+    std::vector<int> m_transfer_target;               /*!< per-hospital routing target index, current day */
     amrex::Gpu::DeviceVector<int> m_transfer_count_d; /*!< per-source-hospital transfer count, current day */
 };
 

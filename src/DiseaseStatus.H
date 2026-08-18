@@ -204,8 +204,10 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                         symptomatic_ptr[i] = SymptomStatus::presymptomatic;
                         // recovery clears symptomatic withdrawal; re-apply shelter-in-place if an order is in
                         // force, except for medical workers, who are exempt from the order
-                        withdrawn_ptr[i] = (shelter_active && naics_ptr[i] != NAICSCodes::NAICS::med_sca
-                                            && Random(engine) < shelter_compliance) ? 1 : 0;
+                        withdrawn_ptr[i] = (shelter_active && naics_ptr[i] != NAICSCodes::NAICS::med_sca &&
+                                            Random(engine) < shelter_compliance)
+                                                   ? 1
+                                                   : 0;
                     }
                 });
 

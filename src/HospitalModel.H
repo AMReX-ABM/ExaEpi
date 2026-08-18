@@ -350,8 +350,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                     int lvl = 0;
                     for (int d = 0; d < n_disease; d++) {
                         const ParticleReal t = timer_ptrs[d][i];
-                        const int ld = (t <= 0.0_prt) ? 0
-                                       : ((t > 2.0_prt * hosp_offset[d]) ? 3 : ((t > hosp_offset[d]) ? 2 : 1));
+                        const int ld = (t <= 0.0_prt) ? 0 : ((t > 2.0_prt * hosp_offset[d]) ? 3 : ((t > hosp_offset[d]) ? 2 : 1));
                         if (ld > lvl) { lvl = ld; }
                     }
                     level_before_ptr[i] = lvl;
@@ -476,14 +475,13 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                 if (is_alive_ptr[i] != 0) {
                     for (int d = 0; d < n_disease; d++) {
                         const ParticleReal t = timer_ptrs[d][i];
-                        const int ld = (t <= 0.0_prt) ? 0
-                                       : ((t > 2.0_prt * hosp_offset[d]) ? 3 : ((t > hosp_offset[d]) ? 2 : 1));
+                        const int ld = (t <= 0.0_prt) ? 0 : ((t > 2.0_prt * hosp_offset[d]) ? 3 : ((t > hosp_offset[d]) ? 2 : 1));
                         if (ld > level_after) { level_after = ld; }
                     }
                 }
                 const int level0 = level_before_ptr[i];
                 rm_from_hosp_ptr[i] = (level0 >= 1 && level_after < 1) ? 1 : 0;
-                rm_from_ICU_ptr[i]  = (level0 >= 2 && level_after < 2) ? 1 : 0;
+                rm_from_ICU_ptr[i] = (level0 >= 2 && level_after < 2) ? 1 : 0;
                 rm_from_vent_ptr[i] = (level0 >= 3 && level_after < 3) ? 1 : 0;
 
                 if (is_alive_ptr[i] == 0) {

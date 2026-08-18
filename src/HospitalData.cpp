@@ -210,9 +210,7 @@ void HospitalData::initialize (AgentContainer& a_pc, MultiFab& a_hosp_data, cons
                     if ((naics_ptr[ip] == NAICSCodes::NAICS::med_sca) && (work_i_ptr[ip] >= 0)) {
                         IntVect wiv{AMREX_D_DECL(work_i_ptr[ip], work_j_ptr[ip], 0)};
                         const Long c = domain.index(wiv);
-                        if ((c >= 0) && (c < ncell)) {
-                            workgroup_ptr[ip] = 1 + Random_int(ngrp[c], engine);
-                        }
+                        if ((c >= 0) && (c < ncell)) { workgroup_ptr[ip] = 1 + Random_int(ngrp[c], engine); }
                     }
                 });
             }
@@ -290,7 +288,9 @@ void HospitalData::initialize (AgentContainer& a_pc, MultiFab& a_hosp_data, cons
         m_transfer_target.assign(m_nhosp, -1);
 
         Gpu::HostVector<int> unit_hidx_h(Nunit, -1);
-        for (int u = 0; u < Nunit; ++u) { unit_hidx_h[u] = unit2hosp[unit_uh_h[u]]; }
+        for (int u = 0; u < Nunit; ++u) {
+            unit_hidx_h[u] = unit2hosp[unit_uh_h[u]];
+        }
 
         Gpu::HostVector<int> comm2unit_h(Ncommunity, 0);
         for (int u = 0; u < Nunit; ++u) {
@@ -449,10 +449,10 @@ void HospitalData::initialize (AgentContainer& a_pc, MultiFab& a_hosp_data, cons
 
         amrex::Print() << "Hospital bed supply + patient routing set from tract-level HHS data (" << tract_data.size()
                        << " tracts, " << m_nhosp << " hospitals): " << a_hospital_data_file << "\n";
-        amrex::Print() << "  Same-county patient transfer for over-capacity hospitals: "
-                       << (m_patient_transfer ? "on" : "off") << "\n";
-        amrex::Print() << "  Medical workforce split into hospital workgroups of ~" << wg_size << " staff ("
-                       << total_groups << " workgroups for " << total_mw << " medical workers, mean "
+        amrex::Print() << "  Same-county patient transfer for over-capacity hospitals: " << (m_patient_transfer ? "on" : "off")
+                       << "\n";
+        amrex::Print() << "  Medical workforce split into hospital workgroups of ~" << wg_size << " staff (" << total_groups
+                       << " workgroups for " << total_mw << " medical workers, mean "
                        << (total_groups > 0 ? double(total_mw) / double(total_groups) : 0.0) << " per group)\n";
         if (m_write_transfers) {
             amrex::Print() << "  Logging patient transfers to: " << m_transfer_file << "\n";
@@ -553,7 +553,9 @@ void HospitalData::computeTransferTargets (const MultiFab& a_hosp_data) {
     Gpu::copy(Gpu::hostToDevice, tgt_i.begin(), tgt_i.end(), m_transfer_i_d.begin());
     Gpu::copy(Gpu::hostToDevice, tgt_j.begin(), tgt_j.end(), m_transfer_j_d.begin());
     if (m_write_transfers) {
-        amrex::ParallelFor(m_nhosp, [c = m_transfer_count_d.data()] AMREX_GPU_DEVICE (int h) noexcept { c[h] = 0; });
+        amrex::ParallelFor(m_nhosp, [c = m_transfer_count_d.data()] AMREX_GPU_DEVICE (int h) noexcept {
+            c[h] = 0;
+        });
         Gpu::synchronize();
     }
 }
@@ -593,8 +595,7 @@ void HospitalData::rerouteHospitalized (AgentContainer& a_pc, const MultiFab& a_
                 // longer contains its home cell; re-reading the assignment for it would be
                 // an out-of-bounds access. Its hospital cell is fixed by its home, so it is
                 // simply left in place.
-                if (inHospital(ip, ptd)
-                    && hosp_i_ptr[ip] == home_i_ptr[ip] && hosp_j_ptr[ip] == home_j_ptr[ip]) {
+                if (inHospital(ip, ptd) && hosp_i_ptr[ip] == home_i_ptr[ip] && hosp_j_ptr[ip] == home_j_ptr[ip]) {
                     // hospital index of this community's nearest hospital (component 2); with
                     // transfer on, an over-capacity nearest hospital sends the patient to the
                     // lowest-load hospital in its county (precomputed routing target). Falls back
@@ -607,9 +608,7 @@ void HospitalData::rerouteHospitalized (AgentContainer& a_pc, const MultiFab& a_
                         hosp_i_ptr[ip] = tgt_i[h0];
                         hosp_j_ptr[ip] = tgt_j[h0];
                         // count the patient if the target differs from the nearest hospital (transferred)
-                        if (tcount && ((tgt_i[h0] != near_i) || (tgt_j[h0] != near_j))) {
-                            Gpu::Atomic::AddNoRet(&tcount[h0], 1);
-                        }
+                        if (tcount && ((tgt_i[h0] != near_i) || (tgt_j[h0] != near_j))) { Gpu::Atomic::AddNoRet(&tcount[h0], 1); }
                     } else {
                         hosp_i_ptr[ip] = assign(home_i_ptr[ip], home_j_ptr[ip], 0, 0);
                         hosp_j_ptr[ip] = assign(home_i_ptr[ip], home_j_ptr[ip], 0, 1);
@@ -635,9 +634,8 @@ void HospitalData::writeTransferLog (int a_iter) {
     for (int h = 0; h < m_nhosp; ++h) {
         if (count_h[h] <= 0) { continue; }
         const int to = m_transfer_target[h];
-        f << std::setw(6) << a_iter << std::setw(10) << m_hosp_county[h] << std::setw(10) << m_hosp_tract[h]
-          << std::setw(10) << m_hosp_county[to] << std::setw(10) << m_hosp_tract[to] << std::setw(12) << count_h[h]
-          << "\n";
+        f << std::setw(6) << a_iter << std::setw(10) << m_hosp_county[h] << std::setw(10) << m_hosp_tract[h] << std::setw(10)
+          << m_hosp_county[to] << std::setw(10) << m_hosp_tract[to] << std::setw(12) << count_h[h] << "\n";
         day_total += count_h[h];
     }
     if (day_total > 0) { amrex::Print() << "Day " << a_iter << ": " << day_total << " patients transferred\n"; }
@@ -673,8 +671,7 @@ void AgentContainer::rerouteHospitalizedToHospital (int a_iter) {
  *  code. */
 std::array<Long, 8> AgentContainer::getMedicalWorkerCounts (const int a_d) {
     BL_PROFILE("AgentContainer::getMedicalWorkerCounts");
-    ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum>
-            reduce_ops;
+    ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum> reduce_ops;
     auto r = ParticleReduce<ReduceData<int, int, int, int, int, int, int, int>>(
             *this,
             [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
@@ -688,8 +685,8 @@ std::array<Long, 8> AgentContainer::getMedicalWorkerCounts (const int a_d) {
                 const bool at_risk = (status == Status::never) || (status == Status::susceptible);
                 const bool new_inf = isNewlyInfected(i, ptd, a_d);
                 const bool dead = (status == Status::dead); // cumulative deaths (status stays dead)
-                return {mw ? 1 : 0, (mw && at_risk) ? 1 : 0, (mw && new_inf) ? 1 : 0,
-                        ow ? 1 : 0, (ow && at_risk) ? 1 : 0, (ow && new_inf) ? 1 : 0,
+                return {mw ? 1 : 0,           (mw && at_risk) ? 1 : 0, (mw && new_inf) ? 1 : 0,
+                        ow ? 1 : 0,           (ow && at_risk) ? 1 : 0, (ow && new_inf) ? 1 : 0,
                         (mw && dead) ? 1 : 0, (ow && dead) ? 1 : 0};
             },
             reduce_ops);

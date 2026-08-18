@@ -73,7 +73,8 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
         amrex::Copy(output_mf, *a_disease_stats[d], DiseaseStats::new_cases, ncomp_d * num_diseases + d, 1, 0);
     }
     for (int d = 0; d < num_diseases; d++) {
-        amrex::Copy(output_mf, *a_disease_stats[d], DiseaseStats::hospital_acquired, ncomp_d * num_diseases + num_diseases + d, 1, 0);
+        amrex::Copy(output_mf, *a_disease_stats[d], DiseaseStats::hospital_acquired, ncomp_d * num_diseases + num_diseases + d, 1,
+                    0);
     }
 
     const int meta0 = ncomp_d * num_diseases + 2 * num_diseases;
