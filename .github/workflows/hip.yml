@@ -8,7 +8,7 @@ concurrency:
 
 jobs:
   tests-hip:
-    name: HIP ROCm C++17 [tests]
+    name: HIP ROCm C++20 [tests]
     runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v4
@@ -48,11 +48,12 @@ jobs:
             -DAMReX_ROCTX=ON                              \
             -DCMAKE_C_COMPILER=$(which clang)             \
             -DCMAKE_CXX_COMPILER=$(which clang++)         \
-            -DCMAKE_CXX_STANDARD=17
+            -DCMAKE_CXX_STANDARD=20                       \
+            -DCMAKE_CXX_STANDARD_REQUIRED=ON
         cmake --build build -j 2
 
   tests-hip-wrapper:
-    name: HIP ROCm GFortran@9.3 C++17 [tests-hipcc]
+    name: HIP ROCm C++20 [tests-hipcc]
     runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v4
@@ -90,5 +91,6 @@ jobs:
             -DAMReX_ROCTX=ON                              \
             -DCMAKE_C_COMPILER=$(which clang)             \
             -DCMAKE_CXX_COMPILER=$(which hipcc)           \
-            -DCMAKE_CXX_STANDARD=17
+            -DCMAKE_CXX_STANDARD=20                       \
+            -DCMAKE_CXX_STANDARD_REQUIRED=ON
         cmake --build build_full_legacywrapper -j 2

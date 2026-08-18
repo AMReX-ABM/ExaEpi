@@ -25,6 +25,7 @@
 #include "HospitalModel.H"
 #include "InteractionModelLibrary.H"
 #include "Utils.H"
+#include "WeatherData.H"
 
 /*! \brief Derived class from ParticleContainer that defines agents and their functions */
 class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs> {
@@ -87,6 +88,11 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void setTileSize (IntVect newTileSize) { tile_size = newTileSize; }
 
+    void setActiveWeatherWeek (int week) { activeWeatherWeek = week; }
+    void initializeWeatherIndex(const iMultiFab&, ActiveWeather*);
+    void initializeWeatherIndex_UrbanPop(const iMultiFab&, ActiveWeather*);
+    void advanceWeatherIndex();
+
     /*! \brief Return flag indicating if agents are at work */
     inline bool isAtWork () const { return m_at_work; }
 
@@ -111,7 +117,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     amrex::GpuArray<amrex::Real, AgeGroups::total> m_symptomatic_withdraw_compliance_day_0 = {0.3_rt, 0.3_rt, 0.3_rt,
                                                                                               0.3_rt, 0.3_rt, 0.3_rt};
     /*!< Symptomatic withdrawal compliance rate, day 1 */
-    amrex::GpuArray<amrex::Real, AgeGroups::total> m_symptomatic_withdraw_compliance_day_1 = {0.8_rt, 0.7_rt, 0.5_rt,
+    amrex::GpuArray<amrex::Real, AgeGroups::total> m_symptomatic_withdraw_compliance_day_1 = {0.8_rt, 0.6_rt, 0.5_rt,
                                                                                               0.5_rt, 0.5_rt, 0.5_rt};
     /*!< Symptomatic withdrawal compliance rate, day 2 */
     amrex::GpuArray<amrex::Real, AgeGroups::total> m_symptomatic_withdraw_compliance_day_2 = {0.9_rt, 0.8_rt, 0.7_rt,
@@ -122,6 +128,9 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     amrex::iMultiFab comm_mf;
 
     short ic_type;
+
+    int activeWeatherWeek;
+    ActiveWeather* awd;
 
   protected:
     amrex::Real m_shelter_compliance = 0.95_rt; /*!< Shelter-in-place compliance rate */

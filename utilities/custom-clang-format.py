@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import sys
 import os
@@ -15,13 +15,18 @@ os.system("docker run xianpengshen/clang-tools:19 clang-format")
 content = sys.stdin.read()
 content = content.replace("AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE\n", "/*AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE*/\n")
 content = content.replace("AMREX_GPU_DEVICE AMREX_FORCE_INLINE\n", "/*AMREX_GPU_DEVICE AMREX_FORCE_INLINE*/\n")
+content = content.replace("AMREX_GPU_DEVICE AMREX_GPU_CONSTANT\n", "/*AMREX_GPU_DEVICE AMREX_GPU_CONSTANT*/\n")
+content = content.replace("AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE ", "/*AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE*/\n")
+content = content.replace("AMREX_GPU_DEVICE AMREX_FORCE_INLINE ", "/*AMREX_GPU_DEVICE AMREX_FORCE_INLINE*/\n")
+content = content.replace("AMREX_GPU_DEVICE AMREX_GPU_CONSTANT ", "/*AMREX_GPU_DEVICE AMREX_GPU_CONSTANT*/\n")
 # cmd = ["clang-format", "-i", "--style=file:.clang-format"]
 cmd = ["docker", "run", "-i", "-v", ".:/host", "xianpengshen/clang-tools:19", "clang-format", "--style=file:/host/.clang-format"]
 proc_obj = proc.Popen(cmd, stdin=proc.PIPE, stdout=proc.PIPE, stderr=proc.PIPE, text=True)
-proc_obj.stdin.write(content)
+proc_obj.stdin.write(content) # type: ignore
 content, error = proc_obj.communicate()
 content = content.replace("/*AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE*/\n", "AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE\n")
 content = content.replace("/*AMREX_GPU_DEVICE AMREX_FORCE_INLINE*/\n", "AMREX_GPU_DEVICE AMREX_FORCE_INLINE\n")
+content = content.replace("/*AMREX_GPU_DEVICE AMREX_GPU_CONSTANT*/\n", "AMREX_GPU_DEVICE AMREX_GPU_CONSTANT\n")
 content = content.replace(" AMREX_GPU_DEVICE(", " AMREX_GPU_DEVICE (")
 
 if proc_obj.returncode != 0:

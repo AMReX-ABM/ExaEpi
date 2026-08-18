@@ -73,6 +73,7 @@ struct IntIdx {
         withdrawn,     /*!< quarantine status */
         random_travel, /*!< on long distance travel? */
         air_travel,    /*!< on long distance travel by Air? */
+        weatherLookup, /*!< index for current weather variables, incremented weekly */
         nattribs       /*!< number of integer-type attribute */
     };
 };
@@ -83,6 +84,15 @@ struct IntIdxDisease {
         status = 0,  /*!< Disease status (#Status) */
         symptomatic, /*!< currently symptomatic? 0: no, but will be, 1: yes, 2: no, and will remain so until recovered */
         nattribs     /*!< number of integer-type attribute */
+    };
+};
+
+/*! \brief Disease symptom status */
+struct SymptomStatus {
+    enum {
+        presymptomatic = 0, /*!< asymptomatic but will develop symptoms */
+        symptomatic,        /*!< Infectious and symptomatic */
+        asymptomatic        /*!< asymptomatic and will remain so */
     };
 };
 

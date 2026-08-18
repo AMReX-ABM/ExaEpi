@@ -18,6 +18,7 @@
 #include "InitializeInfections.H"
 #include "UrbanPopData.H"
 #include "Utils.H"
+#include "WeatherData.H"
 
 #include "version.h"
 
@@ -29,8 +30,8 @@ void runAgent();
 /*! \brief Set ExaEpi-specific defaults for memory-management and tiling */
 void overrideAmrexDefaults () {
     amrex::ParmParse pp("amrex");
-    // ExaEpi should never require mananaged memory in the Arena
-    bool the_arena_is_managed = true;
+    // ExaEpi should not require managed memory in the Arena.
+    bool the_arena_is_managed = false;
     pp.queryAdd("the_arena_is_managed", the_arena_is_managed);
 
     bool use_comms_arena = true;
@@ -168,6 +169,9 @@ void runAgent () {
         air.computeTravelProbs(censusData.demo);
     }
 
+    WeatherData wd;
+    if (params.weather_int > 0) { wd.readDataFromFile(params.weather_filename); }
+
     // The default output filename is:
     // output.dat for a single disease
     // output_<disease_name>.dat for multiple diseases
@@ -250,11 +254,10 @@ void runAgent () {
                 std::ofstream agents_f(agents_fname, std::ios_base::app);
                 agents_f << "#posx posy id cpu " << "treatment_timer " << "disease_counter " << "prob " << "latent_period "
                          << "infectious_period " << "incubation_period " << "hospital_delay " << "age_group " << "family "
-                         << "home_i "
-                         << "home_j " << "work_i " << "work_j " << "hosp_i " << "hosp_j " << "trav_i " << "trav_j " << "nborhood "
-                         << "hh_cluster " << "school_grade "
-                         << "school_id " << "school_closed " << "naics " << "workgroup " << "work_nborhood " << "withdrawn "
-                         << "random_travel " << "air_travel " << "status " << "symptomatic\n";
+                         << "home_i " << "home_j " << "work_i " << "work_j " << "hosp_i " << "hosp_j " << "trav_i " << "trav_j "
+                         << "nborhood " << "hh_cluster " << "school_grade " << "school_id " << "school_closed " << "naics "
+                         << "workgroup " << "work_nborhood " << "withdrawn " << "random_travel " << "air_travel " << "status "
+                         << "symptomatic\n";
                 agents_f.close();
             }
 #endif
@@ -355,6 +358,33 @@ void runAgent () {
     Vector<Long> num_infected(params.num_diseases, 0);
 
     amrex::ParmParse::QueryUnusedInputs();
+    date startdate(params.startdate);
+    if (params.startdate.size()) {
+        if (ParallelDescriptor::IOProcessor()) {
+            amrex::Print() << "SIMULATION START DATE ";
+            startdate.print();
+        }
+    }
+    int weatherWeekIndex = -1;
+    int firstWeatherWeekIndex = -1;
+    int daysToWeatherWeekend = -1;
+    if (params.weather_int > 0) {
+        wd.computeIndex(startdate, weatherWeekIndex, daysToWeatherWeekend);
+        if (weatherWeekIndex >= 0) {
+            firstWeatherWeekIndex = weatherWeekIndex;
+            if (ParallelDescriptor::IOProcessor()) {
+                amrex::Print() << "Extracting " << params.nsteps / 7 + 1 << " Weeks of Weather Data \n";
+            }
+            // extract weather data for the simulation timeframe
+            if (params.ic_type == ICType::Census) {
+                wd.extractActiveData(censusData.demo, weatherWeekIndex, params.nsteps / 7 + 1);
+                pc.initializeWeatherIndex(censusData.unit_mf, &wd.activeWeather);
+            } else {
+                wd.extractActiveData(urbanPopData, weatherWeekIndex, params.nsteps / 7 + 1);
+                pc.initializeWeatherIndex_UrbanPop(urbanPopData.geoid_mf, &wd.activeWeather);
+            }
+        }
+    }
 
     {
         BL_PROFILE_REGION("Evolution");
@@ -390,6 +420,15 @@ void runAgent () {
                     ExaEpi::IO::writeAggregatedData(pc, urbanPopData, params.aggregated_diag_prefix, params.num_diseases,
                                                     params.disease_names, i);
                 }
+            }
+            if (weatherWeekIndex >= 0) {
+                if ((weatherWeekIndex + 1) < wd.numWeeks) {
+                    if ((i - start_day) % 7 == daysToWeatherWeekend) {
+                        weatherWeekIndex++;
+                        pc.advanceWeatherIndex();
+                    }
+                }
+                pc.setActiveWeatherWeek(weatherWeekIndex - firstWeatherWeekIndex);
             }
 
             // Update agents' disease status
@@ -509,13 +548,11 @@ void runAgent () {
                 pc.moveAirTravel(censusData.unit_mf, air, censusData.demo);
             }
 
-// Typical day
-#ifndef COMPARE_TO_EPICAST
+            // Typical day
             pc.morningCommute(mask_behavior);
             pc.interactDay(mask_behavior);
             pc.eveningCommute(mask_behavior);
             pc.interactEvening(mask_behavior);
-#endif
             pc.interactNight(mask_behavior);
 
             if ((params.random_travel_int > 0) && (i % params.random_travel_int == 0)) { pc.returnRandomTravel(); }

@@ -14,7 +14,7 @@ set(AMReX_PARTICLES ON)
 set(AMReX_FORTRAN OFF)
 set(AMReX_LINEAR_SOLVERS OFF)
 set(AMReX_AMRLEVEL OFF)
-set(AMReX_TINY_PROFILE ON)
+set(AMReX_TINY_PROFILE OFF CACHE BOOL "Enable AMReX tiny profiler")
 set(AMReX_SPACEDIM
     2
     CACHE INTERNAL "")
@@ -24,6 +24,8 @@ set(AMReX_PRECISION
 set(AMReX_PARTICLES_PRECISION
     SINGLE
     CACHE INTERNAL "")
+
+# add_compile_definitions(COMPARE_TO_EPICAST)
 
 #
 # Fetch amrex repo
@@ -41,7 +43,8 @@ set(FETCHCONTENT_QUIET OFF) # Verbose ON
 FetchContent_Declare(
   amrex
   GIT_REPOSITORY https://github.com/AMReX-Codes/amrex.git/
-  GIT_TAG ${AMReX_GIT_BRANCH})
+  GIT_TAG ${AMReX_GIT_BRANCH}
+  GIT_SUBMODULES "")
 
 if(NOT ${amrex}_POPULATED)
   FetchContent_Populate(amrex)

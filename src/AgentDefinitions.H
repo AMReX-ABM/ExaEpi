@@ -32,15 +32,6 @@ struct SchoolCensusIDType {
         total
     };
 };
-/*! \brief Disease symptom status */
-struct SymptomStatus {
-    enum {
-        presymptomatic = 0, /*!< asymptomatic but will develop symptoms */
-        symptomatic,        /*!< Infectious and symptomatic */
-        asymptomatic        /*!< asymptomatic and will remain so */
-    };
-};
-
 struct OutputStatus {
     enum {
         /* Total number of agents in each category are written to summary table each step */
@@ -109,6 +100,14 @@ bool isNewlySymptomatic (const int a_idx,      /*!< Agent index */
     return status == Status::infected && disease_counter == incb_period && symptom_status == SymptomStatus::symptomatic;
 }
 
+/*! \brief Is agent on travel? */
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+bool isOnTravel (const int a_idx, /*!< Agent index */
+                 const PTDType& a_ptd /*!< Particle tile data */) {
+    return (a_ptd.m_idata[IntIdx::random_travel][a_idx] >= 0 || a_ptd.m_idata[IntIdx::air_travel][a_idx] >= 0);
+}
+
 /*! \brief Did the agent just become asymptomatic this step? */
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
@@ -122,7 +121,9 @@ bool isNewlyAsymptomatic (const int a_idx,      /*!< Agent index */
     return status == Status::infected && disease_counter == incb_period && symptom_status == SymptomStatus::asymptomatic;
 }
 
-/*! \brief Did the agent just become presymptomatic this step? */
+/*! \brief Did the agent just transition out of presymptomatic this step (i.e., just became symptomatic or asymptomatic)?
+ *  This fires on the same step as isNewlySymptomatic / isNewlyAsymptomatic, so that
+ *  sum(NewP) == sum(NewS) + sum(NewA) over a complete run. */
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 bool isNewlyPresymptomatic (const int a_idx,      /*!< Agent index */
@@ -132,8 +133,9 @@ bool isNewlyPresymptomatic (const int a_idx,      /*!< Agent index */
     int symptom_status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx];
     int disease_counter = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
     int incb_period = (int)amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
-    // presymptomatic for one day only, just before becoming asymp/symp
-    return status == Status::infected && (disease_counter == incb_period - 1) && symptom_status == SymptomStatus::presymptomatic;
+    // fires on the same step as isNewlySymptomatic/isNewlyAsymptomatic (counter == incb_period, after transition)
+    return status == Status::infected && (disease_counter == incb_period) &&
+           (symptom_status == SymptomStatus::symptomatic || symptom_status == SymptomStatus::asymptomatic);
 }
 
 /*! \brief Is an agent asymptomatic (does not currently have symptoms and will not develop them)? */
@@ -241,8 +243,10 @@ void setAgentData (PTDType& ptd, int ip, int i, int j, const amrex::GpuArray<amr
             ptd.m_runtime_idata[i0(d) + IntIdxDisease::status][ip] = Status::immune;
             // Set immune counter to random point in immunity period
             // Sample full immune duration, then pick random point within it
-            amrex::ParticleReal full_immune_duration = static_cast<amrex::ParticleReal>(
-                    amrex::RandomGamma(disease_parms[d]->immune_length_alpha, disease_parms[d]->immune_length_beta, engine));
+            amrex::ParticleReal full_immune_duration =
+                    static_cast<amrex::ParticleReal>(amrex::RandomGamma(disease_parms[d]->immune_length_alpha,
+                                                                        disease_parms[d]->immune_length_beta, engine)) +
+                    static_cast<amrex::ParticleReal>(disease_parms[d]->immune_length_loc);
             ptd.m_runtime_rdata[r0(d) + RealIdxDisease::disease_counter][ip] = amrex::Random(engine) * full_immune_duration;
         } else {
             ptd.m_runtime_idata[i0(d) + IntIdxDisease::status][ip] = Status::never;
