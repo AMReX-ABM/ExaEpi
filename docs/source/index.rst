@@ -50,6 +50,7 @@ Usage
    :hidden:
 
    usage/how_to_run
+   usage/data
    usage/utilities
 
 Development

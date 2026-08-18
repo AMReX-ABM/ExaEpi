@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "AgentDefinitions.H"
+#include "NAICS.H"
 
 using namespace amrex;
 
@@ -80,6 +81,8 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                                                     MFPtrVec& a_stats /*!< MultiFab to store disease stats */) const {
     BL_PROFILE("DiseaseStatus::updateAgents");
     int n_disease = a_agents.numDiseases();
+    const bool shelter_active = a_agents.shelterActive();
+    const amrex::Real shelter_compliance = a_agents.shelterCompliance();
 
     for (int lev = 0; lev <= a_agents.finestLevel(); ++lev) {
         auto& plev = a_agents.GetParticles(lev);
@@ -102,6 +105,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
             auto hosp_i_ptr = soa.GetIntData(IntIdx::hosp_i).data();
             auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
             auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
+            auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
 
             int i_RT = IntIdx::nattribs;
             int r_RT = RealIdx::nattribs;
@@ -119,6 +123,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                 auto symptomatic_ptr = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::symptomatic).data();
 
                 auto timer_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::treatment_timer).data();
+                auto tq_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::treatment_quality).data();
                 auto counter_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::disease_counter).data();
                 auto prob_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::prob).data();
                 auto latent_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::latent_period).data();
@@ -182,6 +187,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                                                                      &(marked_for_vent_ptr[i]), age_group_ptr[i],
                                                                      hospital_random_ptr[i], engine);
                                 if (timer_ptr[i] > 0) {
+                                    tq_ptr[i] = 1.0_prt; // initialize treatment quality to 1.0
                                     // will be hospitalized
                                     marked_for_hosp_ptr[i] = 1;
                                     // make this withdrawn
@@ -196,13 +202,19 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                         counter_ptr[i] = static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine)) +
                                          static_cast<ParticleReal>(immune_length_loc);
                         symptomatic_ptr[i] = SymptomStatus::presymptomatic;
-                        withdrawn_ptr[i] = 0;
+                        // recovery clears symptomatic withdrawal; re-apply shelter-in-place if an order is in
+                        // force, except for medical workers, who are exempt from the order
+                        withdrawn_ptr[i] = (shelter_active && naics_ptr[i] != NAICSCodes::NAICS::med_sca &&
+                                            Random(engine) < shelter_compliance)
+                                                   ? 1
+                                                   : 0;
                     }
                 });
 
                 Gpu::synchronize();
             }
 
+            // assign hospital
             ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                 if (marked_for_hosp_ptr[i] == 1) { assignHospital(i, hosp_i_ptr, hosp_j_ptr, ptd); }
             });

@@ -62,8 +62,8 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
 
     static const int ncomp_d = status_names.size();
     // if ic_type == urbanpop then unit_mf_ptr == nullptr
-    // the +4 (+3) is for new_cases, FIPS, Tract, Unit (new_cases, FIPS, Tract)
-    static const int ncomp = ncomp_d * num_diseases + num_diseases + (unit_mf_ptr != nullptr ? 4 : 3);
+    // the +4 (+3) is for FIPS, Tract, Unit; the 2*num_diseases is new_cases + hospital_acquired
+    static const int ncomp = ncomp_d * num_diseases + 2 * num_diseases + (unit_mf_ptr != nullptr ? 4 : 3);
 
     MultiFab output_mf(pc.ParticleBoxArray(0), pc.ParticleDistributionMap(0), ncomp, 0);
     output_mf.setVal(0.0);
@@ -72,10 +72,15 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
     for (int d = 0; d < num_diseases; d++) {
         amrex::Copy(output_mf, *a_disease_stats[d], DiseaseStats::new_cases, ncomp_d * num_diseases + d, 1, 0);
     }
+    for (int d = 0; d < num_diseases; d++) {
+        amrex::Copy(output_mf, *a_disease_stats[d], DiseaseStats::hospital_acquired, ncomp_d * num_diseases + num_diseases + d, 1,
+                    0);
+    }
 
-    amrex::Copy(output_mf, *FIPS_mf_ptr, 0, ncomp_d * num_diseases + num_diseases, 2, 0);
-    amrex::Copy(output_mf, *comm_mf_ptr, 0, ncomp_d * num_diseases + num_diseases + 2, 1, 0);
-    if (unit_mf_ptr != nullptr) { amrex::Copy(output_mf, *unit_mf_ptr, 0, ncomp_d * num_diseases + num_diseases + 3, 1, 0); }
+    const int meta0 = ncomp_d * num_diseases + 2 * num_diseases;
+    amrex::Copy(output_mf, *FIPS_mf_ptr, 0, meta0, 2, 0);
+    amrex::Copy(output_mf, *comm_mf_ptr, 0, meta0 + 2, 1, 0);
+    if (unit_mf_ptr != nullptr) { amrex::Copy(output_mf, *unit_mf_ptr, 0, meta0 + 3, 1, 0); }
 
     {
         Vector<std::string> plt_varnames = {};
@@ -84,6 +89,7 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
                 plt_varnames.push_back(status_name);
             }
             plt_varnames.push_back("new_cases");
+            plt_varnames.push_back("hospital_acquired");
         } else {
             for (int d = 0; d < num_diseases; d++) {
                 for (auto status_name : status_names) {
@@ -92,6 +98,9 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
             }
             for (int d = 0; d < num_diseases; d++) {
                 plt_varnames.push_back(disease_names[d] + "_new_cases");
+            }
+            for (int d = 0; d < num_diseases; d++) {
+                plt_varnames.push_back(disease_names[d] + "_hospital_acquired");
             }
         }
         plt_varnames.push_back("FIPS");
@@ -161,6 +170,8 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
         if (num_diseases == 1) {
             real_varnames.push_back("treatment_timer");
             write_real_comp.push_back(1);
+            real_varnames.push_back("treatment_quality");
+            write_real_comp.push_back(1);
             real_varnames.push_back("disease_counter");
             write_real_comp.push_back(1);
             real_varnames.push_back("infection_prob");
@@ -182,6 +193,8 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
         } else {
             for (int d = 0; d < num_diseases; d++) {
                 real_varnames.push_back(disease_names[d] + "treatment_timer");
+                write_real_comp.push_back(1);
+                real_varnames.push_back(disease_names[d] + "treatment_quality");
                 write_real_comp.push_back(1);
                 real_varnames.push_back(disease_names[d] + "_disease_counter");
                 write_real_comp.push_back(1);

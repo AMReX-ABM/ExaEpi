@@ -5,6 +5,7 @@
 #define AGENT_CONTAINER_H_
 
 #include <array>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -27,6 +28,8 @@
 #include "Utils.H"
 #include "WeatherData.H"
 
+class HospitalData;
+
 /*! \brief Derived class from ParticleContainer that defines agents and their functions */
 class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs> {
 
@@ -43,6 +46,10 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     AgentContainer(const amrex::Geometry& a_geom, const amrex::DistributionMapping& a_dmap, const amrex::BoxArray& a_ba,
                    const int& a_num_diseases, const std::vector<std::string>& a_disease_names, const bool fast,
                    const short a_ic_type);
+
+    /*! \brief Destructor (defined in HospitalData.cpp where the unique_ptr<HospitalData> member's
+     *  incomplete type is complete). */
+    ~AgentContainer();
 
     void morningCommute(amrex::MultiFab&);
 
@@ -66,7 +73,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void returnAirTravel();
 
-    void updateStatus(MFPtrVec&);
+    void updateStatus(MFPtrVec&, int);
 
     void infectAgents(MFPtrVec&);
 
@@ -79,6 +86,14 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     std::array<amrex::Long, OutputStatus::nattribs> getTotals(const int);
 
     std::array<amrex::Long, AgeGroups::total> getNewStatusByAge(const int a_d, const int output_status);
+
+    /*! \brief Per-day medical-worker vs other-worker infection and mortality counts for disease a_d,
+     *  for calibrating in-hospital transmission and tracking the medical-worker death toll. Returns
+     *  eight rank-summed totals: {medical-worker total, susceptible, newly infected, other-worker
+     *  total, susceptible, newly infected, medical-worker deaths (cumulative), other-worker deaths
+     *  (cumulative)}. The death counts are appended so the first six are unchanged. Defined in
+     *  HospitalData.cpp. */
+    std::array<amrex::Long, 8> getMedicalWorkerCounts(const int a_d);
 
     int getMaxGroup(const int group_idx);
 
@@ -107,7 +122,36 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void printStudentTeacherCounts() const;
 
+    /*! \brief print the total number of medical workers */
+    void printMedicalWorkerCounts() const;
+
     void printAgeGroupCounts() const;
+
+    /*! \brief return the proportion of medical workers */
+    inline amrex::Real medicalWorkersProportion () const { return m_med_workers_prop; }
+
+    /*! \brief whether the medical-workers / hospital-capacity model is active */
+    inline bool modelMedicalWorkers () const { return m_model_medical_workers; }
+
+    /*! \brief whether a shelter-in-place order is currently in force */
+    inline bool shelterActive () const { return m_shelter_active; }
+
+    /*! \brief shelter-in-place compliance fraction */
+    inline amrex::Real shelterCompliance () const { return m_shelter_compliance; }
+
+    /*! \brief initialize the medical-workers model (per-community staffed-bed supply);
+     *  call once before the time loop, when agents are at their home communities. For census
+     *  initialization with hospital_model.use_HHS_data, pass the per-community FIPS codes
+     *  and the county populations so the bed supply is set from real per-county hospital data. */
+    void initHospitalCapacityModel(const amrex::iMultiFab* a_fips_mf = nullptr, const DemographicData* a_demo = nullptr);
+
+    /*! \brief reroute hospitalized agents to their assigned hospital community when tract-level
+     *  routing is active; no-op otherwise. a_iter (the day) labels the optional transfer log.
+     *  Defined in HospitalData.cpp. */
+    void rerouteHospitalizedToHospital(int a_iter);
+
+    /*! \brief update the hospital capacities in each community */
+    void updateHospitalCapacities();
 
     amrex::iMultiFab m_student_counts;
     /// Used only for Census data. A ratio for each school type: none, college, high, middle, elem, daycare
@@ -134,6 +178,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
   protected:
     amrex::Real m_shelter_compliance = 0.95_rt; /*!< Shelter-in-place compliance rate */
+    bool m_shelter_active = false;              /*!< Whether a shelter-in-place order is in force */
 
     std::vector<DiseaseParm*> m_h_parm;         /*!< Disease parameters */
     std::vector<DiseaseParm*> m_d_parm;         /*!< Disease parameters (GPU device) */
@@ -142,6 +187,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     std::map<ExaEpi::InteractionNames, IntModel*> m_interactions;      /*!< Map of interaction models */
     std::unique_ptr<HospitalModel<PCType, PTDType, PType>> m_hospital; /*!< hospital model */
+    amrex::MultiFab m_hosp_data;                                       /*!< Hospital data */
 
     /*! Flag to indicate if agents are at work */
     bool m_at_work;
@@ -150,6 +196,24 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     DiseaseStatus<PCType, PTileType, PTDType, PType> m_disease_status;
 
     Array<int, IntIdx::nattribs> max_attribute_values;
+
+    /*! Whether the medical-workers / hospital-capacity model is active (default off).
+     *  When off, the simulation reproduces development: medical workers interact at work
+     *  like other workers, no hospital capacity/transmission, baseline hospital mortality. */
+    bool m_model_medical_workers = false;
+
+    /*! Proportion of workers who are medical workers, for census initialization (UrbanPop has
+     *  NAICS industry codes natively). Default ~0.13 (NAICS 62, health care and social assistance,
+     *  ~14% of US employment). Only used when the medical-workers model is active. */
+    amrex::Real m_med_workers_prop = 0.13_rt;
+
+    /*! Number of medical workers by community - total and active */
+    MFPtr m_num_medworkers;
+
+    /*! Bed-supply and patient-routing data for the medical-workers model (HHS hospital placement).
+     *  Held behind a pointer/forward declaration so its implementation -- and its CUDA device code --
+     *  is not compiled into the AgentContainer translation unit. Null when the model is off. */
+    std::unique_ptr<HospitalData> m_hosp_obj;
 
     /*! \brief queries if a given interaction type (model) is available */
     inline bool haveInteractionModel (ExaEpi::InteractionNames a_mod_name) const {

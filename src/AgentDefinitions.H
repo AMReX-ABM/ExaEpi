@@ -24,6 +24,7 @@ struct RealIdxDisease {
     enum {
         /* Disease counter starts after infection. */
         treatment_timer = 0, /*!< Timer since hospital admission */
+        treatment_quality,   /*!< Treatment quality at hospital */
         disease_counter,     /*!< Counter since start of infection */
         prob,                /*!< Probability of infection */
         latent_period,       /*!< Time until infectious, which could be before symptoms appear */
@@ -130,7 +131,8 @@ struct DiseaseStats {
         ICU,                 /*!< number of current ICU cases */
         ventilator,          /*!< number of current ventilator cases */
         death,               /*!< number of deaths */
-        new_cases            /*!< number of new infections each day */
+        new_cases,           /*!< number of new infections each day */
+        hospital_acquired    /*!< cumulative hospital-acquired (nosocomial) infections of this disease, at the hospital cell */
     };
 };
 
@@ -381,7 +383,7 @@ void setAgentData (PTDType& ptd, int ip, int i, int j, const amrex::GpuArray<amr
     ptd.m_idata[IntIdx::hh_cluster][ip] = family / 4;
     ptd.m_idata[IntIdx::work_nborhood][ip] = nborhood;
     ptd.m_idata[IntIdx::workgroup][ip] = 0;
-    ptd.m_idata[IntIdx::naics][ip] = 0;
+    ptd.m_idata[IntIdx::naics][ip] = -1;
     ptd.m_idata[IntIdx::random_travel][ip] = -1;
     ptd.m_idata[IntIdx::air_travel][ip] = -1;
 }

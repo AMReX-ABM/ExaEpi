@@ -7,6 +7,7 @@
 
 #include "AgentDefinitions.H"
 #include "InteractionModel.H"
+#include "NAICS.H"
 
 using namespace amrex;
 
@@ -51,9 +52,21 @@ struct BinaryInteractionWorkNborhood {
 
 template <typename PTDType>
 struct WorkNborhoodCandidate {
+    /*! Whether the medical-workers model is active. When active, medical workers are excluded from the
+     *  work-neighborhood model (their daytime contacts are resolved by the hospital model instead),
+     *  the same way they are excluded from the workplace. Without this, tract-level routing pools every
+     *  hospital's whole medical workforce into a single work-neighborhood group (all share work cell
+     *  and work_nborhood), which massively over-infects them regardless of the in-hospital channels. */
+    bool m_model_medical_workers = false;
+
+    AMREX_GPU_HOST_DEVICE
+    WorkNborhoodCandidate (bool a_model_medical_workers = false) : m_model_medical_workers(a_model_medical_workers) {}
+
     AMREX_GPU_HOST_DEVICE
     bool operator()(const int idx, const PTDType& ptd) const noexcept {
-        return !inHospital(idx, ptd) && !ptd.m_idata[IntIdx::withdrawn][idx] && ptd.m_idata[IntIdx::random_travel][idx] < 0;
+        return !inHospital(idx, ptd) && !ptd.m_idata[IntIdx::withdrawn][idx] &&
+               (!m_model_medical_workers || ptd.m_idata[IntIdx::naics][idx] != NAICSCodes::NAICS::med_sca) &&
+               ptd.m_idata[IntIdx::random_travel][idx] < 0;
     }
 };
 
@@ -62,7 +75,8 @@ template <typename PCType, typename PTDType, typename PType>
 class InteractionModWorkNborhood : public InteractionModel<PCType, PTDType, PType> {
   public:
     /*! \brief null constructor */
-    InteractionModWorkNborhood (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
+    InteractionModWorkNborhood (bool _fast_bin, bool a_model_medical_workers = false)
+        : InteractionModel<PCType, PTDType, PType>(_fast_bin), m_model_medical_workers(a_model_medical_workers) {}
 
     /*! \brief default destructor */
     virtual ~InteractionModWorkNborhood() = default;
@@ -74,11 +88,16 @@ class InteractionModWorkNborhood : public InteractionModel<PCType, PTDType, PTyp
 #else
         // passing -1 for the binning group indicates bin only by community (cell)
         interactAgentsImpl<InteractionModWorkNborhood<PCType, PTDType, PType>, PCType, PTDType, WorkNborhoodCandidate<PTDType>,
-                           BinaryInteractionWorkNborhood<PTDType>>(*this, agents, -1);
+                           BinaryInteractionWorkNborhood<PTDType>>(*this, agents, -1,
+                                                                   WorkNborhoodCandidate<PTDType>(m_model_medical_workers));
 #endif
     }
 
     void fastInteractWorkNborhood(PCType& agents);
+
+  protected:
+    /*! Whether the medical-workers model is active (excludes medical workers; see WorkNborhoodCandidate). */
+    bool m_model_medical_workers = false;
 };
 
 template <typename PCType, typename PTDType, typename PType>
@@ -86,7 +105,7 @@ void InteractionModWorkNborhood<PCType, PTDType, PType>::fastInteractWorkNborhoo
     BL_PROFILE(__func__);
     int n_disease = agents.numDiseases();
 
-    WorkNborhoodCandidate<PTDType> isCandidate;
+    WorkNborhoodCandidate<PTDType> isCandidate(m_model_medical_workers);
 
     // each thread needs its own vector
     Vector<Gpu::DeviceVector<int>> infected_community_d(OMP_MAX_THREADS);

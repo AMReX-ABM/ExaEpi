@@ -41,6 +41,10 @@ void DiseaseParm::readInputs (const std::string& a_pp_str /*!< Parmparse string 
     queryArray(pp, "xmit_school_c2a", xmit_school_c2a, SchoolType::total);
 
     pp.query("xmit_work", xmit_work);
+    pp.query("xmit_hosp_d2d", xmit_hosp_d2d);
+    pp.query("xmit_hosp_p2d", xmit_hosp_p2d);
+    pp.query("xmit_hosp_d2p", xmit_hosp_d2p);
+    pp.query("xmit_hosp_p2p", xmit_hosp_p2p);
 
     pp.query("p_trans", p_trans);
     pp.query("p_asymp", p_asymp);

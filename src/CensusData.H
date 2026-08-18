@@ -13,6 +13,7 @@
 #include "AgentContainer.H"
 #include "CaseData.H"
 #include "DemographicData.H"
+#include "NAICS.H"
 #include "Utils.H"
 
 /*! \brief A class encapsulating all data relevant to the ICType Census */
@@ -26,7 +27,7 @@ struct CensusData {
                                             component 2: age group 18-29,
                                             component 3: age group 30-64,
                                             component 4: age group 65+,
-                                            component 4: total. */
+                                            component 5: total. */
     amrex::iMultiFab unit_mf;          /*!< Unit number of each community */
     amrex::iMultiFab FIPS_mf;          /*!< FIPS code (component 0) and
                                             census tract number (component 1)
@@ -41,8 +42,11 @@ struct CensusData {
 
     void readWorkerflow(AgentContainer& pc, const std::string& workerflow_filename, const int workgroup_size);
 
-    // private:
-    void assignTeachersAndWorkgroup(AgentContainer& pc, const int workgroup_size);
+    void assignTeachersAndWorkgroup(AgentContainer& pc);
+    void assignMedicalWorkers(AgentContainer& pc);
+
+    int countWorkersByComm(AgentContainer& pc, Gpu::HostVector<int>& a_array, const int a_naics = -1);
+    int setAsMedicalWorkers(AgentContainer& pc, Gpu::HostVector<int>& a_array, bool a_local);
 };
 
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
