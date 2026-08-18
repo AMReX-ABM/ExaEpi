@@ -11,9 +11,9 @@ def traverse_datasets(hdf_file):
         for key in g.keys():
             item = g[key]
             path = f'{prefix}/{key}'
-            if isinstance(item, h5py.Dataset): 
+            if isinstance(item, h5py.Dataset):
                 yield (path, item)
-            elif isinstance(item, h5py.Group): 
+            elif isinstance(item, h5py.Group):
                 yield from h5py_dataset_iterator(item, path)
 
             if key == "dataframe":
