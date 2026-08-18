@@ -10,6 +10,7 @@
 #include <unordered_set>
 
 #include <AMReX.H>
+#include <AMReX_Arena.H>
 #include <AMReX_BLProfiler.H>
 #include <AMReX_BLassert.H>
 #include <AMReX_MultiFab.H>
@@ -206,6 +207,10 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
         if (geoid_to_block_groups.insert({block_group.geoid, i}).second == false) { Abort("Cannot insert new block group"); }
     }
     fips_community_start.push_back(num_communities);
+    County_on_proc.resize(FIPS_codes.size());
+    for (int i = 0; i < County_on_proc.size(); i++) {
+        County_on_proc[i] = 0;
+    }
 
     if (ParallelDescriptor::IOProcessor()) {
         Print() << "Found " << FIPS_codes.size() << " FIPS demographic units\n";
@@ -255,6 +260,58 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
         }
         num_communities++;
     }
+
+    fillGridMetadataOnHost();
+}
+
+void UrbanPopData::fillGridMetadataOnHost () {
+    BL_PROFILE("UrbanPopData::fillGridMetadataOnHost");
+
+    iMultiFab geoid_mf_h(geoid_mf.boxArray(), geoid_mf.DistributionMap(), 2, 0, MFInfo().SetArena(The_Pinned_Arena()));
+    iMultiFab community_mf_h(community_mf.boxArray(), community_mf.DistributionMap(), 1, 0,
+                             MFInfo().SetArena(The_Pinned_Arena()));
+
+    for (MFIter mfi(geoid_mf_h); mfi.isValid(); ++mfi) {
+        auto geoid_arr = geoid_mf_h[mfi].array();
+        auto community_arr = community_mf_h[mfi].array();
+
+        const Box& box = mfi.validbox();
+        const auto lo = lbound(box);
+        const auto hi = ubound(box);
+
+        for (int x = lo.x; x <= hi.x; ++x) {
+            for (int y = lo.y; y <= hi.y; ++y) {
+                geoid_arr(x, y, 0, 0) = -1;
+                geoid_arr(x, y, 0, 1) = -1;
+                community_arr(x, y, 0) = -1;
+
+                auto it = xy_to_block_groups.find(IntVect(x, y));
+                if (it == xy_to_block_groups.end()) { continue; }
+
+                int bi = it->second;
+                AMREX_ALWAYS_ASSERT(bi >= 0 && bi < block_groups.size());
+                const auto& block_group = block_groups[bi];
+                const int64_t fips = static_cast<int64_t>(block_group.geoid / 1e7);
+
+                geoid_arr(x, y, 0, 0) = static_cast<int>(fips);
+                geoid_arr(x, y, 0, 1) = static_cast<int>(block_group.geoid - fips * 1e7);
+                community_arr(x, y, 0) = bi;
+            }
+        }
+
+        auto& geoid_src = geoid_mf_h[mfi];
+        auto& geoid_dst = geoid_mf[mfi];
+        AMREX_ALWAYS_ASSERT(geoid_src.size() == geoid_dst.size());
+        Gpu::copy(Gpu::hostToDevice, geoid_src.dataPtr(), geoid_src.dataPtr() + geoid_src.size(), geoid_dst.dataPtr());
+
+        auto& community_src = community_mf_h[mfi];
+        auto& community_dst = community_mf[mfi];
+        AMREX_ALWAYS_ASSERT(community_src.size() == community_dst.size());
+        Gpu::copy(Gpu::hostToDevice, community_src.dataPtr(), community_src.dataPtr() + community_src.size(),
+                  community_dst.dataPtr());
+    }
+
+    Gpu::streamSynchronize();
 }
 
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
@@ -284,9 +341,6 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         Vector<UrbanPopAgent> agents;
         Vector<AgentExtras> agents_extras;
 
-        auto geoid_arr = geoid_mf[mfi].array();
-        auto community_indices_arr = community_mf[mfi].array();
-
         const Box& tilebox = mfi.tilebox();
         {
             int min_x = lbound(tilebox).x;
@@ -314,11 +368,13 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     num_communities++;
                     //  FIPS is the first 5 digits of the GEOID, which is 12 digits
                     int64_t fips = static_cast<int64_t>(block_group.geoid / 1e7);
-                    geoid_arr(x, y, 0, 0) = fips;
-                    // Census tract is the 7 remaining digits after the FIPS code
-                    geoid_arr(x, y, 0, 1) = static_cast<int64_t>(block_group.geoid - fips * 1e7);
-                    community_indices_arr(x, y, 0) = bi;
                     num_nborhoods += get_max_nborhood(nborhood_size, block_group.home_population);
+                    for (int i = 0; i < FIPS_codes.size(); i++) {
+                        if (FIPS_codes[i] == fips) {
+                            County_on_proc[i] = 1;
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -429,7 +485,18 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             naics_ptr[i] = agent.naics;
             // set up workers
             if (agent.naics != -1) {
-                if (agent.school_id == 0) {
+                if (agent.travel == TRAVEL::_wfh) {
+                    // declared work-from-home: no real commute, and no physical collocation with
+                    // real workplace colleagues, so treat like a non-worker for workgroup/
+                    // work_nborhood purposes (naics_population/work_population describe the
+                    // assigned-but-never-visited work_geoid's community, not home, so they're not
+                    // a meaningful size for a group this agent never physically joins). Still
+                    // nominally employed (naics_ptr set above) for other purposes.
+                    workgroup_ptr[i] = 0;
+                    work_nborhood_ptr[i] = nborhood_ptr[i];
+                    work_i_ptr[i] = home_i_ptr[i];
+                    work_j_ptr[i] = home_j_ptr[i];
+                } else if (agent.school_id == 0) {
                     // the group work population for this agent is for the NAICS category for the agent
                     int max_workgroup = agents_extras_ptr[i].naics_population / workgroup_size + 1;
                     // a workgroup of 0 indicates not working
@@ -443,8 +510,6 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     workgroup_ptr[i] = school_id_ptr[i];
                     work_nborhood_ptr[i] = school_id_ptr[i];
                 }
-                work_i_ptr[i] = home_i_ptr[i];
-                work_j_ptr[i] = home_j_ptr[i];
             } else {
                 workgroup_ptr[i] = 0;
                 // everyone interacts in the work nborhood, even thoes that don't work (they interact during the day in their

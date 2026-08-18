@@ -1,9 +1,13 @@
 # The input data file for urbanpop ic_type. Do not include the extension. There must be two files, with extensions .csv and .idx.
 agent.ic_type = "urbanpop"
-agent.urbanpop_filename = "data/UrbanPop/urbanpop_nm"
+agent.urbanpop_filename = "../../data/UrbanPop/urbanpop_nm.bin"
 
 agent.nsteps = 70
 agent.plot_int = -1
+
+agent.weather_int = 1
+agent.weather_filename = "../../data/weatherData_NM_2015_2020.csv"
+agent.startdate="2018-1-1"
 
 agent.aggregated_diag_int = -1
 
@@ -12,5 +16,5 @@ agent.seed = 0
 diag.output_filename = output_nm.dat
 
 disease.initial_case_type = "file"
-disease.case_filename = "data/CaseData/nm-july4.cases"
+disease.case_filename = "../../data/CaseData/nm-july4.cases"
 

@@ -2,6 +2,7 @@
 #define WEATHER_H_
 
 #include "DemographicData.H"
+#include "UrbanPopData.H"
 #include "Utils.H"
 #include <AMReX_GpuContainers.H>
 #include <AMReX_Vector.H>
@@ -58,15 +59,17 @@ struct week {
 
 struct ActiveWeather {
     amrex::Gpu::DeviceVector<weatherVars> varVec; // keep weather variables during the simulation time
+    amrex::Vector<weatherVars> h_varVec;
     amrex::Gpu::DeviceVector<int> unitVec;
+    amrex::Vector<int> h_unitVec;
     int numUnitsWithDataOnThisProc;
     weatherVars& operator[](int index) { return varVec[index]; }
     weatherVars& nextWeekWeather (int curIdx) { return varVec[curIdx + numUnitsWithDataOnThisProc]; }
     inline int computeIndex (int unit, int simWeek) {
         bool found = false;
-        size_t lunit = 0;
-        for (; lunit < unitVec.size(); lunit++) {
-            if (unitVec[lunit] == unit) {
+        int lunit = 0;
+        for (; lunit < h_unitVec.size(); lunit++) {
+            if (h_unitVec[lunit] == unit) {
                 found = true;
                 break;
             }
@@ -78,8 +81,12 @@ struct ActiveWeather {
         if (computeIndex(unit, simWeek) == -1) { return NULL; }
         return &varVec[computeIndex(unit, simWeek)];
     }
+    weatherVars* h_lookupWeatherVars (int unit, int simWeek) {
+        if (computeIndex(unit, simWeek) == -1) { return NULL; }
+        return &h_varVec[computeIndex(unit, simWeek)];
+    }
     void print (int unit, int simWeek) { // gpu
-        lookupWeatherVars(unit, simWeek)->print();
+        h_lookupWeatherVars(unit, simWeek)->print();
     }
 };
 
@@ -96,6 +103,7 @@ struct WeatherData {
     bool computeIndex(date d, int& weekIndex, int& daysToWeatherWeekend);
     bool lookupWeatherVars(int stateFP, int countyFP, date d, int& weatherWeekIndex, weatherVars& vars);
     void extractActiveData(DemographicData& demo, int startWeek, int numSimWeeks);
+    void extractActiveData(UrbanPopData& upop, int startWeek, int numSimWeeks);
     void print () {
         amrex::Print() << "STATEFP " << "COUNTYFP " << "hurs " << "huss " << "pr " << "rlds " << "rsds " << "sfcWind " << "tas "
                        << "tasmax " << "tasmin " << "Week\n";
