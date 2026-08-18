@@ -222,7 +222,7 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
     AMREX_ALWAYS_ASSERT(block_groups.size() == num_communities);
 
     // add in a buffer to ensure we can fit them all in a 2D grid
-    geom = getGeometry(num_communities);
+    geom = getGeometry(num_communities, params.max_box_size);
 
     ba.define(geom.Domain());
     ba.maxSize(params.max_box_size);

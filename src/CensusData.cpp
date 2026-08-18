@@ -12,7 +12,7 @@ void CensusData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& ba,
 
     demo.initFromFile(params.census_filename, params.workgroup_size);
 
-    geom = getGeometry(demo.Ncommunity);
+    geom = getGeometry(demo.Ncommunity, params.max_box_size);
 
     ba.define(geom.Domain());
     ba.maxSize(params.max_box_size);

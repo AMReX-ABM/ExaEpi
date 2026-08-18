@@ -107,6 +107,8 @@ The following are inputs for the overall simulation:
     The first entry is ignored and should always be set to 0. This option is only used with ``ic_type = census``.
 * ``agent.max_box_size`` (`integer`, default ``16``)
     This option sets the maximum box size used for MPI domain decomposition.
+* ``diag.write_status_output`` (`bool`, default ``1``)
+    Whether to write the per-step status count output files, e.g. ``output.dat``. Set to ``0`` to skip these files and the expensive reductions used to compute their counts. When disabled, peak infection summaries, cumulative death summaries, and the no-infected early exit are also disabled.
 * ``diag.output_filename`` (`string`, default ``output.dat`` for a single disease,
     ``diag.output_[disease name].dat`` for multiple diseases)
     Filename for the output data; the number of list elements must be the same as ``agent.number_of_diseases``.

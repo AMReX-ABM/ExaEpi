@@ -185,9 +185,11 @@ void runAgent () {
         }
     }
     ParmParse pp("diag");
+    bool write_status_output = true;
+    pp.query("write_status_output", write_status_output);
     pp.queryarr("output_filename", output_filename, 0, params.num_diseases);
 
-    if (params.restart_chkfile == "") {
+    if (write_status_output && params.restart_chkfile == "") {
         for (int d = 0; d < params.num_diseases; d++) {
             if (ParallelDescriptor::IOProcessor()) {
                 std::ofstream File;
@@ -300,7 +302,7 @@ void runAgent () {
     }
 
     // if we are doing a restart, we need to fix up the output_file
-    if (params.restart_chkfile != "") {
+    if (write_status_output && params.restart_chkfile != "") {
         for (int d = 0; d < params.num_diseases; d++) {
             if (ParallelDescriptor::IOProcessor()) {
 
@@ -345,7 +347,8 @@ void runAgent () {
     std::vector<int> step_of_peak(params.num_diseases, 0);
     std::vector<Long> num_infected_peak(params.num_diseases, 0);
     std::vector<Long> cumulative_deaths(params.num_diseases, 0);
-    for (int d = 0; d < params.num_diseases; d++) {
+    if (write_status_output) {
+        for (int d = 0; d < params.num_diseases; d++) {
         auto counts = pc.getTotals(d);
         auto total_infected = totalInfected(counts);
         if (total_infected > num_infected_peak[d]) {
@@ -353,6 +356,7 @@ void runAgent () {
             step_of_peak[d] = 0;
         }
         cumulative_deaths[d] = counts[OutputStatus::D];
+        }
     }
 
     Vector<Long> num_infected(params.num_diseases, 0);
@@ -434,7 +438,8 @@ void runAgent () {
             // Update agents' disease status
             pc.updateStatus(disease_stats);
 
-            for (int d = 0; d < params.num_diseases; d++) {
+            if (write_status_output) {
+                for (int d = 0; d < params.num_diseases; d++) {
                 auto counts = pc.getTotals(d);
                 if (totalInfected(counts) > num_infected_peak[d]) {
                     num_infected_peak[d] = totalInfected(counts);
@@ -534,6 +539,7 @@ void runAgent () {
 
                     if (!File.good()) { amrex::Abort("problem writing output file"); }
                 }
+                }
             }
 
             if (params.shelter_start > 0 && params.shelter_start == i) { pc.shelterStart(); }
@@ -564,36 +570,45 @@ void runAgent () {
 
             std::chrono::duration<double> elapsed_time = std::chrono::high_resolution_clock::now() - start_time;
 
-            Print() << "[Day " << cur_time << " " << std::fixed << std::setprecision(1) << elapsed_time.count()
-                    << "s] infected: ";
-            for (int d = 0; d < params.num_diseases; d++) {
-                if (d > 0) { Print() << ", "; }
-                Print() << params.disease_names[d] << " " << num_infected[d];
+            Print() << "[Day " << cur_time << " " << std::fixed << std::setprecision(1) << elapsed_time.count() << "s]";
+            if (write_status_output) {
+                Print() << " infected: ";
+                for (int d = 0; d < params.num_diseases; d++) {
+                    if (d > 0) { Print() << ", "; }
+                    Print() << params.disease_names[d] << " " << num_infected[d];
+                }
+                // the cumulative deaths are not tracked separately for each disease
+                Print() << "; deaths: " << cumulative_deaths[0];
             }
-            // the cumulative deaths are not tracked separately for each disease
-            Print() << "; deaths: " << cumulative_deaths[0] << "\n";
+            Print() << "\n";
 
             cur_time += 1.0_rt; // time step is one day
 
             // early exit if no more spreading or deaths can occur
-            if (num_infected[0] == 0) { break; }
+            if (write_status_output && num_infected[0] == 0) { break; }
         }
     }
 
-    if (params.num_diseases == 1) {
-        amrex::Print() << "\n \n";
-        amrex::Print() << "Peak number of infected: " << num_infected_peak[0] << "\n";
-        amrex::Print() << "Day of peak: " << step_of_peak[0] << "\n";
-        amrex::Print() << "Cumulative deaths: " << cumulative_deaths[0] << "\n";
-        amrex::Print() << "\n \n";
+    if (write_status_output) {
+        if (params.num_diseases == 1) {
+            amrex::Print() << "\n \n";
+            amrex::Print() << "Peak number of infected: " << num_infected_peak[0] << "\n";
+            amrex::Print() << "Day of peak: " << step_of_peak[0] << "\n";
+            amrex::Print() << "Cumulative deaths: " << cumulative_deaths[0] << "\n";
+            amrex::Print() << "\n \n";
+        } else {
+            amrex::Print() << "\n \n";
+            for (int d = 0; d < params.num_diseases; d++) {
+                amrex::Print() << "Disease " << params.disease_names[d] << ":\n";
+                amrex::Print() << "    Peak number of infected: " << num_infected_peak[d] << "\n";
+                amrex::Print() << "    Day of peak: " << step_of_peak[d] << "\n";
+                amrex::Print() << "    Cumulative deaths: " << cumulative_deaths[d] << "\n";
+            }
+            amrex::Print() << "\n \n";
+        }
     } else {
         amrex::Print() << "\n \n";
-        for (int d = 0; d < params.num_diseases; d++) {
-            amrex::Print() << "Disease " << params.disease_names[d] << ":\n";
-            amrex::Print() << "    Peak number of infected: " << num_infected_peak[d] << "\n";
-            amrex::Print() << "    Day of peak: " << step_of_peak[d] << "\n";
-            amrex::Print() << "    Cumulative deaths: " << cumulative_deaths[d] << "\n";
-        }
+        amrex::Print() << "Status output disabled; peak infection and cumulative death totals were not computed.\n";
         amrex::Print() << "\n \n";
     }
 

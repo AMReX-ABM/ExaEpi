@@ -419,13 +419,14 @@ static int schoolTypeToGrade (const int school_type) {
 
 /*! \brief Set computational domain, i.e., number of cells in each direction, from the number of communities.
  *
- *  + The domain is a 2D square, where the total number of cells is the lowest square of an
- *    integer that is greater than #DemographicData::Ncommunity
+ *  + If max_box_size is set, the domain dimensions are whole max_box_size chunks,
+ *    using a near-square factorization of the required number of chunks.
+ *  + Otherwise, the domain is a near-square grid with enough cells for all communities.
  *  + The physical size is 1.0 in each dimension.
  *
  *  A periodic Cartesian grid is defined.
  */
-inline amrex::Geometry getGeometry (const int ncommunity) {
+inline amrex::Geometry getGeometry (const int ncommunity, const int max_box_size = 0) {
     int is_per[BL_SPACEDIM];
     for (int i = 0; i < BL_SPACEDIM; i++) {
         is_per[i] = true;
@@ -436,9 +437,21 @@ inline amrex::Geometry getGeometry (const int ncommunity) {
     amrex::Geometry geom;
 
     amrex::IntVect iv;
-    iv[0] = iv[1] = (int)std::floor(std::sqrt((double)ncommunity));
-    while (iv[0] * iv[1] <= ncommunity) {
-        ++iv[0];
+    if (max_box_size > 0) {
+        int nboxes = (ncommunity + max_box_size * max_box_size - 1) / (max_box_size * max_box_size);
+        if (nboxes < 1) { nboxes = 1; }
+        int nboxes_y = (int)std::floor(std::sqrt((double)nboxes));
+        while (nboxes_y > 1 && nboxes % nboxes_y != 0) {
+            --nboxes_y;
+        }
+        int nboxes_x = nboxes / nboxes_y;
+        iv[0] = nboxes_x * max_box_size;
+        iv[1] = nboxes_y * max_box_size;
+    } else {
+        iv[0] = iv[1] = (int)std::floor(std::sqrt((double)ncommunity));
+        while (iv[0] * iv[1] < ncommunity) {
+            ++iv[0];
+        }
     }
     base_domain = amrex::Box(amrex::IntVect(AMREX_D_DECL(0, 0, 0)), iv - 1);
 
