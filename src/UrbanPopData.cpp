@@ -421,15 +421,22 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         int i_RT = IntIdx::nattribs;
         int r_RT = RealIdx::nattribs;
         int n_disease = pc.m_num_diseases;
+
+        // Get disease parameters for GPU - use AsyncArray for device access
+        Gpu::AsyncArray<const DiseaseParm*> disease_parms_arr(n_disease);
+        auto* disease_parms_ptr = disease_parms_arr.data();
+        for (int d = 0; d < n_disease; d++) {
+            disease_parms_ptr[d] = pc.getDiseaseParameters_d(d);
+        }
+        const DiseaseParm** disease_parms_d = disease_parms_ptr;
+
         for (int d = 0; d < n_disease; d++) {
             soa.GetRealData(r_RT + r0(d) + RealIdxDisease::treatment_timer).assign(0.0_rt);
-            soa.GetRealData(r_RT + r0(d) + RealIdxDisease::disease_counter).assign(0.0_rt);
             soa.GetRealData(r_RT + r0(d) + RealIdxDisease::prob).assign(0.0_rt);
             soa.GetRealData(r_RT + r0(d) + RealIdxDisease::latent_period).assign(0.0_rt);
             soa.GetRealData(r_RT + r0(d) + RealIdxDisease::infectious_period).assign(0.0_rt);
             soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).assign(0.0_rt);
             soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_delay).assign(0.0_rt);
-            soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).assign(0);
             soa.GetIntData(i_RT + i0(d) + IntIdxDisease::symptomatic).assign(0);
         }
         auto np = soa.numParticles();
@@ -519,6 +526,37 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
 
             trav_i_ptr[i] = home_i_ptr[i];
             trav_j_ptr[i] = home_j_ptr[i];
+        });
+        Gpu::synchronize();
+
+        // Set initial disease status and immunity - use AsyncArray for device access
+        Gpu::AsyncArray<int*> status_ptrs_arr(n_disease);
+        Gpu::AsyncArray<ParticleReal*> disease_counter_ptrs_arr(n_disease);
+        auto* status_ptrs = status_ptrs_arr.data();
+        auto* disease_counter_ptrs = disease_counter_ptrs_arr.data();
+        for (int d = 0; d < n_disease; d++) {
+            status_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
+            disease_counter_ptrs[d] = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::disease_counter).data();
+        }
+
+        ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
+            for (int d = 0; d < n_disease; d++) {
+                // Check if agent should be initially immune for this disease
+                if (disease_parms_d[d]->initial_immunity_fraction > 0.0_prt &&
+                    amrex::Random(engine) < disease_parms_d[d]->initial_immunity_fraction) {
+                    status_ptrs[d][i] = Status::immune;
+                    // Set immune counter to random point in immunity period
+                    // Sample full immune duration, then pick random point within it
+                    ParticleReal full_immune_duration =
+                            static_cast<ParticleReal>(amrex::RandomGamma(disease_parms_d[d]->immune_length_alpha,
+                                                                         disease_parms_d[d]->immune_length_beta, engine)) +
+                            static_cast<ParticleReal>(disease_parms_d[d]->immune_length_loc);
+                    disease_counter_ptrs[d][i] = amrex::Random(engine) * full_immune_duration;
+                } else {
+                    status_ptrs[d][i] = Status::never;
+                    disease_counter_ptrs[d][i] = 0.0_prt;
+                }
+            }
         });
         Gpu::synchronize();
 

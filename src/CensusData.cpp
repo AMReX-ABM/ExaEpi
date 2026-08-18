@@ -254,6 +254,14 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
         auto my_proc = ParallelDescriptor::MyProc();
         int n_disease = pc.m_num_diseases;
 
+        // Get disease parameters for GPU - use AsyncArray for device access
+        Gpu::AsyncArray<const DiseaseParm*> disease_parms_arr(n_disease);
+        auto* disease_parms_ptr = disease_parms_arr.data();
+        for (int d = 0; d < n_disease; d++) {
+            disease_parms_ptr[d] = pc.getDiseaseParameters_d(d);
+        }
+        const DiseaseParm** disease_parms_d = disease_parms_ptr;
+
         Long pid;
 #ifdef AMREX_USE_OMP
 #pragma omp critical(init_agents_nextid)
@@ -312,7 +320,7 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                         age_group = AgeGroups::a18to29; /* single adult age 19-29 */
                     }
                     setAgentDataAndAssignSchool(ptd, ip, i, j, k, dx, pid + ip, my_proc, age_group, family, nborhood, n_disease,
-                                                nr_arr, student_counts_arr, engine);
+                                                nr_arr, student_counts_arr, disease_parms_d, engine);
                 } else if (family_size == 2) {
                     if (il2 == 0) {
                         /* 1% probability of one parent + one child */
@@ -327,14 +335,14 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                             age_group = AgeGroups::a18to29; /* one parent 19-29 */
                         }
                         setAgentDataAndAssignSchool(ptd, ip, i, j, k, dx, pid + ip, my_proc, age_group, family, nborhood,
-                                                    n_disease, nr_arr, student_counts_arr, engine);
+                                                    n_disease, nr_arr, student_counts_arr, disease_parms_d, engine);
                         if (((int)Random_int(100, engine)) < p_schoolage) {
                             age_group = AgeGroups::a5to17;
                         } else {
                             age_group = AgeGroups::u5;
                         }
                         setAgentDataAndAssignSchool(ptd, ip + 1, i, j, k, dx, pid + ip + 1, my_proc, age_group, family, nborhood,
-                                                    n_disease, nr_arr, student_counts_arr, engine);
+                                                    n_disease, nr_arr, student_counts_arr, disease_parms_d, engine);
                     } else {
                         /* 2 adults, 28% over 65 (ASSUME both same age group) */
                         if (il2 < 28) {
@@ -347,9 +355,9 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                             age_group = AgeGroups::a18to29; /* single adult age 19-29 */
                         }
                         setAgentDataAndAssignSchool(ptd, ip, i, j, k, dx, pid + ip, my_proc, age_group, family, nborhood,
-                                                    n_disease, nr_arr, student_counts_arr, engine);
+                                                    n_disease, nr_arr, student_counts_arr, disease_parms_d, engine);
                         setAgentDataAndAssignSchool(ptd, ip + 1, i, j, k, dx, pid + ip + 1, my_proc, age_group, family, nborhood,
-                                                    n_disease, nr_arr, student_counts_arr, engine);
+                                                    n_disease, nr_arr, student_counts_arr, disease_parms_d, engine);
                     }
                 }
 
@@ -365,9 +373,9 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                         age_group = AgeGroups::a18to29; /* parents 19-29 */
                     }
                     setAgentDataAndAssignSchool(ptd, ip, i, j, k, dx, pid + ip, my_proc, age_group, family, nborhood, n_disease,
-                                                nr_arr, student_counts_arr, engine);
+                                                nr_arr, student_counts_arr, disease_parms_d, engine);
                     setAgentDataAndAssignSchool(ptd, ip + 1, i, j, k, dx, pid + ip + 1, my_proc, age_group, family, nborhood,
-                                                n_disease, nr_arr, student_counts_arr, engine);
+                                                n_disease, nr_arr, student_counts_arr, disease_parms_d, engine);
 
                     /* Now pick the children's age groups */
                     for (int nc = 2; nc < family_size; ++nc) {
@@ -377,7 +385,7 @@ void CensusData::initAgents (AgentContainer& pc, /*!< Agents */
                             age_group = AgeGroups::u5;
                         }
                         setAgentDataAndAssignSchool(ptd, ip + nc, i, j, k, dx, pid + ip + nc, my_proc, age_group, family,
-                                                    nborhood, n_disease, nr_arr, student_counts_arr, engine);
+                                                    nborhood, n_disease, nr_arr, student_counts_arr, disease_parms_d, engine);
                     }
                 }
             }

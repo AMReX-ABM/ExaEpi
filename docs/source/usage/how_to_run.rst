@@ -128,6 +128,12 @@ The following inputs specify the disease parameters:
 * ``disease.num_initial_cases`` (`int`, default ``0``)
     The number of initial cases to seed for a single disease. Must be provided if
     ``initial_case_type`` is ``"random"``. It can be set to 0 for no cases.
+* ``disease.initial_immunity_fraction`` (`float`, default ``0.0``)
+    The fraction of agents (0.0 to 1.0) that are initially immune for each disease. This sets agents as immune at initialization.
+    Each initially immune agent is placed at a random point in their immunity period. The immunity period duration is sampled from a
+    Gamma distribution with the ``disease.immune_length_alpha`` and ``disease.immune_length_beta`` parameters, and the agent's
+    remaining immunity is set to a uniform random value between 0 and that duration. This feature works for both ``census`` and
+    ``urbanpop`` initialization types. For multiple diseases, use disease-specific parameters: ``disease_[disease name].initial_immunity_fraction``.
 * ``disease.p_trans`` (`float`, default ``0.2``)
     Probability of transmission given contact. There must be one entry for each disease strain.
 * ``disease.p_asymp`` (`float`, default ``0.4``)
