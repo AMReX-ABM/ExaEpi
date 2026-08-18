@@ -76,6 +76,7 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
 
     pp.query("nborhood_size", params.nborhood_size);
     pp.query("workgroup_size", params.workgroup_size);
+    pp.query("weak_scaling_layout", params.weak_scaling_layout);
 
     Long seed = 0;
     bool reset_seed = pp.query("seed", seed);

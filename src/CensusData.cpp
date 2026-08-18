@@ -2,21 +2,92 @@
  */
 
 #include <AMReX_ParticleUtil.H>
+#include <AMReX_RealBox.H>
 
 #include "CensusData.H"
 
 using namespace amrex;
 using namespace ExaEpi;
 
+namespace {
+constexpr int weak_scaling_box_size = 16;
+constexpr int weak_scaling_tract_length = 32;
+constexpr int weak_scaling_communities_per_unit = weak_scaling_tract_length * weak_scaling_tract_length;
+
+amrex::Geometry weakScalingGeometry (const int nunit) {
+    int is_per[BL_SPACEDIM];
+    for (int i = 0; i < BL_SPACEDIM; ++i) {
+        is_per[i] = true;
+    }
+
+    amrex::RealBox real_box;
+    for (int n = 0; n < BL_SPACEDIM; ++n) {
+        real_box.setLo(n, 0.0);
+        real_box.setHi(n, 1.0);
+    }
+
+    amrex::Box base_domain(
+            amrex::IntVect(AMREX_D_DECL(0, 0, 0)),
+            amrex::IntVect(AMREX_D_DECL(weak_scaling_tract_length - 1, weak_scaling_tract_length * nunit - 1, 0)));
+
+    amrex::Geometry geom;
+    geom.define(base_domain, &real_box, amrex::CoordSys::cartesian, is_per);
+    return geom;
+}
+
+void defineWeakScalingLayout (const DemographicData& demo, ExaEpi::TestParams& params, Geometry& geom, BoxArray& ba,
+                              DistributionMapping& dm) {
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(params.max_box_size == weak_scaling_box_size,
+                                     "agent.weak_scaling_layout requires agent.max_box_size = 16");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(demo.Nunit == ParallelDescriptor::NProcs(),
+                                     "agent.weak_scaling_layout requires one census unit per MPI rank");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(demo.Ncommunity == demo.Nunit * weak_scaling_communities_per_unit,
+                                     "agent.weak_scaling_layout requires exactly 1024 communities per census unit");
+    for (int unit = 0; unit < demo.Nunit; ++unit) {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(demo.Start[unit + 1] - demo.Start[unit] == weak_scaling_communities_per_unit,
+                                         "agent.weak_scaling_layout requires exactly 1024 communities per census unit");
+    }
+
+    geom = weakScalingGeometry(demo.Nunit);
+    ba.define(geom.Domain());
+    ba.maxSize(params.max_box_size);
+
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(ba.size() == 4 * demo.Nunit,
+                                     "agent.weak_scaling_layout expected four 16x16 boxes per census unit");
+
+    amrex::Vector<int> pmap(ba.size());
+    amrex::Vector<int> boxes_per_rank(demo.Nunit, 0);
+    for (int ibox = 0; ibox < ba.size(); ++ibox) {
+        const Box& box = ba[ibox];
+        AMREX_ALWAYS_ASSERT(box.length(0) == weak_scaling_box_size);
+        AMREX_ALWAYS_ASSERT(box.length(1) == weak_scaling_box_size);
+        const int unit = box.smallEnd()[1] / weak_scaling_tract_length;
+        AMREX_ALWAYS_ASSERT(unit >= 0 && unit < demo.Nunit);
+        pmap[ibox] = unit;
+        boxes_per_rank[unit] += 1;
+    }
+
+    for (int unit = 0; unit < demo.Nunit; ++unit) {
+        AMREX_ALWAYS_ASSERT(boxes_per_rank[unit] == 4);
+    }
+
+    dm.define(pmap);
+}
+} // namespace
+
 void CensusData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& ba, DistributionMapping& dm) {
 
     demo.initFromFile(params.census_filename, params.workgroup_size);
 
-    geom = getGeometry(demo.Ncommunity, params.max_box_size);
+    if (params.weak_scaling_layout) {
+        defineWeakScalingLayout(demo, params, geom, ba, dm);
+    } else {
+        geom = getGeometry(demo.Ncommunity, params.max_box_size);
 
-    ba.define(geom.Domain());
-    ba.maxSize(params.max_box_size);
-    dm.define(ba);
+        ba.define(geom.Domain());
+        ba.maxSize(params.max_box_size);
+        dm.define(ba);
+    }
 
     Print() << "Base domain is: " << geom.Domain() << "\n";
     Print() << "Max box size is: " << params.max_box_size << "\n";

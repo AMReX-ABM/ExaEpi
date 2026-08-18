@@ -79,6 +79,8 @@ struct TestParams {
     int nborhood_size = 500;
     int workgroup_size = 20;
 
+    bool weak_scaling_layout = false; /*!< Use a census layout for weak scaling inputs with 1024 communities per unit. */
+
     bool fast = false; /*!< Use the fast implementations for various operations, e.g. binning, at the cost of
                            exact reproducibility for a given random seed. */
 };
