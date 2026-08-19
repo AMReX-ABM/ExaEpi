@@ -73,6 +73,16 @@ The following are inputs for the overall simulation:
 * ``agent.air_travel_int`` (`integer`, default ``-1``)
     The number of time steps between air travel events. Set to -1 to disable all air travel events. Currently this is implemented
     only for ``ic_type = census``.
+* ``agent.do_weather`` (`bool`, default ``false``)
+    Set to ``1`` (or ``true``) to enable the weather-dependent transmission model.
+    When enabled, ``agent.weather_filename`` and ``agent.startdate`` must also be provided.
+* ``agent.weather_filename`` (`string`)
+    Path to the CSV file containing weather data (temperature and humidity by county and week).
+    Required when ``agent.do_weather = 1``. Example data files are provided in ``ExaEpi/data/``.
+* ``agent.startdate`` (`string`)
+    Start date of the simulation in ``YYYY-MM-DD`` format (e.g. ``2020-01-01``).
+    Used to align the weather data with the simulation timeline.
+    Required when ``agent.do_weather = 1``.
 * ``agent.aggregated_diag_int`` (`integer`, default ``-1``)
     The number of time steps between writing aggregated data, for example wastewater data. Set to -1 to disable writing.
 * ``agent.aggregated_diag_prefix`` (`string`, default ``cases``)
@@ -253,6 +263,36 @@ can be specified as follows:
 
 where ``[disease name]`` is any of the names specified in ``agent.disease_names`` (or the
 default value), and ``[key]`` is any of the parameters listed above.
+
+The following inputs configure the weather-dependent transmission model.  These parameters are only
+used when ``agent.do_weather = 1``.  The model computes a weather-based scale factor for the
+transmission probability as a function of near-surface air temperature :math:`T` (°C) and absolute
+humidity :math:`AH` (g/m³):
+
+.. math::
+
+   p(T,AH) = \min\left(1,\; p_max \exp(-beta_AH (AH - AH_{ref}) - alpha_T \max(0,T - T_0))\right)
+
+* ``weather_transmission.p_max`` (`float`, default ``1.0``)
+    Maximum transmission scale factor (dimensionless).  The scale factor is multiplied by the
+    baseline transmission probability ``disease.p_trans`` to give the effective transmission
+    probability, and the result is clamped to 1.  With ``p_max = 1`` the scale factor equals 1
+    at/below ``AH_ref`` (and ``T <= T0``), so the calibrated baseline ``disease.p_trans`` is
+    recovered during flu-season conditions; warmer/more humid conditions reduce it.
+* ``weather_transmission.beta_AH`` (`float`, default ``0.18``)
+    Absolute-humidity sensitivity coefficient in units of m³/g.  Larger values cause transmission
+    to decrease more rapidly as humidity increases.
+* ``weather_transmission.T0`` (`float`, default ``5.0``)
+    Temperature threshold in °C above which the temperature penalty is applied.  Below this
+    temperature the model applies no temperature-dependent reduction.
+* ``weather_transmission.alpha_T`` (`float`, default ``0.015``)
+    Temperature sensitivity coefficient in units of °C⁻¹.  Larger values cause transmission
+    to decrease more rapidly above ``T0``.
+* ``weather_transmission.AH_ref`` (`float`, default ``6.0``)
+    Reference absolute humidity in g/m³ at which the (unclamped) scale factor equals ``p_max``.
+    Choose it near the flu-season absolute humidity so that the calibrated ``disease.p_trans`` is
+    preserved during the epidemic season rather than being suppressed everywhere.  Set to ``0.0``
+    to recover the un-normalised ``AH = 0`` reference.
 
 In addition to the ExaEpi inputs, there are also a number of runtime options that can be configured for AMReX itself.
 Please see <https://amrex-codes.github.io/amrex/docs_html/GPU.html#inputs-parameters>`__ for more information on these options.

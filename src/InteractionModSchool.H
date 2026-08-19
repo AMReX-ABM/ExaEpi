@@ -170,7 +170,10 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                     auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                     auto lparm = agents.getDiseaseParameters_d(d);
                     auto lparm_h = agents.getDiseaseParameters_h(d);
-                    Real scale = 1.0_rt; // TODO this should vary based on cell
+                    auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
+                    auto varVec = agents.awd != nullptr ? agents.awd->varVec.data() : nullptr;
+                    auto weather_model = agents.m_weather_model;
+                    bool a_do_weather = agents.m_do_weather;
                     Real infect = (1.0_rt - lparm_h->vac_eff);
                     auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
@@ -205,17 +208,23 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                             auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                             auto community = d_ptr[tidx];
                             int pos = (community * max_school_id + school_id_ptr[i]) * max_school_grade + school_grade_ptr[i];
+                            Real weather_scale = 1.0_rt;
+                            if (a_do_weather && varVec != nullptr && weatherIdxPtr[i] >= 0) {
+                                weatherVars wvar = varVec[weatherIdxPtr[i]];
+                                weather_scale = weather_model(wvar);
+                            }
                             if (getSchoolType(school_grade_ptr[i]) == SchoolType::daycare) {
                                 if (adults && age_group_ptr[i] > AgeGroups::a5to17) { // adults-adults interaction accounted for
                                                                                       // in InteractionModWork.H
                                     // do nothing!
                                 } else {
                                     int num_infected_daycare = infected_daycare_d_ptr[pos];
-                                    Real daycare_prob = 1.0_rt - infect * lparm->xmit_school[SchoolType::daycare] * scale;
+                                    Real daycare_prob = 1.0_rt - infect * lparm->xmit_school[SchoolType::daycare] * weather_scale;
                                     prob_ptr[i] *= static_cast<ParticleReal>(std::pow(daycare_prob, num_infected_daycare));
                                     int num_infected_daycare_asymp = infected_daycare_asymp_d_ptr[pos];
                                     Real daycare_prob_asymp = 1.0_rt - lparm->asymp_relative_inf * infect *
-                                                                               lparm->xmit_school[SchoolType::daycare] * scale;
+                                                                               lparm->xmit_school[SchoolType::daycare] *
+                                                                               weather_scale;
                                     prob_ptr[i] *=
                                             static_cast<ParticleReal>(std::pow(daycare_prob_asymp, num_infected_daycare_asymp));
                                 }
@@ -238,9 +247,9 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                                         xmit = lparm->xmit_school_c2a[getSchoolType(school_grade_ptr[i])];
                                     }
                                 }
-                                Real school_prob = 1.0_rt - infect * xmit * scale;
+                                Real school_prob = 1.0_rt - infect * xmit * weather_scale;
                                 prob_ptr[i] *= static_cast<ParticleReal>(std::pow(school_prob, num_infected_school));
-                                Real school_prob_asymp = 1.0_rt - lparm->asymp_relative_inf * infect * xmit * scale;
+                                Real school_prob_asymp = 1.0_rt - lparm->asymp_relative_inf * infect * xmit * weather_scale;
                                 prob_ptr[i] *= static_cast<ParticleReal>(std::pow(school_prob_asymp, num_infected_school_asymp));
                             }
                         }

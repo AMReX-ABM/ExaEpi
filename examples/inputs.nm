@@ -5,7 +5,7 @@ agent.urbanpop_filename = "../../data/UrbanPop/urbanpop_nm.bin"
 agent.nsteps = 70
 agent.plot_int = -1
 
-agent.weather_int = 1
+agent.do_weather = 1
 agent.weather_filename = "../../data/weatherData_NM_2015_2020.csv"
 agent.startdate="2018-1-1"
 
