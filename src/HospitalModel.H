@@ -68,7 +68,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
             int i_RT = IntIdx::nattribs;
             int r_RT = RealIdx::nattribs;
 
-            GpuArray<int*, ExaEpi::max_num_diseases> status_ptrs, symptomatic_ptrs;
+            GpuArray<int*, ExaEpi::max_num_diseases> status_ptrs{}, symptomatic_ptrs{};
             GpuArray<ParticleReal*, ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs, incubation_per_ptrs, hospital_delay_ptrs;
             for (int d = 0; d < n_disease; d++) {
                 status_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
@@ -91,6 +91,10 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
             auto exit_ICU_ptr = exit_ICU.data();
             auto exit_vent_ptr = exit_vent.data();
 
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
             ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                 // if status_ptr for any one disease is dead, they should all be dead
                 if (status_ptrs[0][i] == Status::dead) {
@@ -105,6 +109,9 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                     }
                 }
             });
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
             Gpu::synchronize();
 
             for (int d = 0; d < n_disease; d++) {

@@ -48,26 +48,26 @@ struct IntIdx {
         hosp_j /*!< hosp location index */,
         trav_i /*!< air travel location index */,
         trav_j /*!< air travel location index */,
-        nborhood,      /*!< home neighborhood ID */
-        hh_cluster,    /*!< household cluster ID */
-        school_grade,  /*!< school grade, including universities */
-        school_id,     /*!< ID for a given school */
-        school_closed, /*!< 0 for open, 1 for closed */
-        school_class,  /*!< 0-based class index within this agent's (school_id, grade) group at its
-                            work community -- diagnostic only, see AgentContainer::assignSchoolClasses
-                            / school_class_group below */
+        nborhood,           /*!< home neighborhood ID */
+        hh_cluster,         /*!< household cluster ID */
+        school_grade,       /*!< school grade, including universities */
+        school_id,          /*!< ID for a given school */
+        school_closed,      /*!< 0 for open, 1 for closed */
+        school_class,       /*!< 0-based class index within this agent's (school_id, grade) group at its
+                                 work community -- diagnostic only, see AgentContainer::assignSchoolClasses
+                                 / school_class_group below */
         school_class_group, /*!< compact, densely-packed ID for this agent's actual (community,
                                  school_id, grade, school_class) mixing bucket -- see
                                  AgentContainer::assignSchoolClasses / InteractionModSchool.H. -1 for
                                  agents not enrolled (school_id == 0) */
-        naics,         /*!< industry NAICS code for business employed at */
-        workgroup,     /*!< workgroup ID */
-        work_nborhood, /*!< work neighborhood ID */
-        withdrawn,     /*!< quarantine status */
-        random_travel, /*!< on long distance travel? */
-        air_travel,    /*!< on long distance travel by Air? */
-        weatherLookup, /*!< index for current weather variables, incremented weekly */
-        nattribs       /*!< number of integer-type attribute */
+        naics,              /*!< industry NAICS code for business employed at */
+        workgroup,          /*!< workgroup ID */
+        work_nborhood,      /*!< work neighborhood ID */
+        withdrawn,          /*!< quarantine status */
+        random_travel,      /*!< on long distance travel? */
+        air_travel,         /*!< on long distance travel by Air? */
+        weatherLookup,      /*!< index for current weather variables, incremented weekly */
+        nattribs            /*!< number of integer-type attribute */
     };
 };
 

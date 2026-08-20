@@ -15,7 +15,8 @@
 #include "DemographicData.H"
 #include "Utils.H"
 
-namespace ExaEpi { namespace Initialization {
+namespace ExaEpi {
+namespace Initialization {
 
 /*! \brief Build a per-unit cumulative population distribution over its communities.
 
@@ -25,10 +26,10 @@ namespace ExaEpi { namespace Initialization {
     population (matching Epicast's population-proportional index-case seeding), rather than
     uniformly over communities. If a unit's total population is 0, its slice is left at 0.0 as
     a sentinel so that community selection can fall back to a uniform draw for that unit. */
-amrex::Vector<float> buildCommunityCumProb(const Vector<int>& unit_community_start,
-                                           const Vector<int>& community_population);
+amrex::Vector<float> buildCommunityCumProb(const Vector<int>& unit_community_start, const Vector<int>& community_population);
 
-}} // namespace ExaEpi::Initialization
+} // namespace Initialization
+} // namespace ExaEpi
 
 void setInitialCasesFromFile(AgentContainer& pc, CaseData& cases, const std::string& name, int d_idx,
                              const Vector<int>& FIPS_codes, const Vector<int>& unit_community_start,

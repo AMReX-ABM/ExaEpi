@@ -597,12 +597,12 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
  *  parameter that always landed on -1.0), so it's built in rather than left tunable. home_population
  *  is always available, so every community participates. */
 namespace {
-    /*! Clip bounds on the per-community size-scale factor -- not exposed as user-tunable
-        parameters since every fit sweep converged on the same 1/population form and these
-        bounds only guard against extreme multipliers for unusually small/large communities. */
-    constexpr Real size_min_scale = 0.05_rt;
-    constexpr Real size_max_scale = 20.0_rt;
-}
+/*! Clip bounds on the per-community size-scale factor -- not exposed as user-tunable
+    parameters since every fit sweep converged on the same 1/population form and these
+    bounds only guard against extreme multipliers for unusually small/large communities. */
+constexpr Real size_min_scale = 0.05_rt;
+constexpr Real size_max_scale = 20.0_rt;
+} // namespace
 
 amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockGroup>& block_groups,
                                                       const ExaEpi::TestParams& params) {
@@ -610,7 +610,9 @@ amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockG
     if (block_groups.empty()) { return scale; }
 
     Real weight_sum = 0.0_rt;
-    for (const auto& bg : block_groups) { weight_sum += (Real)bg.home_population; }
+    for (const auto& bg : block_groups) {
+        weight_sum += (Real)bg.home_population;
+    }
 
     Vector<Real> raw(block_groups.size(), 1.0_rt);
     Real weighted_raw_sum = 0.0_rt;
@@ -626,8 +628,7 @@ amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockG
         scale[c] = std::max(size_min_scale, std::min(size_max_scale, s));
     }
 
-    amrex::Print() << "SizeScale: " << block_groups.size() << " communities (xmit_comm_scale="
-                   << params.xmit_comm_scale << ")\n";
+    amrex::Print() << "SizeScale: " << block_groups.size() << " communities (xmit_comm_scale=" << params.xmit_comm_scale << ")\n";
 
     return scale;
 }
@@ -669,8 +670,8 @@ amrex::Vector<amrex::Real> computeCommunityWorkSizeScale (const amrex::Vector<Bl
         scale[c] = std::max(size_min_scale, std::min(size_max_scale, s));
     }
 
-    amrex::Print() << "WorkSizeScale: " << block_groups.size() << " communities (xmit_comm_scale="
-                   << params.xmit_comm_scale << ")\n";
+    amrex::Print() << "WorkSizeScale: " << block_groups.size() << " communities (xmit_comm_scale=" << params.xmit_comm_scale
+                   << ")\n";
 
     return scale;
 }

@@ -430,7 +430,7 @@ void runAgent () {
                     (params.ic_type == ICType::Census ? censusData.demo.Start : urbanPopData.fips_community_start);
             Vector<int> community_population;
             if (params.ic_type == ICType::UrbanPop) {
-                community_population.resize(urbanPopData.block_groups.size());
+                community_population.resize(urbanPopData.block_groups.size(), 0);
                 for (int c = 0; c < (int)urbanPopData.block_groups.size(); ++c) {
                     community_population[c] = urbanPopData.block_groups[c].home_population;
                 }

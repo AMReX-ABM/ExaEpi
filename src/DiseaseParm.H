@@ -264,7 +264,7 @@ void setInfected (int* status, int* symptomatic, amrex::ParticleReal* counter, a
     if (lparm->compare_to_epicast) {
         // Sample latent, incubation, and infectious periods from fixed Epicast CDFs
         *latent_period = static_cast<ParticleReal>(sampleFromCDF(latent_period_cdf, latent_period_cdf_size, engine));
-        *incubation_period = *latent_period + 1.0;
+        *incubation_period = *latent_period + ParticleReal(1.0);
         *infectious_period = static_cast<ParticleReal>(sampleFromCDF(infectious_period_cdf, infectious_period_cdf_size, engine));
         *hospital_delay = amrex::Real(2);
     } else {
