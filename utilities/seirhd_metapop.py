@@ -8,7 +8,10 @@ gamma, hosp_rate, gamma_h, mu) are shared across all patches; heterogeneity
 comes only from each patch's population, initial seeding, and the inter-patch
 coupling strength. Patches mix via a row-stochastic matrix built from a single
 --coupling parameter: each patch keeps (1 - coupling) of its contacts local
-and spreads the remainder evenly across the other patches.
+and spreads the remainder across other patches, according to --topology:
+    all_to_all (default): spread evenly across every other patch.
+    grid: patches are laid out on a --grid_shape ROWS COLS grid and spread
+          only across their (up/down/left/right) grid neighbors.
 
 Unlike compare_to_epicast.py's run_seir(), the output only carries the
 distinct disease columns (exposed, hospitalized, dead, recovered,
@@ -28,8 +31,8 @@ ALL_PLOTS = ["Exposed", "Hospitalized", "Dead", "Recovered", "Cumulative Exposed
 _plot_map = {p.lower(): p for p in ALL_PLOTS}
 
 
-def build_coupling_matrix(n_patches, coupling):
-    """Build a row-stochastic n x n inter-patch mixing matrix.
+def build_all_to_all_coupling_matrix(n_patches, coupling):
+    """Build a row-stochastic n x n all-to-all inter-patch mixing matrix.
 
     Diagonal entries are (1 - coupling); off-diagonal entries split the
     remaining `coupling` mass evenly across the other n_patches - 1 patches.
@@ -42,7 +45,56 @@ def build_coupling_matrix(n_patches, coupling):
     return M
 
 
-def run_seirhd_metapop(beta, sigma, gamma, h, gamma_h, mu, pop, seed, coupling, days, patch_names):
+def build_grid_coupling_matrix(nrows, ncols, coupling):
+    """Build a row-stochastic n x n grid (nearest-neighbor) mixing matrix.
+
+    Patches are laid out on a nrows x ncols grid in row-major order (patch i
+    is at row i // ncols, column i % ncols). Each patch keeps (1 - coupling)
+    of its contacts local and splits the remaining `coupling` mass evenly
+    across its up/down/left/right grid neighbors only (no wraparound, so
+    edge and corner patches have fewer neighbors than interior ones). A
+    patch with no neighbors (a 1x1 grid) keeps all its weight local.
+    """
+    n = nrows * ncols
+    M = np.zeros((n, n))
+    for i in range(n):
+        r, c = divmod(i, ncols)
+        neighbors = []
+        if r > 0:
+            neighbors.append(i - ncols)
+        if r < nrows - 1:
+            neighbors.append(i + ncols)
+        if c > 0:
+            neighbors.append(i - 1)
+        if c < ncols - 1:
+            neighbors.append(i + 1)
+        if neighbors:
+            M[i, i] = 1.0 - coupling
+            share = coupling / len(neighbors)
+            for j in neighbors:
+                M[i, j] = share
+        else:
+            M[i, i] = 1.0
+    return M
+
+
+def build_coupling_matrix(n_patches, coupling, topology="all_to_all", grid_shape=None):
+    """Build a row-stochastic n x n inter-patch mixing matrix for the given topology.
+
+    topology="all_to_all": see build_all_to_all_coupling_matrix().
+    topology="grid": see build_grid_coupling_matrix(); grid_shape=(nrows, ncols)
+                      is required and nrows * ncols must equal n_patches.
+    """
+    if topology == "grid":
+        if grid_shape is None:
+            raise ValueError("grid_shape is required when topology='grid'")
+        nrows, ncols = grid_shape
+        return build_grid_coupling_matrix(nrows, ncols, coupling)
+    return build_all_to_all_coupling_matrix(n_patches, coupling)
+
+
+def run_seirhd_metapop(beta, sigma, gamma, h, gamma_h, mu, pop, seed, coupling, days, patch_names,
+                       topology="all_to_all", grid_shape=None):
     """Integrate the metapopulation SEIRHD ODEs and derive daily new-count series.
 
     Compartments per patch: S, E, I, H, R, D, with the same flows as the
@@ -60,6 +112,8 @@ def run_seirhd_metapop(beta, sigma, gamma, h, gamma_h, mu, pop, seed, coupling, 
     coupling   : inter-patch mixing strength in [0, 1]
     days       : number of days to simulate
     patch_names: list of n patch labels
+    topology   : "all_to_all" or "grid" -- see build_coupling_matrix()
+    grid_shape : (nrows, ncols), required when topology="grid"
 
     Returns
     -------
@@ -68,7 +122,7 @@ def run_seirhd_metapop(beta, sigma, gamma, h, gamma_h, mu, pop, seed, coupling, 
     n = len(pop)
     pop = np.asarray(pop, dtype=float)
     seed = np.asarray(seed, dtype=float)
-    M = build_coupling_matrix(n, coupling)
+    M = build_coupling_matrix(n, coupling, topology=topology, grid_shape=grid_shape)
 
     def seirhd_metapop_odes(t, y):
         S, E, I, H, R, D = (y[k * n:(k + 1) * n] for k in range(6))
@@ -284,8 +338,15 @@ def main():
     parser.add_argument("--mu", type=float, default=0.017, help="SEIRHD H->D death rate (default: 0.017)")
     parser.add_argument("--coupling", type=float, nargs="+", default=[0.05], metavar="COUPLING",
                         help="inter-patch mixing strength(s) in [0, 1]: fraction of each patch's "
-                             "contacts spread evenly across the other patches. Give multiple values "
-                             "to simulate each one and plot them as separate lines (default: 0.05)")
+                             "contacts spread across its neighbors under --topology. Give multiple "
+                             "values to simulate each one and plot them as separate lines (default: 0.05)")
+    parser.add_argument("--topology", choices=["all_to_all", "grid"], default="all_to_all",
+                        help="inter-patch coupling structure: 'all_to_all' spreads coupling evenly "
+                             "across every other patch; 'grid' spreads it only across up/down/left/right "
+                             "neighbors on a --grid_shape grid (default: all_to_all)")
+    parser.add_argument("--grid_shape", type=int, nargs=2, default=None, metavar=("ROWS", "COLS"),
+                        help="grid dimensions when --topology grid; ROWS*COLS must equal --patches "
+                             "(required when --topology grid)")
     parser.add_argument("--days", "-l", type=int, default=200, help="number of days to simulate (default: 200)")
     parser.add_argument("--output", "-o", required=True, help="output file name for the plot (e.g., seirhd_metapop.png)")
     parser.add_argument("--output_csv", default=None, metavar="PREFIX",
@@ -305,6 +366,18 @@ def main():
 
     n = args.patches
 
+    grid_shape = None
+    if args.topology == "grid":
+        if args.grid_shape is None:
+            parser.error("--grid_shape ROWS COLS is required when --topology grid")
+        nrows, ncols = args.grid_shape
+        if nrows * ncols != n:
+            parser.error(f"--grid_shape rows*cols ({nrows}*{ncols}={nrows * ncols}) must equal "
+                         f"--patches ({n})")
+        grid_shape = (nrows, ncols)
+    elif args.grid_shape is not None:
+        parser.error("--grid_shape is only used with --topology grid")
+
     default_pop = [2_100_000 // n] * n
     pop = _resolve_per_patch_values(args.pop, n, "pop", default_pop, parser)
 
@@ -312,7 +385,10 @@ def main():
     seed = _resolve_seed_spec(args.seed, n, default_seed, parser)
 
     if args.patch_names is None:
-        patch_names = [f"patch_{i}" for i in range(n)]
+        if grid_shape is not None:
+            patch_names = [f"r{i // grid_shape[1]}c{i % grid_shape[1]}" for i in range(n)]
+        else:
+            patch_names = [f"patch_{i}" for i in range(n)]
     elif len(args.patch_names) == n:
         patch_names = args.patch_names
     else:
@@ -338,6 +414,7 @@ def main():
         patch_dfs, aggregate_df = run_seirhd_metapop(
             args.beta, args.sigma, args.gamma, args.hosp_rate, args.gamma_h, args.mu,
             pop, seed, c, args.days, patch_names,
+            topology=args.topology, grid_shape=grid_shape,
         )
         runs.append((c, patch_dfs, aggregate_df))
 
