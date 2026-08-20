@@ -961,7 +961,14 @@ void AgentContainer::infectAgents (MFPtrVec& a_disease_stats /*!< Community-wise
                             setInfected(&(status_ptr[i]), &(symptomatic_ptr[i]), &(counter_ptr[i]), &(latent_period_ptr[i]),
                                         &(infectious_period_ptr[i]), &(incubation_period_ptr[i]), &(hospital_delay_ptr[i]),
                                         &(hospital_random_ptr[i]), engine, lparm);
-                            Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::new_cases), 1.0_rt);
+                            // ds_arr is this tile's local (no-ghost-cell) FAB, indexed by the agent's home
+                            // cell; only safe when the agent is actually physically at home there (as
+                            // moveAgentsToHome() guarantees for everyone except hospitalized/traveling
+                            // agents -- for those, home_i/home_j can fall in a different, possibly
+                            // remote-rank box, so skip the home-community attribution for them).
+                            if (!inHospital(i, ptd) && !isOnTravel(i, ptd)) {
+                                Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::new_cases), 1.0_rt);
+                            }
 
                             return;
                         }
@@ -1320,7 +1327,7 @@ amrex::Real AgentContainer::sumContextInfections (int d) {
 
             amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                 if (isSusceptible(i, ptd, d)) {
-                    amrex::Real before = amrex::max(before_ptr[i], amrex::Real(1e-30));
+                    amrex::Real before = amrex::max(before_ptr[i], ParticleReal(1e-30));
                     amrex::Real contribution = amrex::max(0.0_rt, 1.0_rt - prob_ptr[i] / before);
                     amrex::Gpu::Atomic::AddNoRet(sum_ptr, contribution);
                 }
