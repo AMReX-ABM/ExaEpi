@@ -3,6 +3,7 @@
 
 #include <AMReX_ParticleUtil.H>
 
+#include <algorithm>
 #include <fstream>
 #include <map>
 
@@ -11,7 +12,80 @@
 using namespace amrex;
 using namespace ExaEpi;
 
-typedef std::map<std::pair<int, int>, DenseBins<AgentContainer::ParticleType>> BinMap;
+namespace {
+
+struct InitialInfectionBins {
+    using PType = AgentContainer::ParticleType;
+    using index_type = int;
+
+    template <typename F>
+    void buildGPU (Long nitems, const PType* pstruct_ptr, int nbins, F const& binner) {
+        m_using_gpu_bins = true;
+        m_gpu_bins.build(BinPolicy::GPU, nitems, pstruct_ptr, nbins, binner);
+    }
+
+    template <typename AoS, typename F>
+    void buildSerial (AoS const& aos, Long nitems, int nbins, F const& binner) {
+        m_using_gpu_bins = false;
+        m_num_bins = nbins;
+
+        m_host_particles.resize(nitems);
+        Gpu::copy(Gpu::deviceToHost, aos.begin(), aos.begin() + nitems, m_host_particles.begin());
+
+        m_host_counts.resize(nbins);
+        std::fill(m_host_counts.begin(), m_host_counts.end(), 0);
+
+        m_host_offsets.resize(nbins + 1);
+        m_host_perm.resize(nitems);
+
+        for (Long i = 0; i < nitems; ++i) {
+            auto bin = static_cast<index_type>(binner(m_host_particles[i]));
+            AMREX_ASSERT(bin >= 0 && bin < nbins);
+            ++m_host_counts[bin];
+        }
+
+        m_host_offsets[0] = 0;
+        for (int i = 0; i < nbins; ++i) {
+            m_host_offsets[i + 1] = m_host_offsets[i] + m_host_counts[i];
+            m_host_counts[i] = m_host_offsets[i];
+        }
+
+        for (Long i = 0; i < nitems; ++i) {
+            auto bin = static_cast<index_type>(binner(m_host_particles[i]));
+            m_host_perm[m_host_counts[bin]++] = static_cast<index_type>(i);
+        }
+
+        m_device_offsets.resize(nbins + 1);
+        m_device_perm.resize(nitems);
+        Gpu::copy(Gpu::hostToDevice, m_host_offsets.begin(), m_host_offsets.end(), m_device_offsets.begin());
+        Gpu::copy(Gpu::hostToDevice, m_host_perm.begin(), m_host_perm.end(), m_device_perm.begin());
+    }
+
+    [[nodiscard]] Long numBins () const noexcept { return m_using_gpu_bins ? m_gpu_bins.numBins() : m_num_bins; }
+
+    [[nodiscard]] index_type* permutationPtr () noexcept {
+        return m_using_gpu_bins ? m_gpu_bins.permutationPtr() : m_device_perm.dataPtr();
+    }
+
+    [[nodiscard]] index_type* offsetsPtr () noexcept {
+        return m_using_gpu_bins ? m_gpu_bins.offsetsPtr() : m_device_offsets.dataPtr();
+    }
+
+  private:
+    DenseBins<PType> m_gpu_bins;
+    Gpu::HostVector<PType> m_host_particles;
+    Gpu::HostVector<index_type> m_host_counts;
+    Gpu::HostVector<index_type> m_host_offsets;
+    Gpu::HostVector<index_type> m_host_perm;
+    Gpu::DeviceVector<index_type> m_device_offsets;
+    Gpu::DeviceVector<index_type> m_device_perm;
+    Long m_num_bins = -1;
+    bool m_using_gpu_bins = false;
+};
+
+using BinMap = std::map<std::pair<int, int>, InitialInfectionBins>;
+
+} // namespace
 
 /*! Maximum number of index cases handled per call to infectRandomCommunity (matches NTRY below). */
 static constexpr int NTRY_MAX = 10;
@@ -134,7 +208,7 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
 
     int num_infected = 0;
     for (MFIter mfi = pc.MakeMFIter(0); mfi.isValid(); ++mfi) {
-        DenseBins<AgentContainer::ParticleType>& bins = bin_map[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
+        auto& bins = bin_map[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
         auto& agents_tile = pc.GetParticles(0)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
         auto& aos = agents_tile.GetArrayOfStructs();
         auto& soa = agents_tile.GetStructOfArrays();
@@ -150,9 +224,9 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
 
         if (bins.numBins() < 0) {
             if (fast_bin) {
-                bins.build(BinPolicy::GPU, np, pstruct_ptr, ntiles, binner);
+                bins.buildGPU(np, pstruct_ptr, ntiles, binner);
             } else {
-                bins.build(BinPolicy::Serial, np, pstruct_ptr, ntiles, binner);
+                bins.buildSerial(aos, np, ntiles, binner);
             }
         }
 
@@ -246,7 +320,7 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
                               iMultiFab& comm_mf, const bool fast_bin) {
     BL_PROFILE("setInitialCasesFromFile");
 
-    std::map<std::pair<int, int>, amrex::DenseBins<AgentContainer::ParticleType>> bin_map;
+    BinMap bin_map;
 
     Print() << "Initializing infections for " << d_name << "\n";
     const int NTRY = 10;
@@ -292,7 +366,7 @@ void setInitialCasesRandom (AgentContainer& pc,                      /*!< Agent 
                             iMultiFab& comm_mf, const bool fast_bin) {
     BL_PROFILE("setInitialCasesRandom");
 
-    std::map<std::pair<int, int>, amrex::DenseBins<AgentContainer::ParticleType>> bin_map;
+    BinMap bin_map;
 
     Print() << "Initializing infections for " << d_name << "\n";
 

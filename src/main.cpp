@@ -180,8 +180,8 @@ void printHelp (const char* prog) {
 /*! \brief Set ExaEpi-specific defaults for memory-management and tiling */
 void overrideAmrexDefaults () {
     amrex::ParmParse pp("amrex");
-    // ExaEpi should never require mananaged memory in the Arena
-    bool the_arena_is_managed = true;
+    // ExaEpi should not require managed memory in the Arena.
+    bool the_arena_is_managed = false;
     pp.queryAdd("the_arena_is_managed", the_arena_is_managed);
 
     bool use_comms_arena = true;
@@ -597,8 +597,13 @@ void runAgent () {
                 amrex::Print() << "Extracting " << params.nsteps / 7 + 1 << " Weeks of Weather Data \n";
             }
             // extract weather data for the simulation timeframe
-            wd.extractActiveData(censusData.demo, weatherWeekIndex, params.nsteps / 7 + 1);
-            pc.initializeWeatherIndex(censusData.unit_mf, &wd.activeWeather);
+            if (params.ic_type == ICType::Census) {
+                wd.extractActiveData(censusData.demo, weatherWeekIndex, params.nsteps / 7 + 1);
+                pc.initializeWeatherIndex(censusData.unit_mf, &wd.activeWeather);
+            } else {
+                wd.extractActiveData(urbanPopData, weatherWeekIndex, params.nsteps / 7 + 1);
+                pc.initializeWeatherIndex_UrbanPop(urbanPopData.geoid_mf, &wd.activeWeather);
+            }
         }
     }
 
