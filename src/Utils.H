@@ -58,6 +58,15 @@ struct TestParams {
      */
     std::string urbanpop_filename;
 
+    /*! Optional per-(state, NAICS-code) work-group target size table (see
+        utilities/UrbanPop-scripts/compute_workgroup_sizes.py). Only used when
+        ic_type == "urbanpop". File format: first non-comment line is a row count,
+        followed by "<state_fips> <naics_code> <int size>" lines (order-independent,
+        matched by state FIPS and NAICS code string, not position). If empty (the
+        default), every state/NAICS combination falls back to the flat #workgroup_size,
+        exactly as before this feature existed -- fully backward compatible. */
+    std::string workgroup_size_filename;
+
     /*! Population-size-based scale factor (see computeCommunitySizeScale / computeCommunityWorkSizeScale).
         home_population and work_populations[0] are always available, no side file needed. When true,
         this populates AgentContainer::comm_density_scale (nighttime, keyed on home_population) and

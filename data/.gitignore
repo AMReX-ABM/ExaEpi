@@ -13,6 +13,8 @@ UrbanPop
 !UrbanPop/urbanpop_nm.bin.gz
 !UrbanPop/urbanpop_nm.idx
 !UrbanPop/density_nm.txt
+!UrbanPop/workgroup_sizes_us.txt
+!UrbanPop/cbp19st_derived.csv
 
 # generated shapefile .shx index (GDAL rebuilds it with SHAPE_RESTORE_SHX=YES)
 *_Census_Tracts/*.shx

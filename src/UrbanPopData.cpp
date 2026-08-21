@@ -81,6 +81,9 @@ bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, amrex::
             num_employed++;
             agents_extras[i].naics_population = work_block_group.work_populations[agent.naics + 1];
             AMREX_ASSERT(agents_extras[i].naics_population > 0 && agents_extras[i].naics_population < 100000);
+            // leading 2 digits of the 12-digit GEOID are the state FIPS (consistent with the
+            // 5-digit county FIPS derived from the leading 5 digits in UrbanPopData::init)
+            agents_extras[i].work_state_fips = static_cast<int>(work_block_group.geoid / 10000000000LL);
             agents_extras[i].work_population = work_block_group.work_populations[0];
             if (agents_extras[i].work_population <= 0 || agents_extras[i].work_population >= 260000) {
                 Print() << "work pop " << agents_extras[i].work_population << "\n";
@@ -175,6 +178,62 @@ static std::pair<int, double> getAllLoadBalance (const long num) {
     return {all, load_balance};
 }
 
+/*! \brief Read a per-(state, NAICS-code) work-group target size table (see
+    utilities/UrbanPop-scripts/compute_workgroup_sizes.py) into a flat, MAX_STATE_FIPS *
+    NAICS_COUNT-length vector, index-aligned with UrbanPop::naics_descriptions. Every entry
+    defaults to default_size before the file is parsed, so any (state, NAICS) combination
+    the file omits (or the whole vector, if fname is empty) silently falls back to the flat,
+    historical behavior. Comment lines (leading '#') are skipped. Aborts if a NAICS code in
+    the file is not found in UrbanPop::naics_descriptions, or a state FIPS is out of range
+    -- catches a stale/mismatched table loudly rather than silently misassigning. */
+static Vector<int> readWorkgroupSizeTable (const std::string& fname, int default_size) {
+    Vector<int> sizes(UrbanPopData::MAX_STATE_FIPS * NAICS_COUNT, default_size);
+    if (fname.empty()) { return sizes; }
+
+    Vector<char> fileCharPtr;
+    ParallelDescriptor::ReadAndBcastFile(fname, fileCharPtr);
+    std::string fileCharPtrString(fileCharPtr.dataPtr());
+    istringstream is(fileCharPtrString, istringstream::in);
+
+    // build a lookup once: naics code string -> index into naics_descriptions
+    unordered_map<string, int> naics_index;
+    for (int i = 0; i < NAICS_COUNT; i++) { naics_index[naics_descriptions[i]] = i; }
+
+    string line;
+    int nrows_declared = -1;
+    int nrows_read = 0;
+    while (std::getline(is, line)) {
+        if (line.empty() || line[0] == '#') { continue; }
+        istringstream lis(line);
+        if (nrows_declared < 0) { lis >> nrows_declared; continue; }  // first non-comment line: row count
+        int state_fips;
+        string code;
+        int size;
+        if (!(lis >> state_fips >> code >> size)) { continue; }
+        if (state_fips < 0 || state_fips >= UrbanPopData::MAX_STATE_FIPS) {
+            Abort("workgroup_size_filename '" + fname + "': state FIPS " + to_string(state_fips) +
+                  " is out of range (>= MAX_STATE_FIPS=" + to_string(UrbanPopData::MAX_STATE_FIPS) + ")");
+        }
+        auto it = naics_index.find(code);
+        if (it == naics_index.end()) {
+            Abort("workgroup_size_filename '" + fname + "': unknown NAICS code '" + code +
+                  "' (not in UrbanPop::naics_descriptions -- table may be stale or for a different NAICS encoding)");
+        }
+        if (size < 1) {
+            Abort("workgroup_size_filename '" + fname + "': invalid work-group size " + to_string(size) +
+                  " for state " + to_string(state_fips) + " NAICS " + code + " (must be >= 1)");
+        }
+        sizes[state_fips * NAICS_COUNT + it->second] = size;
+        nrows_read++;
+    }
+    if (ParallelDescriptor::IOProcessor()) {
+        Print() << "Read " << nrows_read << " per-(state, NAICS) work-group sizes from " << fname
+                << " (declared " << nrows_declared << "); combinations not in the file use the flat "
+                << "default (" << default_size << ").\n";
+    }
+    return sizes;
+}
+
 /*! \brief Read in UrbanPop data from given file
  */
 void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& ba, DistributionMapping& dm) {
@@ -261,6 +320,10 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
         }
         num_communities++;
     }
+
+    workgroup_size_table = readWorkgroupSizeTable(params.workgroup_size_filename, params.workgroup_size);
+    copyToDeviceAsync(workgroup_size_table, workgroup_size_table_d);
+    Gpu::streamSynchronize();
 
     fillGridMetadataOnHost();
 }
@@ -414,7 +477,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
         auto work_nborhood_ptr = soa.GetIntData(IntIdx::work_nborhood).data();
-        int workgroup_size = params.workgroup_size;
+        auto workgroup_size_table_ptr = workgroup_size_table_d.data();
         soa.GetIntData(IntIdx::withdrawn).assign(0);
         soa.GetIntData(IntIdx::random_travel).assign(-1);
         soa.GetIntData(IntIdx::air_travel).assign(-1);
@@ -498,8 +561,12 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     work_i_ptr[i] = home_i_ptr[i];
                     work_j_ptr[i] = home_j_ptr[i];
                 } else if (agent.school_id == 0) {
-                    // the group work population for this agent is for the NAICS category for the agent
-                    int max_workgroup = agents_extras_ptr[i].naics_population / workgroup_size + 1;
+                    // the group work population for this agent is for the NAICS category for the agent,
+                    // and the target work-group size is looked up for the agent's workplace state
+                    int state_fips = agents_extras_ptr[i].work_state_fips;
+                    AMREX_ASSERT(state_fips >= 0 && state_fips < UrbanPopData::MAX_STATE_FIPS);
+                    int max_workgroup = agents_extras_ptr[i].naics_population /
+                        workgroup_size_table_ptr[state_fips * NAICS_COUNT + agent.naics] + 1;
                     // a workgroup of 0 indicates not working
                     workgroup_ptr[i] = Random_int(max_workgroup, engine) + 1;
                     AMREX_ASSERT(workgroup_ptr[i] > 0 && workgroup_ptr[i] < max_workgroup * (NAICS_COUNT + 1));

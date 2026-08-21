@@ -23,6 +23,10 @@ struct AgentExtras {
     int naics_population;
     int work_population;
     int home_population;
+    int work_state_fips; /*!< 2-digit state FIPS of the agent's workplace (from work_geoid),
+                              used to index UrbanPopData::workgroup_size_table. Only
+                              meaningful when naics_population > 0 (i.e. the agent is
+                              employed); left unset otherwise. */
 };
 
 struct BlockGroup {
@@ -64,6 +68,14 @@ struct UrbanPopData {
     amrex::Vector<int> County_on_proc;
     amrex::Vector<int> fips_community_start;
     amrex::Vector<BlockGroup> block_groups;
+
+    /*! Real US state/territory FIPS codes top out at 78 (US Virgin Islands); this gives
+        headroom without a remapping table -- workgroup_size_table is indexed directly by
+        raw state FIPS. */
+    static constexpr int MAX_STATE_FIPS = 100;
+    amrex::Vector<int> workgroup_size_table;             /*!< flat, size MAX_STATE_FIPS * NAICS_COUNT;
+                                                               see UrbanPop-scripts/compute_workgroup_sizes.py */
+    amrex::Gpu::DeviceVector<int> workgroup_size_table_d;
 
     amrex::iMultiFab geoid_mf;     /*!< FIPS code (component 0) and census block group number (component 1) of each block group */
     amrex::iMultiFab community_mf; /*!< Index for community == block group */

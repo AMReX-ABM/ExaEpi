@@ -58,6 +58,8 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
         pp.get("urbanpop_filename", params.urbanpop_filename);
         params.max_box_size = 16;
 
+        pp.query("workgroup_size_filename", params.workgroup_size_filename);
+
         pp.query("size_scale_enabled", params.size_scale_enabled);
         ParmParse pp_disease("disease");
         pp_disease.query("xmit_comm_scale", params.xmit_comm_scale);
