@@ -292,7 +292,10 @@ void setInfected (int* status, int* symptomatic, amrex::ParticleReal* counter, a
         if (*infectious_period < 1) { *infectious_period = amrex::Real(1); }
     }
     if (*incubation_period >= (*infectious_period + *latent_period)) {
-        *incubation_period = std::floor(*infectious_period + *latent_period) - amrex::Real(1);
+        // Matches the round() (not floor()) used to convert these periods to whole days
+        // elsewhere (DiseaseStatus.H's recovered_period, AgentDefinitions.H's incb_period),
+        // so this stays strictly before the recovery day under that same discretization.
+        *incubation_period = amrex::Math::round(*infectious_period + *latent_period) - amrex::Real(1);
     }
 
     *hospital_random = static_cast<ParticleReal>(amrex::Random(engine));

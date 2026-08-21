@@ -152,8 +152,8 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                         }
                     } else if (status_ptr[i] == Status::infected) {
                         counter_ptr[i] += 1;
-                        int incb_period = (int)amrex::Math::floor(incubation_period_ptr[i]);
-                        int hospital_delay = (int)amrex::Math::floor(hospital_delay_ptr[i]);
+                        int incb_period = (int)amrex::Math::round(incubation_period_ptr[i]);
+                        int hospital_delay = (int)amrex::Math::round(hospital_delay_ptr[i]);
                         // check for symptomatic/asymp
                         if (symptomatic_ptr[i] == SymptomStatus::presymptomatic && counter_ptr[i] == incb_period) {
                             //   at end of incubation period, symptoms start to show unless asymptomatic
@@ -190,7 +190,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                             }
                         }
                     }
-                    auto recovered_period = amrex::Math::floor(latent_period_ptr[i] + infectious_period_ptr[i]);
+                    auto recovered_period = amrex::Math::round(latent_period_ptr[i] + infectious_period_ptr[i]);
                     if (!marked_for_hosp_ptr[i] && !inHospital(i, ptd) && counter_ptr[i] == recovered_period) {
                         status_ptr[i] = Status::immune;
                         counter_ptr[i] = static_cast<ParticleReal>(RandomGamma(immune_length_alpha, immune_length_beta, engine)) +

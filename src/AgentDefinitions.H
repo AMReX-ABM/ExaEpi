@@ -226,7 +226,7 @@ bool isNewlySymptomatic (const int a_idx,      /*!< Agent index */
     int status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx];
     int symptom_status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx];
     int disease_counter = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
-    int incb_period = (int)amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
+    int incb_period = (int)amrex::Math::round(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
     return status == Status::infected && disease_counter == incb_period && symptom_status == SymptomStatus::symptomatic;
 }
 
@@ -247,7 +247,7 @@ bool isNewlyAsymptomatic (const int a_idx,      /*!< Agent index */
     int status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx];
     int symptom_status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx];
     int disease_counter = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
-    int incb_period = (int)amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
+    int incb_period = (int)amrex::Math::round(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
     return status == Status::infected && disease_counter == incb_period && symptom_status == SymptomStatus::asymptomatic;
 }
 
@@ -262,7 +262,7 @@ bool isNewlyPresymptomatic (const int a_idx,      /*!< Agent index */
     int status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx];
     int symptom_status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::symptomatic][a_idx];
     int disease_counter = (int)a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx];
-    int incb_period = (int)amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
+    int incb_period = (int)amrex::Math::round(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]);
     // fires on the same step as isNewlySymptomatic/isNewlyAsymptomatic (counter == incb_period, after transition)
     return status == Status::infected && (disease_counter == incb_period) &&
            (symptom_status == SymptomStatus::symptomatic || symptom_status == SymptomStatus::asymptomatic);
@@ -294,7 +294,7 @@ bool notInfectiousButInfected (const int a_idx,      /*!< Agent index */
                                const int a_d /*!< Disease index */) {
     return ((a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx] == Status::infected) &&
             (a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx] <=
-             amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::latent_period][a_idx])));
+             amrex::Math::round(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::latent_period][a_idx])));
 }
 
 /*! \brief Is an agent infectious? */
@@ -305,7 +305,7 @@ bool isInfectious (const int a_idx,      /*!< Agent index */
                    const int a_d /*!< Disease index */) {
     return ((a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx] == Status::infected) &&
             (a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx] >=
-             amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::latent_period][a_idx])));
+             amrex::Math::round(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::latent_period][a_idx])));
 }
 
 /*! \brief Is an agent susceptible? */
@@ -346,8 +346,8 @@ bool isNewlyHospitalized (const int a_idx,      /*!< Agent index */
                           const int a_d /*!< Disease index */) {
     if (!inHospital(a_idx, a_ptd)) { return false; }
     int disease_counter = (int)(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx]);
-    int incb_period = (int)(amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]));
-    int hospital_delay = (int)(amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::hospital_delay][a_idx]));
+    int incb_period = (int)(amrex::Math::round(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]));
+    int hospital_delay = (int)(amrex::Math::round(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::hospital_delay][a_idx]));
     return disease_counter == incb_period + hospital_delay;
 }
 
