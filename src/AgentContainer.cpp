@@ -1350,7 +1350,10 @@ void AgentContainer::printStudentTeacherCounts () const {
                                  const int i) noexcept -> GpuTuple<REPEAT(10, int)> {
                 int counts[10] = {};
                 if (ptd.m_idata[IntIdx::school_id][i] > 0) {
-                    int pos = (ptd.m_idata[IntIdx::workgroup][i] > 0 ? 0 : 5);
+                    // naics == -1 means not employed, i.e. a student; anyone else with a school_id
+                    // is an educator. (Not workgroup>0 -- educators don't set workgroup, see
+                    // UrbanPopData.cpp's educator branch.)
+                    int pos = (ptd.m_idata[IntIdx::naics][i] != -1 ? 0 : 5);
                     int grade = ptd.m_idata[IntIdx::school_grade][i];
                     int school_type = getSchoolType(grade);
                     // always should have an allocated grade if we have a school

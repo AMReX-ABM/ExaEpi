@@ -279,9 +279,14 @@ void setInfected (int* status, int* symptomatic, amrex::ParticleReal* counter, a
                                      amrex::RandomGamma(lparm->infectious_length_alpha, lparm->infectious_length_beta, engine)) +
                              static_cast<ParticleReal>(lparm->infectious_length_loc);
 
-        *hospital_delay = static_cast<ParticleReal>(amrex::RandomGamma(lparm->hospital_delay_length_alpha,
-                                                                       lparm->hospital_delay_length_beta, engine)) +
-                          static_cast<ParticleReal>(lparm->hospital_delay_length_loc);
+        // RandomGamma requires alpha > 0; a zero (or negative) alpha means "no random component" --
+        // e.g. cfgs/epicast.nm.ini sets hospital_delay_length_alpha/beta = 0 to get a deterministic
+        // delay of exactly hospital_delay_length_loc days.
+        *hospital_delay = (lparm->hospital_delay_length_alpha > 0)
+                                  ? static_cast<ParticleReal>(amrex::RandomGamma(lparm->hospital_delay_length_alpha,
+                                                                                 lparm->hospital_delay_length_beta, engine))
+                                  : ParticleReal(0);
+        *hospital_delay += static_cast<ParticleReal>(lparm->hospital_delay_length_loc);
         if (*latent_period < 1) { *latent_period = amrex::Real(1); }
         if (*incubation_period < 1) { *incubation_period = amrex::Real(1); }
         if (*infectious_period < 1) { *infectious_period = amrex::Real(1); }

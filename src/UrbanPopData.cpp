@@ -507,9 +507,17 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     work_nborhood_ptr[i] = Random_int(max_work_nborhood, engine);
                     AMREX_ASSERT(work_nborhood_ptr[i] < 5000);
                 } else {
-                    // educator, workgroup is school, as is nborhood
-                    workgroup_ptr[i] = school_id_ptr[i];
-                    work_nborhood_ptr[i] = school_id_ptr[i];
+                    // Educator: work-based mixing is already modeled via the school_class_group
+                    // assigned in AgentContainer::assignSchoolClasses (see InteractionModSchool.H),
+                    // which covers every school_id>0 agent -- students and educators alike -- in
+                    // properly class-sized buckets. Routing educators through the workgroup/
+                    // work_nborhood channels too on top of that (as raw school_id, unsplit by
+                    // workgroup_size/nborhood_size) double-counts their contacts and, for a large
+                    // school (e.g. a university with thousands of staff), collapses them into one
+                    // giant undifferentiated transmission pool. Treat them like a non-worker for
+                    // these two channels instead.
+                    workgroup_ptr[i] = 0;
+                    work_nborhood_ptr[i] = nborhood_ptr[i];
                 }
             } else {
                 workgroup_ptr[i] = 0;
