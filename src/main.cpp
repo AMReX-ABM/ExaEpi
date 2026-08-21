@@ -69,6 +69,8 @@ void printHelp (const char* prog) {
                "                                               airports file\n"
                "  urbanpop_filename               (required if ic_type=urbanpop)\n"
                "                                               UrbanPop data file\n"
+               "  workgroup_size_filename         (\"\")         optional per-(state, NAICS-code) work-group target size "
+               "table (urbanpop only); falls back to workgroup_size for any (state, NAICS) pair not in the file\n"
                "  size_scale_enabled              (true)       enable population-size-based transmission scaling (urbanpop "
                "only)\n"
                "  school_class_size               (15)         target number of students per class\n"
