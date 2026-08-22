@@ -591,11 +591,17 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
         ExaEpi::Utils::printHistogram("School class size", class_size_hist);
         ExaEpi::Utils::printHistogram("School admin pool size", admin_size_hist);
 
-        // student_count_h/total_count_h are already globally reduced (ReduceRealSum above), so
-        // this needs no gather -- every rank could build it, but only the IOProcessor prints
+        // student_count_h is already globally reduced (ReduceRealSum above), so this needs no
+        // gather -- every rank could build it, but only the IOProcessor prints it. Tallying
+        // student_count_h (not total_count_h) specifically excludes raw groups that have
+        // educators but zero students -- those are stray single-teacher artifacts from
+        // upop_to_exaepi_polars.py's alloc_teachers_region assigning each educator a random grade
+        // within their school's range rather than proportionally to enrollment (already routed to
+        // an admin pool by assignSchoolClasses, not a fake class), and including them here
+        // previously dominated the "1" bucket with non-enrollment noise
         std::map<Long, Long> enrollment_hist;
         for (long idx = 0; idx < n_flat; ++idx) {
-            if (total_count_h[idx] > 0.0_rt) { enrollment_hist[(Long)total_count_h[idx]]++; }
+            if (student_count_h[idx] > 0.0_rt) { enrollment_hist[(Long)student_count_h[idx]]++; }
         }
         ExaEpi::Utils::printHistogram("Enrollment per (school_id, grade)", enrollment_hist, 50, 60, 0, true);
     }
