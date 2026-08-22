@@ -104,8 +104,8 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
     pp.query("context_diag", params.context_diag);
 }
 
-void ExaEpi::Utils::printHistogram (const std::string& label, const std::map<Long, Long>& value_counts,
-                                    int max_distinct_buckets, int max_bar_width, Long bin_width, bool log_scale) {
+void ExaEpi::Utils::printHistogram (const std::string& label, const std::map<Long, Long>& value_counts, int max_distinct_buckets,
+                                    int max_bar_width, Long bin_width, bool log_scale) {
     if (!ParallelDescriptor::IOProcessor()) { return; }
 
     if (value_counts.empty()) {
@@ -130,8 +130,14 @@ void ExaEpi::Utils::printHistogram (const std::string& label, const std::map<Lon
     bool found_lo = false, found_hi = false;
     for (auto& kv : value_counts) {
         cum += kv.second;
-        if (!found_lo && cum >= pos_lo) { median_lo = kv.first; found_lo = true; }
-        if (!found_hi && cum >= pos_hi) { median_hi = kv.first; found_hi = true; }
+        if (!found_lo && cum >= pos_lo) {
+            median_lo = kv.first;
+            found_lo = true;
+        }
+        if (!found_hi && cum >= pos_hi) {
+            median_hi = kv.first;
+            found_hi = true;
+        }
     }
     Real median = (Real)(median_lo + median_hi) / 2.0_rt;
 
@@ -154,7 +160,9 @@ void ExaEpi::Utils::printHistogram (const std::string& label, const std::map<Lon
         Real log_hi = std::log((Real)hi);
         Vector<Long> edges(max_distinct_buckets + 1);
         if (log_hi <= log_lo) {
-            for (int i = 0; i <= max_distinct_buckets; ++i) { edges[i] = (i == 0) ? min_val : max_val + 1; }
+            for (int i = 0; i <= max_distinct_buckets; ++i) {
+                edges[i] = (i == 0) ? min_val : max_val + 1;
+            }
         } else {
             for (int i = 0; i <= max_distinct_buckets; ++i) {
                 Real frac = (Real)i / (Real)max_distinct_buckets;
@@ -214,7 +222,9 @@ void ExaEpi::Utils::printHistogram (const std::string& label, const std::map<Lon
     for (int b = 0; b < nbuckets; ++b) {
         if (bucket_counts[b] == 0) {
             int run_end = b;
-            while (run_end < nbuckets && bucket_counts[run_end] == 0) { run_end++; }
+            while (run_end < nbuckets && bucket_counts[run_end] == 0) {
+                run_end++;
+            }
             if (run_end - b >= 2) {
                 Print() << "  " << std::setw(12) << "..." << " | " << std::setw(9) << 0 << " (" << (run_end - b)
                         << " empty buckets, " << bucket_lo[b] << "-" << bucket_hi[run_end - 1] << ")\n";
@@ -223,8 +233,8 @@ void ExaEpi::Utils::printHistogram (const std::string& label, const std::map<Lon
             }
         }
         std::string value_label = (bucket_lo[b] == bucket_hi[b])
-            ? std::to_string(bucket_lo[b])
-            : (std::to_string(bucket_lo[b]) + "-" + std::to_string(bucket_hi[b]));
+                                          ? std::to_string(bucket_lo[b])
+                                          : (std::to_string(bucket_lo[b]) + "-" + std::to_string(bucket_hi[b]));
         std::string bar(static_cast<size_t>(bucket_counts[b] / scale), '*');
         Print() << "  " << std::setw(12) << value_label << " | " << std::setw(9) << bucket_counts[b] << " " << bar << "\n";
     }
@@ -259,7 +269,9 @@ std::map<amrex::Long, amrex::Long> ExaEpi::Utils::gatherHistogramCounts (const s
 
     std::map<Long, Long> merged;
     if (myproc == root) {
-        for (int i = 0; i < total_n; i += 2) { merged[all_flat[i]] += all_flat[i + 1]; }
+        for (int i = 0; i < total_n; i += 2) {
+            merged[all_flat[i]] += all_flat[i + 1];
+        }
     }
     return merged;
 }

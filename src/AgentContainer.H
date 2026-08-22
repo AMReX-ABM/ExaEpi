@@ -189,7 +189,8 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     Array<int, IntIdx::nattribs> max_attribute_values;
 
-    std::vector<amrex::Gpu::DeviceVector<amrex::ParticleReal>> m_prob_snapshot; /*!< per-tile prob snapshot for context diagnostics */
+    std::vector<amrex::Gpu::DeviceVector<amrex::ParticleReal>>
+            m_prob_snapshot; /*!< per-tile prob snapshot for context diagnostics */
 
     /*! \brief Add runtime SoA attributes */
     void addAttributes();

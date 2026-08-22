@@ -205,8 +205,7 @@ void getTestParams(ExaEpi::TestParams& params, const std::string& prefix);
     bucket is at most \p max_bar_width characters wide (noting the scale used, if any, so the raw
     counts printed alongside each bar remain the source of truth). */
 void printHistogram(const std::string& label, const std::map<amrex::Long, amrex::Long>& value_counts,
-                     int max_distinct_buckets = 50, int max_bar_width = 60, amrex::Long bin_width = 0,
-                     bool log_scale = false);
+                    int max_distinct_buckets = 50, int max_bar_width = 60, amrex::Long bin_width = 0, bool log_scale = false);
 
 /*! \brief Merge per-rank-local value->count maps (e.g. a histogram tallied only from the
     agents/data a rank happens to own) into a single global map.
@@ -214,7 +213,7 @@ void printHistogram(const std::string& label, const std::map<amrex::Long, amrex:
     Meaningful result on IOProcessor only, by design (matches how #printHistogram is also
     called IOProcessor-only) -- the return value on every other rank is unused. */
 std::map<amrex::Long, amrex::Long> gatherHistogramCounts(const std::map<amrex::Long, amrex::Long>& local_counts);
-}
+} // namespace Utils
 } // namespace ExaEpi
 
 #endif

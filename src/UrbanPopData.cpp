@@ -197,7 +197,9 @@ static Vector<int> readWorkgroupSizeTable (const std::string& fname, int default
 
     // build a lookup once: naics code string -> index into naics_descriptions
     unordered_map<string, int> naics_index;
-    for (int i = 0; i < NAICS_COUNT; i++) { naics_index[naics_descriptions[i]] = i; }
+    for (int i = 0; i < NAICS_COUNT; i++) {
+        naics_index[naics_descriptions[i]] = i;
+    }
 
     string line;
     int nrows_declared = -1;
@@ -205,7 +207,10 @@ static Vector<int> readWorkgroupSizeTable (const std::string& fname, int default
     while (std::getline(is, line)) {
         if (line.empty() || line[0] == '#') { continue; }
         istringstream lis(line);
-        if (nrows_declared < 0) { lis >> nrows_declared; continue; }  // first non-comment line: row count
+        if (nrows_declared < 0) {
+            lis >> nrows_declared;
+            continue;
+        } // first non-comment line: row count
         int state_fips;
         string code;
         int size;
@@ -220,15 +225,15 @@ static Vector<int> readWorkgroupSizeTable (const std::string& fname, int default
                   "' (not in UrbanPop::naics_descriptions -- table may be stale or for a different NAICS encoding)");
         }
         if (size < 1) {
-            Abort("workgroup_size_filename '" + fname + "': invalid work-group size " + to_string(size) +
-                  " for state " + to_string(state_fips) + " NAICS " + code + " (must be >= 1)");
+            Abort("workgroup_size_filename '" + fname + "': invalid work-group size " + to_string(size) + " for state " +
+                  to_string(state_fips) + " NAICS " + code + " (must be >= 1)");
         }
         sizes[state_fips * NAICS_COUNT + it->second] = size;
         nrows_read++;
     }
     if (ParallelDescriptor::IOProcessor()) {
-        Print() << "Read " << nrows_read << " per-(state, NAICS) work-group sizes from " << fname
-                << " (declared " << nrows_declared << "); combinations not in the file use the flat "
+        Print() << "Read " << nrows_read << " per-(state, NAICS) work-group sizes from " << fname << " (declared "
+                << nrows_declared << "); combinations not in the file use the flat "
                 << "default (" << default_size << ").\n";
     }
     return sizes;
@@ -624,7 +629,8 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     int state_fips = agents_extras_ptr[i].work_state_fips;
                     AMREX_ASSERT(state_fips >= 0 && state_fips < UrbanPopData::MAX_STATE_FIPS);
                     int max_workgroup = agents_extras_ptr[i].naics_population /
-                        workgroup_size_table_ptr[state_fips * NAICS_COUNT + agent.naics] + 1;
+                                                workgroup_size_table_ptr[state_fips * NAICS_COUNT + agent.naics] +
+                                        1;
                     // a workgroup of 0 indicates not working
                     workgroup_ptr[i] = Random_int(max_workgroup, engine) + 1;
                     AMREX_ASSERT(workgroup_ptr[i] > 0 && workgroup_ptr[i] < max_workgroup * (NAICS_COUNT + 1));
@@ -682,8 +688,12 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
     // count" (the actual histogram, few distinct keys, a small payload to gather)
     {
         std::map<Long, Long> household_size_hist, cluster_size_hist;
-        for (auto& kv : household_occupants) { household_size_hist[kv.second]++; }
-        for (auto& kv : cluster_occupants) { cluster_size_hist[kv.second]++; }
+        for (auto& kv : household_occupants) {
+            household_size_hist[kv.second]++;
+        }
+        for (auto& kv : cluster_occupants) {
+            cluster_size_hist[kv.second]++;
+        }
 
         auto merged_household = ExaEpi::Utils::gatherHistogramCounts(household_size_hist);
         auto merged_cluster = ExaEpi::Utils::gatherHistogramCounts(cluster_size_hist);

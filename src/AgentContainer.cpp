@@ -403,12 +403,12 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
             // instructors, so a college raw group's derived class count reflects its own reported
             // staffing level instead of routinely blowing through the class-size clamp below
             int grade = (int)(idx % max_grade);
-            Real effective_teacher_count =
-                (getSchoolType(grade) == SchoolType::college) ? teacher_count * params.college_instructional_fraction
-                                                               : teacher_count;
+            Real effective_teacher_count = (getSchoolType(grade) == SchoolType::college)
+                                                   ? teacher_count * params.college_instructional_fraction
+                                                   : teacher_count;
             int raw_n_classes = (effective_teacher_count > 0.0_rt)
-                ? std::max(1, (int)effective_teacher_count)
-                : std::max(1, (int)std::ceil(student_count_h[idx] / (Real)params.school_class_size));
+                                        ? std::max(1, (int)effective_teacher_count)
+                                        : std::max(1, (int)std::ceil(student_count_h[idx] / (Real)params.school_class_size));
             int lower = (int)std::ceil(student_count_h[idx] / (Real)params.school_class_size_max);
             int upper = std::max(1, (int)(student_count_h[idx] / (Real)params.school_class_size_min));
             n_classes = std::max(lower, std::min(raw_n_classes, upper));
@@ -530,9 +530,11 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
                        real_class_teacher_count_h.begin());
         Gpu::streamSynchronize();
         int max_teachers_per_real_class = 0;
-        for (int v : real_class_teacher_count_h) { max_teachers_per_real_class = std::max(max_teachers_per_real_class, v); }
+        for (int v : real_class_teacher_count_h) {
+            max_teachers_per_real_class = std::max(max_teachers_per_real_class, v);
+        }
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(max_teachers_per_real_class <= 1,
-            "assignSchoolClasses: a real class ended up with more than one homeroom teacher");
+                                         "assignSchoolClasses: a real class ended up with more than one homeroom teacher");
     }
 
     // Report class-size / admin-pool-size statistics immediately after assignment. A rank that
@@ -578,15 +580,15 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
     }
 
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(admin_size_max <= (Real)params.workgroup_size,
-        "assignSchoolClasses: an admin group ended up larger than workgroup_size");
+                                     "assignSchoolClasses: an admin group ended up larger than workgroup_size");
 
     if (ParallelDescriptor::IOProcessor()) {
         Print() << "SchoolClasses: class size avg=" << (num_classes > 0 ? class_size_sum / num_classes : 0.0_rt)
-                << " min=" << (num_classes > 0 ? class_size_min : 0.0_rt) << " max=" << class_size_max
-                << " (" << num_classes << " classes)\n"
+                << " min=" << (num_classes > 0 ? class_size_min : 0.0_rt) << " max=" << class_size_max << " (" << num_classes
+                << " classes)\n"
                 << "SchoolClasses: admin pool size avg=" << (num_admin > 0 ? admin_size_sum / num_admin : 0.0_rt)
-                << " min=" << (num_admin > 0 ? admin_size_min : 0.0_rt) << " max=" << admin_size_max
-                << " (" << num_admin << " admin pools)\n";
+                << " min=" << (num_admin > 0 ? admin_size_min : 0.0_rt) << " max=" << admin_size_max << " (" << num_admin
+                << " admin pools)\n";
 
         ExaEpi::Utils::printHistogram("School class size", class_size_hist);
         ExaEpi::Utils::printHistogram("School admin pool size", admin_size_hist);
@@ -606,10 +608,10 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
         ExaEpi::Utils::printHistogram("Enrollment per (school_id, grade)", enrollment_hist, 50, 60, 0, true);
     }
 
-    amrex::Print() << "SchoolClasses: " << max_class_group << " school_class_group buckets total ("
-                   << num_classes << " real classes + " << num_admin << " admin pools) across " << max_school_id
-                   << " school_ids x " << max_grade << " grades (school_class_size=" << params.school_class_size
-                   << ", min=" << params.school_class_size_min << ", max=" << params.school_class_size_max
+    amrex::Print() << "SchoolClasses: " << max_class_group << " school_class_group buckets total (" << num_classes
+                   << " real classes + " << num_admin << " admin pools) across " << max_school_id << " school_ids x " << max_grade
+                   << " grades (school_class_size=" << params.school_class_size << ", min=" << params.school_class_size_min
+                   << ", max=" << params.school_class_size_max
                    << ", college_instructional_fraction=" << params.college_instructional_fraction << ")\n";
 }
 
