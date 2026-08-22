@@ -537,6 +537,10 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
     long num_classes = 0;
     Real admin_size_sum = 0.0_rt, admin_size_min = std::numeric_limits<Real>::max(), admin_size_max = 0.0_rt;
     long num_admin = 0;
+    // class_group_occupancy_h is already globally reduced above, so these histograms need no
+    // gather -- every rank could build them, but only the IOProcessor prints them below
+    std::map<Long, Long> class_size_hist;
+    std::map<Long, Long> admin_size_hist;
 
     for (long idx = 0; idx < n_flat; ++idx) {
         int n_classes = n_classes_h[idx];
@@ -549,6 +553,7 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
             class_size_min = std::min(class_size_min, sz);
             class_size_max = std::max(class_size_max, sz);
             num_classes++;
+            class_size_hist[(Long)sz]++;
         }
         for (int a = 0; a < n_admin_h[idx]; ++a) {
             Real sz = class_group_occupancy_h[class_group_base_h[idx] + n_classes + a];
@@ -556,6 +561,7 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
             admin_size_min = std::min(admin_size_min, sz);
             admin_size_max = std::max(admin_size_max, sz);
             num_admin++;
+            admin_size_hist[(Long)sz]++;
         }
     }
 
@@ -569,6 +575,9 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
                 << "SchoolClasses: admin pool size avg=" << (num_admin > 0 ? admin_size_sum / num_admin : 0.0_rt)
                 << " min=" << (num_admin > 0 ? admin_size_min : 0.0_rt) << " max=" << admin_size_max
                 << " (" << num_admin << " admin pools)\n";
+
+        ExaEpi::Utils::printHistogram("School class size", class_size_hist);
+        ExaEpi::Utils::printHistogram("School admin pool size", admin_size_hist);
 
         // student_count_h/total_count_h are already globally reduced (ReduceRealSum above), so
         // this needs no gather -- every rank could build it, but only the IOProcessor prints
