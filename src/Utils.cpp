@@ -105,7 +105,7 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
 }
 
 void ExaEpi::Utils::printHistogram (const std::string& label, const std::map<Long, Long>& value_counts,
-                                    int max_distinct_buckets, int max_bar_width, Long bin_width) {
+                                    int max_distinct_buckets, int max_bar_width, Long bin_width, bool log_scale) {
     if (!ParallelDescriptor::IOProcessor()) { return; }
 
     if (value_counts.empty()) {
@@ -139,34 +139,65 @@ void ExaEpi::Utils::printHistogram (const std::string& label, const std::map<Lon
     Long max_val = value_counts.rbegin()->first;
     Long range = max_val - min_val + 1;
 
-    int nbuckets;
-    Real auto_width = 1.0_rt;
-    Long lo_aligned = min_val;
-    if (bin_width > 0) {
+    // build bucket boundaries for whichever mode was requested -- bucket_lo/bucket_hi always end
+    // up sorted ascending and contiguous (bucket_hi[b]+1 == bucket_lo[b+1]) regardless of mode,
+    // so a single binary search handles tallying below no matter how the buckets were built
+    Vector<Long> bucket_lo, bucket_hi;
+    if (log_scale) {
+        // geometrically-spaced bins for distributions spanning multiple orders of magnitude --
+        // equal-width bins would otherwise waste nearly all their resolution on a handful of
+        // large outliers. Adjacent bins that round to the same integer range at the small end
+        // (e.g. between 1 and 2) are merged, so the final bucket count may be < max_distinct_buckets
+        Long lo = std::max((Long)1, min_val);
+        Long hi = std::max(lo, max_val);
+        Real log_lo = std::log((Real)lo);
+        Real log_hi = std::log((Real)hi);
+        Vector<Long> edges(max_distinct_buckets + 1);
+        if (log_hi <= log_lo) {
+            for (int i = 0; i <= max_distinct_buckets; ++i) { edges[i] = (i == 0) ? min_val : max_val + 1; }
+        } else {
+            for (int i = 0; i <= max_distinct_buckets; ++i) {
+                Real frac = (Real)i / (Real)max_distinct_buckets;
+                edges[i] = (Long)std::llround(std::exp(log_lo + frac * (log_hi - log_lo)));
+            }
+            edges[0] = min_val;
+            edges[max_distinct_buckets] = max_val + 1;
+        }
+        for (int i = 0; i < max_distinct_buckets; ++i) {
+            if (edges[i + 1] > edges[i]) {
+                bucket_lo.push_back(edges[i]);
+                bucket_hi.push_back(edges[i + 1] - 1);
+            }
+        }
+    } else if (bin_width > 0) {
         // fixed-width bins requested by the caller, aligned to a multiple of bin_width so
         // buckets look natural (e.g. 0-4, 5-9, ...) rather than starting at an arbitrary min_val
-        lo_aligned = (min_val / bin_width) * bin_width;
-        nbuckets = (int)((max_val - lo_aligned) / bin_width) + 1;
+        Long lo_aligned = (min_val / bin_width) * bin_width;
+        int nbuckets = (int)((max_val - lo_aligned) / bin_width) + 1;
+        bucket_lo.resize(nbuckets);
+        bucket_hi.resize(nbuckets);
+        for (int b = 0; b < nbuckets; ++b) {
+            bucket_lo[b] = lo_aligned + (Long)b * bin_width;
+            bucket_hi[b] = bucket_lo[b] + bin_width - 1;
+        }
     } else {
         // one bucket per distinct integer value in [min_val, max_val], or max_distinct_buckets
         // equal-width range bins spanning the same interval, whichever is narrower
-        nbuckets = (range <= (Long)max_distinct_buckets) ? (int)range : max_distinct_buckets;
-        auto_width = (Real)range / (Real)nbuckets;
-    }
-
-    Vector<Long> bucket_lo(nbuckets), bucket_hi(nbuckets), bucket_counts(nbuckets, 0);
-    for (int b = 0; b < nbuckets; ++b) {
-        if (bin_width > 0) {
-            bucket_lo[b] = lo_aligned + (Long)b * bin_width;
-            bucket_hi[b] = bucket_lo[b] + bin_width - 1;
-        } else {
+        int nbuckets = (range <= (Long)max_distinct_buckets) ? (int)range : max_distinct_buckets;
+        Real auto_width = (Real)range / (Real)nbuckets;
+        bucket_lo.resize(nbuckets);
+        bucket_hi.resize(nbuckets);
+        for (int b = 0; b < nbuckets; ++b) {
             bucket_lo[b] = min_val + (Long)std::floor(b * auto_width);
             bucket_hi[b] = (b == nbuckets - 1) ? max_val : (min_val + (Long)std::floor((b + 1) * auto_width) - 1);
         }
     }
+
+    int nbuckets = (int)bucket_lo.size();
+    Vector<Long> bucket_counts(nbuckets, 0);
     for (auto& kv : value_counts) {
-        int b = (bin_width > 0) ? (int)((kv.first - lo_aligned) / bin_width)
-                                 : std::min(nbuckets - 1, (int)std::floor((Real)(kv.first - min_val) / auto_width));
+        int b = (int)(std::upper_bound(bucket_lo.begin(), bucket_lo.end(), kv.first) - bucket_lo.begin()) - 1;
+        b = std::max(0, std::min(nbuckets - 1, b));
         bucket_counts[b] += kv.second;
     }
 

@@ -186,19 +186,27 @@ void getTestParams(ExaEpi::TestParams& params, const std::string& prefix);
     every other rank).
 
     \p value_counts must already be fully merged/reduced -- see #gatherHistogramCounts for
-    combining rank-local partial counts first. If \p bin_width is 0 (the default), bucket width
-    is chosen automatically: if the observed value range fits within \p max_distinct_buckets,
-    each distinct integer value gets its own bar; otherwise values are grouped into \p
-    max_distinct_buckets equal-width range bins. If \p bin_width is nonzero, every bucket uses
-    that fixed width instead (overriding \p max_distinct_buckets) -- useful when a distribution's
-    natural bucket width (1 or 2, from the auto sizing above) is too fine-grained to be legible.
-    Runs of 2+ consecutive empty buckets are collapsed into a single "..." gap line noting the
-    skipped range, so a wide fixed bin_width doesn't blow up the output with empty rows. Bar
-    length is normalized so the largest bucket is at most \p max_bar_width characters wide
-    (noting the scale used, if any, so the raw counts printed alongside each bar remain the
-    source of truth). */
+    combining rank-local partial counts first. If \p log_scale is true, values are grouped into
+    up to \p max_distinct_buckets geometrically-spaced (doubling-ish) range bins instead of
+    equal-width ones -- use this for distributions spanning multiple orders of magnitude (e.g. a
+    community-size histogram with a long tail into the thousands), where equal-width bins would
+    otherwise waste nearly all their resolution on a handful of large outliers while cramming the
+    bulk of the data into the first bucket or two; adjacent bins that round to the same integer
+    range at the small end are merged, so the actual bucket count may come out lower than \p
+    max_distinct_buckets. Otherwise (\p log_scale false, the default), if \p bin_width is 0
+    bucket width is chosen automatically: if the observed value range fits within \p
+    max_distinct_buckets, each distinct integer value gets its own bar; otherwise values are
+    grouped into \p max_distinct_buckets equal-width range bins. If \p bin_width is nonzero,
+    every bucket uses that fixed width instead (overriding \p max_distinct_buckets) -- useful
+    when a distribution's natural bucket width (1 or 2, from the auto sizing above) is too
+    fine-grained to be legible. In every mode, runs of 2+ consecutive empty buckets are collapsed
+    into a single "..." gap line noting the skipped range, so a wide bin_width or a log-scaled
+    tail doesn't blow up the output with empty rows. Bar length is normalized so the largest
+    bucket is at most \p max_bar_width characters wide (noting the scale used, if any, so the raw
+    counts printed alongside each bar remain the source of truth). */
 void printHistogram(const std::string& label, const std::map<amrex::Long, amrex::Long>& value_counts,
-                     int max_distinct_buckets = 50, int max_bar_width = 60, amrex::Long bin_width = 0);
+                     int max_distinct_buckets = 50, int max_bar_width = 60, amrex::Long bin_width = 0,
+                     bool log_scale = false);
 
 /*! \brief Merge per-rank-local value->count maps (e.g. a histogram tallied only from the
     agents/data a rank happens to own) into a single global map.

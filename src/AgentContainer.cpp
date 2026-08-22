@@ -597,7 +597,7 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
         for (long idx = 0; idx < n_flat; ++idx) {
             if (total_count_h[idx] > 0.0_rt) { enrollment_hist[(Long)total_count_h[idx]]++; }
         }
-        ExaEpi::Utils::printHistogram("Enrollment per (school_id, grade)", enrollment_hist);
+        ExaEpi::Utils::printHistogram("Enrollment per (school_id, grade)", enrollment_hist, 50, 60, 0, true);
     }
 
     amrex::Print() << "SchoolClasses: " << max_class_group << " school_class_group buckets total ("

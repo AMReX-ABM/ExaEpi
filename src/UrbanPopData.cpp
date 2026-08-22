@@ -340,9 +340,9 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
                 if (count > 0) { naics_worker_hist[count]++; }
             }
         }
-        ExaEpi::Utils::printHistogram("Community home population", home_size_hist);
-        ExaEpi::Utils::printHistogram("Community work population", work_size_hist);
-        ExaEpi::Utils::printHistogram("Workers per (community, NAICS)", naics_worker_hist);
+        ExaEpi::Utils::printHistogram("Community home population", home_size_hist, 50, 60, 0, true);
+        ExaEpi::Utils::printHistogram("Community work population", work_size_hist, 50, 60, 0, true);
+        ExaEpi::Utils::printHistogram("Workers per (community, NAICS)", naics_worker_hist, 50, 60, 0, true);
     }
 }
 
