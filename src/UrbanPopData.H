@@ -27,6 +27,9 @@ struct AgentExtras {
                               used to index UrbanPopData::workgroup_size_table. Only
                               meaningful when naics_population > 0 (i.e. the agent is
                               employed); left unset otherwise. */
+    int home_num_households; /*!< number of distinct households in the agent's home block group
+                                  (BlockGroup::num_households), used to size the modulus for
+                                  hh_cluster assignment -- see UrbanPopData::initAgents. */
 };
 
 struct BlockGroup {
