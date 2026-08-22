@@ -113,7 +113,26 @@ void ExaEpi::Utils::printHistogram (const std::string& label, const std::map<Lon
     }
 
     Long total = 0;
-    for (auto& kv : value_counts) { total += kv.second; }
+    Long sum_val = 0;
+    for (auto& kv : value_counts) {
+        total += kv.second;
+        sum_val += kv.first * kv.second;
+    }
+    Real mean = (Real)sum_val / (Real)total;
+
+    // weighted median: average of the values at the two middle observation positions (1-indexed);
+    // these coincide for an odd total, giving the usual single middle value
+    Long pos_lo = (total + 1) / 2;
+    Long pos_hi = (total % 2 == 0) ? (total / 2 + 1) : pos_lo;
+    Long median_lo = value_counts.begin()->first, median_hi = median_lo;
+    Long cum = 0;
+    bool found_lo = false, found_hi = false;
+    for (auto& kv : value_counts) {
+        cum += kv.second;
+        if (!found_lo && cum >= pos_lo) { median_lo = kv.first; found_lo = true; }
+        if (!found_hi && cum >= pos_hi) { median_hi = kv.first; found_hi = true; }
+    }
+    Real median = (Real)(median_lo + median_hi) / 2.0_rt;
 
     Long min_val = value_counts.begin()->first;
     Long max_val = value_counts.rbegin()->first;
@@ -153,7 +172,8 @@ void ExaEpi::Utils::printHistogram (const std::string& label, const std::map<Lon
     Long max_count = *std::max_element(bucket_counts.begin(), bucket_counts.end());
     Long scale = std::max((Long)1, (Long)std::ceil((Real)max_count / (Real)max_bar_width));
 
-    Print() << label << " histogram (" << total << " observations";
+    Print() << label << " histogram (" << total << " observations, mean=" << std::fixed << std::setprecision(2) << mean
+            << ", median=" << median;
     if (scale > 1) { Print() << ", each * = " << scale; }
     Print() << "):\n";
     // collapse runs of 2+ consecutive empty buckets into a single "..." gap line noting the
