@@ -569,6 +569,14 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
                 << "SchoolClasses: admin pool size avg=" << (num_admin > 0 ? admin_size_sum / num_admin : 0.0_rt)
                 << " min=" << (num_admin > 0 ? admin_size_min : 0.0_rt) << " max=" << admin_size_max
                 << " (" << num_admin << " admin pools)\n";
+
+        // student_count_h/total_count_h are already globally reduced (ReduceRealSum above), so
+        // this needs no gather -- every rank could build it, but only the IOProcessor prints
+        std::map<Long, Long> enrollment_hist;
+        for (long idx = 0; idx < n_flat; ++idx) {
+            if (total_count_h[idx] > 0.0_rt) { enrollment_hist[(Long)total_count_h[idx]]++; }
+        }
+        ExaEpi::Utils::printHistogram("Enrollment per (school_id, grade)", enrollment_hist);
     }
 
     amrex::Print() << "SchoolClasses: " << max_class_group << " school_class_group buckets total ("

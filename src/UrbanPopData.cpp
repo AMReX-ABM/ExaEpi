@@ -326,6 +326,24 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
     Gpu::streamSynchronize();
 
     fillGridMetadataOnHost();
+
+    // block_groups is fully populated identically on every rank (readBlockGroupsFile reads the
+    // whole index everywhere), so these three histograms need no cross-rank gather -- build and
+    // print directly on the IOProcessor.
+    if (ParallelDescriptor::IOProcessor()) {
+        std::map<Long, Long> home_size_hist, work_size_hist, naics_worker_hist;
+        for (auto& bg : block_groups) {
+            if (bg.home_population > 0) { home_size_hist[bg.home_population]++; }
+            if (bg.work_populations[0] > 0) { work_size_hist[bg.work_populations[0]]++; }
+            for (int n = 0; n < NAICS_COUNT; n++) {
+                int count = bg.work_populations[n + 1];
+                if (count > 0) { naics_worker_hist[count]++; }
+            }
+        }
+        ExaEpi::Utils::printHistogram("Community home population", home_size_hist);
+        ExaEpi::Utils::printHistogram("Community work population", work_size_hist);
+        ExaEpi::Utils::printHistogram("Workers per (community, NAICS)", naics_worker_hist);
+    }
 }
 
 void UrbanPopData::fillGridMetadataOnHost () {
@@ -400,6 +418,18 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
     int nborhood_size = params.nborhood_size;
     int num_nborhoods = 0;
 
+    // rank-local/partial (this rank's tiles only) tallies for the household size, household-
+    // cluster size, and workgroup target size histograms -- merged across ranks below via
+    // ExaEpi::Utils::gatherHistogramCounts once the full loop has finished. household_id (and
+    // therefore household_id/4) is only unique *within* a block group (BlockGroup::readAgents
+    // counts them with a local unordered_set), so the occupant-tally keys below combine it with
+    // the owning block group's geoid to get a globally-unique id -- keying on household_id alone
+    // would silently merge unrelated households from different communities that happen to reuse
+    // the same small local id.
+    std::unordered_map<int64_t, int> household_occupants;
+    std::unordered_map<int64_t, int> cluster_occupants;
+    std::map<Long, Long> workgroup_target_hist;
+
     if (!urbanpop_file) { Abort("File " + params.urbanpop_filename + " is not open\n"); }
     for (MFIter mfi = pc.MakeMFIter(0); mfi.isValid(); ++mfi) {
         Vector<UrbanPopAgent> agents;
@@ -424,12 +454,28 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                                  block_group.y < max_y);
                     home_population += block_group.home_population;
                     work_population += block_group.work_populations[0];
+                    int agents_start_i = agents.size();
                     block_group.readAgents(urbanpop_file, agents, agents_extras, geoid_to_block_groups, block_groups);
                     num_households += block_group.num_households;
                     num_employed += block_group.num_employed;
                     num_students += block_group.num_students;
                     num_educators += block_group.num_educators;
                     num_communities++;
+
+                    // household size / cluster size / workgroup target size tallies -- host-side,
+                    // right after this block group's agents are read
+                    for (int i = agents_start_i; i < agents.size(); i++) {
+                        auto& agent = agents[i];
+                        int64_t hh_key = (block_group.geoid << 16) | (uint16_t)agent.household_id;
+                        household_occupants[hh_key]++;
+                        int64_t cluster_key = (block_group.geoid << 16) | (uint16_t)(agent.household_id / 4);
+                        cluster_occupants[cluster_key]++;
+                        if (agent.naics != -1) {
+                            int state_fips = agents_extras[i].work_state_fips;
+                            int target = workgroup_size_table[state_fips * NAICS_COUNT + agent.naics];
+                            workgroup_target_hist[target]++;
+                        }
+                    }
                     //  FIPS is the first 5 digits of the GEOID, which is 12 digits
                     int64_t fips = static_cast<int64_t>(block_group.geoid / 1e7);
                     num_nborhoods += get_max_nborhood(nborhood_size, block_group.home_population);
@@ -617,6 +663,25 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             nborhood_ptr[i] = nborhood;
         });
         Gpu::synchronize();
+    }
+
+    // household/cluster occupant tallies are two-stage: first "how many agents share this ID"
+    // (many distinct keys, per-rank-partial), now converted to "how many IDs have this occupant
+    // count" (the actual histogram, few distinct keys, a small payload to gather)
+    {
+        std::map<Long, Long> household_size_hist, cluster_size_hist;
+        for (auto& kv : household_occupants) { household_size_hist[kv.second]++; }
+        for (auto& kv : cluster_occupants) { cluster_size_hist[kv.second]++; }
+
+        auto merged_household = ExaEpi::Utils::gatherHistogramCounts(household_size_hist);
+        auto merged_cluster = ExaEpi::Utils::gatherHistogramCounts(cluster_size_hist);
+        auto merged_workgroup_target = ExaEpi::Utils::gatherHistogramCounts(workgroup_target_hist);
+
+        if (ParallelDescriptor::IOProcessor()) {
+            ExaEpi::Utils::printHistogram("Household size", merged_household);
+            ExaEpi::Utils::printHistogram("Household-cluster size", merged_cluster);
+            ExaEpi::Utils::printHistogram("Workgroup target size", merged_workgroup_target);
+        }
     }
 
     urbanpop_file.close();

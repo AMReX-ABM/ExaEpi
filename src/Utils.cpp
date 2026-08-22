@@ -7,13 +7,17 @@
 #include <AMReX_CoordSys.H>
 #include <AMReX_Geometry.H>
 #include <AMReX_IntVect.H>
+#include <AMReX_ParallelDescriptor.H>
 #include <AMReX_ParmParse.H>
+#include <AMReX_Print.H>
 #include <AMReX_RealBox.H>
 
 #include "DemographicData.H"
 #include "Utils.H"
 
+#include <algorithm>
 #include <cmath>
+#include <iomanip>
 #include <string>
 
 using namespace amrex;
@@ -97,4 +101,97 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
 
     pp.query("fast", params.fast);
     pp.query("context_diag", params.context_diag);
+}
+
+void ExaEpi::Utils::printHistogram (const std::string& label, const std::map<Long, Long>& value_counts,
+                                    int max_distinct_buckets, int max_bar_width) {
+    if (!ParallelDescriptor::IOProcessor()) { return; }
+
+    if (value_counts.empty()) {
+        Print() << label << " histogram: no data\n";
+        return;
+    }
+
+    Long total = 0;
+    for (auto& kv : value_counts) { total += kv.second; }
+
+    Long min_val = value_counts.begin()->first;
+    Long max_val = value_counts.rbegin()->first;
+    Long range = max_val - min_val + 1;
+
+    // one bucket per distinct integer value in [min_val, max_val], or max_distinct_buckets
+    // equal-width range bins spanning the same interval, whichever is narrower
+    int nbuckets = (range <= (Long)max_distinct_buckets) ? (int)range : max_distinct_buckets;
+    Real bin_width = (Real)range / (Real)nbuckets;
+
+    Vector<Long> bucket_lo(nbuckets), bucket_hi(nbuckets), bucket_counts(nbuckets, 0);
+    for (int b = 0; b < nbuckets; ++b) {
+        bucket_lo[b] = min_val + (Long)std::floor(b * bin_width);
+        bucket_hi[b] = (b == nbuckets - 1) ? max_val : (min_val + (Long)std::floor((b + 1) * bin_width) - 1);
+    }
+    for (auto& kv : value_counts) {
+        int b = std::min(nbuckets - 1, (int)std::floor((Real)(kv.first - min_val) / bin_width));
+        bucket_counts[b] += kv.second;
+    }
+
+    Long max_count = *std::max_element(bucket_counts.begin(), bucket_counts.end());
+    Long scale = std::max((Long)1, (Long)std::ceil((Real)max_count / (Real)max_bar_width));
+
+    Print() << label << " histogram (" << total << " observations";
+    if (scale > 1) { Print() << ", each * = " << scale; }
+    Print() << "):\n";
+    // collapse runs of 2+ consecutive empty buckets into a single "..." gap line noting the
+    // skipped value range, rather than printing every empty bucket -- a lone empty bucket is
+    // still printed normally (not worth collapsing, and keeps the shape continuous)
+    for (int b = 0; b < nbuckets; ++b) {
+        if (bucket_counts[b] == 0) {
+            int run_end = b;
+            while (run_end < nbuckets && bucket_counts[run_end] == 0) { run_end++; }
+            if (run_end - b >= 2) {
+                Print() << "  " << std::setw(12) << "..." << " | " << std::setw(9) << 0 << " (" << (run_end - b)
+                        << " empty buckets, " << bucket_lo[b] << "-" << bucket_hi[run_end - 1] << ")\n";
+                b = run_end - 1;
+                continue;
+            }
+        }
+        std::string value_label = (bucket_lo[b] == bucket_hi[b])
+            ? std::to_string(bucket_lo[b])
+            : (std::to_string(bucket_lo[b]) + "-" + std::to_string(bucket_hi[b]));
+        std::string bar(static_cast<size_t>(bucket_counts[b] / scale), '*');
+        Print() << "  " << std::setw(12) << value_label << " | " << std::setw(9) << bucket_counts[b] << " " << bar << "\n";
+    }
+}
+
+std::map<amrex::Long, amrex::Long> ExaEpi::Utils::gatherHistogramCounts (const std::map<Long, Long>& local_counts) {
+    int root = ParallelDescriptor::IOProcessorNumber();
+    int nprocs = ParallelDescriptor::NProcs();
+    int myproc = ParallelDescriptor::MyProc();
+
+    Vector<Long> local_flat;
+    local_flat.reserve(local_counts.size() * 2);
+    for (auto& kv : local_counts) {
+        local_flat.push_back(kv.first);
+        local_flat.push_back(kv.second);
+    }
+    int local_n = (int)local_flat.size();
+
+    Vector<int> all_n(nprocs, 0);
+    ParallelDescriptor::Gather(&local_n, 1, all_n.data(), 1, root);
+
+    Vector<int> disp(nprocs, 0);
+    int total_n = 0;
+    if (myproc == root) {
+        for (int p = 0; p < nprocs; ++p) {
+            disp[p] = total_n;
+            total_n += all_n[p];
+        }
+    }
+    Vector<Long> all_flat(myproc == root ? total_n : 1);
+    ParallelDescriptor::Gatherv(local_flat.data(), local_n, all_flat.data(), all_n, disp, root);
+
+    std::map<Long, Long> merged;
+    if (myproc == root) {
+        for (int i = 0; i < total_n; i += 2) { merged[all_flat[i]] += all_flat[i + 1]; }
+    }
+    return merged;
 }
