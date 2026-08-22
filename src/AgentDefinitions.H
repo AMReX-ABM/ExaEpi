@@ -54,8 +54,12 @@ struct IntIdx {
         school_id,          /*!< ID for a given school */
         school_closed,      /*!< 0 for open, 1 for closed */
         school_class,       /*!< 0-based class index within this agent's (school_id, grade) group at its
-                                 work community -- diagnostic only, see AgentContainer::assignSchoolClasses
-                                 / school_class_group below */
+                                 work community, or <= -2 (-2, -3, -4, ...) for a teacher in one of
+                                 that raw group's non-classroom "admin" groups -- one negative
+                                 sentinel value per admin group in the raw group (consumed by
+                                 InteractionModSchool.H to identify teacher-teacher contact, in
+                                 addition to being diagnostic) -- see
+                                 AgentContainer::assignSchoolClasses / school_class_group below */
         school_class_group, /*!< compact, densely-packed ID for this agent's actual (community,
                                  school_id, grade, school_class) mixing bucket -- see
                                  AgentContainer::assignSchoolClasses / InteractionModSchool.H. -1 for

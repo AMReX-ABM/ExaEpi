@@ -68,6 +68,8 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
     }
 
     pp.query("school_class_size", params.school_class_size);
+    pp.query("school_class_size_min", params.school_class_size_min);
+    pp.query("school_class_size_max", params.school_class_size_max);
 
     pp.query("max_box_size", params.max_box_size);
 

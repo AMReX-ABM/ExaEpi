@@ -2,6 +2,8 @@
     \brief Function implementations for #AgentContainer class
 */
 
+#include <limits>
+
 #include "AgentContainer.H"
 #include "AgentDefinitions.H"
 
@@ -271,11 +273,22 @@ void AgentContainer::moveAgentsToHome () {
 }
 
 /*! \brief Assign each school_id>0 agent to a class within its (community, school_id, grade) group --
-    see IntIdx::school_class / IntIdx::school_class_group and TestParams::school_class_size. Splits
-    each raw group into ceil(child_count / school_class_size) fixed-size classes. Educators teaching
-    that grade are drawn into the same set of classes independently of the students, the same idiom
-    already used to spread regular workers across a workplace's workgroup buckets (see
-    agent.workgroup_size / UrbanPopData.cpp) -- not an attempt at exact balance.
+    see IntIdx::school_class / IntIdx::school_class_group and TestParams::school_class_size(_min/_max).
+
+    Each raw group gets one class per teacher actually present in the data (at most one teacher per
+    class, mirroring real classroom staffing), clamped so no class averages fewer than
+    school_class_size_min or more than school_class_size_max students; raw groups with students but no
+    identified teachers fall back to ceil(student_count / school_class_size) classes instead. Any
+    teachers beyond the resulting class count are pooled into one or more non-classroom "admin"
+    groups per raw group, sized like a regular workgroup (target size TestParams::workgroup_size)
+    rather than one unbounded pool -- their members get school_class == -2, -3, -4, ... (one
+    negative sentinel value per admin group in that raw group) -- see InteractionModSchool.H for
+    how those groups' teacher-teacher contact is modeled. This relies on
+    every member of a raw group already being on the same MPI rank by the time this runs: it's called
+    from main.cpp immediately after moveAgentsToWork()'s Redistribute(), which repositions every
+    agent's particle to its work location first, so a raw group (keyed on that same work location)
+    can never span ranks here -- letting per-agent teacher/student ranking be done with a purely
+    local atomic counter, no cross-rank communication needed.
 
     Called once, on a FRESH run only (never on restart): IntIdx::school_class/school_class_group are
     persistent per-agent attributes, checkpointed/restored like any other SoA attribute, so redrawing
@@ -300,14 +313,23 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
     // UrbanPopData.cpp already uses to tell students from educators, since school_grade alone doesn't
     // work here: college students are adults by age_group, but are not employees) and total
     // enrollment (students + educators) per (community, school_id, grade) raw group. Both are needed
-    // in Pass 2: class *count* scales with student enrollment, but a group with educators and no
-    // students still needs at least one class for them to land in, and a genuinely empty group needs
-    // none (avoiding reserving a wasted slot for every unoccupied community/school_id/grade
-    // combination in the domain, most of which no agent ever touches).
+    // in Pass 2: class count scales with student enrollment, and a raw group with zero students
+    // gets zero real classes -- any educators recorded for it (e.g. non-teaching staff sharing a
+    // school_id) go straight to the admin bucket, with no classroom to be a homeroom teacher for.
+    // A genuinely empty group (zero agents at all) reserves nothing, avoiding a wasted slot for
+    // every unoccupied community/school_id/grade combination in the domain, most of which no
+    // agent ever touches.
     Gpu::DeviceVector<Real> student_count_d(n_flat, 0.0_rt);
     Gpu::DeviceVector<Real> total_count_d(n_flat, 0.0_rt);
+    // per-rank only, never reduced across ranks -- see the function header comment for why a
+    // purely local counter is sufficient to give each teacher/student a unique rank among its
+    // raw group's teachers/students
+    Gpu::DeviceVector<int> local_teacher_count_d(n_flat, 0);
+    Gpu::DeviceVector<int> local_student_count_d(n_flat, 0);
     auto* student_count_ptr = student_count_d.data();
     auto* total_count_ptr = total_count_d.data();
+    auto* local_teacher_count_ptr = local_teacher_count_d.data();
+    auto* local_student_count_ptr = local_student_count_d.data();
 
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev = GetParticles(lev);
@@ -322,13 +344,25 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
             auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
             auto school_grade_ptr = soa.GetIntData(IntIdx::school_grade).data();
             auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
+            auto school_class_ptr = soa.GetIntData(IntIdx::school_class).data();
 
             amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
                 if (school_id_ptr[ip] > 0) {
                     long flat_comm = (long)work_j_ptr[ip] * domain_x + (long)work_i_ptr[ip];
                     long idx = flat_comm * ncomp + school_id_ptr[ip] * max_grade + school_grade_ptr[ip];
                     Gpu::Atomic::AddNoRet(&total_count_ptr[idx], 1.0_rt);
-                    if (naics_ptr[ip] == -1) { Gpu::Atomic::AddNoRet(&student_count_ptr[idx], 1.0_rt); }
+                    if (naics_ptr[ip] == -1) {
+                        Gpu::Atomic::AddNoRet(&student_count_ptr[idx], 1.0_rt);
+                        // stash a rank unique among this raw group's students -- turned into a
+                        // round-robin class assignment in Pass 3 (rank % n_classes), so real
+                        // classes come out balanced to within 1 student of each other instead of
+                        // the size variance an independent random draw per student would produce
+                        school_class_ptr[ip] = Gpu::Atomic::Add(&local_student_count_ptr[idx], 1);
+                    } else {
+                        // teacher: stash a rank unique among this raw group's teachers --
+                        // finalized into a real class vs. admin assignment in Pass 3
+                        school_class_ptr[ip] = Gpu::Atomic::Add(&local_teacher_count_ptr[idx], 1);
+                    }
                 }
             });
         }
@@ -345,33 +379,75 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
 
     // Pass 2: host-side compaction, identical on every rank -- decide how many classes each raw group
     // needs, and assign every raw group a base offset into a densely-packed, no-wasted-slots global
-    // school_class_group space.
+    // school_class_group space. Class count is driven primarily by actual teacher headcount (one
+    // class per teacher, at most), clamped to [school_class_size_min, school_class_size_max] average
+    // students per class -- see the function header comment for why this is more grounded than a
+    // flat size target. Excess teachers (beyond one per class) are pooled into one or more
+    // non-classroom "admin" groups, sized like a regular workgroup (target size
+    // params.workgroup_size) rather than one unbounded pool -- see IntIdx::school_class for the
+    // -2, -3, -4, ... sentinel numbering that distinguishes them.
     Vector<int> n_classes_h(n_flat);
+    Vector<int> n_admin_h(n_flat);
     Vector<long> class_group_base_h(n_flat);
     long max_class_group = 0;
     for (long idx = 0; idx < n_flat; ++idx) {
         int n_classes = 0;
-        if (total_count_h[idx] > 0.0_rt) {
-            n_classes = 1;
-            if (student_count_h[idx] > 0.0_rt) {
-                n_classes = std::max(1, (int)std::ceil(student_count_h[idx] / (Real)params.school_class_size));
-            }
+        if (student_count_h[idx] > 0.0_rt) {
+            Real teacher_count = total_count_h[idx] - student_count_h[idx];
+            int raw_n_classes = (teacher_count > 0.0_rt)
+                ? (int)teacher_count
+                : std::max(1, (int)std::ceil(student_count_h[idx] / (Real)params.school_class_size));
+            int lower = (int)std::ceil(student_count_h[idx] / (Real)params.school_class_size_max);
+            int upper = std::max(1, (int)(student_count_h[idx] / (Real)params.school_class_size_min));
+            n_classes = std::max(lower, std::min(raw_n_classes, upper));
         }
+        // else: zero students means zero real classes -- any educators recorded for this raw
+        // group (total_count_h[idx] > 0 with no students) go entirely to the admin group(s) below,
+        // not a fake "class" with a homeroom teacher and no one to teach
+        Real teacher_count = total_count_h[idx] - student_count_h[idx];
+        Real excess_teachers = teacher_count - n_classes;
+        int n_admin = (excess_teachers > 0.0_rt) ? (int)std::ceil(excess_teachers / (Real)params.workgroup_size) : 0;
         n_classes_h[idx] = n_classes;
+        n_admin_h[idx] = n_admin;
         class_group_base_h[idx] = max_class_group;
-        max_class_group += n_classes;
+        max_class_group += n_classes + n_admin;
     }
 
     Gpu::DeviceVector<int> n_classes_d(n_flat);
+    Gpu::DeviceVector<int> n_admin_d(n_flat);
     Gpu::DeviceVector<long> class_group_base_d(n_flat);
     Gpu::copyAsync(Gpu::hostToDevice, n_classes_h.begin(), n_classes_h.end(), n_classes_d.begin());
+    Gpu::copyAsync(Gpu::hostToDevice, n_admin_h.begin(), n_admin_h.end(), n_admin_d.begin());
     Gpu::copyAsync(Gpu::hostToDevice, class_group_base_h.begin(), class_group_base_h.end(), class_group_base_d.begin());
     Gpu::streamSynchronize();
     auto* n_classes_ptr = n_classes_d.data();
+    auto* n_admin_ptr = n_admin_d.data();
     auto* class_group_base_ptr = class_group_base_d.data();
 
-    // Pass 3: assign each school_id>0 agent (student or educator) a class within its raw group via an
-    // independent per-agent random draw.
+    // tallies, per finalized school_class_group id, student headcount for real classes and
+    // teacher headcount for admin buckets (deliberately not counting a class's own homeroom
+    // teacher) -- used for the reporting step right after Pass 3
+    Gpu::DeviceVector<Real> class_group_occupancy_d(max_class_group, 0.0_rt);
+    auto* class_group_occupancy_ptr = class_group_occupancy_d.data();
+
+    // per-real-class homeroom teacher count -- exists solely to assert the core invariant of
+    // this function below (at most one homeroom teacher per real class); not used for reporting
+    Gpu::DeviceVector<int> real_class_teacher_count_d(max_class_group, 0);
+    auto* real_class_teacher_count_ptr = real_class_teacher_count_d.data();
+
+    // Pass 3: assign each school_id>0 agent a class within its raw group, deterministically for
+    // both teachers and students using the ranks stashed in Pass 1 -- no RNG needed here at all.
+    // Teachers: one real class per teacher, at most (excess go to one of the raw group's admin
+    // groups, sentinel school_class == -2, -3, -4, ... -- see InteractionModSchool.H for how
+    // those groups' teacher-teacher contact is modeled). Students: round-robin (rank % n_classes)
+    // rather than an independent random draw per student, so real classes come out balanced to within 1
+    // student of each other instead of the Poisson-ish size variance an independent draw would
+    // produce (which was found to push a meaningful fraction of classes below
+    // school_class_size_min purely by chance). Note this makes a raw group's classes a
+    // deterministic partition of its students by particle-processing order rather than a fresh
+    // random sample every run -- if that order ever correlates with something
+    // epidemiologically relevant (e.g. household adjacency), classmates would inherit that
+    // correlation; no evidence of this so far.
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev = GetParticles(lev);
         for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
@@ -384,17 +460,49 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
             auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
             auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
             auto school_grade_ptr = soa.GetIntData(IntIdx::school_grade).data();
+            auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
             auto school_class_ptr = soa.GetIntData(IntIdx::school_class).data();
             auto school_class_group_ptr = soa.GetIntData(IntIdx::school_class_group).data();
 
-            amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int ip, RandomEngine const& engine) noexcept {
+            amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
                 if (school_id_ptr[ip] > 0) {
                     long flat_comm = (long)work_j_ptr[ip] * domain_x + (long)work_i_ptr[ip];
                     long raw_group = flat_comm * ncomp + school_id_ptr[ip] * max_grade + school_grade_ptr[ip];
                     int n_classes = n_classes_ptr[raw_group];
-                    int school_class = Random_int(n_classes, engine);
-                    school_class_ptr[ip] = school_class;
-                    school_class_group_ptr[ip] = (int)(class_group_base_ptr[raw_group] + school_class);
+                    if (naics_ptr[ip] != -1) {
+                        // teacher: school_class_ptr[ip] currently holds this teacher's rank from Pass 1
+                        int rank = school_class_ptr[ip];
+                        if (rank < n_classes) {
+                            school_class_ptr[ip] = rank;
+                            school_class_group_ptr[ip] = (int)(class_group_base_ptr[raw_group] + rank);
+                            // homeroom teacher -- not tallied into class_group_occupancy
+                            // (that tracks student headcount for real classes)
+                            Gpu::Atomic::AddNoRet(&real_class_teacher_count_ptr[school_class_group_ptr[ip]], 1);
+                        } else {
+                            // admin group(s): guaranteed to have been reserved in Pass 2 whenever
+                            // any teacher's rank reaches here. n_admin_ptr[raw_group] admin groups
+                            // are sized like a regular workgroup (round-robin across them, same
+                            // idiom as the student class round-robin above, so they come out
+                            // balanced rather than one group taking all the remainder). Sentinel
+                            // -2, -3, -4, ... (not e.g. "== n_classes") so InteractionModSchool.H
+                            // can recognize an admin-group agent from its own school_class value
+                            // alone, with no need to also know n_classes for its raw group -- and
+                            // so it's unambiguous against a genuine all-adult real class (e.g. a
+                            // college class with only adult students).
+                            int excess_rank = rank - n_classes;
+                            int admin_group = excess_rank % n_admin_ptr[raw_group];
+                            school_class_ptr[ip] = -2 - admin_group;
+                            school_class_group_ptr[ip] = (int)(class_group_base_ptr[raw_group] + n_classes + admin_group);
+                            Gpu::Atomic::AddNoRet(&class_group_occupancy_ptr[school_class_group_ptr[ip]], 1.0_rt);
+                        }
+                    } else {
+                        // student: school_class_ptr[ip] currently holds this student's rank from
+                        // Pass 1; round-robin across the raw group's real classes
+                        int school_class = school_class_ptr[ip] % n_classes;
+                        school_class_ptr[ip] = school_class;
+                        school_class_group_ptr[ip] = (int)(class_group_base_ptr[raw_group] + school_class);
+                        Gpu::Atomic::AddNoRet(&class_group_occupancy_ptr[school_class_group_ptr[ip]], 1.0_rt);
+                    }
                 } else {
                     school_class_ptr[ip] = 0;
                     school_class_group_ptr[ip] = -1;
@@ -404,8 +512,69 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
     }
     Gpu::streamSynchronize();
 
-    amrex::Print() << "SchoolClasses: " << max_class_group << " classes across " << max_school_id << " school_ids x " << max_grade
-                   << " grades (school_class_size=" << params.school_class_size << ")\n";
+    {
+        Vector<int> real_class_teacher_count_h(max_class_group);
+        Gpu::copyAsync(Gpu::deviceToHost, real_class_teacher_count_d.begin(), real_class_teacher_count_d.end(),
+                       real_class_teacher_count_h.begin());
+        Gpu::streamSynchronize();
+        int max_teachers_per_real_class = 0;
+        for (int v : real_class_teacher_count_h) { max_teachers_per_real_class = std::max(max_teachers_per_real_class, v); }
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(max_teachers_per_real_class <= 1,
+            "assignSchoolClasses: a real class ended up with more than one homeroom teacher");
+    }
+
+    // Report class-size / admin-pool-size statistics immediately after assignment. A rank that
+    // doesn't own a given raw group contributes exactly 0 to that group's occupancy entries, so
+    // summing across ranks gives every rank an identical, globally-correct occupancy array with
+    // no need to separately track which rank owns which raw group.
+    Vector<Real> class_group_occupancy_h(max_class_group);
+    Gpu::copyAsync(Gpu::deviceToHost, class_group_occupancy_d.begin(), class_group_occupancy_d.end(),
+                   class_group_occupancy_h.begin());
+    Gpu::streamSynchronize();
+    ParallelDescriptor::ReduceRealSum(class_group_occupancy_h.data(), (int)max_class_group);
+
+    Real class_size_sum = 0.0_rt, class_size_min = std::numeric_limits<Real>::max(), class_size_max = 0.0_rt;
+    long num_classes = 0;
+    Real admin_size_sum = 0.0_rt, admin_size_min = std::numeric_limits<Real>::max(), admin_size_max = 0.0_rt;
+    long num_admin = 0;
+
+    for (long idx = 0; idx < n_flat; ++idx) {
+        int n_classes = n_classes_h[idx];
+        // no "n_classes <= 0 -> skip" guard here: a raw group can legitimately have n_classes==0
+        // (no students) but still need its admin bucket counted below (educators with no
+        // classroom to teach). The inner loop is naturally a no-op when n_classes==0.
+        for (int c = 0; c < n_classes; ++c) {
+            Real sz = class_group_occupancy_h[class_group_base_h[idx] + c];
+            class_size_sum += sz;
+            class_size_min = std::min(class_size_min, sz);
+            class_size_max = std::max(class_size_max, sz);
+            num_classes++;
+        }
+        for (int a = 0; a < n_admin_h[idx]; ++a) {
+            Real sz = class_group_occupancy_h[class_group_base_h[idx] + n_classes + a];
+            admin_size_sum += sz;
+            admin_size_min = std::min(admin_size_min, sz);
+            admin_size_max = std::max(admin_size_max, sz);
+            num_admin++;
+        }
+    }
+
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(admin_size_max <= (Real)params.workgroup_size,
+        "assignSchoolClasses: an admin group ended up larger than workgroup_size");
+
+    if (ParallelDescriptor::IOProcessor()) {
+        Print() << "SchoolClasses: class size avg=" << (num_classes > 0 ? class_size_sum / num_classes : 0.0_rt)
+                << " min=" << (num_classes > 0 ? class_size_min : 0.0_rt) << " max=" << class_size_max
+                << " (" << num_classes << " classes)\n"
+                << "SchoolClasses: admin pool size avg=" << (num_admin > 0 ? admin_size_sum / num_admin : 0.0_rt)
+                << " min=" << (num_admin > 0 ? admin_size_min : 0.0_rt) << " max=" << admin_size_max
+                << " (" << num_admin << " admin pools)\n";
+    }
+
+    amrex::Print() << "SchoolClasses: " << max_class_group << " school_class_group buckets total ("
+                   << num_classes << " real classes + " << num_admin << " admin pools) across " << max_school_id
+                   << " school_ids x " << max_grade << " grades (school_class_size=" << params.school_class_size
+                   << ", min=" << params.school_class_size_min << ", max=" << params.school_class_size_max << ")\n";
 }
 
 /*! \brief Move agents randomly

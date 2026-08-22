@@ -4,7 +4,13 @@
  * Transmission happens within a school_class_group -- a compact ID for an agent's actual
  * (community, school_id, grade, class) mixing bucket, assigned once by
  * AgentContainer::assignSchoolClasses (see IntIdx::school_class_group / TestParams::school_class_size)
- * -- rather than across an entire grade at a school.
+ * -- rather than across an entire grade at a school. A school_class_group may be a real
+ * classroom (IntIdx::school_class >= 0) or one of a raw group's non-classroom "admin" groups
+ * (IntIdx::school_class <= -2, i.e. -2, -3, -4, ..., holding excess teachers beyond
+ * one-per-class, sized like a regular workgroup) -- teacher-teacher contact within an admin
+ * group is modeled by reusing xmit_work (the same calibrated, age-independent workplace
+ * intensity InteractionModWork.H uses for every other industry), not a school-specific
+ * constant.
  */
 
 #ifndef _INTERACTION_MOD_SCHOOL_H_
@@ -60,6 +66,7 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
             auto& soa = ptile.GetStructOfArrays();
             auto school_grade_ptr = soa.GetIntData(IntIdx::school_grade).data();
             auto school_class_group_ptr = soa.GetIntData(IntIdx::school_class_group).data();
+            auto school_class_ptr = soa.GetIntData(IntIdx::school_class).data();
             auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
 
             int max_class_group = agents.getMaxGroup(IntIdx::school_class_group) + 1;
@@ -130,10 +137,22 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                                 if (adults) {                                    // transmitters are adults
                                     if (age_group_ptr[i] <= AgeGroups::a5to17) { // Adult teacher/staff -> child student
                                         xmit = lparm->xmit_school_a2c[getSchoolType(school_grade_ptr[i])];
-                                    } else { //  adults-adults interaction accounted for in InteractionModWork.H // adult to adult
-                                             //  - teachers also have grades (the grade they teach)
+                                    } else if (school_class_ptr[i] <= -2) {
+                                        // receiver is in one of the raw group's admin (non-classroom)
+                                        // groups (school_class == -2, -3, -4, ...) -- teacher-teacher
+                                        // contact. Reuse xmit_work directly (not a school-specific constant,
+                                        // and not xmit_school_scale'd -- this models the same "co-workers
+                                        // sharing a room" contact InteractionModWork.H already represents for
+                                        // every other industry, just physically located at a school instead
+                                        // of a regular workplace; see AgentContainer::assignSchoolClasses).
+                                        // Different admin groups are still isolated from each other by
+                                        // school_class_group (the actual transmission bucket, checked via
+                                        // `pos` above) -- this check only decides which xmit value to use.
+                                        xmit = lparm->xmit_work;
+                                    } else {
+                                        // adult-adult in a genuine real class (e.g. two adult college
+                                        // classmates) -- not modeled
                                         // do nothing!
-                                        // xmit = lparm->xmit_school[getSchoolType(school_grade_ptr[i])];
                                     }
                                 } else {                                         // transmitters are children
                                     if (age_group_ptr[i] <= AgeGroups::a5to17) { // Receiver j is a child

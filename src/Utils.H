@@ -105,14 +105,19 @@ struct TestParams {
                                             compile-time constants in UrbanPopData.cpp, not
                                             user-tunable. */
 
-    /*! Split each (community, school_id, grade) group into fixed-size classes (see
-        AgentContainer::assignSchoolClasses) so school transmission happens within a class (~15
-        classmates) rather than across an entire grade at a school -- a grade-at-school group averages
-        ~62 students statewide (NM UrbanPop), with a long tail into the thousands for colleges, far
-        larger than a real classroom. Educators teaching that grade are spread uniformly across its
-        classes the same way regular workers are spread across a workplace's workgroup buckets (see
-        agent.workgroup_size). */
-    int school_class_size = 15; /*!< target number of students per class */
+    /*! Split each (community, school_id, grade) group into classes (see
+        AgentContainer::assignSchoolClasses) so school transmission happens within a class
+        rather than across an entire grade at a school -- a grade-at-school group averages
+        ~62 students statewide (NM UrbanPop), with a long tail into the thousands for colleges,
+        far larger than a real classroom. The number of classes is driven primarily by the raw
+        group's actual teacher headcount (one class per teacher, at most, mirroring real
+        classroom staffing -- any teachers beyond that go to a separate non-classroom "admin"
+        bucket), clamped so no class averages fewer than #school_class_size_min or more than
+        #school_class_size_max students. #school_class_size itself is now only the fallback
+        target used when a raw group has students but zero identified teachers. */
+    int school_class_size = 15;     /*!< fallback target students-per-class for raw groups with no identified teachers */
+    int school_class_size_min = 5;  /*!< floor on average class size (bounds class count from above) */
+    int school_class_size_max = 50; /*!< cap on average class size (bounds class count from below) */
 
     /*! Worker flow filename (ExaEpi::Initialization::readWorkerflow):
         It is a binary file that contains 3 x (number of work patthers) unsigned integer
