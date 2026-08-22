@@ -276,8 +276,11 @@ void AgentContainer::moveAgentsToHome () {
     see IntIdx::school_class / IntIdx::school_class_group and TestParams::school_class_size(_min/_max).
 
     Each raw group gets one class per teacher actually present in the data (at most one teacher per
-    class, mirroring real classroom staffing), clamped so no class averages fewer than
-    school_class_size_min or more than school_class_size_max students; raw groups with students but no
+    class, mirroring real classroom staffing -- for college-level groups specifically, the raw
+    headcount is first scaled down by TestParams::college_instructional_fraction, since that
+    headcount is sourced from total college employment rather than a faculty-specific count),
+    clamped so no class averages fewer than school_class_size_min or more than school_class_size_max
+    students; raw groups with students but no
     identified teachers fall back to ceil(student_count / school_class_size) classes instead. Any
     teachers beyond the resulting class count are pooled into one or more non-classroom "admin"
     groups per raw group, sized like a regular workgroup (target size TestParams::workgroup_size)
@@ -394,8 +397,17 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
         int n_classes = 0;
         if (student_count_h[idx] > 0.0_rt) {
             Real teacher_count = total_count_h[idx] - student_count_h[idx];
-            int raw_n_classes = (teacher_count > 0.0_rt)
-                ? (int)teacher_count
+            // college "teacher" counts are actually total college employment, not faculty-specific
+            // (see college_instructional_fraction's doc comment) -- scale down by the assumed
+            // instructional fraction before treating it as a real headcount of homeroom-equivalent
+            // instructors, so a college raw group's derived class count reflects its own reported
+            // staffing level instead of routinely blowing through the class-size clamp below
+            int grade = (int)(idx % max_grade);
+            Real effective_teacher_count =
+                (getSchoolType(grade) == SchoolType::college) ? teacher_count * params.college_instructional_fraction
+                                                               : teacher_count;
+            int raw_n_classes = (effective_teacher_count > 0.0_rt)
+                ? std::max(1, (int)effective_teacher_count)
                 : std::max(1, (int)std::ceil(student_count_h[idx] / (Real)params.school_class_size));
             int lower = (int)std::ceil(student_count_h[idx] / (Real)params.school_class_size_max);
             int upper = std::max(1, (int)(student_count_h[idx] / (Real)params.school_class_size_min));
@@ -591,7 +603,8 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
     amrex::Print() << "SchoolClasses: " << max_class_group << " school_class_group buckets total ("
                    << num_classes << " real classes + " << num_admin << " admin pools) across " << max_school_id
                    << " school_ids x " << max_grade << " grades (school_class_size=" << params.school_class_size
-                   << ", min=" << params.school_class_size_min << ", max=" << params.school_class_size_max << ")\n";
+                   << ", min=" << params.school_class_size_min << ", max=" << params.school_class_size_max
+                   << ", college_instructional_fraction=" << params.college_instructional_fraction << ")\n";
 }
 
 /*! \brief Move agents randomly

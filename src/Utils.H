@@ -120,6 +120,24 @@ struct TestParams {
     int school_class_size_min = 5;  /*!< floor on average class size (bounds class count from above) */
     int school_class_size_max = 50; /*!< cap on average class size (bounds class count from below) */
 
+    /*! Correction factor applied to the raw teacher headcount for college-level (grade>17,
+        SchoolType::college) raw groups specifically, before it drives class count. College
+        "teacher" counts (utilities/UrbanPop-scripts/get_schools.py) are sourced from HIFLD's
+        TOT_EMP field -- total college employment (faculty, admin, facilities, research staff,
+        everyone), not a faculty-specific count -- unlike K-12, which does have a genuine "Full
+        Time Teachers" field, and unlike the rest of the raw HIFLD college data (checked directly:
+        TOT_EMP is the only employment-related field available, so there's no better source signal
+        to fall back on). Without this correction, that inflated headcount routinely exceeds
+        student_count/school_class_size_min, forcing nearly every over-staffed college raw group
+        to collapse to the identical class count regardless of its actual data -- visible as a
+        single dominant spike in the "School class size" histogram (see
+        ExaEpi::Utils::printHistogram) rather than a distribution that varies by institution.
+        Scaling the headcount down by this fraction *before* the school_class_size_min/max clamp
+        lets each college's derived class size reflect its own reported staffing level again
+        (validated empirically: with fraction=0.1, only 2 of 68 NM college raw groups still hit
+        the clamp, versus the previous approach where effectively all of them did). */
+    amrex::Real college_instructional_fraction = 0.1;
+
     /*! Worker flow filename (ExaEpi::Initialization::readWorkerflow):
         It is a binary file that contains 3 x (number of work patthers) unsigned integer
         data. The 3 integers are: from, to, and the number of workers with this from and to.

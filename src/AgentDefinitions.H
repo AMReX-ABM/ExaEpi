@@ -408,7 +408,7 @@ bool isAnAdult (const int a_idx, /*!< Agent index */
 }
 
 // School grade is actually age of student
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 static int getSchoolType (const int grade) {
     if (grade == 3) { return SchoolType::daycare; }
     if (grade > 3 && grade <= 10) { return SchoolType::elem; }

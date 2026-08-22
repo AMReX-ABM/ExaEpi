@@ -79,6 +79,8 @@ void printHelp (const char* prog) {
                "above)\n"
                "  school_class_size_max           (50)         cap on average class size (bounds class count from "
                "below)\n"
+               "  college_instructional_fraction  (0.1)        fraction of a college-level raw group's reported "
+               "teacher/staff headcount assumed to actually be instructors, before class-size clamping\n"
                "  max_box_size                    (16)         box size for domain decomposition\n"
                "  aggregated_diag_int             (-1)         interval for aggregated diagnostic output, in steps; <=0 "
                "disables\n"
