@@ -512,7 +512,7 @@ void runAgent () {
         // since home_population isn't a meaningful covariate for the population physically present
         // in a community during the day.
         if (params.ic_type == ICType::UrbanPop && params.size_scale_enabled) {
-            Vector<Real> work_scale = computeCommunityWorkSizeScale(urbanPopData.block_groups, params);
+            Vector<Real> work_scale = computeCommunityWorkSizeScale(urbanPopData.day_population, params);
             Gpu::DeviceVector<Real> work_scale_d(work_scale.size());
             Gpu::copyAsync(Gpu::hostToDevice, work_scale.begin(), work_scale.end(), work_scale_d.begin());
             Gpu::streamSynchronize();

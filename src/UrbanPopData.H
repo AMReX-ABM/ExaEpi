@@ -57,12 +57,22 @@ struct BlockGroup {
 amrex::Vector<amrex::Real> computeCommunitySizeScale(const amrex::Vector<BlockGroup>& block_groups,
                                                      const ExaEpi::TestParams& params);
 
-/*! \brief Daytime analog of computeCommunitySizeScale, keyed on each community's *work* population
-    (BlockGroup::work_populations[0]) instead of home_population. Meant to populate a separate
-    scale array used only for daytime interactions, since home_population is not a meaningful
-    covariate for the population physically present in a community during the day (see
-    AgentContainer::comm_density_scale_work). */
-amrex::Vector<amrex::Real> computeCommunityWorkSizeScale(const amrex::Vector<BlockGroup>& block_groups,
+/*! \brief Daytime analog of computeCommunitySizeScale, keyed on each community's true daytime
+    headcount (UrbanPopData::day_population) instead of home_population. Meant to populate a
+    separate scale array used only for daytime interactions, since home_population is not a
+    meaningful covariate for the population physically present in a community during the day (see
+    AgentContainer::comm_density_scale_work).
+
+    day_population, not BlockGroup::work_populations[0], is the right covariate here:
+    work_populations[0] only counts agents with naics != -1 whose job is physically located there,
+    which structurally excludes every non-commuting resident (retirees, unemployed, work-from-home)
+    who stays home during the day, and every student at a school located there (naics == -1).
+    Empirically (NM UrbanPop), the true daytime headcount exceeds work_populations[0] by a median
+    of 4x and by >20x at the 90th percentile, so using work_populations[0] here would systematically
+    push the 1/population correction toward its size_max_scale clip for the most heavily
+    residential/school-heavy communities -- exactly backwards, since those are typically among the
+    *largest* daytime-occupied communities, not the smallest. */
+amrex::Vector<amrex::Real> computeCommunityWorkSizeScale(const amrex::Vector<amrex::Real>& day_population,
                                                          const ExaEpi::TestParams& params);
 
 struct UrbanPopData {
@@ -79,6 +89,18 @@ struct UrbanPopData {
     amrex::Vector<int> workgroup_size_table; /*!< flat, size MAX_STATE_FIPS * NAICS_COUNT;
                                                    see UrbanPop-scripts/compute_workgroup_sizes.py */
     amrex::Gpu::DeviceVector<int> workgroup_size_table_d;
+
+    /*! True daytime headcount per community (index-aligned with block_groups), tallied from every
+        agent's effective daytime location (naics==-1 or work-from-home -> home block group;
+        otherwise -> work block group) during init(), via a full, independent scan of the raw
+        UrbanPop agent file done identically on every rank (cheap -- pure host-side counting, no
+        particle/GPU work) rather than during initAgents()'s per-rank-partial tile loop.
+        Deliberately NOT computed in initAgents(): that only runs on a fresh start (restarts load
+        agents from a checkpoint instead and skip it entirely -- see main.cpp), so day_population
+        would be left empty on a restarted run if it depended on initAgents() having run. See
+        computeCommunityWorkSizeScale's doc comment for why this is used instead of
+        BlockGroup::work_populations[0]. */
+    amrex::Vector<amrex::Real> day_population;
 
     amrex::iMultiFab geoid_mf;     /*!< FIPS code (component 0) and census block group number (component 1) of each block group */
     amrex::iMultiFab community_mf; /*!< Index for community == block group */

@@ -69,12 +69,14 @@ struct TestParams {
     std::string workgroup_size_filename;
 
     /*! Population-size-based scale factor (see computeCommunitySizeScale / computeCommunityWorkSizeScale).
-        home_population and work_populations[0] are always available, no side file needed. When true,
-        this populates AgentContainer::comm_density_scale (nighttime, keyed on home_population) and
-        comm_density_scale_work (daytime, keyed on work_populations[0]). xmit_comm_scale/min_scale/
-        max_scale below are shared by both -- a decoupled sweep (fixing home, tuning work
-        independently) found no fit improvement over keeping them equal, so a single set is kept
-        rather than duplicating home/work variants.
+        home_population and UrbanPopData::day_population are always available, no side file needed.
+        When true, this populates AgentContainer::comm_density_scale (nighttime, keyed on
+        home_population) and comm_density_scale_work (daytime, keyed on day_population -- the true
+        daytime headcount, not BlockGroup::work_populations[0], which structurally excludes
+        non-commuting residents and students). xmit_comm_scale/min_scale/max_scale below are shared
+        by both -- a decoupled sweep (fixing home, tuning work independently) found no fit
+        improvement over keeping them equal, so a single set is kept rather than duplicating
+        home/work variants.
 
         There is no beta exponent to tune: both mechanisms hard-code a 1/population correction (see
         computeCommunitySizeScale). InteractionModComm.H/InteractionModNborhood.H count the *raw

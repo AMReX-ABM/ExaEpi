@@ -239,6 +239,39 @@ static Vector<int> readWorkgroupSizeTable (const std::string& fname, int default
     return sizes;
 }
 
+/*! \brief Tally the true daytime headcount per community (see UrbanPopData::day_population's doc
+    comment) via a full, independent scan of the raw agent file, done identically/redundantly on
+    every rank -- deliberately NOT folded into initAgents()'s per-rank-partial tile loop, since
+    that only runs on a fresh start and would leave day_population empty on a restarted run. Pure
+    host-side counting (no particle/GPU work), so the redundant per-rank scan is cheap relative to
+    the one-time cost of reading the file at all. */
+static Vector<Real> computeDayPopulation (ifstream& f, const Vector<BlockGroup>& block_groups,
+                                          const std::map<int64_t, int>& geoid_to_block_groups) {
+    BL_PROFILE("computeDayPopulation");
+    Vector<Real> day_population(block_groups.size(), 0.0_rt);
+    UrbanPopAgent agent;
+    for (int bi = 0; bi < (int)block_groups.size(); ++bi) {
+        const auto& block_group = block_groups[bi];
+        if (block_group.home_population == 0) { continue; }
+        f.seekg(block_group.file_offset);
+        for (int i = 0; i < block_group.home_population; ++i) {
+            if (!agent.readBinary(f)) { Abort("File is corrupted while computing day population"); }
+            // non-workers and work-from-home agents stay at their home block group during the
+            // day; everyone else (including school employees/students, whose work_geoid is the
+            // school's block group) physically goes to their work block group -- mirrors the
+            // work_i/work_j assignment in initAgents' agent-initialization kernel exactly
+            if (agent.naics == -1 || agent.travel == TRAVEL::_wfh) {
+                day_population[bi] += 1.0_rt;
+            } else {
+                auto it = geoid_to_block_groups.find(agent.work_geoid);
+                if (it == geoid_to_block_groups.end()) { Abort("Cannot find block group for work location"); }
+                day_population[it->second] += 1.0_rt;
+            }
+        }
+    }
+    return day_population;
+}
+
 /*! \brief Read in UrbanPop data from given file
  */
 void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& ba, DistributionMapping& dm) {
@@ -329,6 +362,8 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
     workgroup_size_table = readWorkgroupSizeTable(params.workgroup_size_filename, params.workgroup_size);
     copyToDeviceAsync(workgroup_size_table, workgroup_size_table_d);
     Gpu::streamSynchronize();
+
+    day_population = computeDayPopulation(urbanpop_file, block_groups, geoid_to_block_groups);
 
     fillGridMetadataOnHost();
 
@@ -798,43 +833,42 @@ amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockG
 }
 
 /*! \brief Compute a per-community work-population scale factor, exactly mirroring
- *  computeCommunitySizeScale but keyed on work_populations[0] (total workers whose workplace is
- *  this community) instead of home_population:
- *    raw[c]   = 1 / work_population[c]                           -- fixed correction, not tunable
+ *  computeCommunitySizeScale but keyed on day_population (true daytime headcount -- see its doc
+ *  comment for why this is used instead of BlockGroup::work_populations[0]) instead of
+ *  home_population:
+ *    raw[c]   = 1 / day_population[c]                             -- fixed correction, not tunable
  *    scale[c] = clip(xmit_comm_scale * raw[c]/mean(raw), min_scale, max_scale)
- *  where mean(raw) is the work-population-weighted mean of raw[] over all communities. Communities
- *  with zero work population (no one's workplace is there) get scale=1.0, unaffected by
- *  xmit_comm_scale, and don't contribute to the weighted mean. Shares xmit_comm_scale/min_scale/
- *  max_scale with computeCommunitySizeScale (a decoupled sweep found no benefit to tuning them
- *  separately from the home/night values). */
-amrex::Vector<amrex::Real> computeCommunityWorkSizeScale (const amrex::Vector<BlockGroup>& block_groups,
+ *  where mean(raw) is the day-population-weighted mean of raw[] over all communities. Communities
+ *  with zero daytime population get scale=1.0, unaffected by xmit_comm_scale, and don't contribute
+ *  to the weighted mean. Shares xmit_comm_scale/min_scale/max_scale with computeCommunitySizeScale
+ *  (a decoupled sweep found no benefit to tuning them separately from the home/night values). */
+amrex::Vector<amrex::Real> computeCommunityWorkSizeScale (const amrex::Vector<amrex::Real>& day_population,
                                                           const ExaEpi::TestParams& params) {
-    Vector<Real> scale(block_groups.size(), 1.0_rt);
-    if (block_groups.empty()) { return scale; }
+    Vector<Real> scale(day_population.size(), 1.0_rt);
+    if (day_population.empty()) { return scale; }
 
     Real weight_sum = 0.0_rt;
-    for (const auto& bg : block_groups) {
-        Real pop = (Real)bg.work_populations[0];
+    for (Real pop : day_population) {
         if (pop > 0.0_rt) { weight_sum += pop; }
     }
 
-    Vector<Real> raw(block_groups.size(), 1.0_rt);
+    Vector<Real> raw(day_population.size(), 1.0_rt);
     Real weighted_raw_sum = 0.0_rt;
-    for (int c = 0; c < (int)block_groups.size(); ++c) {
-        Real pop = (Real)block_groups[c].work_populations[0];
+    for (int c = 0; c < (int)day_population.size(); ++c) {
+        Real pop = day_population[c];
         if (pop <= 0.0_rt) { continue; }
         raw[c] = 1.0_rt / pop;
         weighted_raw_sum += pop * raw[c];
     }
     Real mean_raw = (weight_sum > 0.0_rt) ? (weighted_raw_sum / weight_sum) : 1.0_rt;
 
-    for (int c = 0; c < (int)block_groups.size(); ++c) {
-        if (block_groups[c].work_populations[0] <= 0) { continue; }
+    for (int c = 0; c < (int)day_population.size(); ++c) {
+        if (day_population[c] <= 0.0_rt) { continue; }
         Real s = params.xmit_comm_scale * raw[c] / mean_raw;
         scale[c] = std::max(size_min_scale, std::min(size_max_scale, s));
     }
 
-    amrex::Print() << "WorkSizeScale: " << block_groups.size() << " communities (xmit_comm_scale=" << params.xmit_comm_scale
+    amrex::Print() << "WorkSizeScale: " << day_population.size() << " communities (xmit_comm_scale=" << params.xmit_comm_scale
                    << ")\n";
 
     return scale;
