@@ -168,13 +168,19 @@ void getTestParams(ExaEpi::TestParams& params, const std::string& prefix);
     every other rank).
 
     \p value_counts must already be fully merged/reduced -- see #gatherHistogramCounts for
-    combining rank-local partial counts first. If the observed value range fits within \p
-    max_distinct_buckets, each distinct integer value gets its own bar; otherwise values are
-    grouped into \p max_distinct_buckets equal-width range bins. Bar length is normalized so
-    the largest bucket is at most \p max_bar_width characters wide (noting the scale used, if
-    any, so the raw counts printed alongside each bar remain the source of truth). */
+    combining rank-local partial counts first. If \p bin_width is 0 (the default), bucket width
+    is chosen automatically: if the observed value range fits within \p max_distinct_buckets,
+    each distinct integer value gets its own bar; otherwise values are grouped into \p
+    max_distinct_buckets equal-width range bins. If \p bin_width is nonzero, every bucket uses
+    that fixed width instead (overriding \p max_distinct_buckets) -- useful when a distribution's
+    natural bucket width (1 or 2, from the auto sizing above) is too fine-grained to be legible.
+    Runs of 2+ consecutive empty buckets are collapsed into a single "..." gap line noting the
+    skipped range, so a wide fixed bin_width doesn't blow up the output with empty rows. Bar
+    length is normalized so the largest bucket is at most \p max_bar_width characters wide
+    (noting the scale used, if any, so the raw counts printed alongside each bar remain the
+    source of truth). */
 void printHistogram(const std::string& label, const std::map<amrex::Long, amrex::Long>& value_counts,
-                     int max_distinct_buckets = 50, int max_bar_width = 60);
+                     int max_distinct_buckets = 50, int max_bar_width = 60, amrex::Long bin_width = 0);
 
 /*! \brief Merge per-rank-local value->count maps (e.g. a histogram tallied only from the
     agents/data a rank happens to own) into a single global map.

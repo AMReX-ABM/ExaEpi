@@ -679,7 +679,9 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
 
         if (ParallelDescriptor::IOProcessor()) {
             ExaEpi::Utils::printHistogram("Household size", merged_household);
-            ExaEpi::Utils::printHistogram("Household-cluster size", merged_cluster);
+            // cluster sizes range far wider than household sizes (auto-sizing would pick a
+            // bucket width of 1 or 2), so use a fixed width of 5 for a more legible histogram
+            ExaEpi::Utils::printHistogram("Household-cluster size", merged_cluster, 50, 60, 5);
             ExaEpi::Utils::printHistogram("Workgroup target size", merged_workgroup_target);
         }
     }
