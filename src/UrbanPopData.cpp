@@ -698,19 +698,12 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         Gpu::synchronize();
 
         // now ensure that all members of the same family have the same home nborhood
-        // and ensure all members of the same hh cluster have the same home neighborhood
         ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
             // search forwards to find the last member of the family and use that agent's nborhood
             int nborhood = nborhood_ptr[i];
             for (int j = i + 1; j < np; j++) {
                 if (home_i_ptr[i] != home_i_ptr[j] || home_j_ptr[i] != home_j_ptr[j]) { break; }
-#define INTER_NH_HCS
-#ifdef INTER_NH_HCS
                 if (family_ptr[i] != family_ptr[j]) { break; }
-#else
-                // intra NH definition
-                if (hh_cluster_ptr[i] != hh_cluster_ptr[j]) { break; }
-#endif
                 nborhood = nborhood_ptr[j];
             }
             nborhood_ptr[i] = nborhood;
