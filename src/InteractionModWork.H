@@ -41,6 +41,10 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
     Vector<Gpu::DeviceVector<int>> infected_workgroup_asymp_d(OMP_MAX_THREADS);
 
     for (int lev = 0; lev < agents.numLevels(); ++lev) {
+        // getMaxGroup performs an MPI collective on first use per attribute -- must be called
+        // once, single-threaded, here, never from inside the omp-parallel region below.
+        int max_workgroup = agents.getMaxGroup(IntIdx::workgroup) + 1;
+        int max_naics = agents.getMaxGroup(IntIdx::naics) + 1;
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -65,8 +69,6 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
             auto comm_to_local_index_d = getCommunityIndex.comm_to_local_index_d;
 
             int max_communities = getCommunityIndex.max();
-            int max_workgroup = agents.getMaxGroup(IntIdx::workgroup) + 1;
-            int max_naics = agents.getMaxGroup(IntIdx::naics) + 1;
 
             infected_workgroup_d[OMP_THREAD_NUM].resize(max_communities * max_workgroup * max_naics);
             auto infected_workgroup_d_ptr = infected_workgroup_d[OMP_THREAD_NUM].data();

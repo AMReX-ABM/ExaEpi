@@ -86,6 +86,9 @@ void InteractionModAirTravel<PCType, PTDType, PType>::interactOneWay (
     Real asymp_inf = lparm_h->asymp_relative_inf;
 
     for (int lev = 0; lev < src.numLevels(); ++lev) {
+        // getMaxGroup performs an MPI collective on first use per attribute -- must be called
+        // once, single-threaded, here, never from inside the omp-parallel region below.
+        int max_nborhood = src.getMaxGroup(IntIdx::nborhood) + 1;
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -116,8 +119,6 @@ void InteractionModAirTravel<PCType, PTDType, PType>::interactOneWay (
             auto bin_size = getCommunityIndex.bin_size;
             int max_communities = getCommunityIndex.max();
             auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
-
-            int max_nborhood = src.getMaxGroup(IntIdx::nborhood) + 1;
 
             int comm_sz = max_communities;
             int hood_sz = max_communities * max_nborhood;

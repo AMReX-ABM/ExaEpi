@@ -47,6 +47,9 @@ void InteractionModHH<PCType, PTDType, PType>::fastInteractHH (PCType& agents) {
     Vector<Gpu::DeviceVector<int>> infected_family_asymp_d(OMP_MAX_THREADS);
 
     for (int lev = 0; lev < agents.numLevels(); ++lev) {
+        // getMaxGroup performs an MPI collective on first use per attribute -- must be called
+        // once, single-threaded, here, never from inside the omp-parallel region below.
+        int max_family = agents.getMaxGroup(IntIdx::family) + 1;
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -68,7 +71,6 @@ void InteractionModHH<PCType, PTDType, PType>::fastInteractHH (PCType& agents) {
             auto bin_size = getCommunityIndex.bin_size;
 
             int max_communities = getCommunityIndex.max();
-            int max_family = agents.getMaxGroup(IntIdx::family) + 1;
 
             infected_family_d[OMP_THREAD_NUM].resize(max_communities * max_family);
             infected_family_asymp_d[OMP_THREAD_NUM].resize(max_communities * max_family);

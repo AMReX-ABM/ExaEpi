@@ -54,6 +54,9 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
     Vector<Gpu::DeviceVector<int>> infected_daycare_asymp_d(OMP_MAX_THREADS);
 
     for (int lev = 0; lev < agents.numLevels(); ++lev) {
+        // getMaxGroup performs an MPI collective on first use per attribute -- must be called
+        // once, single-threaded, here, never from inside the omp-parallel region below.
+        int max_class_group = agents.getMaxGroup(IntIdx::school_class_group) + 1;
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -68,8 +71,6 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
             auto school_class_group_ptr = soa.GetIntData(IntIdx::school_class_group).data();
             auto school_class_ptr = soa.GetIntData(IntIdx::school_class).data();
             auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
-
-            int max_class_group = agents.getMaxGroup(IntIdx::school_class_group) + 1;
 
             infected_school_d[OMP_THREAD_NUM].resize(max_class_group);
             infected_daycare_d[OMP_THREAD_NUM].resize(max_class_group);

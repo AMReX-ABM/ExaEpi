@@ -82,6 +82,9 @@ void InteractionModNborhood<PCType, PTDType, PType>::fastInteractNborhood (PCTyp
     Vector<Gpu::DeviceVector<int>> infected_nborhood_asymp_d(OMP_MAX_THREADS);
 
     for (int lev = 0; lev < agents.numLevels(); ++lev) {
+        // getMaxGroup performs an MPI collective on first use per attribute -- must be called
+        // once, single-threaded, here, never from inside the omp-parallel region below.
+        int max_nborhood = agents.getMaxGroup(nborhood_attr) + 1;
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -103,7 +106,6 @@ void InteractionModNborhood<PCType, PTDType, PType>::fastInteractNborhood (PCTyp
             auto bin_size = getCommunityIndex.bin_size;
 
             int max_communities = getCommunityIndex.max();
-            int max_nborhood = agents.getMaxGroup(nborhood_attr) + 1;
 
             infected_nborhood_d[OMP_THREAD_NUM].resize(max_communities * max_nborhood);
             infected_nborhood_asymp_d[OMP_THREAD_NUM].resize(max_communities * max_nborhood);
