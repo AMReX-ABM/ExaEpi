@@ -318,8 +318,7 @@ def aggregate_infections_by_source(events_df: pd.DataFrame) -> pd.DataFrame:
     Aggregate new-infection ("exposed") events by day and infection-source bucket, giving an
     empirical estimate -- from Epicast's realized, per-agent context attribution -- of the same
     quantity ExaEpi's context_diag columns estimate analytically (see AgentContainer::
-    sumContextInfections): the probability/share of new infections attributable to each
-    interaction context.
+    sumContextInfections): the contribution of each interaction context to new infections.
 
     ctx_index_case events (initial seed infections, not caused by any modeled interaction) are
     excluded from both the counts and the fractions, matching what ExaEpi's context_diag would
@@ -328,8 +327,12 @@ def aggregate_infections_by_source(events_df: pd.DataFrame) -> pd.DataFrame:
     Returns
     -------
     pd.DataFrame with columns: day, <SOURCE_CATEGORIES counts>, total, <SOURCE_CATEGORIES>_frac
-        The *_frac columns are each day's count divided by that day's total (0 when total is 0),
-        directly comparable to ExaEpi's E<source>/sum(E<source>) shares.
+        The *_frac columns are each day's count divided by the run's grand total across all days
+        (0 if that total is 0) -- NOT that day's own total. Normalizing by a single run-wide
+        constant, rather than each day's (often small and noisy) total, keeps each bucket's curve
+        shaped like its raw daily-count time series -- so the comparison stays informative during
+        the epidemic's peak, where the counts (and the comparison) actually matter -- while its
+        time-integral still equals that bucket's overall share of total infections.
     """
     exposed = events_df.loc[events_df["disease_state"] == "exposed"].copy()
     exposed = exposed.loc[exposed["context"] != "ctx_index_case"]
@@ -359,7 +362,9 @@ def aggregate_infections_by_source(events_df: pd.DataFrame) -> pd.DataFrame:
     counts = counts[SOURCE_CATEGORIES]
     counts["total"] = counts.sum(axis=1)
 
-    fracs = counts[SOURCE_CATEGORIES].div(counts["total"].replace(0, np.nan), axis=0).fillna(0)
+    grand_total = counts["total"].sum()
+    fracs = counts[SOURCE_CATEGORIES] / (grand_total if grand_total > 0 else np.nan)
+    fracs = fracs.fillna(0)
     fracs.columns = [c + "_frac" for c in SOURCE_CATEGORIES]
 
     out = counts.join(fracs).reset_index()

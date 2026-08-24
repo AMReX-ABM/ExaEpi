@@ -88,16 +88,18 @@ _EXAEPI_SOURCE_MAPPING = {
 
 def _add_exaepi_source_fractions(df):
     """Add "<source>_frac" columns to df: each source bucket's expected-infection contribution
-    divided by the day's total across all context_diag columns. No-op (columns simply absent
+    divided by the run's grand total across all days and all context_diag columns (NOT that
+    day's own total) -- see the matching normalization in aggregate_infections_by_source, which
+    this must match for the two models' curves to be comparable. No-op (columns simply absent
     downstream) if the run wasn't started with context_diag=true.
     """
     needed_cols = [c for cols in _EXAEPI_SOURCE_MAPPING.values() for c in cols]
     if not all(c in df.columns for c in needed_cols):
         return df
-    total = sum(df[c] for c in needed_cols)
+    grand_total = df[needed_cols].to_numpy().sum()
     for source, cols in _EXAEPI_SOURCE_MAPPING.items():
-        bucket_sum = sum(df[c] for c in cols)
-        df[source + "_frac"] = (bucket_sum / total.replace(0, np.nan)).fillna(0.0)
+        bucket_sum = df[cols].sum(axis=1)
+        df[source + "_frac"] = (bucket_sum / grand_total) if grand_total > 0 else 0.0
     return df
 
 
@@ -630,14 +632,18 @@ def _source_frac_max(epicast_data, exaepi_data, source_keys, xlimit):
 
 
 def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit):
-    """Compare one interaction context's share of new infections between the two models.
+    """Compare one interaction context's daily contribution to total infections between the
+    two models, each expressed as a fraction of that model's own run-wide total exposed count
+    (not that day's total -- see aggregate_infections_by_source / _add_exaepi_source_fractions).
+    That keeps each curve shaped like its raw daily-count time series, so the comparison stays
+    informative during the epidemic's peak rather than being dominated by noisy day-to-day
+    ratios where daily counts are small (e.g. at the start/tail of the epidemic).
 
-    Epicast's share (solid) is an empirical fraction from its realized per-agent context
-    attribution (read_epicast_events.aggregate_infections_by_source). ExaEpi's share (dashed)
-    is the analytic E<source>/sum(E<source>) share from its context_diag columns, grouped so
-    neighborhood/community day+night match Epicast's single merged context (see
-    _EXAEPI_SOURCE_MAPPING). Only the first -e and first -x group are shown (averaged if a
-    wildcard group).
+    Epicast's curve (solid) is an empirical fraction from its realized per-agent context
+    attribution. ExaEpi's curve (dashed) is the analytic E<source>/(run-wide total E) share from
+    its context_diag columns, grouped so neighborhood/community day+night match Epicast's single
+    merged context (see _EXAEPI_SOURCE_MAPPING). Only the first -e and first -x group are shown
+    (averaged if a wildcard group).
 
     ylimit sets the shared y-axis peak across all "Source: ..." subplots in this run (see
     _source_frac_max) so they're visually comparable rather than each auto-scaling to its own
@@ -645,7 +651,7 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
     """
     ax.set_title(title)
     ax.set_xlabel("Days")
-    ax.set_ylabel("Fraction of new infections")
+    ax.set_ylabel("Fraction of total exposed")
     ax.set_xlim([0, args.xlimit])
     ax.set_ylim([0, ylimit])
     ax.grid(True, which="major")
@@ -653,6 +659,7 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
     ax.minorticks_on()
 
     col = source_key + "_frac"
+    row = 0
 
     if epicast_data:
         entry = epicast_data[0]
@@ -661,6 +668,10 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
             x = (df0["day"] + epicast_shift).values[: args.xlimit]
             y = _get_group_y(entry, col, args.xlimit)
             ax.plot(x[: len(y)], y, color="blue", linewidth=1.5, linestyle="-", label="Epicast")
+            auc = float(np.sum(y))
+            ax.text(0.98, 0.97 - row * 0.08, f"AUC Epicast: {auc:.1f}",
+                    transform=ax.transAxes, ha="right", va="top", fontsize=7, color="blue")
+            row += 1
 
     if exaepi_data:
         entry = exaepi_data[0]
@@ -670,6 +681,10 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
             x = (df0["Day"] + shift).values[: args.xlimit]
             y = _get_group_y(entry, col, args.xlimit)
             ax.plot(x[: len(y)], y, color="red", linewidth=1.5, linestyle="--", label="ExaEpi")
+            auc = float(np.sum(y))
+            ax.text(0.98, 0.97 - row * 0.08, f"AUC ExaEpi: {auc:.1f}",
+                    transform=ax.transAxes, ha="right", va="top", fontsize=7, color="red")
+            row += 1
 
     ax.legend(fontsize=7)
 
