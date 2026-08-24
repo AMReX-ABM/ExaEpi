@@ -261,17 +261,20 @@ static int infectRandomCommunity (AgentContainer& pc,                      /*!< 
 
             Box tbx;
             int i_cell = getTileIndex({AMREX_D_DECL(i, j, k)}, box, true, bin_size, tbx);
+            AMREX_ALWAYS_ASSERT(i_cell >= 0 && i_cell < ntiles);
             auto cell_start = offsets[i_cell];
             auto cell_stop = offsets[i_cell + 1];
             int num_this_community = cell_stop - cell_start;
-            AMREX_ASSERT(num_this_community > 0 && cell_stop <= (int)np);
+            AMREX_ALWAYS_ASSERT(num_this_community > 0 && cell_stop <= (int)np && cell_start >= 0);
 
             int ntry = 0;
             int ni = 0;
             int stop = std::min(cell_start + n_here, cell_stop);
             for (int ip = cell_start; ip < stop; ++ip) {
                 int ind = cell_start + amrex::Random_int(num_this_community, engine);
+                AMREX_ALWAYS_ASSERT(ind >= cell_start && ind < cell_stop);
                 auto pindex = inds[ind];
+                AMREX_ALWAYS_ASSERT(pindex >= 0 && pindex < (int)np);
                 if (status_ptr[pindex] == Status::infected || status_ptr[pindex] == Status::immune) {
                     if (++ntry < 100) {
                         --ip;

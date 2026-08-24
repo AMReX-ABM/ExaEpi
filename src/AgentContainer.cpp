@@ -1039,6 +1039,7 @@ void AgentContainer::updateStatus (MFPtrVec& a_disease_stats /*!< Community-wise
                     p.pos(1) = static_cast<ParticleReal>((hosp_j_ptr[ip] + 0.5_prt) * dx[1]);
                 }
             });
+            Gpu::synchronize();
         }
     }
 }
@@ -1181,6 +1182,7 @@ void AgentContainer::infectAgents (MFPtrVec& a_disease_stats /*!< Community-wise
                         }
                     }
                 });
+                Gpu::synchronize();
             }
         }
     }
