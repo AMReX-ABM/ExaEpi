@@ -13,6 +13,13 @@ add_compile_options("$<$<CONFIG:DEBUG>:-DDEBUG>")
 # and AgentContainer::moveAgentsToWork
 option(EXAEPI_DISABLE_SCHOOL "Disable daytime school commute and school transmission (experimental)" OFF)
 
+# Prevent MPI headers from declaring the deprecated MPI C++ bindings (MPI::Comm etc.) --
+# unused by AMReX/ExaEpi, but Open MPI's and MPICH's mpi.h declare them by default unless
+# told not to, which then requires linking libmpi_cxx even though nothing calls any MPI::
+# API. Open MPI 5.x+ removed that library entirely, breaking portability without this.
+# Defining both macros is harmless on an implementation that doesn't recognize the other's.
+add_compile_definitions(OMPI_SKIP_MPICXX MPICH_SKIP_MPICXX)
+
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)
 
 set(AMReX_PARTICLES ON)
@@ -51,6 +58,24 @@ FetchContent_Declare(
 
 if(NOT ${amrex}_POPULATED)
   FetchContent_Populate(amrex)
+
+  # Workaround for an AMReX CMake bug: it unconditionally requests the deprecated MPI C++
+  # bindings component (Tools/CMake/AMReXParallelBackends.cmake), which nothing in
+  # AMReX/ExaEpi actually uses, but which Open MPI 5.x+ no longer ships at all -- breaking
+  # the build on any host with a newer Open MPI. Patch it out of the freshly-fetched
+  # source here so this survives every fresh AMReX fetch (only C is needed; see also the
+  # OMPI_SKIP_MPICXX/MPICH_SKIP_MPICXX compile definitions above, which are still required
+  # even with this fix, since MPI headers otherwise declare those C++ classes regardless of
+  # whether the library ends up linked).
+  set(_amrex_mpi_cmake ${amrex_SOURCE_DIR}/Tools/CMake/AMReXParallelBackends.cmake)
+  if(EXISTS ${_amrex_mpi_cmake})
+    file(READ ${_amrex_mpi_cmake} _amrex_mpi_cmake_contents)
+    string(REPLACE "set(_mpi_comps C CXX)" "set(_mpi_comps C)" _amrex_mpi_cmake_contents
+                   "${_amrex_mpi_cmake_contents}")
+    file(WRITE ${_amrex_mpi_cmake} "${_amrex_mpi_cmake_contents}")
+  endif()
+  unset(_amrex_mpi_cmake)
+  unset(_amrex_mpi_cmake_contents)
 
   list(APPEND CMAKE_MODULE_PATH ${amrex_SOURCE_DIR}/Tools/CMake)
 
