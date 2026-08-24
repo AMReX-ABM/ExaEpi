@@ -54,9 +54,11 @@ def load_epicast(fname):
     tot_exposed = converted_df.exposed.sum()
     tot_symp = float(converted_df.symptomatic.sum())
     tot_hosp = float(converted_df.hospitalized.sum())
+    frac_symp = tot_symp / tot_exposed if tot_exposed > 0 else float("nan")
+    frac_hosp = tot_hosp / tot_symp if tot_symp > 0 else float("nan")
     print(f"Epicast total infected/exposed {tot_exposed}")
-    print(f"Epicast total symptomatic {tot_symp} {(tot_symp / tot_exposed):.2f}")
-    print(f"Epicast total hospitalized {tot_hosp} {(tot_hosp / tot_symp):.2f}")
+    print(f"Epicast total symptomatic {tot_symp} {frac_symp:.2f}")
+    print(f"Epicast total hospitalized {tot_hosp} {frac_hosp:.2f}")
 
     # Add a "day" column (0-based) for clarity in the CSV
     converted_df.insert(0, "day", range(days))
@@ -128,13 +130,16 @@ def load_exaepi(fname):
     for i in range(len(ages)):
         num_symp = float(df["Symp" + ages[i]].to_numpy().sum())
         num_hosp = float(df["Hosp" + ages[i]].to_numpy().sum())
-        frac_hosp = num_hosp / num_symp
+        frac_hosp = num_hosp / num_symp if num_symp > 0 else float("nan")
         print(f"  {ages[i]:8s}   {num_hosp:8.0f} {frac_hosp:.3f}")
 
     tot_symp = float(df.NewS.sum())
     tot_hosp = float(df.NewH.sum())
-    print(f"ExaEpi total symptomatic {tot_symp} {(tot_symp / df.NewI.sum()):.2f}")
-    print(f"ExaEpi total hospitalized {tot_hosp} {(tot_hosp / tot_symp):.2f}")
+    tot_exposed = float(df.NewI.sum())
+    frac_symp = tot_symp / tot_exposed if tot_exposed > 0 else float("nan")
+    frac_hosp = tot_hosp / tot_symp if tot_symp > 0 else float("nan")
+    print(f"ExaEpi total symptomatic {tot_symp} {frac_symp:.2f}")
+    print(f"ExaEpi total hospitalized {tot_hosp} {frac_hosp:.2f}")
 
     if not fname.startswith("adjusted"):
         transformed_df = df.copy()
@@ -968,8 +973,8 @@ ALL_PLOTS = [
     "Exposed", "Symptomatic", "Presymptomatic", "Asymptomatic",
     "Hospitalized", "Dead", "Recovered", "Cumulative Exposed", "Context", *SOURCE_PLOT_NAMES,
 ]
-_plot_map = {p.lower(): p for p in ALL_PLOTS}
-_plot_map["source fractions"] = SOURCE_PLOT_NAMES  # legacy alias: expands to all 6 context plots
+_plot_map: dict[str, str | list[str]] = {p.lower(): p for p in ALL_PLOTS}
+_plot_map["source fractions"] = SOURCE_PLOT_NAMES  # legacy alias: expands to all context plots
 
 if args.plots is not None:
     resolved = []
