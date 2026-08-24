@@ -294,14 +294,19 @@ def aggregate_events(events_df: pd.DataFrame, split_day_night: bool = False) -> 
 # names. Contexts absent from this mapping (disease-progression contexts like ctx_symptomatic,
 # and ctx_index_case for initial seed infections) never represent a transmission source and are
 # dropped by aggregate_infections_by_source rather than mapped to "other".
-SOURCE_CATEGORIES = ["household", "cluster", "neighborhood_community", "work", "school", "hospital", "other"]
+SOURCE_CATEGORIES = ["household", "cluster", "neighborhood_community", "work", "school", "other"]
 
+# ctx_hospitalized is deliberately absent: checked across every event file under
+# data/results/emerge-paper/epicast, it never appears as the context of an "exposed" event (and
+# ExaEpi's EHosp is likewise always ~0) -- hospitalized/ICU/ventilated agents are evidently
+# isolated from further transmission in both models. Leaving it unmapped means it falls into the
+# unmapped-context warning below rather than a silent "hospital" bucket, so a future dataset where
+# it's actually nonzero gets surfaced instead of quietly dropped.
 _CONTEXT_TO_SOURCE = {
     "ctx_household":            "household",
     "ctx_household_cluster":    "cluster",
     "ctx_neighborhood_community": "neighborhood_community",
     "ctx_work":                 "work",
-    "ctx_hospitalized":         "hospital",
     "ctx_school":               "school",
     "ctx_teachers":             "school",
     "ctx_teacher_student":      "school",

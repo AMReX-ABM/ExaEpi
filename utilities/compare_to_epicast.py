@@ -75,14 +75,15 @@ def load_epicast(fname):
 # Groups ExaEpi's per-phase context_diag columns into the same buckets Epicast's
 # aggregate_infections_by_source uses. ENbhD/ECommD/ENbhN/ECommN are summed into one
 # "neighborhood_community" bucket because Epicast records all four under a single context with
-# no day/night split (see the comment above _CONTEXT_TO_SOURCE in read_epicast_events.py).
+# no day/night split (see the comment above _CONTEXT_TO_SOURCE in read_epicast_events.py). EHosp
+# is deliberately omitted: it's always ~0 here, matching Epicast's ctx_hospitalized never being an
+# infection source in any checked run (see the comment above _CONTEXT_TO_SOURCE).
 _EXAEPI_SOURCE_MAPPING = {
     "household":              ["EHH"],
     "cluster":                ["ENC"],
     "neighborhood_community": ["ENbhD", "ECommD", "ENbhN", "ECommN"],
     "work":                   ["EWork"],
     "school":                 ["ESchool"],
-    "hospital":               ["EHosp"],
 }
 
 
@@ -601,7 +602,6 @@ _SOURCE_LABELS = {
     "neighborhood_community": "Neighborhood+Comm",
     "work":                   "Work",
     "school":                 "School",
-    "hospital":               "Hospital",
 }
 
 # One plot name per context pair, e.g. "Source: Household" -> source key "household". Keeping
@@ -669,7 +669,7 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
             y = _get_group_y(entry, col, args.xlimit)
             ax.plot(x[: len(y)], y, color="blue", linewidth=1.5, linestyle="-", label="Epicast")
             auc = float(np.sum(y))
-            ax.text(0.98, 0.97 - row * 0.08, f"AUC Epicast: {auc:.1f}",
+            ax.text(0.98, 0.97 - row * 0.08, f"AUC Epicast: {auc:.3f}",
                     transform=ax.transAxes, ha="right", va="top", fontsize=7, color="blue")
             row += 1
 
@@ -682,7 +682,7 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
             y = _get_group_y(entry, col, args.xlimit)
             ax.plot(x[: len(y)], y, color="red", linewidth=1.5, linestyle="--", label="ExaEpi")
             auc = float(np.sum(y))
-            ax.text(0.98, 0.97 - row * 0.08, f"AUC ExaEpi: {auc:.1f}",
+            ax.text(0.98, 0.97 - row * 0.08, f"AUC ExaEpi: {auc:.3f}",
                     transform=ax.transAxes, ha="right", va="top", fontsize=7, color="red")
             row += 1
 
