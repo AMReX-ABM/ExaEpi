@@ -285,6 +285,87 @@ def aggregate_events(events_df: pd.DataFrame, split_day_night: bool = False) -> 
     return agg_df
 
 
+# Mapping from Epicast's fine-grained transmission contexts to the coarser buckets ExaEpi's
+# context_diag output uses. ExaEpi tracks neighborhood/community separately by day and night
+# (ENbhD, ECommD, ENbhN, ECommN); Epicast records both under the single "neighborhood_community"
+# context with no day/night split, so all four ExaEpi columns must be summed to compare against
+# it (see aggregate_source_fractions in compare_to_epicast.py). "Household cluster" (Epicast) and
+# "neighborhood cluster" (ExaEpi's ENC / InteractionModNC) are the same concept under different
+# names. Contexts absent from this mapping (disease-progression contexts like ctx_symptomatic,
+# and ctx_index_case for initial seed infections) never represent a transmission source and are
+# dropped by aggregate_infections_by_source rather than mapped to "other".
+SOURCE_CATEGORIES = ["household", "cluster", "neighborhood_community", "work", "school", "hospital", "other"]
+
+_CONTEXT_TO_SOURCE = {
+    "ctx_household":            "household",
+    "ctx_household_cluster":    "cluster",
+    "ctx_neighborhood_community": "neighborhood_community",
+    "ctx_work":                 "work",
+    "ctx_hospitalized":         "hospital",
+    "ctx_school":               "school",
+    "ctx_teachers":             "school",
+    "ctx_teacher_student":      "school",
+    "ctx_student_teacher":      "school",
+    "ctx_playgroup":            "school",
+    "ctx_daycare":              "school",
+    "ctx_customer":             "other",
+    "ctx_bar_social":           "other",
+}
+
+
+def aggregate_infections_by_source(events_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aggregate new-infection ("exposed") events by day and infection-source bucket, giving an
+    empirical estimate -- from Epicast's realized, per-agent context attribution -- of the same
+    quantity ExaEpi's context_diag columns estimate analytically (see AgentContainer::
+    sumContextInfections): the probability/share of new infections attributable to each
+    interaction context.
+
+    ctx_index_case events (initial seed infections, not caused by any modeled interaction) are
+    excluded from both the counts and the fractions, matching what ExaEpi's context_diag would
+    report for the same run (it has no equivalent "seed" bucket).
+
+    Returns
+    -------
+    pd.DataFrame with columns: day, <SOURCE_CATEGORIES counts>, total, <SOURCE_CATEGORIES>_frac
+        The *_frac columns are each day's count divided by that day's total (0 when total is 0),
+        directly comparable to ExaEpi's E<source>/sum(E<source>) shares.
+    """
+    exposed = events_df.loc[events_df["disease_state"] == "exposed"].copy()
+    exposed = exposed.loc[exposed["context"] != "ctx_index_case"]
+
+    source = exposed["context"].astype(str).map(_CONTEXT_TO_SOURCE)
+    unmapped_mask = source.isna()
+    if unmapped_mask.any():
+        import warnings
+
+        unmapped_ctx = exposed.loc[unmapped_mask, "context"].unique().tolist()
+        warnings.warn(
+            f"{unmapped_mask.sum()} exposed event(s) have context(s) {unmapped_ctx} not in "
+            "_CONTEXT_TO_SOURCE; they will be excluded from aggregate_infections_by_source."
+        )
+    exposed = exposed.loc[~unmapped_mask].copy()
+    exposed["source"] = source[~unmapped_mask]
+    exposed["day"] = (exposed["timestep"] // 2).astype(int)
+
+    counts = (
+        exposed.groupby(["day", "source"], observed=True)
+        .size()
+        .unstack(fill_value=0)
+    )
+    for cat in SOURCE_CATEGORIES:
+        if cat not in counts.columns:
+            counts[cat] = 0
+    counts = counts[SOURCE_CATEGORIES]
+    counts["total"] = counts.sum(axis=1)
+
+    fracs = counts[SOURCE_CATEGORIES].div(counts["total"].replace(0, np.nan), axis=0).fillna(0)
+    fracs.columns = [c + "_frac" for c in SOURCE_CATEGORIES]
+
+    out = counts.join(fracs).reset_index()
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # Example usage
 # --------------------------------------------------------------------------- #

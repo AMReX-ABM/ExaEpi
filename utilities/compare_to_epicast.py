@@ -11,7 +11,12 @@ from scipy.integrate import solve_ivp
 from scipy.optimize import minimize
 
 sys.path.insert(0, os.path.dirname(__file__))
-from read_epicast_events import read_events_bin, aggregate_events
+from read_epicast_events import (
+    read_events_bin,
+    aggregate_events,
+    aggregate_infections_by_source,
+    SOURCE_CATEGORIES,
+)
 
 
 def load_epicast(fname):
@@ -56,12 +61,50 @@ def load_epicast(fname):
     # Add a "day" column (0-based) for clarity in the CSV
     converted_df.insert(0, "day", range(days))
 
+    # Empirical share of new infections attributable to each interaction context (see
+    # aggregate_infections_by_source): the realized-count analog of ExaEpi's analytic
+    # E<source>/sum(E<source>) shares, joined in as "<source>_frac" columns.
+    src_df = aggregate_infections_by_source(events_df)
+    frac_cols = [c + "_frac" for c in SOURCE_CATEGORIES]
+    converted_df = converted_df.merge(src_df[["day"] + frac_cols], on="day", how="left")
+    converted_df[frac_cols] = converted_df[frac_cols].fillna(0.0)
+
     return converted_df
+
+
+# Groups ExaEpi's per-phase context_diag columns into the same buckets Epicast's
+# aggregate_infections_by_source uses. ENbhD/ECommD/ENbhN/ECommN are summed into one
+# "neighborhood_community" bucket because Epicast records all four under a single context with
+# no day/night split (see the comment above _CONTEXT_TO_SOURCE in read_epicast_events.py).
+_EXAEPI_SOURCE_MAPPING = {
+    "household":              ["EHH"],
+    "cluster":                ["ENC"],
+    "neighborhood_community": ["ENbhD", "ECommD", "ENbhN", "ECommN"],
+    "work":                   ["EWork"],
+    "school":                 ["ESchool"],
+    "hospital":               ["EHosp"],
+}
+
+
+def _add_exaepi_source_fractions(df):
+    """Add "<source>_frac" columns to df: each source bucket's expected-infection contribution
+    divided by the day's total across all context_diag columns. No-op (columns simply absent
+    downstream) if the run wasn't started with context_diag=true.
+    """
+    needed_cols = [c for cols in _EXAEPI_SOURCE_MAPPING.values() for c in cols]
+    if not all(c in df.columns for c in needed_cols):
+        return df
+    total = sum(df[c] for c in needed_cols)
+    for source, cols in _EXAEPI_SOURCE_MAPPING.items():
+        bucket_sum = sum(df[c] for c in cols)
+        df[source + "_frac"] = (bucket_sum / total.replace(0, np.nan)).fillna(0.0)
+    return df
 
 
 def load_exaepi(fname):
     df = pd.read_csv(fname, sep="\\s+")
     print(f"Read {len(df)} lines from the ExaEpi file {fname}")
+    df = _add_exaepi_source_fractions(df)
 
     df["in_hospital"] = df[["H/NI", "H/I"]].sum(axis=1)
 
@@ -550,6 +593,87 @@ def plot_context(ax, exaepi_data):
     ax.legend(fontsize=7)
 
 
+_SOURCE_LABELS = {
+    "household":              "Household",
+    "cluster":                "Nbhd/HH cluster",
+    "neighborhood_community": "Neighborhood+Comm",
+    "work":                   "Work",
+    "school":                 "School",
+    "hospital":               "Hospital",
+}
+
+# One plot name per context pair, e.g. "Source: Household" -> source key "household". Keeping
+# them as separate ALL_PLOTS entries (rather than one combined panel) means selecting all six
+# via -p lands in the existing ncols=2 grid layout as 2 columns x 3 rows automatically.
+SOURCE_PLOT_NAMES = [f"Source: {label}" for label in _SOURCE_LABELS.values()]
+_SOURCE_PLOT_TO_KEY = {f"Source: {label}": key for key, label in _SOURCE_LABELS.items()}
+
+
+def _source_frac_max(epicast_data, exaepi_data, source_keys, xlimit):
+    """Largest "<source>_frac" value across the given source_keys, over the first -e and first
+    -x group only (matching what plot_single_source actually draws). Used to give every "Source:
+    ..." subplot in a run the same y-axis peak, sized to whichever of them needs the most room.
+    Returns None if no group has any of the requested frac columns.
+    """
+    vals = []
+    for key in source_keys:
+        col = key + "_frac"
+        if epicast_data:
+            df0 = epicast_data[0]["dfs"][0]
+            if col in df0.columns:
+                vals.append(float(_get_group_y(epicast_data[0], col, xlimit).max()))
+        if exaepi_data:
+            df0 = exaepi_data[0]["dfs"][0]
+            if col in df0.columns:
+                vals.append(float(_get_group_y(exaepi_data[0], col, xlimit).max()))
+    return max(vals) if vals else None
+
+
+def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit):
+    """Compare one interaction context's share of new infections between the two models.
+
+    Epicast's share (solid) is an empirical fraction from its realized per-agent context
+    attribution (read_epicast_events.aggregate_infections_by_source). ExaEpi's share (dashed)
+    is the analytic E<source>/sum(E<source>) share from its context_diag columns, grouped so
+    neighborhood/community day+night match Epicast's single merged context (see
+    _EXAEPI_SOURCE_MAPPING). Only the first -e and first -x group are shown (averaged if a
+    wildcard group).
+
+    ylimit sets the shared y-axis peak across all "Source: ..." subplots in this run (see
+    _source_frac_max) so they're visually comparable rather than each auto-scaling to its own
+    fraction's range.
+    """
+    ax.set_title(title)
+    ax.set_xlabel("Days")
+    ax.set_ylabel("Fraction of new infections")
+    ax.set_xlim([0, args.xlimit])
+    ax.set_ylim([0, ylimit])
+    ax.grid(True, which="major")
+    ax.grid(True, which="minor", alpha=0.3)
+    ax.minorticks_on()
+
+    col = source_key + "_frac"
+
+    if epicast_data:
+        entry = epicast_data[0]
+        df0 = entry["dfs"][0]
+        if col in df0.columns:
+            x = (df0["day"] + epicast_shift).values[: args.xlimit]
+            y = _get_group_y(entry, col, args.xlimit)
+            ax.plot(x[: len(y)], y, color="blue", linewidth=1.5, linestyle="-", label="Epicast")
+
+    if exaepi_data:
+        entry = exaepi_data[0]
+        shift = shift_by_group[0]
+        df0 = entry["dfs"][0]
+        if col in df0.columns:
+            x = (df0["Day"] + shift).values[: args.xlimit]
+            y = _get_group_y(entry, col, args.xlimit)
+            ax.plot(x[: len(y)], y, color="red", linewidth=1.5, linestyle="--", label="ExaEpi")
+
+    ax.legend(fontsize=7)
+
+
 def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=None):
     """Plot time series data from multiple files.
 
@@ -827,9 +951,10 @@ fit_fixed = {p for p in _seir_params if p in _argv_flags}
 
 ALL_PLOTS = [
     "Exposed", "Symptomatic", "Presymptomatic", "Asymptomatic",
-    "Hospitalized", "Dead", "Recovered", "Cumulative Exposed", "Context",
+    "Hospitalized", "Dead", "Recovered", "Cumulative Exposed", "Context", *SOURCE_PLOT_NAMES,
 ]
 _plot_map = {p.lower(): p for p in ALL_PLOTS}
+_plot_map["source fractions"] = SOURCE_PLOT_NAMES  # legacy alias: expands to all 6 context plots
 
 if args.plots is not None:
     resolved = []
@@ -837,7 +962,10 @@ if args.plots is not None:
         canonical = _plot_map.get(name.lower())
         if canonical is None:
             parser.error(f"Unknown plot '{name}'. Valid names: {', '.join(ALL_PLOTS)}")
-        resolved.append(canonical)
+        elif isinstance(canonical, list):
+            resolved.extend(canonical)
+        else:
+            resolved.append(canonical)
     args.plots = resolved
 
 if not args.epicast_file and not args.exaepi_file:
@@ -988,17 +1116,28 @@ elif args.seir or fit_results:
     else:
         selected_plots = ["Exposed", "Cumulative Exposed", "Recovered"]
 else:
-    selected_plots = [p for p in ALL_PLOTS if p != "Context"]
+    selected_plots = [p for p in ALL_PLOTS if p != "Context" and p not in SOURCE_PLOT_NAMES]
 
 n = len(selected_plots)
 ncols = 1 if n == 1 else 2
 nrows = (n + ncols - 1) // ncols
-fig, axes_grid = plt.subplots(nrows, ncols, figsize=(6 * ncols, nrows * 3.5), squeeze=False)
+scale = 2 if n <= 2 else 1
+fig, axes_grid = plt.subplots(nrows, ncols, figsize=(6 * ncols * scale, nrows * 3.5 * scale), squeeze=False)
 axes = axes_grid.flatten()
+
+_selected_source_keys = [_SOURCE_PLOT_TO_KEY[p] for p in selected_plots if p in _SOURCE_PLOT_TO_KEY]
+if args.ylimit is not None:
+    source_ylimit = args.ylimit
+else:
+    _max_frac = _source_frac_max(epicast_data, exaepi_data, _selected_source_keys, args.xlimit)
+    source_ylimit = 1.1 * _max_frac if _max_frac is not None else 1.0
 
 for i, plot_name in enumerate(selected_plots):
     if plot_name == "Context":
         plot_context(axes[i], exaepi_data)
+    elif plot_name in _SOURCE_PLOT_TO_KEY:
+        plot_single_source(axes[i], epicast_data, exaepi_data, _SOURCE_PLOT_TO_KEY[plot_name], plot_name,
+                            source_ylimit)
     else:
         plot_series(axes[i], epicast_data, exaepi_data, plot_name,
                     seir_df=seir_df, fit_results=fit_results)
