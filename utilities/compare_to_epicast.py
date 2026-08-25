@@ -10,6 +10,10 @@ import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
 from scipy.optimize import minimize
 
+# Doubles title/axis-label/tick-label/legend sizes everywhere, since they all scale off
+# font.size by default and none of them are overridden elsewhere in this script.
+plt.rcParams["font.size"] *= 2
+
 sys.path.insert(0, os.path.dirname(__file__))
 from read_epicast_events import (
     read_events_bin,
@@ -237,6 +241,98 @@ def run_seir(beta, sigma, gamma, h, gamma_h, mu, N, seed, days):
     ifr = (h / (gamma + h)) * hfr
     print(f"SEIRHD  exposed={new_exposed.sum():.0f}  hosp={new_hospitalized.sum():.0f}  dead={new_dead.sum():.0f}")
     print(f"SEIRHD  R0={r0:.2f}  hosp_rate={h/(gamma+h):.4f}  HFR={hfr:.4f}  IFR={ifr:.4f}")
+
+    return df
+
+
+def run_seirhd_erlang(beta, sigma, gamma, h, gamma_h, mu, N, seed, days, kE=3, kI=4):
+    """Run a SEIRHD model with Erlang (gamma-distributed) latent/infectious stages.
+
+    Same compartments and flows as run_seir, except E and I are each split into
+    kE / kI sequential exponential sub-stages so that the *total* time spent in
+    E is Gamma(shape=kE, scale=1/(kE*sigma)) distributed (mean 1/sigma), and the
+    total time spent in I is Gamma(shape=kI, scale=1/(kI*(gamma+h))) distributed
+    (mean 1/(gamma+h)) — instead of the CV=1 exponential assumed by run_seir.
+    beta, sigma, gamma, h, gamma_h, mu keep the same meaning as in run_seir
+    (mean rates); kE and kI set the shape (CV = 1/sqrt(k)) of the respective
+    sojourn-time distributions and default to the values ExaEpi's
+    latent_length_alpha / infectious_length_alpha round to.
+
+    H is left as a single exponential stage (no distributional data for the
+    hospital-stay duration was given), so gamma_h and mu are unchanged.
+    """
+
+    rate_E = kE * sigma
+    rate_I = kI * (gamma + h)
+    frac_h = h / (gamma + h)
+    frac_r = gamma / (gamma + h)
+
+    n_state = 1 + kE + kI + 3
+    i_E, i_I, i_H, i_R, i_D = 1, 1 + kE, 1 + kE + kI, 2 + kE + kI, 3 + kE + kI
+
+    def seirhd_erlang_odes(t, y):
+        S = y[0]
+        E = y[i_E:i_I]
+        I = y[i_I:i_H]
+        H, R, D = y[i_H], y[i_R], y[i_D]
+
+        I_total = I.sum()
+        inf = beta * S * I_total / N
+
+        dy = np.empty(n_state)
+        dy[0] = -inf
+
+        dy[i_E]        = inf - rate_E * E[0]
+        dy[i_E + 1:i_I] = rate_E * E[:-1] - rate_E * E[1:]
+
+        dy[i_I]        = rate_E * E[-1] - rate_I * I[0]
+        dy[i_I + 1:i_H] = rate_I * I[:-1] - rate_I * I[1:]
+
+        I_last = I[-1]
+        dy[i_H] = rate_I * frac_h * I_last - (gamma_h + mu) * H
+        dy[i_R] = rate_I * frac_r * I_last + gamma_h * H
+        dy[i_D] = mu * H
+        return dy
+
+    y0 = np.zeros(n_state)
+    y0[0]    = float(N - seed)
+    y0[i_I]  = float(seed)  # seed the first infectious sub-stage, matching run_seir
+
+    t_eval = np.arange(0, days + 1, 1, dtype=float)
+    sol = solve_ivp(seirhd_erlang_odes, [0, days], y0, t_eval=t_eval, method="RK45", max_step=0.1)
+
+    S = sol.y[0]
+    I_last = sol.y[i_H - 1]  # last I sub-stage: only stage that feeds H/R
+    H = sol.y[i_H]
+    R = sol.y[i_R]
+    D = sol.y[i_D]
+
+    new_exposed = np.maximum(0, -np.diff(S))
+
+    I_last_mid = 0.5 * (I_last[:-1] + I_last[1:])
+    new_hospitalized = np.maximum(0, kI * h * I_last_mid)
+
+    new_recovered = np.maximum(0, np.diff(R))
+    new_dead      = np.maximum(0, np.diff(D))
+
+    df = pd.DataFrame()
+    df["day"]                = np.arange(days)
+    df["exposed"]            = new_exposed
+    df["symptomatic"]        = new_exposed
+    df["presymptomatic"]     = new_exposed
+    df["asymptomatic"]       = np.zeros(days)
+    df["hospitalized"]       = new_hospitalized
+    df["dead"]               = new_dead
+    df["recovered"]          = new_recovered
+    df["cumulative_exposed"] = new_exposed.cumsum()
+
+    r0  = beta / (gamma + h)
+    hfr = mu / (gamma_h + mu)
+    ifr = (h / (gamma + h)) * hfr
+    print(f"SEIRHD-Erlang(kE={kE}, kI={kI})  exposed={new_exposed.sum():.0f}  "
+          f"hosp={new_hospitalized.sum():.0f}  dead={new_dead.sum():.0f}")
+    print(f"SEIRHD-Erlang  R0={r0:.2f}  hosp_rate={h/(gamma+h):.4f}  HFR={hfr:.4f}  IFR={ifr:.4f}  "
+          f"E_CV={1/np.sqrt(kE):.3f}  I_CV={1/np.sqrt(kI):.3f}")
 
     return df
 
@@ -543,10 +639,10 @@ def _mark_day_zero(ax, x, label, color):
     """Draw a vertical marker + label at x-position `x`, marking where some curve's own day 0
     lands after a shift is applied, so a shifted curve's origin stays visible instead of implicit.
     """
-    ax.axvline(x, color=color, linestyle=":", linewidth=1, zorder=0, alpha=0.7)
+    ax.axvline(x, color=color, linestyle=":", linewidth=2, zorder=0, alpha=0.7)
     ax.annotate(
         label, xy=(x, 0.98), xycoords=("data", "axes fraction"),
-        rotation=90, va="top", ha="right", fontsize=6, color=color, alpha=0.8,
+        rotation=90, va="top", ha="right", fontsize=12, color=color, alpha=0.8,
     )
 
 
@@ -593,12 +689,12 @@ def plot_context(ax, exaepi_data):
             for col, (label_str, color) in _CONTEXT_COLS.items():
                 if col in df.columns:
                     y = df[col].values[:args.xlimit]
-                    ax.plot(x, y, label=label_str, color=color, linewidth=1)
+                    ax.plot(x, y, label=label_str, color=color, linewidth=2)
 
     if exaepi_data:
         _mark_exaepi_start(ax, shift_by_group)
 
-    ax.legend(fontsize=7)
+    ax.legend(fontsize=14)
 
 
 _SOURCE_LABELS = {
@@ -672,10 +768,10 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
         if col in df0.columns:
             x = (df0["day"] + epicast_shift).values[: args.xlimit]
             y = _get_group_y(entry, col, args.xlimit)
-            ax.plot(x[: len(y)], y, color="blue", linewidth=1.5, linestyle="-", label="Epicast")
+            ax.plot(x[: len(y)], y, color="blue", linewidth=3, linestyle="-", label="Epicast")
             auc = float(np.sum(y))
-            ax.text(0.98, 0.97 - row * 0.08, f"AUC Epicast: {auc:.3f}",
-                    transform=ax.transAxes, ha="right", va="top", fontsize=7, color="blue")
+            ax.text(0.98, 0.97 - row * 0.16, f"AUC Epicast: {auc:.3f}",
+                    transform=ax.transAxes, ha="right", va="top", fontsize=14, color="blue")
             row += 1
 
     if exaepi_data:
@@ -685,13 +781,13 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
         if col in df0.columns:
             x = (df0["Day"] + shift).values[: args.xlimit]
             y = _get_group_y(entry, col, args.xlimit)
-            ax.plot(x[: len(y)], y, color="red", linewidth=1.5, linestyle="--", label="ExaEpi")
+            ax.plot(x[: len(y)], y, color="red", linewidth=3, linestyle="-", label="ExaEpi")
             auc = float(np.sum(y))
-            ax.text(0.98, 0.97 - row * 0.08, f"AUC ExaEpi: {auc:.3f}",
-                    transform=ax.transAxes, ha="right", va="top", fontsize=7, color="red")
+            ax.text(0.98, 0.97 - row * 0.16, f"AUC ExaEpi: {auc:.3f}",
+                    transform=ax.transAxes, ha="right", va="top", fontsize=14, color="red")
             row += 1
 
-    ax.legend(fontsize=7)
+    ax.legend(fontsize=14)
 
 
 def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=None):
@@ -730,7 +826,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
     if fit_results and seir_col is not None:
         for (series_lbl, _, _, _, _, _, _, _, _, fdf) in fit_results:
             fit_y = fdf[seir_col].values[: args.xlimit]
-            ax.plot(np.arange(len(fit_y)), fit_y, color="green", linewidth=3, linestyle="-", zorder=1)
+            ax.plot(np.arange(len(fit_y)), fit_y, color="green", linewidth=6, linestyle="-", zorder=1)
             auc = np.sum(fit_y)
             fit_lbl = f"SEIRHD fit ({series_lbl})" if series_lbl else "SEIRHD fit"
             auc_lines.append((fit_lbl, auc, "green", False, _shift_array(fit_y, 0, args.xlimit), False))
@@ -752,7 +848,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
 
             ax.fill_between(x_vals, y_min, y_max, alpha=0.25, color=color,
                             zorder=1, label="_nolegend_")
-            ax.plot(x_vals, y_mean, label=plot_label, color=color, linewidth=1, zorder=2)
+            ax.plot(x_vals, y_mean, label=plot_label, color=color, linewidth=2, zorder=2)
             auc = float(np.sum(y_mean))
             y_for_gof = _shift_array(y_mean, x_shift, args.xlimit)
         else:
@@ -761,7 +857,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
             y_vals = df[col]
             auc    = float(np.sum(y_vals[: args.xlimit]))
             lsargs = {"linestyle": "--"} if base_colors[0] == "blue" else {}
-            ax.plot(x_vals, y_vals, label=plot_label, color=color, linewidth=1, zorder=2, **lsargs)
+            ax.plot(x_vals, y_vals, label=plot_label, color=color, linewidth=2, zorder=2, **lsargs)
             y_for_gof = _shift_array(y_vals.values, x_shift, args.xlimit)
 
         return legend_label, auc, color, is_wildcard, y_for_gof
@@ -786,7 +882,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
         ax.plot(
             np.arange(len(seir_y)), seir_y,
             label=f"SEIRHD (β={args.beta}, h={args.hosp_rate}, μ={args.mu})",
-            color="green", linewidth=2, linestyle="-.",
+            color="green", linewidth=4, linestyle="-.",
         )
         auc_lines.append(("SEIRHD", np.sum(seir_y), "green", False, _shift_array(seir_y, 0, args.xlimit), False))
 
@@ -842,8 +938,8 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
             lbl_str = legend_label if legend_label is not None else "(unlabelled)"
             print(f"  Max {lbl_str}: {max_val:,.0f}")
             if legend_label is not None:
-                ax.text(0.98, 0.97 - row * 0.10, f"Max {legend_label}: {max_val:,.0f}",
-                        transform=ax.transAxes, ha="right", va="top", fontsize=7, color=color)
+                ax.text(0.98, 0.97 - row * 0.20, f"Max {legend_label}: {max_val:,.0f}",
+                        transform=ax.transAxes, ha="right", va="top", fontsize=14, color=color)
                 row += 1
         for i, entry in enumerate(exaepi_data):
             legend_label = entry["label"]
@@ -855,8 +951,8 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
             lbl_str = legend_label if legend_label is not None else "(unlabelled)"
             print(f"  Max {lbl_str}: {max_val:,.0f}")
             if legend_label is not None:
-                ax.text(0.98, 0.97 - row * 0.10, f"Max {legend_label}: {max_val:,.0f}",
-                        transform=ax.transAxes, ha="right", va="top", fontsize=7, color=color)
+                ax.text(0.98, 0.97 - row * 0.20, f"Max {legend_label}: {max_val:,.0f}",
+                        transform=ax.transAxes, ha="right", va="top", fontsize=14, color=color)
                 row += 1
     else:
         row = 0
@@ -872,8 +968,8 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
                     gof_str = f"  R²={r2_str}  NRMSE={nrmse_str}"
             print(f"  AUC {lbl_str}: {auc:,.0f}{gof_str}")
             if lbl is not None:
-                ax.text(0.98, 0.97 - row * 0.10, f"AUC {lbl}: {auc:,.0f}",
-                        transform=ax.transAxes, ha="right", va="top", fontsize=7, color=color)
+                ax.text(0.98, 0.97 - row * 0.20, f"AUC {lbl}: {auc:,.0f}",
+                        transform=ax.transAxes, ha="right", va="top", fontsize=14, color=color)
                 row += 1
 
 
@@ -937,6 +1033,13 @@ parser.add_argument(
     "--seir", action="store_true", default=False,
     help="Overlay an SEIR model curve using the specified parameters",
 )
+parser.add_argument(
+    "--erlang", action="store_true", default=False,
+    help="With --seir, use run_seirhd_erlang (gamma-distributed E/I sojourn times) "
+         "instead of run_seir (exponential)",
+)
+parser.add_argument("--kE", type=int, default=3, help="SEIRHD-Erlang number of E sub-stages (default: 3)")
+parser.add_argument("--kI", type=int, default=4, help="SEIRHD-Erlang number of I sub-stages (default: 4)")
 parser.add_argument(
     "--fit", action="store_true", default=False,
     help="Fit an SEIR model to each experimental series and overlay the fitted curves",
@@ -1088,8 +1191,12 @@ for _entry, _shift in zip(exaepi_data, shift_by_group):
 
 seir_df = None
 if args.seir:
-    seir_df = run_seir(args.beta, args.sigma, args.gamma, args.hosp_rate, args.gamma_h,
-                       args.mu, args.N, args.seed, args.xlimit)
+    if args.erlang:
+        seir_df = run_seirhd_erlang(args.beta, args.sigma, args.gamma, args.hosp_rate, args.gamma_h,
+                                     args.mu, args.N, args.seed, args.xlimit, kE=args.kE, kI=args.kI)
+    else:
+        seir_df = run_seir(args.beta, args.sigma, args.gamma, args.hosp_rate, args.gamma_h,
+                           args.mu, args.N, args.seed, args.xlimit)
 
 # fit_results: list of (label, color, beta, sigma, gamma, h, gamma_h, mu, seed, fitted_df)
 fit_results = []
@@ -1141,7 +1248,7 @@ else:
 n = len(selected_plots)
 ncols = 1 if n == 1 else 2
 nrows = (n + ncols - 1) // ncols
-scale = 2 if n <= 2 else 1
+scale = 2  # every subplot is the same physical size regardless of grid shape
 fig, axes_grid = plt.subplots(nrows, ncols, figsize=(6 * ncols * scale, nrows * 3.5 * scale), squeeze=False)
 axes = axes_grid.flatten()
 
