@@ -104,7 +104,7 @@ def main():
     label = args.field.capitalize()
     plural = "Communities" if args.field == "community" else "Neighborhoods"
 
-    fig, ax = plt.subplots(figsize=(5, 3))
+    fig, ax = plt.subplots(figsize=(5, 4))
     if args.cdf:
         sorted_sizes = np.sort(sizes.to_numpy())
         cumulative_frac = np.arange(1, len(sorted_sizes) + 1) / len(sorted_sizes)
