@@ -88,8 +88,6 @@ def plot_community_size_vs_density(df, output):
     ax.set_xlabel("Community size (population)")
     ax.set_ylabel("Population density (people / km²)")
     ax.legend(frameon=False)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
 
     correlation = np.corrcoef(log_density, df["pop"])[0, 1]
     print(f"{len(df)} communities plotted")
