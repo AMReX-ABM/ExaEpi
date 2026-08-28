@@ -2,8 +2,11 @@
     \brief **Main**: Contains main() and runAgent()
 */
 
+#include <charconv>
 #include <chrono>
 #include <filesystem>
+#include <iomanip>
+#include <sstream>
 
 #include <AMReX.H>
 #include <AMReX_MultiFab.H>
@@ -14,6 +17,7 @@
 #include "AirTravelFlow.H"
 #include "CaseData.H"
 #include "DemographicData.H"
+#include "DiseaseParm.H"
 #include "IO.H"
 #include "InitializeInfections.H"
 #include "UrbanPopData.H"
@@ -27,8 +31,53 @@ using namespace ExaEpi;
 
 void runAgent();
 
-/*! \brief Print usage and the list of recognized "agent.*" input-file parameters, with defaults */
+namespace {
+
+/*! \brief Format helpers used by printHelp() to render the *actual* compiled-in default of a
+ *  parameter (read from the same struct/class member that ParmParse falls back to), instead of
+ *  a hand-copied literal that can drift out of sync whenever a default is changed in code. */
+std::string fmt (bool v) { return v ? "true" : "false"; }
+std::string fmt (int v) { return std::to_string(v); }
+
+std::string fmt (amrex::Real v) {
+    // Shortest decimal that round-trips back to the exact same amrex::Real (float or double,
+    // depending on build precision) -- avoids printing float representation noise like
+    // 0.3000000119 for a value that was written in code as simply 0.3.
+    char buf[64];
+    auto res = std::to_chars(buf, buf + sizeof(buf), v, std::chars_format::fixed);
+    return std::string(buf, res.ptr);
+}
+
+std::string fmt (const std::string& v) { return v.empty() ? "\"\"" : v; }
+
+template <typename T>
+std::string fmtArr (const T* a, int n) {
+    std::ostringstream ss;
+    for (int i = 0; i < n; ++i) {
+        if (i) { ss << ", "; }
+        ss << fmt(a[i]);
+    }
+    return ss.str();
+}
+
+template <typename T, unsigned int N>
+std::string fmtArr (const amrex::GpuArray<T, N>& a) {
+    return fmtArr(a.data(), static_cast<int>(N));
+}
+
+} // namespace
+
+/*! \brief Print usage and the list of recognized "agent.*" input-file parameters, with defaults.
+ *
+ *  Defaults are read directly from default-constructed #ExaEpi::TestParams / #DiseaseParm objects
+ *  (and the corresponding #AgentContainer::default_* constants) rather than being hardcoded here,
+ *  so this text can't go stale when a default changes in code. A few parameters -- ones whose
+ *  "default" is really a conditional requirement (e.g. "required if...") or a computed pattern
+ *  (e.g. disease_names) rather than a literal value -- are still described by hand. */
 void printHelp (const char* prog) {
+    ExaEpi::TestParams tp;
+    DiseaseParm dp("");
+
     std::cout
             << "Usage: \n"
                "  "
@@ -45,20 +94,20 @@ void printHelp (const char* prog) {
                "                            key=value pairs, e.g. agent.nsteps=10\n"
                "\n"
                "Recognized \"agent.*\" parameters (name, default, description):\n"
-               "  nsteps                          (1)          number of simulation steps\n"
-               "  plot_int                        (-1)         plot file interval, in steps; <=0 disables\n"
-               "  check_int                       (-1)         checkpoint file interval, in steps; <=0 disables\n"
-               "  random_travel_int               (-1)         interval between random travel events, in steps; <=0 disables\n"
-               "  random_travel_prob              (0.0001)     probability of an agent going on random travel\n"
-               "  air_travel_int                  (-1)         interval between air travel events, in steps; <=0 disables\n"
-               "  number_of_diseases              (1)          number of diseases to track\n"
+               "  nsteps                          (" << fmt(tp.nsteps) << ")          number of simulation steps\n"
+               "  plot_int                        (" << fmt(tp.plot_int) << ")         plot file interval, in steps; <=0 disables\n"
+               "  check_int                       (" << fmt(tp.check_int) << ")         checkpoint file interval, in steps; <=0 disables\n"
+               "  random_travel_int               (" << fmt(tp.random_travel_int) << ")         interval between random travel events, in steps; <=0 disables\n"
+               "  random_travel_prob              (" << fmt(tp.random_travel_prob) << ")     probability of an agent going on random travel\n"
+               "  air_travel_int                  (" << fmt(tp.air_travel_int) << ")         interval between air travel events, in steps; <=0 disables\n"
+               "  number_of_diseases              (" << fmt(tp.num_diseases) << ")          number of diseases to track\n"
                "  disease_names                   (default00, default01, ...)\n"
                "                                               names of the diseases (array of number_of_diseases strings)\n"
-               "  weather_int                     (-1)         interval for weather effects, in steps; <=0 disables\n"
+               "  weather_int                     (" << fmt(tp.weather_int) << ")         interval for weather effects, in steps; <=0 disables\n"
                "  weather_filename                (required if weather_int > 0)\n"
                "                                               weather data file\n"
-               "  startdate                       (\"\")         simulation start date (YYYY-MM-DD)\n"
-               "  ic_type                         (urbanpop)   initial condition type: \"census\" or \"urbanpop\"\n"
+               "  startdate                       (" << fmt(tp.startdate) << ")         simulation start date (YYYY-MM-DD)\n"
+               "  ic_type                         (" << ExaEpi::TestParams::default_ic_type << ")   initial condition type: \"census\" or \"urbanpop\"\n"
                "  census_filename                 (required if ic_type=census)\n"
                "                                               census data file\n"
                "  workerflow_filename             (required if ic_type=census)\n"
@@ -69,37 +118,37 @@ void printHelp (const char* prog) {
                "                                               airports file\n"
                "  urbanpop_filename               (required if ic_type=urbanpop)\n"
                "                                               UrbanPop data file\n"
-               "  workgroup_size_filename         (\"\")         optional per-(state, NAICS-code) work-group target size "
+               "  workgroup_size_filename         (" << fmt(tp.workgroup_size_filename) << ")         optional per-(state, NAICS-code) work-group target size "
                "table (urbanpop only); falls back to workgroup_size for any (state, NAICS) pair not in the file\n"
-               "  size_scale_enabled              (true)       enable population-size-based transmission scaling (urbanpop "
+               "  size_scale_enabled              (" << fmt(tp.size_scale_enabled) << ")       enable population-size-based transmission scaling (urbanpop "
                "only)\n"
-               "  school_class_size               (15)         fallback target students-per-class for raw groups with "
+               "  school_class_size               (" << fmt(tp.school_class_size) << ")         fallback target students-per-class for raw groups with "
                "no identified teachers\n"
-               "  school_class_size_min           (5)          floor on average class size (bounds class count from "
+               "  school_class_size_min           (" << fmt(tp.school_class_size_min) << ")          floor on average class size (bounds class count from "
                "above)\n"
-               "  school_class_size_max           (50)         cap on average class size (bounds class count from "
+               "  school_class_size_max           (" << fmt(tp.school_class_size_max) << ")         cap on average class size (bounds class count from "
                "below)\n"
-               "  college_instructional_fraction  (0.1)        fraction of a college-level raw group's reported "
+               "  college_instructional_fraction  (" << fmt(tp.college_instructional_fraction) << ")        fraction of a college-level raw group's reported "
                "teacher/staff headcount assumed to actually be instructors, before class-size clamping\n"
-               "  max_box_size                    (16)         box size for domain decomposition\n"
-               "  aggregated_diag_int             (-1)         interval for aggregated diagnostic output, in steps; <=0 "
+               "  max_box_size                    (" << fmt(tp.max_box_size) << ")         box size for domain decomposition\n"
+               "  aggregated_diag_int             (" << fmt(tp.aggregated_diag_int) << ")         interval for aggregated diagnostic output, in steps; <=0 "
                "disables\n"
-               "  aggregated_diag_prefix          (cases)      filename prefix for aggregated diagnostic output\n"
-               "  restart                         (\"\")         checkpoint file to restart from\n"
-               "  shelter_start                   (-1)         step at which to start sheltering; <=0 disables\n"
-               "  shelter_length                  (0)          number of steps to shelter for\n"
-               "  nborhood_size                   (500)        target neighborhood size\n"
-               "  workgroup_size                  (20)         target workgroup size\n"
+               "  aggregated_diag_prefix          (" << fmt(tp.aggregated_diag_prefix) << ")      filename prefix for aggregated diagnostic output\n"
+               "  restart                         (" << fmt(tp.restart_chkfile) << ")         checkpoint file to restart from\n"
+               "  shelter_start                   (" << fmt(tp.shelter_start) << ")         step at which to start sheltering; <=0 disables\n"
+               "  shelter_length                  (" << fmt(tp.shelter_length) << ")          number of steps to shelter for\n"
+               "  nborhood_size                   (" << fmt(tp.nborhood_size) << ")        target neighborhood size\n"
+               "  workgroup_size                  (" << fmt(tp.workgroup_size) << ")         target workgroup size\n"
                "  seed                            (unset)      RNG seed\n"
-               "  fast                            (false)      use fast, non-bitwise-reproducible implementations\n"
-               "  context_diag                    (false)      attribute infections to interaction contexts in the output file\n"
-               "  shelter_compliance              (0.95)       shelter-in-place compliance rate\n"
-               "  student_teacher_ratio           (0, 15, 15, 15, 15, 15)\n"
+               "  fast                            (" << fmt(tp.fast) << ")      use fast, non-bitwise-reproducible implementations\n"
+               "  context_diag                    (" << fmt(tp.context_diag) << ")      attribute infections to interaction contexts in the output file\n"
+               "  shelter_compliance              (" << fmt(AgentContainer::default_shelter_compliance) << ")       shelter-in-place compliance rate\n"
+               "  student_teacher_ratio           (" << fmtArr(AgentContainer::default_student_teacher_ratio) << ")\n"
                "                                               students-per-teacher, census only, by school type\n"
                "                                               (none, college, high, middle, elem, daycare)\n"
-               "  symptomatic_withdraw_compliance_day_0  (0.3, 0.3, 0.3, 0.3, 0.3, 0.3)\n"
-               "  symptomatic_withdraw_compliance_day_1  (0.8, 0.6, 0.5, 0.5, 0.5, 0.5)\n"
-               "  symptomatic_withdraw_compliance_day_2  (0.9, 0.8, 0.7, 0.7, 0.7, 0.7)\n"
+               "  symptomatic_withdraw_compliance_day_0  (" << fmtArr(AgentContainer::default_symptomatic_withdraw_compliance_day_0) << ")\n"
+               "  symptomatic_withdraw_compliance_day_1  (" << fmtArr(AgentContainer::default_symptomatic_withdraw_compliance_day_1) << ")\n"
+               "  symptomatic_withdraw_compliance_day_2  (" << fmtArr(AgentContainer::default_symptomatic_withdraw_compliance_day_2) << ")\n"
                "                                               symptomatic-withdrawal compliance rate on the 1st/2nd/3rd+ day\n"
                "                                               of symptoms, by age group (u5, 5-17, 18-29, 30-49, 50-64, 65+)\n"
                "\n"
@@ -110,72 +159,72 @@ void printHelp (const char* prog) {
                "Recognized \"disease.*\" parameters, common to all diseases (name, default, description).\n"
                "Every parameter below may also be overridden per-disease as \"disease_<disease_name>.*\"\n"
                "(disease_name is one of agent.disease_names), which takes precedence over \"disease.*\":\n"
-               "  initial_case_type               (random)     how initial cases are seeded: \"random\" or \"file\"\n"
+               "  initial_case_type               (" << (dp.initial_case_type == CaseTypes::rnd ? "random" : "file") << ")     how initial cases are seeded: \"random\" or \"file\"\n"
                "  case_filename                   (required if initial_case_type=file)\n"
                "                                               initial cases file: FIPS code, current cases, cumulative cases\n"
-               "  num_initial_cases               (0)          number of initial cases (if initial_case_type=random)\n"
-               "  xmit_comm                       (0.000021, 0.000062, 0.000165, 0.000165, 0.000165, 0.000247)\n"
+               "  num_initial_cases               (" << fmt(dp.num_initial_cases) << ")          number of initial cases (if initial_case_type=random)\n"
+               "  xmit_comm                       (" << fmtArr(dp.xmit_comm, AgeGroups::total) << ")\n"
                "                                               community transmission prob, by age group of receiver\n"
-               "  xmit_comm_scale                 (1.0)        overall magnitude of community transmission (population-size-\n"
+               "  xmit_comm_scale                 (" << fmt(tp.xmit_comm_scale) << ")        overall magnitude of community transmission (population-size-\n"
                "                                               scaled, urbanpop only; does not affect xmit_hood)\n"
-               "  xmit_hood                       (0.000082, 0.000247, 0.00066, 0.00066, 0.00066, 0.001)\n"
+               "  xmit_hood                       (" << fmtArr(dp.xmit_hood, AgeGroups::total) << ")\n"
                "                                               neighborhood transmission prob, by age group of receiver\n"
-               "  xmit_hh_adult                   (0.3, 0.3, 0.4, 0.4, 0.4, 0.4)\n"
+               "  xmit_hh_adult                   (" << fmtArr(dp.xmit_hh_adult, AgeGroups::total) << ")\n"
                "                                               within-household transmission prob, transmitter is an adult\n"
-               "  xmit_hh_child                   (0.6, 0.6, 0.3, 0.3, 0.3, 0.3)\n"
+               "  xmit_hh_child                   (" << fmtArr(dp.xmit_hh_child, AgeGroups::total) << ")\n"
                "                                               within-household transmission prob, transmitter is a child\n"
-               "  xmit_nc_adult                   (0.132, 0.132, 0.165, 0.165, 0.165, 0.165)\n"
+               "  xmit_nc_adult                   (" << fmtArr(dp.xmit_nc_adult, AgeGroups::total) << ")\n"
                "                                               neighborhood-cluster transmission prob, transmitter is an adult\n"
-               "  xmit_nc_child                   (0.25, 0.25, 0.132, 0.132, 0.132, 0.132)\n"
+               "  xmit_nc_child                   (" << fmtArr(dp.xmit_nc_child, AgeGroups::total) << ")\n"
                "                                               neighborhood-cluster transmission prob, transmitter is a child\n"
-               "  xmit_school                     (0, 0.0002, 0.0024, 0.0027, 0.0088, 0.0125)\n"
+               "  xmit_school                     (" << fmtArr(dp.xmit_school, SchoolType::total) << ")\n"
                "                                               child-to-child school transmission prob, by school type\n"
                "                                               (none, college, high, middle, elem, daycare)\n"
-               "  xmit_school_a2c                 (0, 0.001, 0.01, 0.013, 0.043, 0.025)\n"
+               "  xmit_school_a2c                 (" << fmtArr(dp.xmit_school_a2c, SchoolType::total) << ")\n"
                "                                               adult-to-child school transmission prob, by school type\n"
-               "  xmit_school_c2a                 (0, 0.001, 0.01, 0.013, 0.043, 0.025)\n"
+               "  xmit_school_c2a                 (" << fmtArr(dp.xmit_school_c2a, SchoolType::total) << ")\n"
                "                                               child-to-adult school transmission prob, by school type\n"
-               "  xmit_school_scale               (1.0)        overall scale factor applied to all xmit_school* values\n"
-               "  xmit_work                       (0.0575)     workgroup transmission prob\n"
-               "  p_trans                         (0.20)       probability of transmission given contact\n"
-               "  p_asymp                         (0.30)       fraction of cases that are asymptomatic\n"
-               "  asymp_relative_inf              (0.7)        relative infectiousness of asymptomatic individuals\n"
-               "  vac_eff                         (0.0)        vaccine efficacy (unsupported; must be 0)\n"
-               "  compare_to_epicast              (false)      sample latent/incubation/infectious periods from Epicast's\n"
+               "  xmit_school_scale               (" << fmt(dp.xmit_school_scale) << ")        overall scale factor applied to all xmit_school* values\n"
+               "  xmit_work                       (" << fmt(dp.xmit_work) << ")     workgroup transmission prob\n"
+               "  p_trans                         (" << fmt(dp.p_trans) << ")       probability of transmission given contact\n"
+               "  p_asymp                         (" << fmt(dp.p_asymp) << ")       fraction of cases that are asymptomatic\n"
+               "  asymp_relative_inf              (" << fmt(dp.asymp_relative_inf) << ")        relative infectiousness of asymptomatic individuals\n"
+               "  vac_eff                         (" << fmt(dp.vac_eff) << ")        vaccine efficacy (unsupported; must be 0)\n"
+               "  compare_to_epicast              (" << fmt(dp.compare_to_epicast) << ")      sample latent/incubation/infectious periods from Epicast's\n"
                "                                               fixed CDFs instead of the Gamma distributions below\n"
-               "  latent_length_alpha             (6.0)        Gamma distribution alpha for latent period length\n"
-               "  latent_length_beta              (0.73)       Gamma distribution beta for latent period length\n"
-               "  infectious_length_alpha         (3.54)       Gamma distribution alpha for infectious period length\n"
-               "  infectious_length_beta          (1.22)       Gamma distribution beta for infectious period length\n"
-               "  infectious_length_loc           (2.5)        location (shift) for infectious period length\n"
-               "  incubation_length_alpha         (6.0)        Gamma distribution alpha for incubation period length\n"
-               "  incubation_length_beta          (0.73)       Gamma distribution beta for incubation period length\n"
-               "  incubation_length_loc           (1.0)        location (shift) for incubation period length\n"
-               "  hospital_delay_length_alpha     (0.1)        Gamma distribution alpha for hospital admission delay\n"
-               "  hospital_delay_length_beta      (0.1)        Gamma distribution beta for hospital admission delay\n"
-               "  hospital_delay_length_loc       (1.0)        location (shift) for hospital admission delay\n"
-               "  immune_length_alpha             (1.0)        Gamma distribution alpha for immunity period length\n"
-               "  immune_length_beta              (1.0)        Gamma distribution beta for immunity period length\n"
-               "  immune_length_loc               (10000.0)    location (shift) for immunity period length\n"
-               "  hospital_stay_type              (constant)   hospital stay length model: \"constant\" or \"random\"\n"
-               "  hospitalization_days            (3, 3, 3, 3, 8, 7)\n"
+               "  latent_length_alpha             (" << fmt(dp.latent_length_alpha) << ")        Gamma distribution alpha for latent period length\n"
+               "  latent_length_beta              (" << fmt(dp.latent_length_beta) << ")        Gamma distribution beta for latent period length\n"
+               "  infectious_length_alpha         (" << fmt(dp.infectious_length_alpha) << ")        Gamma distribution alpha for infectious period length\n"
+               "  infectious_length_beta          (" << fmt(dp.infectious_length_beta) << ")        Gamma distribution beta for infectious period length\n"
+               "  infectious_length_loc           (" << fmt(dp.infectious_length_loc) << ")        location (shift) for infectious period length\n"
+               "  incubation_length_alpha         (" << fmt(dp.incubation_length_alpha) << ")        Gamma distribution alpha for incubation period length\n"
+               "  incubation_length_beta          (" << fmt(dp.incubation_length_beta) << ")        Gamma distribution beta for incubation period length\n"
+               "  incubation_length_loc           (" << fmt(dp.incubation_length_loc) << ")        location (shift) for incubation period length\n"
+               "  hospital_delay_length_alpha     (" << fmt(dp.hospital_delay_length_alpha) << ")        Gamma distribution alpha for hospital admission delay\n"
+               "  hospital_delay_length_beta      (" << fmt(dp.hospital_delay_length_beta) << ")        Gamma distribution beta for hospital admission delay\n"
+               "  hospital_delay_length_loc       (" << fmt(dp.hospital_delay_length_loc) << ")        location (shift) for hospital admission delay\n"
+               "  immune_length_alpha             (" << fmt(dp.immune_length_alpha) << ")        Gamma distribution alpha for immunity period length\n"
+               "  immune_length_beta              (" << fmt(dp.immune_length_beta) << ")        Gamma distribution beta for immunity period length\n"
+               "  immune_length_loc               (" << fmt(dp.immune_length_loc) << ")    location (shift) for immunity period length\n"
+               "  hospital_stay_type              (" << (dp.m_hospital_stay_type == HospitalStayType::Constant ? "constant" : "random") << ")   hospital stay length model: \"constant\" or \"random\"\n"
+               "  hospitalization_days            (" << fmtArr(dp.m_t_hosp_days, AgeGroups::total) << ")\n"
                "                                               hospital stay length in days, by age group\n"
                "                                               (used if hospital_stay_type=constant)\n"
-               "  hospitalization_days_alpha      (1.33, 1.33, 1.33, 1.33, 0.5, 0.57)\n"
-               "  hospitalization_days_beta       (1.5, 1.5, 1.5, 1.5, 4.0, 3.5)\n"
+               "  hospitalization_days_alpha      (" << fmtArr(dp.m_t_hosp_days_alpha, AgeGroups::total) << ")\n"
+               "  hospitalization_days_beta       (" << fmtArr(dp.m_t_hosp_days_beta, AgeGroups::total) << ")\n"
                "                                               Gamma distribution alpha/beta for hospital stay length,\n"
                "                                               by age group (used if hospital_stay_type=random)\n"
-               "  CHR                             (.0104, .0104, .070, .28, .28, 1.0)\n"
+               "  CHR                             (" << fmtArr(dp.m_CHR, AgeGroups::total) << ")\n"
                "                                               symptomatic -> hospitalized probability, by age group\n"
-               "  CIC                             (.24, .24, .24, .36, .36, .35)\n"
+               "  CIC                             (" << fmtArr(dp.m_CIC, AgeGroups::total) << ")\n"
                "                                               hospitalized -> ICU probability, by age group\n"
-               "  CVE                             (.12, .12, .12, .22, .22, .22)\n"
+               "  CVE                             (" << fmtArr(dp.m_CVE, AgeGroups::total) << ")\n"
                "                                               ICU -> ventilator probability, by age group\n"
-               "  hospCVF                         (0, 0, 0, 0, 0, 0)\n"
+               "  hospCVF                         (" << fmtArr(dp.m_hospToDeath[0], AgeGroups::total) << ")\n"
                "                                               probability of dying in hospital (non-ICU), by age group\n"
-               "  icuCVF                          (0, 0, 0, 0, 0, 0.26)\n"
+               "  icuCVF                          (" << fmtArr(dp.m_hospToDeath[1], AgeGroups::total) << ")\n"
                "                                               probability of dying in ICU (non-ventilated), by age group\n"
-               "  ventCVF                         (0.20, 0.20, 0.20, 0.45, 0.45, 1.0)\n"
+               "  ventCVF                         (" << fmtArr(dp.m_hospToDeath[2], AgeGroups::total) << ")\n"
                "                                               probability of dying while ventilated, by age group\n"
                "\n"
                "Recognized \"disease_coupling.*\" parameters (only relevant if number_of_diseases > 1):\n"

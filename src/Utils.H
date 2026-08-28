@@ -22,7 +22,8 @@ namespace ExaEpi {
 struct TestParams {
     amrex::IntVect size;                                  /*!< domain size; (used only for ic_type = demo)
                                                                (see ExaEpi::Utils::getGeometry) */
-    int max_box_size;                                     /*!< box size */
+    int max_box_size = 16;                                /*!< box size */
+    static constexpr const char* default_ic_type = "urbanpop"; /*!< initial condition type, before ParmParse override */
     int nsteps = 1;                                       /*!< number of simulation steps */
     int plot_int = -1;                                    /*!< plot interval (see ExaEpi::IO::writePlotFile) */
     int check_int = -1;                                   /*!< checkpoint interval (see ExaEpi::IO::writeCheckpointFile) */
@@ -148,10 +149,10 @@ struct TestParams {
     */
     std::string workerflow_filename;
 
-    int aggregated_diag_int = -1;       /*!< interval for writing aggregated diagnostic data
-                                             (see: ExaEpi::IO::writeFIPSData) */
-    std::string aggregated_diag_prefix; /*!< filename prefix for diagnostic data
-                                             (see: ExaEpi::IO::writeFIPSData) */
+    int aggregated_diag_int = -1;                 /*!< interval for writing aggregated diagnostic data
+                                                       (see: ExaEpi::IO::writeFIPSData) */
+    std::string aggregated_diag_prefix = "cases"; /*!< filename prefix for diagnostic data, used only if
+                                                       aggregated_diag_int >= 0 (see: ExaEpi::IO::writeFIPSData) */
 
     std::string restart_chkfile = "";   /*!< the name of the checkpoint to restart from */
 

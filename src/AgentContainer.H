@@ -127,19 +127,31 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void printAgeGroupCounts() const;
 
+    /*! Default values for the members below, exposed as named constants (rather than bare
+     *  initializers) so that main.cpp's printHelp() can print the actual defaults instead of
+     *  a hardcoded copy that can drift out of sync. */
+    static constexpr amrex::GpuArray<int, SchoolType::total> default_student_teacher_ratio = {0, 15, 15, 15, 15, 15};
+    static constexpr amrex::GpuArray<amrex::Real, AgeGroups::total> default_symptomatic_withdraw_compliance_day_0 = {
+            0.3_rt, 0.3_rt, 0.3_rt, 0.3_rt, 0.3_rt, 0.3_rt};
+    static constexpr amrex::GpuArray<amrex::Real, AgeGroups::total> default_symptomatic_withdraw_compliance_day_1 = {
+            0.8_rt, 0.6_rt, 0.5_rt, 0.5_rt, 0.5_rt, 0.5_rt};
+    static constexpr amrex::GpuArray<amrex::Real, AgeGroups::total> default_symptomatic_withdraw_compliance_day_2 = {
+            0.9_rt, 0.8_rt, 0.7_rt, 0.7_rt, 0.7_rt, 0.7_rt};
+    static constexpr amrex::Real default_shelter_compliance = 0.95_rt; /*!< Shelter-in-place compliance rate */
+
     amrex::iMultiFab m_student_counts;
     /// Used only for Census data. A ratio for each school type: none, college, high, middle, elem, daycare
-    amrex::GpuArray<int, SchoolType::total> m_student_teacher_ratio = {0, 15, 15, 15, 15, 15};
+    amrex::GpuArray<int, SchoolType::total> m_student_teacher_ratio = default_student_teacher_ratio;
 
     /*!< Symptomatic withdrawal compliance rate, day 0, AgeGroups u5, 5-17, 18-29, 30-49, 50-64, 65+*/
-    amrex::GpuArray<amrex::Real, AgeGroups::total> m_symptomatic_withdraw_compliance_day_0 = {0.3_rt, 0.3_rt, 0.3_rt,
-                                                                                              0.3_rt, 0.3_rt, 0.3_rt};
+    amrex::GpuArray<amrex::Real, AgeGroups::total> m_symptomatic_withdraw_compliance_day_0 =
+            default_symptomatic_withdraw_compliance_day_0;
     /*!< Symptomatic withdrawal compliance rate, day 1 */
-    amrex::GpuArray<amrex::Real, AgeGroups::total> m_symptomatic_withdraw_compliance_day_1 = {0.8_rt, 0.6_rt, 0.5_rt,
-                                                                                              0.5_rt, 0.5_rt, 0.5_rt};
+    amrex::GpuArray<amrex::Real, AgeGroups::total> m_symptomatic_withdraw_compliance_day_1 =
+            default_symptomatic_withdraw_compliance_day_1;
     /*!< Symptomatic withdrawal compliance rate, day 2 */
-    amrex::GpuArray<amrex::Real, AgeGroups::total> m_symptomatic_withdraw_compliance_day_2 = {0.9_rt, 0.8_rt, 0.7_rt,
-                                                                                              0.7_rt, 0.7_rt, 0.7_rt};
+    amrex::GpuArray<amrex::Real, AgeGroups::total> m_symptomatic_withdraw_compliance_day_2 =
+            default_symptomatic_withdraw_compliance_day_2;
 
     int m_num_diseases; /*!< Number of diseases */
 
@@ -163,7 +175,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     ActiveWeather* awd;
 
   protected:
-    amrex::Real m_shelter_compliance = 0.95_rt; /*!< Shelter-in-place compliance rate */
+    amrex::Real m_shelter_compliance = default_shelter_compliance;
 
     std::vector<DiseaseParm*> m_h_parm;         /*!< Disease parameters */
     std::vector<DiseaseParm*> m_d_parm;         /*!< Disease parameters (GPU device) */

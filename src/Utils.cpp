@@ -46,7 +46,7 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
 
     if (params.weather_int > 0) { pp.get("weather_filename", params.weather_filename); }
 
-    std::string ic_type = "urbanpop";
+    std::string ic_type = TestParams::default_ic_type;
     pp.query("ic_type", ic_type);
     if (ic_type == "census") {
         params.ic_type = ICType::Census;
@@ -56,11 +56,9 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
             pp.get("air_traffic_filename", params.air_traffic_filename);
             pp.get("airports_filename", params.airports_filename);
         }
-        params.max_box_size = 16;
     } else if (ic_type == "urbanpop") {
         params.ic_type = ICType::UrbanPop;
         pp.get("urbanpop_filename", params.urbanpop_filename);
-        params.max_box_size = 16;
 
         pp.query("workgroup_size_filename", params.workgroup_size_filename);
 
@@ -79,10 +77,7 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
     pp.query("max_box_size", params.max_box_size);
 
     pp.query("aggregated_diag_int", params.aggregated_diag_int);
-    if (params.aggregated_diag_int >= 0) {
-        params.aggregated_diag_prefix = "cases";
-        pp.get("aggregated_diag_prefix", params.aggregated_diag_prefix);
-    }
+    if (params.aggregated_diag_int >= 0) { pp.get("aggregated_diag_prefix", params.aggregated_diag_prefix); }
 
     pp.query("restart", params.restart_chkfile);
 
