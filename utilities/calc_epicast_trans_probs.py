@@ -1,5 +1,6 @@
 #!/usr/bin/env -S python -u
 
+import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import gamma, pearsonr
@@ -20,14 +21,22 @@ infectious.extend([0.1, 0.3, 0.5, 0.7, 0.85, 0.95, 1.0])
 
 transitions = [
     #(exposed_to_presymp, 2.82, 1.36, 0.0, "Exposed to Presymptomatic"),
+    (exposed_to_presymp, 2.77, 1.5, 0.0, "Exposed to Presymptomatic"),
+    #(exposed_to_presymp, 1.95, 2.53, 0.0, "Exposed to Presymptomatic"),
     #(exposed_to_presymp, 6, 0.73, 0, "Exposed to Presymptomatic"),
-    #(incubation, 2.82, 1.36, 1.0, "Incubation Period"),
-    (infectious, 3.54, 1.29, 1.5, "Infectious Period"),
-    #(infectious, 2.5, 1.3, 4.0, "Infectious Period"),
     #(exposed_to_presymp, 2.55, 1.34, 0.0, "Exposed to Presymptomatic"),
-    #(incubation, 2.55, 1.34, 1.0, "Incubation Period"),
+    #(exposed_to_presymp, 1.5, 3.0, 0.0, "Exposed to Presymptomatic"),
+    
+    #(infectious, 1.5, 3, 3.0, "Infectious Period"),
+    #(infectious, 5.221, 0.946, 2.24, "Infectious Period"),
+    
+    #(infectious, 3.54, 1.22, 2.75, "Infectious Period"),
+    #(infectious, 2.5, 1.3, 3.0, "Infectious Period"),
+    
     #(infectious, 11.95, 0.51, 1.0, "Infectious Period"),
-    #(exposed_to_presymp, 4, 0.8, 0.0, "Exposed to Presymptomatic"),
+    
+    #(incubation, 2.82, 1.36, 1.0, "Incubation Period"),
+    #(incubation, 2.55, 1.34, 1.0, "Incubation Period"),
 ]
 
 
@@ -114,43 +123,70 @@ def fit_gamma_to_pmf(days, pmf, title=""):
     return shape_fit, loc_fit, scale_fit
 
 
-figsize = (10,8) if len(transitions) == 1 else (20,8)
+def discrete_gamma_cdf(day_indices, shape, scale, loc):
+    """Cumulative probability at each whole day for a Gamma(shape, scale)+loc period that is
+    rounded to the nearest day.
 
-fig, axes = plt.subplots(1, len(transitions), figsize=figsize)
+    Rounding sends a drawn period X to day t whenever t - 0.5 <= X < t + 0.5, so the
+    cumulative probability of having transitioned by day t is P(X < t + 0.5). This is the
+    quantity comparable to Epicast's per-day table (and to what the model sees, since the
+    periods drawn in setInfected() are rounded to whole days downstream) -- evaluating the
+    continuous CDF at t instead shifts every point by half a day's worth of probability.
+    """
+    return gamma.cdf(np.asarray(day_indices, dtype=float) + 0.5, a=shape, loc=loc, scale=scale)
 
-for idx, (trans_probs, shape, scale, loc, title) in enumerate(transitions):
-    if len(transitions) == 1:
-        ax = axes
-    else:
-        ax = axes[idx]
 
+def group_transitions(trans_list):
+    """Group entries sharing the same cumulative-probability array onto one subplot.
+
+    Keyed by the array's *contents* rather than its identity, so two entries referring to
+    the same list (or to equal lists) end up as separate series on a single plot. Groups
+    come back in order of first appearance.
+    """
+    groups = {}
+    for entry in trans_list:
+        groups.setdefault(tuple(entry[0]), []).append(entry)
+    return list(groups.values())
+
+
+parser = argparse.ArgumentParser(
+    description="Compare manually-tuned gamma distributions against Epicast's per-day "
+                "transition probability tables.",
+)
+parser.add_argument(
+    "--fit", "-f",
+    action="store_true", default=False,
+    help="Also derive gamma parameters automatically by least-squares fitting the PMF, and "
+         "overlay the result. Off by default because the global differential-evolution "
+         "search it runs per group is slow.",
+)
+args = parser.parse_args()
+
+# Colors cycled through the series within a single group, so each manually-tuned gamma
+# plotted against the same Epicast curve is distinguishable.
+SERIES_COLORS = ["red", "green", "darkorange", "purple", "brown", "magenta", "olive"]
+
+groups = group_transitions(transitions)
+
+figsize = (10, 8) if len(groups) == 1 else (10 * len(groups), 8)
+
+fig, axes = plt.subplots(1, len(groups), figsize=figsize, squeeze=False)
+
+for idx, group in enumerate(groups):
+    ax = axes[0][idx]
+
+    # Every entry in a group shares the same cumulative array by construction.
+    trans_probs = group[0][0]
     days = len(trans_probs)
     day_indices = list(range(days))
 
-    print(f"{title}")
+    # Titles within a group are normally identical; if they differ, the subplot takes the
+    # first and each series carries its own title in the legend instead.
+    titles = [entry[4] for entry in group]
+    group_title = titles[0]
+    label_with_title = len(set(titles)) > 1
 
-    # --- Convert cumulative probs to PMF ---
-    pmf = cumulative_to_pmf(trans_probs)
-
-    # --- Fit gamma to the PMF via optimization ---
-    shape_opt, loc_opt, scale_opt = fit_gamma_to_pmf(day_indices, pmf, title=title)
-
-    # --- Also do MLE fit on samples for comparison ---
-    num_agents = 100000
-    day_counts = [0] * days
-    agent_days = []
-    for i in range(num_agents):
-        for t in range(days):
-            if np.random.uniform() <= trans_probs[t]:
-                day_counts[t] += 1
-                agent_days.append(t)
-                break
-
-    fshape_mle, loc_mle, fscale_mle = gamma.fit(agent_days, floc=0)
-    print(f"  MLE gamma fit (from simulated samples):")
-    print(f"    shape (α): {fshape_mle:.4f}")
-    print(f"    loc:       {loc_mle:.4f}")
-    print(f"    scale (β): {fscale_mle:.4f}")
+    print(f"{group_title}")
 
     # --- Plot Epicast cumulative probabilities as bars ---
     bars = ax.bar(
@@ -172,64 +208,71 @@ for idx, (trans_probs, shape, scale, loc, title) in enumerate(transitions):
                 fontsize=20,
             )
 
-    x_cont = np.linspace(0, days - 1, 10000)
-    #x_cont = np.linspace(0, 12, 10000)
-
-    # --- Plot original manually-tuned gamma (red) ---
-    gamma_manual = gamma.cdf(x_cont, a=shape, loc=loc, scale=scale)
-    corr_manual = pearsonr(
-        np.interp(np.linspace(0, 1, days), np.linspace(0, 1, len(gamma_manual)), gamma_manual),
-        trans_probs,
-    )[0]
-    ax.plot(
-        x_cont,
-        gamma_manual,
-        "r--",
-        lw=2,
-        label=f"Gamma (α={shape:.2f}, β={scale:.2f}, loc={loc:.2f} r={corr_manual:.3f})",
-    )
-
-    if False:
-        # --- Plot MLE-fitted gamma (orange) ---
-        gamma_mle = gamma.cdf(x_cont, a=fshape_mle, loc=loc_mle, scale=fscale_mle)
-        corr_mle = pearsonr(
-            np.interp(np.linspace(0, 1, days), np.linspace(0, 1, len(gamma_mle)), gamma_mle),
-            trans_probs,
-        )[0]
+    # --- Plot each manually-tuned gamma in the group as its own series ---
+    # Each is evaluated only at whole days (see discrete_gamma_cdf), so it lines up one-for-one
+    # with the Epicast bars and the correlation below is a direct day-for-day comparison rather
+    # than a resampling of a continuous curve.
+    corr_by_series = []
+    for series_idx, (_, shape, scale, loc, title) in enumerate(group):
+        gamma_manual = discrete_gamma_cdf(day_indices, shape, scale, loc)
+        corr_manual = pearsonr(gamma_manual, trans_probs)[0]
+        params_str = f"α={shape:.2f}, β={scale:.2f}, loc={loc:.2f} r={corr_manual:.3f}"
+        label = f"{title}: Gamma ({params_str})" if label_with_title else f"Gamma ({params_str})"
+        corr_by_series.append(("Manual", params_str, corr_manual))
         ax.plot(
-            x_cont,
-            gamma_mle,
-            color="orange",
+            day_indices,
+            gamma_manual,
+            color=SERIES_COLORS[series_idx % len(SERIES_COLORS)],
+            linestyle="-",
+            # The rounded period is constant across [t - 0.5, t + 0.5), so the CDF is a step
+            # function whose treads are centered on the integer days -- steps-mid, not the
+            # steps-post/pre that would imply the jump happens at the day boundary.
+            drawstyle="steps-mid",
+            marker="o",
+            markersize=8,
             lw=2,
-            linestyle="-.",
-            label=f"MLE gamma (α={fshape_mle:.2f}, β={fscale_mle:.2f}, loc={loc:.2f} , r={corr_mle:.3f})",
+            label=label,
         )
 
+    # The fit is derived and drawn only under --fit: the global search in fit_gamma_to_pmf is
+    # by far the slowest part of this script, and with the flag off nothing uses its result.
+    # Kept in one block (rather than fitting earlier and plotting here) so the fitted
+    # parameters can't be read on a path that never assigned them.
+    if args.fit:
+        # --- Convert cumulative probs to PMF ---
+        pmf = cumulative_to_pmf(trans_probs)
+
+        # --- Fit gamma to the PMF via optimization ---
+        shape_opt, loc_opt, scale_opt = fit_gamma_to_pmf(day_indices, pmf, title=group_title)
+
         # --- Plot optimized gamma (green) ---
-        gamma_opt = gamma.cdf(x_cont, a=shape_opt, loc=loc_opt, scale=scale_opt)
-        corr_opt = pearsonr(
-            np.interp(np.linspace(0, 1, days), np.linspace(0, 1, len(gamma_opt)), gamma_opt),
-            trans_probs,
-        )[0]
+        gamma_opt = discrete_gamma_cdf(day_indices, shape_opt, scale_opt, loc_opt)
+        corr_opt = pearsonr(gamma_opt, trans_probs)[0]
+        corr_by_series.append(
+            ("Optimized", f"α={shape_opt:.2f}, β={scale_opt:.2f}, loc={loc_opt:.2f}", corr_opt)
+        )
         ax.plot(
-            x_cont,
+            day_indices,
             gamma_opt,
-            "g-",
+            color="green",
             lw=2,
-            label=f"Optimized gamma (α={shape_opt:.2f}, β={scale_opt:.2f}, loc={loc:.2f} , r={corr_opt:.3f})",
+            linestyle="-",
+            drawstyle="steps-mid",
+            marker="^",
+            markersize=8,
+            label=f"Optimized gamma (α={shape_opt:.2f}, β={scale_opt:.2f}, loc={loc_opt:.2f} , r={corr_opt:.3f})",
         )
 
     print(f"  Pearson r vs Epicast cumulative probs:")
-    print(f"    Manual:    {corr_manual:.4f}")
-    #print(f"    MLE:       {corr_mle:.4f}")
-    #print(f"    Optimized: {corr_opt:.4f}")
+    for name, params_str, corr in corr_by_series:
+        print(f"    {name} ({params_str}): {corr:.4f}")
     print()
 
     ax.set_xlim(0, days - 1)
     ax.set_ylim(0, 1.2)
     ax.set_xlabel("Days")
     ax.set_ylabel("Cumulative Probability")
-    ax.set_title(title)
+    ax.set_title(group_title)
     ax.grid(True, alpha=0.3)
     ax.legend(fontsize=16, loc="upper center", bbox_to_anchor=(0.5, 1.0))
 

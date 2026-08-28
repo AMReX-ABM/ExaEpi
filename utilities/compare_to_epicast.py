@@ -771,8 +771,8 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
             y = _get_group_y(entry, col, args.xlimit)
             ax.plot(x[: len(y)], y, color="blue", linewidth=3, linestyle="-", label="Epicast")
             auc = float(np.sum(y))
-            ax.text(0.98, 0.97 - row * 0.16, f"AUC Epicast: {auc:.3f}",
-                    transform=ax.transAxes, ha="right", va="top", fontsize=14, color="blue")
+            ax.text(0.98, 0.97 - row * 0.05, f"AUC Epicast: {auc:.3f}",
+                    transform=ax.transAxes, ha="right", va="top", fontsize=20, color="blue")
             row += 1
 
     if exaepi_data:
@@ -784,11 +784,9 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
             y = _get_group_y(entry, col, args.xlimit)
             ax.plot(x[: len(y)], y, color="red", linewidth=3, linestyle="-", label="ExaEpi")
             auc = float(np.sum(y))
-            ax.text(0.98, 0.97 - row * 0.16, f"AUC ExaEpi: {auc:.3f}",
-                    transform=ax.transAxes, ha="right", va="top", fontsize=14, color="red")
+            ax.text(0.98, 0.97 - row * 0.05, f"AUC ExaEpi: {auc:.3f}",
+                    transform=ax.transAxes, ha="right", va="top", fontsize=20, color="red")
             row += 1
-
-    ax.legend(fontsize=14)
 
 
 def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=None):
@@ -925,7 +923,8 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
     ax.grid(True, which="minor", alpha=0.3)
     ax.minorticks_on()
 
-    # Annotate per-series summary values in the upper-right corner
+    # Annotate per-series summary values in the upper-right corner (or lower-right for the
+    # cumulative curve, since it rises into the upper-right area)
     print(f"{col_name}")
     if col_name == "cumulative_exposed":
         row = 0
@@ -939,8 +938,8 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
             lbl_str = legend_label if legend_label is not None else "(unlabelled)"
             print(f"  Max {lbl_str}: {max_val:,.0f}")
             if legend_label is not None:
-                ax.text(0.98, 0.97 - row * 0.20, f"Max {legend_label}: {max_val:,.0f}",
-                        transform=ax.transAxes, ha="right", va="top", fontsize=14, color=color)
+                ax.text(0.98, 0.03 + row * 0.055, f"Max {legend_label}: {max_val:,.0f}",
+                        transform=ax.transAxes, ha="right", va="bottom", fontsize=20, color=color)
                 row += 1
         for i, entry in enumerate(exaepi_data):
             legend_label = entry["label"]
@@ -952,8 +951,8 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
             lbl_str = legend_label if legend_label is not None else "(unlabelled)"
             print(f"  Max {lbl_str}: {max_val:,.0f}")
             if legend_label is not None:
-                ax.text(0.98, 0.97 - row * 0.20, f"Max {legend_label}: {max_val:,.0f}",
-                        transform=ax.transAxes, ha="right", va="top", fontsize=14, color=color)
+                ax.text(0.98, 0.03 + row * 0.055, f"Max {legend_label}: {max_val:,.0f}",
+                        transform=ax.transAxes, ha="right", va="bottom", fontsize=20, color=color)
                 row += 1
     else:
         row = 0
@@ -969,8 +968,8 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_df=None, fit_results=
                     gof_str = f"  R²={r2_str}  NRMSE={nrmse_str}"
             print(f"  AUC {lbl_str}: {auc:,.0f}{gof_str}")
             if lbl is not None:
-                ax.text(0.98, 0.97 - row * 0.20, f"AUC {lbl}: {auc:,.0f}",
-                        transform=ax.transAxes, ha="right", va="top", fontsize=14, color=color)
+                ax.text(0.98, 0.97 - row * 0.055, f"AUC {lbl}: {auc:,.0f}",
+                        transform=ax.transAxes, ha="right", va="top", fontsize=20, color=color)
                 row += 1
 
 
