@@ -37,8 +37,12 @@ namespace {
 /*! \brief Format helpers used by printHelp() to render the *actual* compiled-in default of a
  *  parameter (read from the same struct/class member that ParmParse falls back to), instead of
  *  a hand-copied literal that can drift out of sync whenever a default is changed in code. */
-std::string fmt (bool v) { return v ? "true" : "false"; }
-std::string fmt (int v) { return std::to_string(v); }
+std::string fmt (bool v) {
+    return v ? "true" : "false";
+}
+std::string fmt (int v) {
+    return std::to_string(v);
+}
 
 std::string fmt (amrex::Real v) {
     // Shortest decimal that round-trips back to the exact same amrex::Real (float or double,
@@ -49,7 +53,9 @@ std::string fmt (amrex::Real v) {
     return std::string(buf, res.ptr);
 }
 
-std::string fmt (const std::string& v) { return v.empty() ? "\"\"" : v; }
+std::string fmt (const std::string& v) {
+    return v.empty() ? "\"\"" : v;
+}
 
 template <typename T>
 std::string fmtArr (const T* a, int n) {
@@ -97,7 +103,9 @@ void printHelp (const char* prog) {
             out << paren << "\n" << std::string(name_width + 2 + default_width, ' ') << desc << "\n";
         }
     };
-    auto desc_line = [&] (const std::string& desc) { out << std::string(name_width + 2 + default_width, ' ') << desc << "\n"; };
+    auto desc_line = [&] (const std::string& desc) {
+        out << std::string(name_width + 2 + default_width, ' ') << desc << "\n";
+    };
 
     out << "Recognized \"agent.*\" parameters (name, default, description):\n";
     line("nsteps", fmt(tp.nsteps), "number of simulation steps");
@@ -127,20 +135,16 @@ void printHelp (const char* prog) {
     line("workgroup_size_filename", fmt(tp.workgroup_size_filename),
          "optional per-(state, NAICS-code) work-group target size table (urbanpop only); falls back to "
          "workgroup_size for any (state, NAICS) pair not in the file");
-    line("size_scale_enabled", fmt(tp.size_scale_enabled),
-         "enable population-size-based transmission scaling (urbanpop only)");
+    line("size_scale_enabled", fmt(tp.size_scale_enabled), "enable population-size-based transmission scaling (urbanpop only)");
     line("school_class_size", fmt(tp.school_class_size),
          "fallback target students-per-class for raw groups with no identified teachers");
-    line("school_class_size_min", fmt(tp.school_class_size_min),
-         "floor on average class size (bounds class count from above)");
-    line("school_class_size_max", fmt(tp.school_class_size_max),
-         "cap on average class size (bounds class count from below)");
+    line("school_class_size_min", fmt(tp.school_class_size_min), "floor on average class size (bounds class count from above)");
+    line("school_class_size_max", fmt(tp.school_class_size_max), "cap on average class size (bounds class count from below)");
     line("college_instructional_fraction", fmt(tp.college_instructional_fraction),
          "fraction of a college-level raw group's reported teacher/staff headcount assumed to actually be "
          "instructors, before class-size clamping");
     line("max_box_size", fmt(tp.max_box_size), "box size for domain decomposition");
-    line("aggregated_diag_int", fmt(tp.aggregated_diag_int),
-         "interval for aggregated diagnostic output, in steps; <=0 disables");
+    line("aggregated_diag_int", fmt(tp.aggregated_diag_int), "interval for aggregated diagnostic output, in steps; <=0 disables");
     line("aggregated_diag_prefix", fmt(tp.aggregated_diag_prefix), "filename prefix for aggregated diagnostic output");
     line("restart", fmt(tp.restart_chkfile), "checkpoint file to restart from");
     line("shelter_start", fmt(tp.shelter_start), "step at which to start sheltering; <=0 disables");
@@ -207,22 +211,17 @@ void printHelp (const char* prog) {
          "distributions below");
     line("latent_length_alpha", fmt(dp.latent_length_alpha), "Gamma distribution alpha for latent period length");
     line("latent_length_beta", fmt(dp.latent_length_beta), "Gamma distribution beta for latent period length");
-    line("infectious_length_alpha", fmt(dp.infectious_length_alpha),
-         "Gamma distribution alpha for infectious period length");
-    line("infectious_length_beta", fmt(dp.infectious_length_beta),
-         "Gamma distribution beta for infectious period length");
+    line("infectious_length_alpha", fmt(dp.infectious_length_alpha), "Gamma distribution alpha for infectious period length");
+    line("infectious_length_beta", fmt(dp.infectious_length_beta), "Gamma distribution beta for infectious period length");
     line("infectious_length_loc", fmt(dp.infectious_length_loc), "location (shift) for infectious period length");
-    line("incubation_length_alpha", fmt(dp.incubation_length_alpha),
-         "Gamma distribution alpha for incubation period length");
-    line("incubation_length_beta", fmt(dp.incubation_length_beta),
-         "Gamma distribution beta for incubation period length");
+    line("incubation_length_alpha", fmt(dp.incubation_length_alpha), "Gamma distribution alpha for incubation period length");
+    line("incubation_length_beta", fmt(dp.incubation_length_beta), "Gamma distribution beta for incubation period length");
     line("incubation_length_loc", fmt(dp.incubation_length_loc), "location (shift) for incubation period length");
     line("hospital_delay_length_alpha", fmt(dp.hospital_delay_length_alpha),
          "Gamma distribution alpha for hospital admission delay");
     line("hospital_delay_length_beta", fmt(dp.hospital_delay_length_beta),
          "Gamma distribution beta for hospital admission delay");
-    line("hospital_delay_length_loc", fmt(dp.hospital_delay_length_loc),
-         "location (shift) for hospital admission delay");
+    line("hospital_delay_length_loc", fmt(dp.hospital_delay_length_loc), "location (shift) for hospital admission delay");
     line("immune_length_alpha", fmt(dp.immune_length_alpha), "Gamma distribution alpha for immunity period length");
     line("immune_length_beta", fmt(dp.immune_length_beta), "Gamma distribution beta for immunity period length");
     line("immune_length_loc", fmt(dp.immune_length_loc), "location (shift) for immunity period length");
@@ -253,8 +252,7 @@ void printHelp (const char* prog) {
     line("coimmunity_matrix", "identity: 1.0 on diagonal, 0.0 off-diagonal", "");
     desc_line("number_of_diseases x number_of_diseases row-major matrix;");
     desc_line("immunity to disease j conferred by recovery from disease i");
-    line("cosusceptibility_matrix", "all 1.0",
-         "number_of_diseases x number_of_diseases row-major matrix;");
+    line("cosusceptibility_matrix", "all 1.0", "number_of_diseases x number_of_diseases row-major matrix;");
     desc_line("susceptibility to disease j while currently infected with i");
 
     std::cout << "Usage: \n"
@@ -950,10 +948,10 @@ void runAgent () {
         amrex::Print() << "Peak number of infected: " << num_infected_peak[0] << "\n";
         amrex::Print() << "Day of peak: " << step_of_peak[0] << "\n";
         amrex::Print() << "Cumulative deaths: " << cumulative_deaths[0] << "\n";
-        amrex::Print() << "Cumulative infected: " << cumulative_infected[0] << " (attack rate "
-                        << std::fixed << std::setprecision(2)
-                        << (total_population > 0 ? 100.0 * (double)cumulative_infected[0] / (double)total_population : 0.0)
-                        << "%)\n";
+        amrex::Print() << "Cumulative infected: " << cumulative_infected[0] << " (attack rate " << std::fixed
+                       << std::setprecision(2)
+                       << (total_population > 0 ? 100.0 * (double)cumulative_infected[0] / (double)total_population : 0.0)
+                       << "%)\n";
         amrex::Print() << "\n \n";
     } else {
         amrex::Print() << "\n \n";
@@ -962,10 +960,10 @@ void runAgent () {
             amrex::Print() << "    Peak number of infected: " << num_infected_peak[d] << "\n";
             amrex::Print() << "    Day of peak: " << step_of_peak[d] << "\n";
             amrex::Print() << "    Cumulative deaths: " << cumulative_deaths[d] << "\n";
-            amrex::Print() << "    Cumulative infected: " << cumulative_infected[d] << " (attack rate "
-                            << std::fixed << std::setprecision(2)
-                            << (total_population > 0 ? 100.0 * (double)cumulative_infected[d] / (double)total_population : 0.0)
-                            << "%)\n";
+            amrex::Print() << "    Cumulative infected: " << cumulative_infected[d] << " (attack rate " << std::fixed
+                           << std::setprecision(2)
+                           << (total_population > 0 ? 100.0 * (double)cumulative_infected[d] / (double)total_population : 0.0)
+                           << "%)\n";
         }
         amrex::Print() << "\n \n";
     }

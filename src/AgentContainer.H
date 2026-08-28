@@ -131,12 +131,12 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
      *  initializers) so that main.cpp's printHelp() can print the actual defaults instead of
      *  a hardcoded copy that can drift out of sync. */
     static constexpr amrex::GpuArray<int, SchoolType::total> default_student_teacher_ratio = {0, 15, 15, 15, 15, 15};
-    static constexpr amrex::GpuArray<amrex::Real, AgeGroups::total> default_symptomatic_withdraw_compliance_day_0 = {
-            0.3_rt, 0.3_rt, 0.3_rt, 0.3_rt, 0.3_rt, 0.3_rt};
-    static constexpr amrex::GpuArray<amrex::Real, AgeGroups::total> default_symptomatic_withdraw_compliance_day_1 = {
-            0.8_rt, 0.6_rt, 0.5_rt, 0.5_rt, 0.5_rt, 0.5_rt};
-    static constexpr amrex::GpuArray<amrex::Real, AgeGroups::total> default_symptomatic_withdraw_compliance_day_2 = {
-            0.9_rt, 0.8_rt, 0.7_rt, 0.7_rt, 0.7_rt, 0.7_rt};
+    static constexpr amrex::GpuArray<amrex::Real, AgeGroups::total> default_symptomatic_withdraw_compliance_day_0 =
+            {0.3_rt, 0.3_rt, 0.3_rt, 0.3_rt, 0.3_rt, 0.3_rt};
+    static constexpr amrex::GpuArray<amrex::Real, AgeGroups::total> default_symptomatic_withdraw_compliance_day_1 =
+            {0.8_rt, 0.6_rt, 0.5_rt, 0.5_rt, 0.5_rt, 0.5_rt};
+    static constexpr amrex::GpuArray<amrex::Real, AgeGroups::total> default_symptomatic_withdraw_compliance_day_2 =
+            {0.9_rt, 0.8_rt, 0.7_rt, 0.7_rt, 0.7_rt, 0.7_rt};
     static constexpr amrex::Real default_shelter_compliance = 0.95_rt; /*!< Shelter-in-place compliance rate */
 
     amrex::iMultiFab m_student_counts;
@@ -177,8 +177,8 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
   protected:
     amrex::Real m_shelter_compliance = default_shelter_compliance;
 
-    std::vector<DiseaseParm*> m_h_parm;         /*!< Disease parameters */
-    std::vector<DiseaseParm*> m_d_parm;         /*!< Disease parameters (GPU device) */
+    std::vector<DiseaseParm*> m_h_parm; /*!< Disease parameters */
+    std::vector<DiseaseParm*> m_d_parm; /*!< Disease parameters (GPU device) */
 
     std::unique_ptr<DiseaseCouplingParm<PTDType>> m_disease_coupling;
 

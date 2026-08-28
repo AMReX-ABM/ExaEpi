@@ -20,22 +20,22 @@ namespace ExaEpi {
     for the input file provided in the command line.
 */
 struct TestParams {
-    amrex::IntVect size;                                  /*!< domain size; (used only for ic_type = demo)
-                                                               (see ExaEpi::Utils::getGeometry) */
-    int max_box_size = 16;                                /*!< box size */
+    amrex::IntVect size;                                       /*!< domain size; (used only for ic_type = demo)
+                                                                    (see ExaEpi::Utils::getGeometry) */
+    int max_box_size = 16;                                     /*!< box size */
     static constexpr const char* default_ic_type = "urbanpop"; /*!< initial condition type, before ParmParse override */
-    int nsteps = 1;                                       /*!< number of simulation steps */
-    int plot_int = -1;                                    /*!< plot interval (see ExaEpi::IO::writePlotFile) */
-    int check_int = -1;                                   /*!< checkpoint interval (see ExaEpi::IO::writeCheckpointFile) */
-    int random_travel_int = -1;                           /*!< steps between random travel events
-                                                               (see AgentContainer::moveRandomTravel) */
-    amrex::Real random_travel_prob = amrex::Real(0.0001); /*!< probability of an agent going on random travel */
+    int nsteps = 1;                                            /*!< number of simulation steps */
+    int plot_int = -1;                                         /*!< plot interval (see ExaEpi::IO::writePlotFile) */
+    int check_int = -1;                                        /*!< checkpoint interval (see ExaEpi::IO::writeCheckpointFile) */
+    int random_travel_int = -1;                                /*!< steps between random travel events
+                                                                    (see AgentContainer::moveRandomTravel) */
+    amrex::Real random_travel_prob = amrex::Real(0.0001);      /*!< probability of an agent going on random travel */
     int air_travel_int = -1;
-    short ic_type;                                        /*!< initialization type (see ExaEpi::ICType) */
+    short ic_type;                                             /*!< initialization type (see ExaEpi::ICType) */
     int weather_int = -1;
 
-    int num_diseases = 1;                                 /*!< Number of diseases to track */
-    std::vector<std::string> disease_names;               /*!< Names of the diseases */
+    int num_diseases = 1;                                      /*!< Number of diseases to track */
+    std::vector<std::string> disease_names;                    /*!< Names of the diseases */
 
     /*! Census data filename (DemographicData::initFromFile)
 
@@ -154,7 +154,7 @@ struct TestParams {
     std::string aggregated_diag_prefix = "cases"; /*!< filename prefix for diagnostic data, used only if
                                                        aggregated_diag_int >= 0 (see: ExaEpi::IO::writeFIPSData) */
 
-    std::string restart_chkfile = "";   /*!< the name of the checkpoint to restart from */
+    std::string restart_chkfile = "";             /*!< the name of the checkpoint to restart from */
 
     int shelter_start = -1;
     int shelter_length = 0;
