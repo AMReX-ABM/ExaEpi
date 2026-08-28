@@ -657,7 +657,8 @@ def _mark_exaepi_start(ax, shifts, colors=None):
         if shift in seen:
             continue  # groups sharing a shift don't need a duplicate line/label
         seen.add(shift)
-        _mark_day_zero(ax, shift, "ExaEpi day 0", color)
+        if shift:
+            _mark_day_zero(ax, shift, "ExaEpi day 0", color)
 
 
 _CONTEXT_COLS = {
