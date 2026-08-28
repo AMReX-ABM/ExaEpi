@@ -291,11 +291,15 @@ void setInfected (int* status, int* symptomatic, amrex::ParticleReal* counter, a
         if (*incubation_period < 1) { *incubation_period = amrex::Real(1); }
         if (*infectious_period < 1) { *infectious_period = amrex::Real(1); }
     }
-    if (*incubation_period >= (*infectious_period + *latent_period)) {
+    if (*incubation_period + *hospital_delay > (*infectious_period + *latent_period)) {
         // Matches the round() (not floor()) used to convert these periods to whole days
-        // elsewhere (DiseaseStatus.H's recovered_period, AgentDefinitions.H's incb_period),
-        // so this stays strictly before the recovery day under that same discretization.
-        *incubation_period = amrex::Math::round(*infectious_period + *latent_period) - amrex::Real(1);
+        // elsewhere (DiseaseStatus.H's recovered_period, AgentDefinitions.H's incb_period).
+        // Leaves room for hospital_delay after incubation_period so that a symptomatic agent
+        // doesn't recover (transition to immune) before its hospitalization check -- which
+        // fires at incb_period + hospital_delay -- ever runs; otherwise the agent is silently
+        // never tested against m_CHR, biasing the observed hospitalized fraction downward.
+        *incubation_period = amrex::Math::round(*infectious_period + *latent_period) - *hospital_delay;
+        if (*incubation_period < 1) { *incubation_period = amrex::Real(1); }
     }
 
     *hospital_random = static_cast<ParticleReal>(amrex::Random(engine));
