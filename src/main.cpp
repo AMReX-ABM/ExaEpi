@@ -575,6 +575,7 @@ void runAgent () {
     std::vector<int> step_of_peak(params.num_diseases, 0);
     std::vector<Long> num_infected_peak(params.num_diseases, 0);
     std::vector<Long> cumulative_deaths(params.num_diseases, 0);
+    std::vector<Long> cumulative_infected(params.num_diseases, 0);
     for (int d = 0; d < params.num_diseases; d++) {
         auto counts = pc.getTotals(d);
         auto total_infected = totalInfected(counts);
@@ -583,7 +584,11 @@ void runAgent () {
             step_of_peak[d] = 0;
         }
         cumulative_deaths[d] = counts[OutputStatus::D];
+        // initial infections seeded before the time loop starts are not caught by NewI below
+        cumulative_infected[d] = total_infected;
     }
+
+    const Long total_population = pc.TotalNumberOfParticles();
 
     Vector<Long> num_infected(params.num_diseases, 0);
 
@@ -681,6 +686,7 @@ void runAgent () {
                     step_of_peak[d] = i;
                 }
                 cumulative_deaths[d] = counts[OutputStatus::D];
+                cumulative_infected[d] += counts[OutputStatus::NewI];
                 num_infected[d] = totalInfected(counts);
 
                 Real mmc[5] = {0, 0, 0, 0, 0};
@@ -856,6 +862,10 @@ void runAgent () {
         amrex::Print() << "Peak number of infected: " << num_infected_peak[0] << "\n";
         amrex::Print() << "Day of peak: " << step_of_peak[0] << "\n";
         amrex::Print() << "Cumulative deaths: " << cumulative_deaths[0] << "\n";
+        amrex::Print() << "Cumulative infected: " << cumulative_infected[0] << " (attack rate "
+                        << std::fixed << std::setprecision(2)
+                        << (total_population > 0 ? 100.0 * (double)cumulative_infected[0] / (double)total_population : 0.0)
+                        << "%)\n";
         amrex::Print() << "\n \n";
     } else {
         amrex::Print() << "\n \n";
@@ -864,6 +874,10 @@ void runAgent () {
             amrex::Print() << "    Peak number of infected: " << num_infected_peak[d] << "\n";
             amrex::Print() << "    Day of peak: " << step_of_peak[d] << "\n";
             amrex::Print() << "    Cumulative deaths: " << cumulative_deaths[d] << "\n";
+            amrex::Print() << "    Cumulative infected: " << cumulative_infected[d] << " (attack rate "
+                            << std::fixed << std::setprecision(2)
+                            << (total_population > 0 ? 100.0 * (double)cumulative_infected[d] / (double)total_population : 0.0)
+                            << "%)\n";
         }
         amrex::Print() << "\n \n";
     }
