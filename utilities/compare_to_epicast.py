@@ -3,6 +3,8 @@
 import sys
 import os
 import glob
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor
 import pandas as pd
 import numpy as np
 import argparse
@@ -519,10 +521,32 @@ def _align_arrays(dfs, col, xlimit):
     return np.vstack([df[col].values[:max_len] for df in dfs])
 
 
+def _medoid_index(y_mat):
+    """Index of the row in y_mat (files x days) with the smallest total (Euclidean) distance to
+    every other row -- the file whose full day-by-day curve is most representative of the group
+    as a whole.
+
+    Used to pick an actual constituent file as a wildcard group's representative curve, rather
+    than a pointwise day-by-day mean/median across files (which would blend pre-peak and
+    post-peak values from files with different outbreak timing, flattening and widening the
+    result relative to any single real run) or a single scalar summary like AUC (which, for a
+    flow/rate column such as daily new exposures, collapses to that file's total size and says
+    nothing about *when* those exposures happened -- so ranking by it can pick a file with an
+    unremarkable total but wildly atypical timing). Comparing full day-by-day curves accounts
+    for magnitude and timing together, for any column type.
+    """
+    diffs = y_mat[:, None, :] - y_mat[None, :, :]  # (n_files, n_files, n_days)
+    dist  = np.sqrt(np.sum(diffs ** 2, axis=2))    # (n_files, n_files) pairwise distance
+    return int(np.argmin(dist.sum(axis=1)))
+
+
 def _get_group_y(entry, col, xlimit):
-    """Return the (possibly averaged, for wildcard groups) y-array for a group entry."""
+    """Return the y-array for a group entry: a single file's values directly, or -- for a
+    wildcard group matching multiple files -- the actual file closest to the group's medoid
+    (see _medoid_index)."""
     if entry["is_wildcard"] and len(entry["dfs"]) > 1:
-        return _align_arrays(entry["dfs"], col, xlimit).mean(axis=0)
+        y_mat = _align_arrays(entry["dfs"], col, xlimit)
+        return y_mat[_medoid_index(y_mat)]
     return entry["dfs"][0][col].values[:xlimit]
 
 
@@ -792,6 +816,7 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
 
     if epicast_data:
         entry = epicast_data[0]
+        legend_label = entry["label"]
         df0 = entry["dfs"][0]
         if col in df0.columns:
             x = (df0["day"] + epicast_shift).values[: args.xlimit]
@@ -803,13 +828,15 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
             ax.plot(x[: len(y)], y, color="blue", linewidth=3, linestyle="-", label="Epicast")
             auc = float(np.sum(y))
             print(f"  AUC Epicast: {auc:.3f}")
-            ax.text(0.98, 0.97 - row * 0.05, f"Epicast AUC: {auc:.3f}",
-                    transform=ax.transAxes, ha="right", va="top", fontsize=20, color="blue")
-            row += 1
+            if legend_label is not None:
+                ax.text(0.98, 0.97 - row * 0.05, f"{legend_label} AUC: {auc:.3f}",
+                        transform=ax.transAxes, ha="right", va="top", fontsize=20, color="blue")
+                row += 1
             reference_y = _shift_array(y, epicast_shift, args.xlimit)
 
     if exaepi_data:
         entry = exaepi_data[0]
+        legend_label = entry["label"]
         shift = shift_by_group[0]
         df0 = entry["dfs"][0]
         if col in df0.columns:
@@ -830,9 +857,10 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
                     nrmse_str = f"{nrmse:.3f}" if np.isfinite(nrmse) else "N/A"
                     gof_str = f"  R²={r2_str}  NRMSE={nrmse_str}"
             print(f"  AUC ExaEpi: {auc:.3f}{gof_str}")
-            ax.text(0.98, 0.97 - row * 0.05, f"ExaEpi AUC: {auc:.3f}",
-                    transform=ax.transAxes, ha="right", va="top", fontsize=20, color="red")
-            row += 1
+            if legend_label is not None:
+                ax.text(0.98, 0.97 - row * 0.05, f"{legend_label} AUC: {auc:.3f}",
+                        transform=ax.transAxes, ha="right", va="top", fontsize=20, color="red")
+                row += 1
 
 
 def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results=None):
@@ -849,7 +877,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
             run_seirhd_erlang(), one per --seir curve (see _resolve_seir_params)
         fit_results: optional list of (series_label, color, beta, sigma, gamma, fitted_df)
     """
-    epicast_colors = ["blue", "green", "purple", "orange", "brown", "pink"]
+    epicast_colors = ["blue", "darkblue", "royalblue", "steelblue", "navy", "cornflowerblue"]
     exaepi_colors  = ["red", "darkred", "crimson", "firebrick", "maroon", "indianred"]
     # One shade of green per SEIRHD curve, sampled from a sequential colormap so any number of
     # curves stay visually distinguishable (a short fixed color list ran out of contrast for
@@ -898,25 +926,24 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
         plot_label   = legend_label if legend_label is not None else "_nolegend_"
 
         if is_wildcard and len(entry["dfs"]) > 1:
-            y_mat  = _align_arrays(entry["dfs"], col, args.xlimit)
-            y_mean = y_mat.mean(axis=0)
-            y_min  = y_mat.min(axis=0)
-            y_max  = y_mat.max(axis=0)
-            n      = y_mat.shape[1]
+            y_mat    = _align_arrays(entry["dfs"], col, args.xlimit)
+            y_medoid = y_mat[_medoid_index(y_mat)]
+            y_min    = y_mat.min(axis=0)
+            y_max    = y_mat.max(axis=0)
+            n        = y_mat.shape[1]
             x_vals = (entry["dfs"][0][x_col].values[:n] + x_shift) if x_col else np.arange(n)
 
             ax.fill_between(x_vals, y_min, y_max, alpha=0.25, color=color,
                             zorder=1, label="_nolegend_")
-            ax.plot(x_vals, y_mean, label=plot_label, color=color, linewidth=2, zorder=2)
-            auc = float(np.sum(y_mean))
-            y_for_gof = _shift_array(y_mean, x_shift, args.xlimit)
+            ax.plot(x_vals, y_medoid, label=plot_label, color=color, linewidth=2, zorder=2)
+            auc = float(np.sum(y_medoid))
+            y_for_gof = _shift_array(y_medoid, x_shift, args.xlimit)
         else:
             df     = entry["dfs"][0]
             x_vals = (df[x_col] + x_shift) if x_col else np.arange(len(df[col]))
             y_vals = df[col]
             auc    = float(np.sum(y_vals[: args.xlimit]))
-            lsargs = {"linestyle": "--"} if base_colors[0] == "blue" else {}
-            ax.plot(x_vals, y_vals, label=plot_label, color=color, linewidth=2, zorder=2, **lsargs)
+            ax.plot(x_vals, y_vals, label=plot_label, color=color, linewidth=2, zorder=2)
             y_for_gof = _shift_array(y_vals.values, x_shift, args.xlimit)
 
         return legend_label, auc, color, is_wildcard, y_for_gof
@@ -1009,7 +1036,8 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
             legend_label = entry["label"]
             color = epicast_colors[i % len(epicast_colors)]
             if entry["is_wildcard"] and len(entry["dfs"]) > 1:
-                max_val = float(_align_arrays(entry["dfs"], col_name, args.xlimit).mean(axis=0).max())
+                y_mat = _align_arrays(entry["dfs"], col_name, args.xlimit)
+                max_val = float(y_mat[_medoid_index(y_mat)].max())
             else:
                 max_val = float(entry["dfs"][0][col_name][: args.xlimit].max())
             lbl_str = legend_label if legend_label is not None else "(unlabelled)"
@@ -1020,7 +1048,8 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
             legend_label = entry["label"]
             color = exaepi_colors[i % len(exaepi_colors)]
             if entry["is_wildcard"] and len(entry["dfs"]) > 1:
-                max_val = float(_align_arrays(entry["dfs"], exaepi_col, args.xlimit).mean(axis=0).max())
+                y_mat = _align_arrays(entry["dfs"], exaepi_col, args.xlimit)
+                max_val = float(y_mat[_medoid_index(y_mat)].max())
             else:
                 max_val = float(entry["dfs"][0][exaepi_col][: args.xlimit].max())
             lbl_str = legend_label if legend_label is not None else "(unlabelled)"
@@ -1235,6 +1264,13 @@ if not args.epicast_file and not args.exaepi_file:
 def _load_grouped(file_specs, load_fn, extra_csv_fn=None):
     """Expand each file spec into a group dict, loading DataFrames with load_fn.
 
+    A wildcard match (multiple files) loads them in parallel across processes: each file's
+    read+aggregate is independent, and for Epicast's raw per-event binary files (millions of
+    rows, multiple pandas groupbys per file in load_epicast) that's expensive enough that
+    loading a large wildcard match sequentially can take minutes. ExaEpi's already-aggregated
+    per-day CSVs are cheap enough that the parallelism is close to free either way. A single
+    explicit file loads directly, with no process-pool startup overhead.
+
     Returns a list of {'label', 'is_wildcard', 'dfs', 'fnames'} dicts.
     """
     groups = []
@@ -1243,14 +1279,20 @@ def _load_grouped(file_specs, load_fn, extra_csv_fn=None):
         if not expanded:
             continue
         group_label = expanded[0][1]
-        is_wc = len(expanded) > 1
-        entry = {"label": group_label, "is_wildcard": is_wc, "dfs": [], "fnames": []}
-        for fname, _, _ in expanded:
+        fnames = [fname for fname, _, _ in expanded]
+        is_wc = len(fnames) > 1
+
+        for fname in fnames:
             print(f"{fname}")
-            df = load_fn(fname)
-            entry["dfs"].append(df)
-            entry["fnames"].append(fname)
-            if extra_csv_fn:
+        if is_wc:
+            with ProcessPoolExecutor(mp_context=mp.get_context("fork")) as executor:
+                dfs = list(executor.map(load_fn, fnames))
+        else:
+            dfs = [load_fn(fname) for fname in fnames]
+
+        entry = {"label": group_label, "is_wildcard": is_wc, "dfs": dfs, "fnames": fnames}
+        if extra_csv_fn:
+            for fname, df in zip(fnames, dfs):
                 extra_csv_fn(fname, df)
         groups.append(entry)
     return groups
@@ -1346,7 +1388,7 @@ if args.seir:
 # fit_results: list of (label, color, beta, sigma, gamma, h, gamma_h, mu, seed, fitted_df)
 fit_results = []
 if args.fit:
-    epicast_colors = ["blue", "green", "purple", "orange", "brown", "pink"]
+    epicast_colors = ["blue", "darkblue", "royalblue", "steelblue", "navy", "cornflowerblue"]
     exaepi_colors  = ["red", "darkred", "crimson", "firebrick", "maroon", "indianred"]
 
     for i, entry in enumerate(epicast_data):
