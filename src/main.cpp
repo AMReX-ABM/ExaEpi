@@ -662,6 +662,9 @@ void runAgent () {
     std::vector<Long> num_infected_peak(params.num_diseases, 0);
     std::vector<Long> cumulative_deaths(params.num_diseases, 0);
     std::vector<Long> cumulative_infected(params.num_diseases, 0);
+    std::vector<std::array<Long, AgeGroups::total>> cumulative_hosp_by_age(params.num_diseases,
+                                                                           std::array<Long, AgeGroups::total>{});
+    std::vector<std::array<Long, AgeGroups::total>> cumulative_infected_by_age(params.num_diseases);
     for (int d = 0; d < params.num_diseases; d++) {
         auto counts = pc.getTotals(d);
         auto total_infected = totalInfected(counts);
@@ -672,6 +675,7 @@ void runAgent () {
         cumulative_deaths[d] = counts[OutputStatus::D];
         // initial infections seeded before the time loop starts are not caught by NewI below
         cumulative_infected[d] = total_infected;
+        cumulative_infected_by_age[d] = pc.getInfectedByAge(d);
     }
 
     const Long total_population = pc.TotalNumberOfParticles();
@@ -815,6 +819,7 @@ void runAgent () {
 
                 auto symp_age_counts = pc.getNewStatusByAge(d, OutputStatus::NewS);
                 auto hosp_age_counts = pc.getNewStatusByAge(d, OutputStatus::NewH);
+                auto inf_age_counts = pc.getNewStatusByAge(d, OutputStatus::NewI);
 
                 if (ParallelDescriptor::IOProcessor()) {
                     // total number of deaths computed on agents and on mesh should be the same...
@@ -866,6 +871,8 @@ void runAgent () {
                     }
                     for (int j = 0; j < AgeGroups::total; j++) {
                         File << std::setw(12) << hosp_age_counts[j];
+                        cumulative_hosp_by_age[d][j] += hosp_age_counts[j];
+                        cumulative_infected_by_age[d][j] += inf_age_counts[j];
                     }
                     // File << std::setw(12) << mmc[4];
 
@@ -943,30 +950,58 @@ void runAgent () {
         }
     }
 
-    if (params.num_diseases == 1) {
-        amrex::Print() << "\n \n";
-        amrex::Print() << "Peak number of infected: " << num_infected_peak[0] << "\n";
-        amrex::Print() << "Day of peak: " << step_of_peak[0] << "\n";
-        amrex::Print() << "Cumulative deaths: " << cumulative_deaths[0] << "\n";
-        amrex::Print() << "Cumulative infected: " << cumulative_infected[0] << " (attack rate " << std::fixed
+    std::vector<std::array<Long, AgeGroups::total>> cumulative_deaths_by_age(params.num_diseases);
+    for (int d = 0; d < params.num_diseases; d++) {
+        cumulative_deaths_by_age[d] = pc.getNewStatusByAge(d, OutputStatus::D);
+    }
+    const std::array<Long, AgeGroups::total> population_by_age = pc.getPopulationByAge();
+
+    static const std::array<std::string, AgeGroups::total> age_group_names = {"0-4", "5-17", "18-29", "30-49", "50-64", "65+"};
+
+    auto print_age_breakdown = [&] (const std::string& indent, const std::array<Long, AgeGroups::total>& counts,
+                                    Long total_for_pct = -1) {
+        for (int j = 0; j < AgeGroups::total; j++) {
+            amrex::Print pr;
+            pr << indent << std::setw(6) << std::left << age_group_names[j] << std::right << std::setw(10) << counts[j]
+               << " (" << std::fixed << std::setprecision(2)
+               << (population_by_age[j] > 0 ? 100.0 * (double)counts[j] / (double)population_by_age[j] : 0.0)
+               << "% of age group";
+            if (total_for_pct >= 0) {
+                pr << ", " << std::fixed << std::setprecision(2)
+                   << (total_for_pct > 0 ? 100.0 * (double)counts[j] / (double)total_for_pct : 0.0) << "% of total infected";
+            }
+            pr << ")\n";
+        }
+    };
+
+    auto print_disease_summary = [&] (int d, const std::string& indent) {
+        amrex::Print() << indent << "Peak number of infected: " << num_infected_peak[d] << "\n";
+        amrex::Print() << indent << "Day of peak: " << step_of_peak[d] << "\n";
+        amrex::Print() << indent << "Cumulative infected: " << cumulative_infected[d] << " (attack rate " << std::fixed
                        << std::setprecision(2)
-                       << (total_population > 0 ? 100.0 * (double)cumulative_infected[0] / (double)total_population : 0.0)
+                       << (total_population > 0 ? 100.0 * (double)cumulative_infected[d] / (double)total_population : 0.0)
                        << "%)\n";
-        amrex::Print() << "\n \n";
+        print_age_breakdown(indent + "    ", cumulative_infected_by_age[d], cumulative_infected[d]);
+        Long total_hosp = 0;
+        for (int j = 0; j < AgeGroups::total; j++) {
+            total_hosp += cumulative_hosp_by_age[d][j];
+        }
+        amrex::Print() << indent << "Cumulative hospitalizations: " << total_hosp << "\n";
+        print_age_breakdown(indent + "    ", cumulative_hosp_by_age[d]);
+        amrex::Print() << indent << "Cumulative deaths: " << cumulative_deaths[d] << "\n";
+        print_age_breakdown(indent + "    ", cumulative_deaths_by_age[d]);
+    };
+
+    amrex::Print() << "\n \n";
+    if (params.num_diseases == 1) {
+        print_disease_summary(0, "");
     } else {
-        amrex::Print() << "\n \n";
         for (int d = 0; d < params.num_diseases; d++) {
             amrex::Print() << "Disease " << params.disease_names[d] << ":\n";
-            amrex::Print() << "    Peak number of infected: " << num_infected_peak[d] << "\n";
-            amrex::Print() << "    Day of peak: " << step_of_peak[d] << "\n";
-            amrex::Print() << "    Cumulative deaths: " << cumulative_deaths[d] << "\n";
-            amrex::Print() << "    Cumulative infected: " << cumulative_infected[d] << " (attack rate " << std::fixed
-                           << std::setprecision(2)
-                           << (total_population > 0 ? 100.0 * (double)cumulative_infected[d] / (double)total_population : 0.0)
-                           << "%)\n";
+            print_disease_summary(d, "    ");
         }
-        amrex::Print() << "\n \n";
     }
+    amrex::Print() << "\n \n";
 
     if (params.plot_int > 0) {
         if (params.ic_type == ICType::Census) {

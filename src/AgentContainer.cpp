@@ -1334,7 +1334,60 @@ std::array<Long, AgeGroups::total> AgentContainer::getNewStatusByAge (const int 
                 if (output_status == OutputStatus::NewH && isNewlyHospitalized(i, ptd, a_d)) { s[age] = 1; }
                 if (output_status == OutputStatus::NewA && isNewlyAsymptomatic(i, ptd, a_d)) { s[age] = 1; }
                 if (output_status == OutputStatus::NewP && isNewlyPresymptomatic(i, ptd, a_d)) { s[age] = 1; }
+                if (output_status == OutputStatus::D) {
+                    // dead is a persistent (not "newly") status, so this count is already cumulative
+                    auto status = ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][i];
+                    if (status == Status::dead) { s[age] = 1; }
+                }
 
+                return {ARRAY_TO_TUPLE(6, s)};
+            },
+            reduce_ops);
+    std::array<Long, AgeGroups::total> counts;
+    extract_tuple_to_array(r, counts);
+    ParallelDescriptor::ReduceLongSum(&counts[0], AgeGroups::total, ParallelDescriptor::IOProcessorNumber());
+
+    return counts;
+}
+
+/*! \brief Computes the total number of currently-infected agents (any sub-status, in or out of
+    hospital), by age */
+std::array<Long, AgeGroups::total> AgentContainer::getInfectedByAge (const int a_d) {
+    BL_PROFILE("getInfectedByAge");
+    static_assert(AgeGroups::total == 6, "Expected 6 total age groups");
+
+    amrex::ReduceOps<REPEAT(6, ReduceOpSum)> reduce_ops;
+    auto r = amrex::ParticleReduce<ReduceData<REPEAT(6, int)>>(
+            *this,
+            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
+                                 const int i) noexcept -> amrex::GpuTuple<REPEAT(6, int)> {
+                int s[AgeGroups::total] = {};
+                auto age = ptd.m_idata[IntIdx::age_group][i];
+                auto status = ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][i];
+                if (status == Status::infected) { s[age] = 1; }
+                return {ARRAY_TO_TUPLE(6, s)};
+            },
+            reduce_ops);
+    std::array<Long, AgeGroups::total> counts;
+    extract_tuple_to_array(r, counts);
+    ParallelDescriptor::ReduceLongSum(&counts[0], AgeGroups::total, ParallelDescriptor::IOProcessorNumber());
+
+    return counts;
+}
+
+/*! \brief Computes the total agent population in each age group */
+std::array<Long, AgeGroups::total> AgentContainer::getPopulationByAge () {
+    BL_PROFILE("getPopulationByAge");
+    static_assert(AgeGroups::total == 6, "Expected 6 total age groups");
+
+    amrex::ReduceOps<REPEAT(6, ReduceOpSum)> reduce_ops;
+    auto r = amrex::ParticleReduce<ReduceData<REPEAT(6, int)>>(
+            *this,
+            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
+                                 const int i) noexcept -> amrex::GpuTuple<REPEAT(6, int)> {
+                int s[AgeGroups::total] = {};
+                auto age = ptd.m_idata[IntIdx::age_group][i];
+                s[age] = 1;
                 return {ARRAY_TO_TUPLE(6, s)};
             },
             reduce_ops);
