@@ -962,10 +962,9 @@ void runAgent () {
                                     Long total_for_pct = -1) {
         for (int j = 0; j < AgeGroups::total; j++) {
             amrex::Print pr;
-            pr << indent << std::setw(6) << std::left << age_group_names[j] << std::right << std::setw(10) << counts[j]
-               << " (" << std::fixed << std::setprecision(2)
-               << (population_by_age[j] > 0 ? 100.0 * (double)counts[j] / (double)population_by_age[j] : 0.0)
-               << "% of age group";
+            pr << indent << std::setw(6) << std::left << age_group_names[j] << std::right << std::setw(10) << counts[j] << " ("
+               << std::fixed << std::setprecision(2)
+               << (population_by_age[j] > 0 ? 100.0 * (double)counts[j] / (double)population_by_age[j] : 0.0) << "% of age group";
             if (total_for_pct >= 0) {
                 pr << ", " << std::fixed << std::setprecision(2)
                    << (total_for_pct > 0 ? 100.0 * (double)counts[j] / (double)total_for_pct : 0.0) << "% of total infected";
