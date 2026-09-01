@@ -726,7 +726,15 @@ void runAgent () {
         for (int i = start_day; i < params.nsteps; ++i) {
             auto start_time = std::chrono::high_resolution_clock::now();
 
-            if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
+            // On a fresh start (not a restart), IntIdx::school_class/school_class_group aren't
+            // assigned until pc.assignSchoolClasses() runs below -- and since those are "static"
+            // per-agent fields only ever written to the step==0 plotfile (see IO.cpp), writing
+            // here (before that call) would permanently bake in their pre-assignment (garbage)
+            // values, with no later plotfile ever getting a chance to capture the real ones. So
+            // this first write is deferred to just after assignSchoolClasses() instead (see
+            // below); every other day's write is unaffected.
+            bool is_fresh_start = (i == start_day && params.restart_chkfile.empty());
+            if ((params.plot_int > 0) && (i % params.plot_int == 0) && !is_fresh_start) {
                 if (params.ic_type == ICType::Census) {
                     ExaEpi::IO::writePlotFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf,
                                               params.num_diseases, params.disease_names, cur_time, i);
@@ -911,7 +919,22 @@ void runAgent () {
             // AgentContainer::assignSchoolClasses). Only needs to happen once, on a fresh start:
             // IntIdx::school_class/school_class_group are persistent, checkpointed attributes, so a
             // restart must keep whatever classes the original run assigned rather than redrawing them.
-            if (i == start_day && params.restart_chkfile.empty()) { pc.assignSchoolClasses(params); }
+            if (is_fresh_start) {
+                pc.assignSchoolClasses(params);
+
+                // Deferred from above: this is the write that is_fresh_start skipped, now done
+                // after school_class/school_class_group have real values instead of their
+                // pre-assignment defaults.
+                if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
+                    if (params.ic_type == ICType::Census) {
+                        ExaEpi::IO::writePlotFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf,
+                                                  params.num_diseases, params.disease_names, cur_time, i);
+                    } else {
+                        ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
+                                                  params.num_diseases, params.disease_names, cur_time, i);
+                    }
+                }
+            }
 
             interact(&AgentContainer::interactWork, diag_exp_work);
             interact(&AgentContainer::interactHospital, diag_exp_hosp);
