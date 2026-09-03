@@ -166,10 +166,14 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
         sys.exit(f"--logx requires strictly positive sizes, but {title} has a minimum of "
                  f"{min(epicast_sizes.min(), exaepi_sizes.min())}")
 
+    def label_with_stats(name, sizes):
+        return (f"{name}: n={len(sizes):,}, mean={sizes.mean():.1f}, "
+                f"median={np.median(sizes):.1f}, max={sizes.max():,}")
+
     if cdf:
         for sizes, color, label in (
-            (epicast_sizes, "blue", "Epicast"),
-            (exaepi_sizes, "red", "ExaEpi"),
+            (epicast_sizes, "blue", label_with_stats("Epicast", epicast_sizes)),
+            (exaepi_sizes, "red", label_with_stats("ExaEpi", exaepi_sizes)),
         ):
             sorted_sizes = np.sort(sizes)
             cumulative_frac = np.arange(1, len(sorted_sizes) + 1) / len(sorted_sizes)
@@ -217,9 +221,9 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
             # monotonically increasing and numpy.histogram rejects it outright.
             bins = np.append(bins[bins < combined_max], combined_max)
         ax.hist(epicast_sizes, bins=bins, density=True, color="blue", alpha=0.5,
-                edgecolor="black", label="Epicast")
+                edgecolor="black", label=label_with_stats("Epicast", epicast_sizes))
         ax.hist(exaepi_sizes, bins=bins, density=True, color="red", alpha=0.5,
-                edgecolor="black", label="ExaEpi")
+                edgecolor="black", label=label_with_stats("ExaEpi", exaepi_sizes))
         ax.set_ylabel("Density")
 
     if logx:
@@ -235,20 +239,7 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
     ax.set_xlabel(xlabel)
     ax.set_title(title)
     ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=10)
-
-    stats_text = (
-        f"Epicast: n={len(epicast_sizes):,}, mean={epicast_sizes.mean():.1f}, "
-        f"median={np.median(epicast_sizes):.1f}, max={epicast_sizes.max():,}\n"
-        f"ExaEpi:  n={len(exaepi_sizes):,}, mean={exaepi_sizes.mean():.1f}, "
-        f"median={np.median(exaepi_sizes):.1f}, max={exaepi_sizes.max():,}"
-    )
-    text_y, valign = (0.35, "top") if cdf else (0.97, "top")
-    ax.text(
-        0.98, text_y, stats_text, transform=ax.transAxes, fontsize=8,
-        verticalalignment=valign, horizontalalignment="right", family="monospace",
-        bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
-    )
+    ax.legend(fontsize=8)
 
 
 def main():

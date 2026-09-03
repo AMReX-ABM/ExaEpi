@@ -196,10 +196,14 @@ def main():
 
     fig, ax = plt.subplots(figsize=(5, 4))
     left_edge = sizes.min() if args.logx else 0
+    series_label = (
+        f"{plural.capitalize()}: n={len(sizes):,}, mean={sizes.mean():.2f}, "
+        f"median={sizes.median():.2f}, max={sizes.max():,}"
+    )
     if args.cdf:
         sorted_sizes = np.sort(sizes.to_numpy())
         cumulative_frac = np.arange(1, len(sorted_sizes) + 1) / len(sorted_sizes)
-        ax.step(sorted_sizes, cumulative_frac, where="post", color="blue")
+        ax.step(sorted_sizes, cumulative_frac, where="post", color="blue", label=series_label)
         ax.set_ylabel("Cumulative fraction")
     else:
         # These are all integer counts, so by default give each distinct value its own bin
@@ -241,7 +245,7 @@ def main():
             # monotonically increasing and numpy.histogram rejects it outright.
             bins = np.asarray(bins)
             bins = np.append(bins[bins < data_max], data_max)
-        ax.hist(sizes, bins=bins, color="blue", alpha=0.7, edgecolor="black")
+        ax.hist(sizes, bins=bins, color="blue", alpha=0.7, edgecolor="black", label=series_label)
         ax.set_ylabel("Frequency")
     if args.logx:
         ax.set_xscale("log")
@@ -253,26 +257,7 @@ def main():
     ax.set_xlabel(xlabel)
     #ax.set_title(f"Histogram of ExaEpi {args.field} sizes")
     ax.grid(True, alpha=0.3)
-
-    stats_text = (
-        f"{plural.capitalize()}: {len(sizes)}\n"
-        f"Mean {stat_noun}: {sizes.mean():.2f}\n"
-        f"Median {stat_noun}: {sizes.median():.2f}\n"
-        f"Max {stat_noun}: {sizes.max()}"
-    )
-    # A CDF is flat at 1.0 across the top, so the stats box goes in the empty bottom-right
-    # corner instead of top-right (which is where the histogram's empty space usually is).
-    text_y, valign = (0.35, "top") if args.cdf else (0.97, "top")
-    ax.text(
-        0.98,
-        text_y,
-        stats_text,
-        transform=ax.transAxes,
-        fontsize=10,
-        verticalalignment=valign,
-        horizontalalignment="right",
-        bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
-    )
+    ax.legend(fontsize=8)
 
     plt.tight_layout()
     plt.savefig(output, dpi=300, bbox_inches="tight")
