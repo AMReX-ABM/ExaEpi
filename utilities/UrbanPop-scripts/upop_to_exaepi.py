@@ -803,43 +803,59 @@ def process_students_region(
         return None
     # Select only needed columns
     school_group = school_group.select(["geoid", "id", "remaining_student_places"])
-    sum_remaining_student_places = school_group["remaining_student_places"].sum()
-    if not alloc_all and num_students_reqd > sum_remaining_student_places:
-        # Add extra dummy row so all students have chance of being allocated
-        dummy_row = pl.DataFrame(
-            {
-                "geoid": [""],
-                "id": [""],
-                "remaining_student_places": [num_students_reqd - sum_remaining_student_places],
-            },
-            schema={
-                "geoid": pl.Utf8,
-                "id": pl.Utf8,
-                "remaining_student_places": school_group["remaining_student_places"].dtype,
-            },
-        )
-        school_group = pl.concat([school_group, dummy_row])
-        sum_remaining_student_places = school_group["remaining_student_places"].sum()
-    # Sample schools based on probabilities
-    # Calculate probabilities for weighted sampling
-    school_probs = (
-        school_group["remaining_student_places"] / sum_remaining_student_places
-    ).to_numpy()
-    # Use numpy random choice with weights, then select those rows
-    school_rnd_indices = np.random.choice(
-        len(school_group), size=num_students_reqd, replace=True, p=school_probs
-    )
-    # Select schools by indices
-    schools_selected = school_group[school_rnd_indices]
-    geoids = schools_selected["geoid"].to_list()
-    school_ids = schools_selected["id"].to_list()
-    # Filter out dummy schools
-    schools_selected = schools_selected.filter(pl.col("id") != "")
-    if len(schools_selected) == 0:
+    # Randomize which schools get filled first, then fill each one toward its own capacity
+    # before moving to the next, rather than drawing every student's school independently
+    # with replacement (weighted by capacity) across every competing school in the region.
+    # Independent weighted draws spread limited local demand as a thin smear across every
+    # school with spare capacity, which produces mostly-empty schools whenever total local
+    # capacity well exceeds real demand (as with oversupplied childcare capacity) -- real
+    # households concentrate at whichever center they actually choose, not evenly at every
+    # nearby competitor. Filling in a random order instead concentrates enrollment into
+    # however many schools are actually needed to satisfy demand, leaving any surplus
+    # schools at zero this round rather than a token handful each.
+    order = np.random.permutation(len(school_group))
+    school_group = school_group[order.tolist()]
+    caps = school_group["remaining_student_places"].to_numpy().astype(np.int64)
+    cum_caps = np.cumsum(caps)
+    total_capacity = int(cum_caps[-1]) if len(cum_caps) else 0
+
+    if num_students_reqd <= total_capacity:
+        # Enough local capacity: fill schools in the randomized order until demand is met.
+        n_used = int(np.searchsorted(cum_caps, num_students_reqd, side="left")) + 1
+        n_used = min(n_used, len(caps))
+        counts = caps[:n_used].copy()
+        counts[-1] -= int(cum_caps[n_used - 1] - num_students_reqd)
+        assigned = school_group[:n_used]
+    else:
+        # Not enough local capacity for everyone: every school gets filled completely.
+        counts = caps.copy()
+        assigned = school_group
+        if alloc_all:
+            # Last (coarsest) region scale -- every remaining student must be placed
+            # somewhere even though real capacity is exhausted. There's no more "which
+            # school is actually chosen" signal once true capacity is used up, so spread
+            # the shortfall proportional to capacity (falling back to uniform if every
+            # school here has zero capacity).
+            shortfall = num_students_reqd - total_capacity
+            weights = caps if caps.sum() > 0 else np.ones_like(caps)
+            extra = np.random.multinomial(shortfall, weights / weights.sum())
+            counts = counts + extra
+        # else: leave the shortfall unassigned; it's retried at a coarser region scale
+
+    nonzero = counts > 0
+    counts = counts[nonzero]
+    assigned = assigned.filter(pl.Series(nonzero))
+    student_ids = student_group["id"].to_list()
+    geoids = np.repeat(assigned["geoid"].to_numpy(), counts).tolist()
+    school_ids = np.repeat(assigned["id"].to_numpy(), counts).tolist()
+    n_assigned = len(geoids)
+    if n_assigned < num_students_reqd:
+        geoids += [""] * (num_students_reqd - n_assigned)
+        school_ids += [""] * (num_students_reqd - n_assigned)
+    if len(assigned) == 0:
         return None
-    # Count assignments per school
-    counts = schools_selected.group_by("id", maintain_order=True).agg(pl.len().alias("count"))
-    return student_group["id"].to_list(), geoids, school_ids, counts
+    counts_df = pl.DataFrame({"id": assigned["id"].to_list(), "count": counts.tolist()})
+    return student_ids, geoids, school_ids, counts_df
 
 
 def alloc_students_region(
@@ -1237,15 +1253,28 @@ def alloc_teachers_region(
             missing_regions += 1
             continue
         num_teachers_reqd = min(num_teachers_reqd, len(teacher_group))
-        # Sample teachers
+        # Fill schools in a random order toward each one's own required teacher count,
+        # rather than drawing each teacher's school independently with replacement
+        # (weighted by required count) across every school in the region -- see the matching
+        # comment in process_students_region for why that thin-spreads limited supply across
+        # every competing school instead of concentrating it the way real staffing does.
+        order = np.random.permutation(len(school_group))
+        school_group_shuffled = school_group[order.tolist()]
+        caps = school_group_shuffled["adj_teachers"].to_numpy().astype(np.int64)
+        cum_caps = np.cumsum(caps)
+        total_capacity = int(cum_caps[-1]) if len(cum_caps) else 0
+        num_teachers_reqd = min(num_teachers_reqd, total_capacity)
+        if num_teachers_reqd == 0:
+            continue
+        n_used = int(np.searchsorted(cum_caps, num_teachers_reqd, side="left")) + 1
+        n_used = min(n_used, len(caps))
+        counts = caps[:n_used].copy()
+        counts[-1] -= int(cum_caps[n_used - 1] - num_teachers_reqd)
+        nonzero = counts > 0
+        repeat_idx = np.repeat(np.arange(n_used)[nonzero], counts[nonzero])
+        schools_selected = school_group_shuffled[repeat_idx.tolist()]
+        # Sample teachers (now that num_teachers_reqd is capped to actual capacity used)
         teachers_selected = teacher_group.sample(n=num_teachers_reqd, seed=seed)
-        # Calculate probabilities and sample schools
-        probs = (school_group["adj_teachers"] / school_group["adj_teachers"].sum()).to_numpy()
-        probs = probs / probs.sum()
-        school_indices = np.random.choice(
-            len(school_group), size=num_teachers_reqd, replace=True, p=probs
-        )
-        schools_selected = school_group[school_indices]
         # Vectorized grade assignment - combine all operations
         levels_array = schools_selected["level"].to_numpy()
         grades = np.zeros(len(levels_array), dtype=np.int8)
