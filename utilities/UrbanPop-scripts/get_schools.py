@@ -6,6 +6,7 @@ import geopandas as gpd
 import argparse
 import configparser
 import glob
+import re
 import time
 import psutil
 import os
@@ -125,6 +126,44 @@ def get_age_from_grade(grade_str):
     return -1
 
 
+# Best-effort name match for schools/colleges that don't correspond to a single physical
+# location (statewide virtual charter schools, online-only university branches, etc). These
+# aren't data errors -- their enrollment figures are real -- but treating them as one physical
+# in-person mixing group would manufacture a huge fake contact hub. There's no HIFLD field that
+# flags this directly (NCES has an authoritative "VIRTUAL" column instead, used separately in
+# get_nces_public_schools), so this is necessarily incomplete: it catches the most obviously
+# named cases but misses e.g. large online-only universities with no "online"/"virtual" in
+# their name (Western Governors University, Southern New Hampshire University).
+VIRTUAL_NAME_PATTERN = re.compile(
+    r"VIRTUAL|CYBER|CONNECTIONS ACADEMY|\bONLINE\b|DIGITAL ACAD|E-SCHOOL|DISTANCE (?:ED|LEARN)|HOME LEARNING|\bK12\b|\bSTRIDE\b",
+    re.IGNORECASE,
+)
+
+
+def drop_virtual_schools(df, name_col):
+    is_virtual = df[name_col].str.contains(VIRTUAL_NAME_PATTERN, na=False)
+    n_virtual = int(is_virtual.sum())
+    if n_virtual:
+        print(f"Dropping {n_virtual} likely virtual/online schools by name match")
+    return df[~is_virtual].drop(columns=[name_col])
+
+
+def invalidate_bad_teacher_ratios(schools_with_geoids, min_ratio=1, max_ratio=100):
+    """Treat an implausible students/teachers ratio as a missing teacher count.
+
+    Real schools run roughly 4-36 students per teacher; some HIFLD records report a raw
+    teacher count wildly outside that (e.g. "1 full time teacher" for a school of nearly
+    2000 students), which get_complete()'s dropna/to_keep filters would otherwise accept
+    as-is since both fields are individually positive. Zeroing the teacher count here
+    routes these rows into get_complete()'s existing average-ratio backfill instead.
+    """
+    valid = (schools_with_geoids.teachers > 0) & (schools_with_geoids.students > 0)
+    ratio = schools_with_geoids.students / schools_with_geoids.teachers.replace(0, np.nan)
+    bad_ratio = valid & ((ratio < min_ratio) | (ratio > max_ratio))
+    schools_with_geoids.loc[bad_ratio, "teachers"] = 0
+    return schools_with_geoids
+
+
 def get_complete(schools_with_geoids):
     num_schools = len(schools_with_geoids)
     # we could have schools without geoids - missing lng/lat?
@@ -150,7 +189,7 @@ def get_complete(schools_with_geoids):
 @timer
 def get_hifld_public_schools(args, census_bgs_df):
     school_df = pd.DataFrame()
-    cols_to_read = ["NCES ID", "Latitude", "Longitude", "Enrollment", "Start Grade", "End Grade", "Full Time Teachers"]
+    cols_to_read = ["NCES ID", "Name", "Latitude", "Longitude", "Enrollment", "Start Grade", "End Grade", "Full Time Teachers"]
     for fname in args.public_school_files:
         print("Reading data from", fname, end=": ")
         t = time.time()
@@ -171,7 +210,9 @@ def get_hifld_public_schools(args, census_bgs_df):
             "Full Time Teachers": "teachers",
             "GEOID10": "geoid",
         }
-    )[["id", "students", "teachers", "level", "geoid"]]
+    )[["id", "students", "teachers", "level", "geoid", "Name"]]
+    schools_with_geoids = drop_virtual_schools(schools_with_geoids, "Name")
+    schools_with_geoids = invalidate_bad_teacher_ratios(schools_with_geoids)
     schools_with_geoids = get_complete(schools_with_geoids)
     schools_with_geoids.to_csv("non_college_schools_with_geoids.csv", index=False)
     print("Wrote", len(schools_with_geoids), "schools to non_college_schools_with_geoids.csv")
@@ -181,7 +222,7 @@ def get_hifld_public_schools(args, census_bgs_df):
 @timer
 def get_hifld_private_schools(args, census_bgs_df):
     school_df = pd.DataFrame()
-    cols_to_read = ["NCES ID", "Latitude", "Longitude", "Enrollment", "Start Grade", "End Grade", "Full Time Teachers"]
+    cols_to_read = ["NCES ID", "Name", "Latitude", "Longitude", "Enrollment", "Start Grade", "End Grade", "Full Time Teachers"]
     for fname in args.private_school_files:
         print("Reading data from", fname, end=": ")
         t = time.time()
@@ -201,7 +242,9 @@ def get_hifld_private_schools(args, census_bgs_df):
             "Full Time Teachers": "teachers",
             "GEOID10": "geoid",
         }
-    )[["id", "students", "teachers", "level", "geoid"]]
+    )[["id", "students", "teachers", "level", "geoid", "Name"]]
+    schools_with_geoids = drop_virtual_schools(schools_with_geoids, "Name")
+    schools_with_geoids = invalidate_bad_teacher_ratios(schools_with_geoids)
     schools_with_geoids = get_complete(schools_with_geoids)
     schools_with_geoids.to_csv("non_college_schools_with_geoids.csv", index=False)
     print("Wrote", len(schools_with_geoids), "schools to non_college_schools_with_geoids.csv")
@@ -233,9 +276,18 @@ def get_hifld_childcare(args, census_bgs_df):
     childcare_with_geoids.dropna(inplace=True)
     # only keep childcare with complete records
     childcare_complete = childcare_with_geoids[childcare_with_geoids.students > 0]
-    avg_childcare = int(childcare_complete.students.sum() / len(childcare_complete))
-    print("Avg childcare size", avg_childcare)
-    childcare_with_geoids.loc[(childcare_with_geoids.students <= 0), "students"] = avg_childcare
+    print("Avg childcare size", childcare_complete.students.mean())
+    # HIFLD marks unknown population as -999 (or occasionally 0). Rather than filling every
+    # such record with the single national-average value -- which, since -999 covers 100% of
+    # some states' records, would make every childcare center in that state identical -- sample
+    # each one from the empirical distribution of known sizes, so the average is preserved but
+    # individual centers still vary realistically.
+    missing = childcare_with_geoids.students <= 0
+    num_missing = int(missing.sum())
+    if num_missing > 0:
+        childcare_with_geoids.loc[missing, "students"] = np.random.choice(
+            childcare_complete.students.to_numpy(), size=num_missing, replace=True
+        )
     # childcare_with_geoids = childcare_with_geoids[childcare_with_geoids.students > 0]
     # assume 5 children per adult
     childcare_with_geoids.insert(cast(int, childcare_with_geoids.columns.get_loc("students")) + 1, "teachers", int(0))
@@ -257,7 +309,7 @@ def get_hifld_colleges(args):
     for fname in args.college_files:
         print("Reading data from", fname, end=": ")
         t = time.time()
-        df = pd.read_csv(fname, low_memory=False)[["UNIQUEID", "ADDRESS", "CITY", "STATE", "ZIP", "TOT_ENROLL", "TOT_EMP"]]
+        df = pd.read_csv(fname, low_memory=False)[["UNIQUEID", "NAME", "ADDRESS", "CITY", "STATE", "ZIP", "TOT_ENROLL", "TOT_EMP"]]
         colleges_df = pd.concat([colleges_df, df], ignore_index=True)
         print(len(df.index), "records in % .3f s" % (time.time() - t))
 
@@ -305,7 +357,14 @@ def get_hifld_colleges(args):
     geoids_df["geoid"] = (geo_df.statefp + geo_df.countyfp + geo_df.tract + geo_df.block).str[:12]
     # add a college level indicator to fit with schools data
     colleges_df["level"] = "U"
-    colleges_with_geoids = colleges_df[["id", "students", "teachers", "level"]].merge(geoids_df, on="id")
+    colleges_with_geoids = colleges_df[["id", "students", "teachers", "level", "NAME"]].merge(geoids_df, on="id")
+    colleges_with_geoids = drop_virtual_schools(colleges_with_geoids, "NAME")
+    # unlike K-12 "Full Time Teachers", a college/university's TOT_EMP legitimately includes
+    # non-teaching staff (hospitals and medical centers for research universities, etc.), so a
+    # students/employees ratio far outside the K-12 range isn't necessarily an error here -- e.g.
+    # Ohio State's ~35,000 TOT_EMP includes its medical center, and University of the People's
+    # ~1:1682 ratio reflects its real, almost entirely volunteer-faculty model. Skip the ratio
+    # sanity check that applies to get_hifld_public_schools/get_hifld_private_schools.
     colleges_with_geoids = get_complete(colleges_with_geoids)
     colleges_with_geoids.to_csv("colleges_with_geoids.csv", index=False)
     print("Wrote", len(colleges_with_geoids), "colleges to colleges_with_geoids.csv")
@@ -316,8 +375,18 @@ def get_hifld_colleges(args):
 def get_nces_public_schools(args, census_bgs_df):
     print(f"Reading from {args.public_nces_school_file}: ", end="")
     t = time.time()
-    df = pd.read_csv(args.public_nces_school_file)[["NCESSCH", "TOTAL", "STUTERATIO", "LATCOD", "LONCOD", "GSLO", "GSHI"]]
+    df = pd.read_csv(args.public_nces_school_file)[
+        ["NCESSCH", "TOTAL", "STUTERATIO", "LATCOD", "LONCOD", "GSLO", "GSHI", "VIRTUAL"]
+    ]
     print(len(df.index), "records in % .3f s" % (time.time() - t))
+    # exclude statewide virtual/cyber schools -- their enrollment is real, but they don't
+    # correspond to a single physical location, so treating them as one in-person mixing group
+    # would manufacture a huge fake contact hub. NCES's VIRTUAL field is authoritative here,
+    # unlike the HIFLD sources (see VIRTUAL_NAME_PATTERN/drop_virtual_schools), which have no
+    # such flag and have to fall back to a name match.
+    is_virtual = df["VIRTUAL"].isin(["Full Virtual", "Virtual with face to face options"])
+    print(f"Dropping {int(is_virtual.sum())} virtual schools (NCES VIRTUAL field)")
+    df = df[~is_virtual].drop(columns=["VIRTUAL"])
     # drop schools without grade information or for adults - N = not available, UG = ungraded, AE = adult education, M = missing
     no_grades = ["N ", "UG", "AE", "M "]
     for no_grade in no_grades:
@@ -327,9 +396,19 @@ def get_nces_public_schools(args, census_bgs_df):
     gdf = gpd.GeoDataFrame(df, crs="EPSG:4269", geometry=geometry)
     geoids_df = pd.DataFrame(gpd.sjoin(gdf, census_bgs_df, how="left", predicate="within"))
     geoids_df["teachers"] = np.ceil(geoids_df.TOTAL / geoids_df.STUTERATIO)
-    # avoid infinities
-    geoids_df.loc[geoids_df["STUTERATIO"] == 0, "teachers"] = 0
-    geoids_df.fillna(0, inplace=True)
+    # avoid infinities, and treat implausible reported ratios (real schools run roughly 4-100
+    # students per teacher) the same as a missing ratio -- some NCES records have STUTERATIO
+    # far outside any plausible range (e.g. 7950), which would otherwise produce a nonsense
+    # teacher count. get_complete() below already backfills teachers <= 0 from the dataset's
+    # average ratio, so routing bad ratios through that same path recovers a sane value.
+    bad_ratio = (geoids_df["STUTERATIO"] < 1) | (geoids_df["STUTERATIO"] > 100)
+    geoids_df.loc[bad_ratio, "teachers"] = 0
+    # only fill the columns about to be cast to int below -- filling the whole frame would also
+    # touch the string columns brought in by the spatial join (e.g. GEOID10), which (a) errors
+    # under pandas' Arrow-backed string dtype and (b) would wrongly turn an unmatched geoid into
+    # "0" instead of leaving it NaN to be dropped by get_complete()'s dropna.
+    fill_cols = ["TOTAL", "teachers", "GSLO", "GSHI"]
+    geoids_df[fill_cols] = geoids_df[fill_cols].fillna(0)
 
     grade_descr_to_num = {"PK": "-1", "KG": "0"}
     for grade_descr, grade_num in grade_descr_to_num.items():
@@ -373,11 +452,15 @@ def main():
         "childcare_files": "",
         "census_bg_files": "",
     }
+    glob_keys = set(main_args.keys())
     if args.config:
         cfg = configparser.ConfigParser()
         cfg.read([args.config])
         main_args.update(dict(cfg.items("main")))
-        for key in main_args.keys():
+        # only the file-list options above get glob-expanded -- other config keys (rseed,
+        # public_nces_school_file) are scalars and must pass through untouched, or argparse's
+        # own type conversion/defaulting for them breaks (e.g. rseed=29 silently becoming None)
+        for key in glob_keys:
             files = str(main_args[key]).split()
             file_list = []
             for f in files:
@@ -387,18 +470,29 @@ def main():
     parser.set_defaults(**main_args)
     parser.add_argument("--private_school_files", "-p", nargs="+", help="HIFLD Private school CSV files")
     parser.add_argument("--public_school_files", "-s", nargs="+", help="HIFLD Public school CSV files")
-    # NCES data is only available for public schools. It may be preferable because we have historical data, unlike HIFLD
-    # which is the latest data. However, using 2019 NCES vs 2024 HIFLD data appears to make no significant difference overall
-    parser.add_argument("--public_nces_school_file", help="NCES Public school CSV files - use instead of HIFLD")
+    # NCES data is only available for public schools, but is recommended over HIFLD's public school
+    # data: its 2018-19 vintage matches the ~2019 vintage already used elsewhere in this pipeline
+    # (see the LODES note in README.md), and its authoritative VIRTUAL field lets
+    # get_nces_public_schools() reliably drop statewide virtual/cyber schools, which HIFLD has no
+    # equivalent flag for (see VIRTUAL_NAME_PATTERN/drop_virtual_schools). See
+    # data/EducationData/README.md for the full comparison.
+    parser.add_argument("--public_nces_school_file", help="NCES Public school CSV file - recommended over HIFLD")
     parser.add_argument("--college_files", "-u", nargs="+", help="HIFLD College/University CSV files")
     parser.add_argument("--childcare_files", "-a", nargs="+", help="HIFLD Childcare CSV files")
     parser.add_argument("--census_bg_files", "-b", nargs="+", help="Census Block Group (bg) shape files")
+    parser.add_argument(
+        # no default= here: an explicit default would clobber the value set_defaults(**main_args)
+        # already applied above from the config file's rseed= entry, since set_defaults() runs
+        # before this add_argument() call.
+        "--rseed", type=int, help="Random seed, for reproducible childcare size estimates"
+    )
     args = parser.parse_args(remaining_argv)
     print(Fore.CYAN, "Options:", sep="")
     for arg, value in args.__dict__.items():
         print(f"  {arg:20s} {value}")
     print(Fore.RESET, end="")
 
+    np.random.seed(args.rseed)
     start_t = time.time()
     census_bgs_df = get_census_bgs(args)
     childcare_geoids_df = get_hifld_childcare(args, census_bgs_df)

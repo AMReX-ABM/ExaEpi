@@ -4,6 +4,8 @@ out-*
 results
 EducationData/*
 !EducationData/schools_with_geoids.csv.gz
+!EducationData/README.md
+!EducationData/nm-schools.cfg
 LODES7
 US_2010_Census_BlockGroups
 US_2010_Census_States
