@@ -8,6 +8,21 @@
 #include "AgentContainer.H"
 #include "AgentDefinitions.H"
 
+namespace {
+// Deterministic hash, usable on host or device, with no shared RNG state -- see
+// AgentContainer::assignSchoolClasses's doc comment for why: Pass 2/3 there must produce
+// identical results on every rank with no cross-rank communication, which rules out
+// amrex::Random() or any other stateful RNG. Two seeds are mixed in so callers can combine
+// e.g. a raw group's own index with a per-agent rank to get an independent value per agent.
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+uint64_t hash64 (uint64_t a, uint64_t b = 0) {
+    uint64_t h = a * 2654435761ull + b * 0x9E3779B97F4A7C15ull + 0x9E3779B97F4A7C15ull;
+    h ^= (h >> 33); h *= 0xff51afd7ed558ccdull; h ^= (h >> 33);
+    h *= 0xc4ceb9fe1a85ec53ull; h ^= (h >> 33);
+    return h;
+}
+}
+
 // repeat macro for repeating identical tokens
 #define REPEAT_0(x)
 #define REPEAT_1(x) x
@@ -390,20 +405,13 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
     // non-classroom "admin" groups, sized like a regular workgroup (target size
     // params.workgroup_size) rather than one unbounded pool -- see IntIdx::school_class for the
     // -2, -3, -4, ... sentinel numbering that distinguishes them.
-    // Deterministic pseudo-random unit float, seeded only by the raw group's own flat index --
-    // used just below to add slack to cap-driven class counts. Pass 2 must produce identical
-    // results on every rank (see function header comment), so this can't use amrex::Random()
-    // or any other stateful RNG; a hash of idx alone gives every rank the same jitter for the
-    // same raw group with no communication needed.
-    auto hash01 = [](long idx) -> Real {
-        uint64_t h = (uint64_t)idx * 2654435761ull + 0x9E3779B97F4A7C15ull;
-        h ^= (h >> 33); h *= 0xff51afd7ed558ccdull; h ^= (h >> 33);
-        return (Real)(h % 1000000ull) / 1000000.0_rt;
-    };
-
     Vector<int> n_classes_h(n_flat);
     Vector<int> n_admin_h(n_flat);
     Vector<long> class_group_base_h(n_flat);
+    // Whether a raw group's class count was driven up to the bare minimum needed to satisfy
+    // school_class_size_max (true) rather than by actual teacher headcount (false) -- read by
+    // Pass 3 below to decide how to split that raw group's students among its classes.
+    Vector<int> cap_driven_h(n_flat, 0);
     long max_class_group = 0;
     for (long idx = 0; idx < n_flat; ++idx) {
         int n_classes = 0;
@@ -421,22 +429,10 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
             int raw_n_classes = (effective_teacher_count > 0.0_rt)
                                         ? std::max(1, (int)effective_teacher_count)
                                         : std::max(1, (int)std::ceil(student_count_h[idx] / (Real)params.school_class_size));
-            // A raw group that needs more classes than its teacher headcount provides gets
-            // bumped up to the minimum class count that keeps every class under the cap.
-            // Splitting N students into exactly that minimum forces nearly every class in a
-            // raw group needing many classes (colleges, big multi-grade schools) to size out
-            // at *precisely* school_class_size_max -- e.g. splitting 1049 students into
-            // ceil(1049/50)=21 classes gives twenty classes of 50 and one of 49, since the
-            // round-robin remainder (< the class count itself, once there are more than ~49
-            // classes) always lands as a handful of full classes rather than spreading below
-            // the cap. Real schools don't run every room at exactly the legal max, so instead
-            // of always targeting school_class_size_max exactly, use a per-raw-group cap drawn
-            // from [max-5, max+10] (45-60 for the default max of 50) -- spreading the sizes
-            // cap-driven groups land on across a band instead of pinning them all to one value.
-            Real jittered_max = (Real)params.school_class_size_max - 5.0_rt + hash01(idx) * 15.0_rt;
-            int lower = (int)std::ceil(student_count_h[idx] / jittered_max);
+            int lower = (int)std::ceil(student_count_h[idx] / (Real)params.school_class_size_max);
             int upper = std::max(1, (int)(student_count_h[idx] / (Real)params.school_class_size_min));
             n_classes = std::max(lower, std::min(raw_n_classes, upper));
+            cap_driven_h[idx] = (n_classes == lower) ? 1 : 0;
         }
         // else: zero students means zero real classes -- any educators recorded for this raw
         // group (total_count_h[idx] > 0 with no students) go entirely to the admin group(s) below,
@@ -453,13 +449,16 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
     Gpu::DeviceVector<int> n_classes_d(n_flat);
     Gpu::DeviceVector<int> n_admin_d(n_flat);
     Gpu::DeviceVector<long> class_group_base_d(n_flat);
+    Gpu::DeviceVector<int> cap_driven_d(n_flat);
     Gpu::copyAsync(Gpu::hostToDevice, n_classes_h.begin(), n_classes_h.end(), n_classes_d.begin());
     Gpu::copyAsync(Gpu::hostToDevice, n_admin_h.begin(), n_admin_h.end(), n_admin_d.begin());
     Gpu::copyAsync(Gpu::hostToDevice, class_group_base_h.begin(), class_group_base_h.end(), class_group_base_d.begin());
+    Gpu::copyAsync(Gpu::hostToDevice, cap_driven_h.begin(), cap_driven_h.end(), cap_driven_d.begin());
     Gpu::streamSynchronize();
     auto* n_classes_ptr = n_classes_d.data();
     auto* n_admin_ptr = n_admin_d.data();
     auto* class_group_base_ptr = class_group_base_d.data();
+    auto* cap_driven_ptr = cap_driven_d.data();
 
     // tallies, per finalized school_class_group id, student headcount for real classes and
     // teacher headcount for admin buckets (deliberately not counting a class's own homeroom
@@ -473,18 +472,28 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
     auto* real_class_teacher_count_ptr = real_class_teacher_count_d.data();
 
     // Pass 3: assign each school_id>0 agent a class within its raw group, deterministically for
-    // both teachers and students using the ranks stashed in Pass 1 -- no RNG needed here at all.
+    // both teachers and students using the ranks stashed in Pass 1 (plus a hash of each
+    // student's rank for cap-driven groups -- still fully deterministic, just not a simple
+    // function of rank alone; no amrex::Random() or other shared RNG state is used here).
     // Teachers: one real class per teacher, at most (excess go to one of the raw group's admin
     // groups, sentinel school_class == -2, -3, -4, ... -- see InteractionModSchool.H for how
-    // those groups' teacher-teacher contact is modeled). Students: round-robin (rank % n_classes)
-    // rather than an independent random draw per student, so real classes come out balanced to within 1
-    // student of each other instead of the Poisson-ish size variance an independent draw would
-    // produce (which was found to push a meaningful fraction of classes below
-    // school_class_size_min purely by chance). Note this makes a raw group's classes a
-    // deterministic partition of its students by particle-processing order rather than a fresh
-    // random sample every run -- if that order ever correlates with something
-    // epidemiologically relevant (e.g. household adjacency), classmates would inherit that
-    // correlation; no evidence of this so far.
+    // those groups' teacher-teacher contact is modeled). Students in a normal (teacher-driven)
+    // raw group: round-robin (rank % n_classes) rather than an independent random draw per
+    // student, so real classes come out balanced to within 1 student of each other instead of
+    // the Poisson-ish size variance an independent draw would produce (which was found to push
+    // a meaningful fraction of classes below school_class_size_min purely by chance). Students
+    // in a cap-driven raw group (see cap_driven_h above) instead get a hash-based pseudo-random
+    // class: round-robin's near-equal split would otherwise concentrate a large raw group's
+    // many classes at nearly one size (e.g. a college with hundreds of classes would put nearly
+    // all of them within 1 student of each other), whereas a class-size floor of
+    // school_class_size_min is not a concern here -- these are exactly the large, many-class
+    // groups where independent assignment's natural multinomial variance (std ~ sqrt(mean),
+    // small relative to a mean already near school_class_size_max) spreads sizes realistically
+    // across a band instead of pinning them to one value. Note the round-robin case makes a raw
+    // group's classes a deterministic partition of its students by particle-processing order
+    // rather than a fresh random sample every run -- if that order ever correlates with
+    // something epidemiologically relevant (e.g. household adjacency), classmates would inherit
+    // that correlation; no evidence of this so far.
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev = GetParticles(lev);
         for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
@@ -534,8 +543,16 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
                         }
                     } else {
                         // student: school_class_ptr[ip] currently holds this student's rank from
-                        // Pass 1; round-robin across the raw group's real classes
-                        int school_class = school_class_ptr[ip] % n_classes;
+                        // Pass 1. Round-robin across the raw group's real classes, except for a
+                        // cap-driven raw group (see the Pass 3 doc comment above), which instead
+                        // gets a hash-based pseudo-random class -- deterministic (same raw_group
+                        // and rank always hash to the same class), but not a simple function of
+                        // rank alone, so a large raw group's many classes don't all converge on
+                        // nearly the same size the way a balanced round-robin split would.
+                        int rank = school_class_ptr[ip];
+                        int school_class = cap_driven_ptr[raw_group]
+                                                    ? (int)(hash64((uint64_t)raw_group, (uint64_t)rank) % (uint64_t)n_classes)
+                                                    : rank % n_classes;
                         school_class_ptr[ip] = school_class;
                         school_class_group_ptr[ip] = (int)(class_group_base_ptr[raw_group] + school_class);
                         Gpu::Atomic::AddNoRet(&class_group_occupancy_ptr[school_class_group_ptr[ip]], 1.0_rt);
