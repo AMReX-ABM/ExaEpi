@@ -140,6 +140,7 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
                      max_integer_bins=200, xlim=None):
     epicast_sizes = np.asarray(epicast_sizes)
     exaepi_sizes = np.asarray(exaepi_sizes)
+    overall_min = min(epicast_sizes.min(), exaepi_sizes.min())
 
     if logx and (epicast_sizes.min() <= 0 or exaepi_sizes.min() <= 0):
         sys.exit(f"--logx requires strictly positive sizes, but {title} has a minimum of "
@@ -163,19 +164,27 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
         # small enough to stay readable, else a fixed bin count, matching
         # plot_group_size_histogram.py's convention.
         combined_max = max(epicast_sizes.max(), exaepi_sizes.max())
-        combined_min = min(epicast_sizes.min(), exaepi_sizes.min())
+        combined_min = overall_min
+        # When zooming with xlim, size the bins for the zoomed-in range rather than the full
+        # data range -- otherwise a few extreme outliers (e.g. a university) set a bin width
+        # so wide that only one or two giant bins are even visible in the zoomed view. A final
+        # catch-all bin (invisible once xlim clips the view) keeps all the data -- including
+        # the outliers -- in the density normalization.
+        bin_max = min(combined_max, xlim) if xlim is not None else combined_max
         if logx:
             # Linear (equal-width) bins would render as ever-narrower, unreadable slivers
             # once the x axis is log-scaled, since most of them get squeezed into the
             # rightmost decade. Log-spaced bins keep them visually even instead.
-            bins = log_spaced_integer_bins(combined_min, combined_max)
+            bins = log_spaced_integer_bins(combined_min, bin_max)
         else:
-            span = int(combined_max - combined_min)
+            span = int(bin_max - combined_min)
             bins = (
-                np.arange(combined_min - 0.5, combined_max + 1.5, 1.0)
+                np.arange(combined_min - 0.5, bin_max + 1.5, 1.0)
                 if span <= max_integer_bins
-                else 50
+                else np.linspace(combined_min, bin_max, 51)
             )
+        if bin_max < combined_max:
+            bins = np.append(bins, combined_max)
         ax.hist(epicast_sizes, bins=bins, density=True, color="blue", alpha=0.5,
                 edgecolor="black", label="Epicast")
         ax.hist(exaepi_sizes, bins=bins, density=True, color="red", alpha=0.5,
@@ -187,7 +196,10 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
     if logy:
         ax.set_yscale("log")
     if xlim is not None:
-        ax.set_xlim(right=xlim)
+        # Anchor both edges explicitly -- leaving the left edge to whatever autoscale picked
+        # for the full (pre-clip) data range could leave it negative or otherwise nonsensical
+        # once the right edge is pulled far in by xlim.
+        ax.set_xlim(left=(overall_min if logx else 0), right=xlim)
 
     ax.set_xlabel(xlabel)
     ax.set_title(title)

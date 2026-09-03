@@ -187,25 +187,37 @@ def main():
         # aliases badly -- adjacent bars then cover 1 or 2 integers depending on where the
         # edges land, which looks like structure in the data but isn't. An explicit --bins
         # still wins, and wide-spanning data (community sizes) falls back to 50.
-        span = int(sizes.max() - sizes.min())
+        # When zooming with --xlim, size the bins for the zoomed-in range rather than the full
+        # data range -- otherwise a few extreme outliers can set a bin width so wide that only
+        # one or two giant bins are even visible in the zoomed view. A final catch-all bin
+        # (invisible once xlim clips the view) keeps all the data in the density/frequency
+        # normalization.
+        data_max = sizes.max()
+        bin_max = min(data_max, args.xlim) if args.xlim is not None else data_max
+        span = int(bin_max - sizes.min())
         if args.logx:
             # Linear (equal-width) bins would render as ever-narrower, unreadable slivers
             # once the x axis is log-scaled, since most of them get squeezed into the
             # rightmost decade. Log-spaced bins keep them visually even instead.
             max_bins = args.bins if args.bins is not None else 50
-            bins = log_spaced_integer_bins(sizes.min(), sizes.max(), max_bins=max_bins)
+            bins = log_spaced_integer_bins(sizes.min(), bin_max, max_bins=max_bins)
         elif args.bins is not None:
             bins = args.bins
         elif span <= MAX_INTEGER_BINS:
-            bins = np.arange(sizes.min() - 0.5, sizes.max() + 1.5, 1.0).tolist()
+            bins = np.arange(sizes.min() - 0.5, bin_max + 1.5, 1.0).tolist()
         else:
-            bins = 50
+            bins = np.linspace(sizes.min(), bin_max, 51).tolist()
+        if bin_max < data_max and not isinstance(bins, int):
+            bins = np.append(bins, data_max)
         ax.hist(sizes, bins=bins, color="blue", alpha=0.7, edgecolor="black")
         ax.set_ylabel("Frequency")
     if args.logx:
         ax.set_xscale("log")
     if args.xlim is not None:
-        ax.set_xlim(right=args.xlim)
+        # Anchor both edges explicitly -- leaving the left edge to whatever autoscale picked
+        # for the full (pre-clip) data range could leave it negative or otherwise nonsensical
+        # once the right edge is pulled far in by xlim.
+        ax.set_xlim(left=(sizes.min() if args.logx else 0), right=args.xlim)
     ax.set_xlabel(xlabel)
     #ax.set_title(f"Histogram of ExaEpi {args.field} sizes")
     ax.grid(True, alpha=0.3)
