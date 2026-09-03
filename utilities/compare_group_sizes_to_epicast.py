@@ -196,9 +196,9 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
 
     stats_text = (
         f"Epicast: n={len(epicast_sizes):,}, mean={epicast_sizes.mean():.1f}, "
-        f"median={np.median(epicast_sizes):.1f}\n"
+        f"median={np.median(epicast_sizes):.1f}, max={epicast_sizes.max():,}\n"
         f"ExaEpi:  n={len(exaepi_sizes):,}, mean={exaepi_sizes.mean():.1f}, "
-        f"median={np.median(exaepi_sizes):.1f}"
+        f"median={np.median(exaepi_sizes):.1f}, max={exaepi_sizes.max():,}"
     )
     text_y, valign = (0.35, "top") if cdf else (0.97, "top")
     ax.text(
