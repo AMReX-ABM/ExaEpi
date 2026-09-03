@@ -114,6 +114,25 @@ def log_spaced_integer_bins(vmin, vmax, max_bins=50):
     return np.logspace(np.log10(vmin), np.log10(vmax), n_bins + 1)
 
 
+def nice_linear_bins(vmin, vmax, target_bins=50):
+    """Linear bin edges from ~vmin to vmax, with a "nice" width (1/2/5 x a power of 10) instead
+    of vmax-vmin split into an arbitrary number of equal pieces.
+
+    matplotlib's default tick locator also picks its step from that same 1/2/5 x 10^n family, so
+    whichever step it lands on is essentially always an integer multiple of this bin width --
+    meaning bin *centers* fall exactly on the ticks it draws, the same way one-bin-per-integer
+    bins naturally do (every integer tick is trivially some bin's center when width=1). An
+    arbitrary width (e.g. span/50) has no such relationship to the ticks, so they end up looking
+    like they're aligned to bin edges in some spots and nothing in particular elsewhere.
+    """
+    span = max(vmax - vmin, 1e-9)
+    raw_width = span / target_bins
+    magnitude = 10 ** np.floor(np.log10(raw_width))
+    width = next((m * magnitude for m in (1, 2, 5, 10) if m * magnitude >= raw_width), 10 * magnitude)
+    first_center = np.floor(vmin / width) * width
+    return np.arange(first_center - width / 2, vmax + width, width)
+
+
 # Per --field presentation: what one sample is (used for the count line in the stats box and
 # the "Found N ..." message), the x-axis label, the noun for the quantity being summarized,
 # and the default output basename.
@@ -206,7 +225,7 @@ def main():
         elif span <= MAX_INTEGER_BINS:
             bins = np.arange(sizes.min() - 0.5, bin_max + 1.5, 1.0).tolist()
         else:
-            bins = np.linspace(sizes.min(), bin_max, 51).tolist()
+            bins = nice_linear_bins(sizes.min(), bin_max).tolist()
         if bin_max < data_max and not isinstance(bins, int):
             bins = np.append(bins, data_max)
         ax.hist(sizes, bins=bins, color="blue", alpha=0.7, edgecolor="black")

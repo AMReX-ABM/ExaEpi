@@ -136,6 +136,25 @@ def log_spaced_integer_bins(vmin, vmax, max_bins=50):
     return np.logspace(np.log10(vmin), np.log10(vmax), n_bins + 1)
 
 
+def nice_linear_bins(vmin, vmax, target_bins=50):
+    """Linear bin edges from ~vmin to vmax, with a "nice" width (1/2/5 x a power of 10) instead
+    of vmax-vmin split into an arbitrary number of equal pieces.
+
+    matplotlib's default tick locator also picks its step from that same 1/2/5 x 10^n family, so
+    whichever step it lands on is essentially always an integer multiple of this bin width --
+    meaning bin *centers* fall exactly on the ticks it draws, the same way one-bin-per-integer
+    bins naturally do (every integer tick is trivially some bin's center when width=1). An
+    arbitrary width (e.g. span/50) has no such relationship to the ticks, so they end up looking
+    like they're aligned to bin edges in some spots and nothing in particular elsewhere.
+    """
+    span = max(vmax - vmin, 1e-9)
+    raw_width = span / target_bins
+    magnitude = 10 ** np.floor(np.log10(raw_width))
+    width = next((m * magnitude for m in (1, 2, 5, 10) if m * magnitude >= raw_width), 10 * magnitude)
+    first_center = np.floor(vmin / width) * width
+    return np.arange(first_center - width / 2, vmax + width, width)
+
+
 def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=False, logy=False,
                      max_integer_bins=200, xlim=None):
     epicast_sizes = np.asarray(epicast_sizes)
@@ -181,7 +200,7 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
             bins = (
                 np.arange(combined_min - 0.5, bin_max + 1.5, 1.0)
                 if span <= max_integer_bins
-                else np.linspace(combined_min, bin_max, 51)
+                else nice_linear_bins(combined_min, bin_max)
             )
         if bin_max < combined_max:
             bins = np.append(bins, combined_max)
