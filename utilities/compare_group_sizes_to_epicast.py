@@ -137,7 +137,7 @@ def log_spaced_integer_bins(vmin, vmax, max_bins=50):
 
 
 def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=False, logy=False,
-                     max_integer_bins=200):
+                     max_integer_bins=200, xlim=None):
     epicast_sizes = np.asarray(epicast_sizes)
     exaepi_sizes = np.asarray(exaepi_sizes)
 
@@ -186,6 +186,8 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
         ax.set_xscale("log")
     if logy:
         ax.set_yscale("log")
+    if xlim is not None:
+        ax.set_xlim(right=xlim)
 
     ax.set_xlabel(xlabel)
     ax.set_title(title)
@@ -242,6 +244,9 @@ def main():
         "--logy", action="store_true", help="Use a logarithmic y-axis",
     )
     parser.add_argument(
+        "--xlim", type=float, default=None, help="Maximum x-axis value to display",
+    )
+    parser.add_argument(
         "--output", "-o", default="group_size_comparison.png", help="Output image file",
     )
     args = parser.parse_args()
@@ -262,7 +267,7 @@ def main():
         epicast_data = load_epicast_sizes(epicast_files[group_name])
         exaepi_data = exaepi_sizes(args.plot_dir, group_name)
         plot_comparison(ax, epicast_data, exaepi_data, info["xlabel"], info["title"], cdf,
-                         logx=args.logx, logy=args.logy)
+                         logx=args.logx, logy=args.logy, xlim=args.xlim)
 
     plt.tight_layout()
     plt.savefig(args.output, dpi=300, bbox_inches="tight")

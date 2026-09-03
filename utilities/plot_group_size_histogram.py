@@ -146,6 +146,7 @@ def main():
         "--cdf", action="store_true", help="Plot the empirical cumulative distribution instead of a histogram"
     )
     parser.add_argument("--logx", action="store_true", help="Use a logarithmic x axis")
+    parser.add_argument("--xlim", type=float, default=None, help="Maximum x-axis value to display")
     parser.add_argument(
         "--output", "-o", default=None, help="Output image file (default: <field>_sizes_<histogram|cdf>.png)"
     )
@@ -203,6 +204,8 @@ def main():
         ax.set_ylabel("Frequency")
     if args.logx:
         ax.set_xscale("log")
+    if args.xlim is not None:
+        ax.set_xlim(right=args.xlim)
     ax.set_xlabel(xlabel)
     #ax.set_title(f"Histogram of ExaEpi {args.field} sizes")
     ax.grid(True, alpha=0.3)
