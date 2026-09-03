@@ -3,7 +3,7 @@ ExaEpi, and for checking and visualizing results.
 
 ## Scripts
 
-* `upop_to_exaepi.py`
+### `upop_to_exaepi.py`
 
 The main script is `upop_to_exaepi.py` (polars-based; it replaced an earlier pandas
 implementation of the same name, since its output format is the one `src/UrbanPopData.cpp`
@@ -74,7 +74,7 @@ census_bg_files=../US_Census_BlockGroups/*.shp
 This will generate schools for all of the US, but the file can be used for any single state without
 any issues.
 
-* `check_nt_dt.py`
+### `check_nt_dt.py`
 
 Also provided is a script `check_nt_dt.py`, which compares the results generated from the LODES flows
 and schools files with the UrbanPop day/night flows. It computes correlations between the various
@@ -143,13 +143,13 @@ in the output.
 
 Two ploting scripts are also provided.
 
-* `plot_timeseries.py`
+### `plot_timeseries.py`
 
 This plots the number of infected, hospitalized and dead over time for a run of ExaEpi. It requires
 the output file from an ExaEpi run as input (the one specified by the `diag.output_filename` option
 to ExaEpi).
 
-* `plot_geo.py`
+### `plot_geo.py`
 
 This plots a map of infcetions, coloring each census tract according to the number of infections.
 It requires the plot files from an ExaEpi run as input (produced when `agent.plot_int` is set). In
