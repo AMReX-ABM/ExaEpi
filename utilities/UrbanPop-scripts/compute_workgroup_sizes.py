@@ -95,7 +95,7 @@ def load_cbp_cache(cache_path):
 
 def parse_naics_descriptions(header_path):
     """Extracts the NAICS code list from the auto-generated src/UrbanPopAgentStruct.H,
-    rather than importing upop_to_exaepi_polars.py's categ_types['pr_naics'] (the two are
+    rather than importing upop_to_exaepi.py's categ_types['pr_naics'] (the two are
     generated from the same source and must agree, but importing that script pulls in
     polars/colorama/psutil for no reason here -- reading the actual header ExaEpi compiles
     against is both lighter-weight and closer to ground truth)."""

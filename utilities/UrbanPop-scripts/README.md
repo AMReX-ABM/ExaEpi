@@ -5,14 +5,15 @@ ExaEpi, and for checking and visualizing results.
 
 * `upop_to_exaepi.py`
 
-The main script is `upop_to_exaepi.py`. Run with `-h` to see the options:
+The main script is `upop_to_exaepi.py` (polars-based; it replaced an earlier pandas
+implementation of the same name, since its output format is the one `src/UrbanPopData.cpp`
+actually reads). Run with `-h` to see the options:
 
 ```
 usage: upop_to_exaepi.py [-h] [-c FILE] [--output OUTPUT]
                          [--upop_files UPOP_FILES [UPOP_FILES ...]]
                          [--lodes_files LODES_FILES [LODES_FILES ...]]
                          [--schools_file SCHOOLS_FILE]
-                         [--up_nt_dt_files UP_NT_DT_FILES [UP_NT_DT_FILES ...]]
                          [--rseed RSEED]
 
 options:
@@ -27,9 +28,6 @@ options:
                         LODES7 origin-destination (OD) files in CSV format.
   --schools_file SCHOOLS_FILE, -s SCHOOLS_FILE
                         File containing schools data in CSV format.
-  --up_nt_dt_files UP_NT_DT_FILES [UP_NT_DT_FILES ...], -n UP_NT_DT_FILES [UP_NT_DT_FILES ...]
-                        Files containing nighttime/daytime data from UrbanPop in feather
-                        format. If absent, night/day will be generated from LODES
   --rseed RSEED, -r RSEED
                         Random seed
 ```
@@ -49,18 +47,12 @@ rseed=29
 Any options specified on the command line after the config file will override settings in the config
 file.
 
-There are two basic ways to use `upop_to_exaepi.py`. First, it can be used with day/night data that was
-generated separately for UrbanPop. For this approach, set the `--up_nt_dt_files` option. Currently,
-UrbanPop day/night data is not available for most locations in the US. Otherwise,
-the data is generated based on the LODES flows input and the schools input. Even for the separate
-UrbanPop data, the LODES and schools files are still required, because the script will compute a
-correlation comparison of the day/night data with the flows from those files.
+Worker, student, and teacher flows are generated from the LODES flows input and the schools input
+(the LODES and schools files are required).
 
-`upop_to_exaepi.py` will generate three output files based on the `--output` option: `<output>.csv`, which
-contains the list of all the agent data, `<output>.idx`, which contains the indexes into the first
-file (used for reading in parallel), and `<output>.idmap.csv`, which contains mappings between the
-agent IDs given in `<output>.csv` and the `p_id`s from the original UrbanPop files (`--upop_files`).
-The latter is for purely diagnostic purposes; only the first two are used by ExaEpi.
+`upop_to_exaepi.py` will generate a single binary output file, `<output>.bin`, containing both the
+per-agent data and the block-group index (used for reading in parallel) in one combined format --
+this is the only file `src/UrbanPopData.cpp` opens at runtime.
 
 In addition, `upop_to_exaepi.py` will produces a file, `UrbanPopAgentStruct.H`, which is the C++
 header file containing data structures needed in ExaEpi. This should be placed in the `src`, but it only
@@ -89,6 +81,12 @@ and schools files with the UrbanPop day/night flows. It computes correlations be
 outputs. Assuming that we have used `upop_to_exaepi.py` to generate an output `upop_nm_gen.csv` for
 generated day/night data, and an output `upop_nm_up.csv` for data from separated UrbanPop day/night
 files, an example config file for New Mexico is:
+
+(Note: `upop_to_exaepi.py`'s current, polars-based implementation no longer has the
+`--up_nt_dt_files` option that produces the `upop_nm_up.csv` side of this comparison -- that
+existed only in the earlier pandas implementation it replaced. Generating that file currently
+requires porting `process_upop_nt_dt` back in, or running this comparison against an older
+checkout.)
 
 ```
 [main]

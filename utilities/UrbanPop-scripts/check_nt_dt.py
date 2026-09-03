@@ -156,7 +156,9 @@ def compare_educational_flows(args, gen_df, up_df):
 
 
 def compare_lodes_files(args, gen_df, up_df):
-    lodes_df = upop_to_exaepi.get_lodes_groups(args.lodes_files)
+    # upop_to_exaepi is polars-based; converted to pandas immediately since the rest of this
+    # script (and the rest of this function) works in pandas throughout.
+    lodes_df = upop_to_exaepi.get_lodes_groups(args.lodes_files).to_pandas()
     workers_gen_df = gen_df.loc[gen_df.naics != -1]
     workers_up_df = up_df.loc[up_df.naics != -1]
     for compare_df in [(workers_gen_df, "generated"), (workers_up_df, "UrbanPop")]:
@@ -263,7 +265,9 @@ def main():
     up_df = up_df[up_df["id"].isin(common_pids)]
     print(f"Found {len(common_pids)} common ids between datasets")
     if args.upop_files != "" and args.upop_files != []:
-        upop_df = upop_to_exaepi.load_upop_feather_files(args.upop_files)
+        # upop_to_exaepi is polars-based; converted to pandas immediately since the rest of this
+        # script works in pandas throughout.
+        upop_df = upop_to_exaepi.load_upop_feather_files(args.upop_files).to_pandas()
         upop_df = upop_df[upop_df["p_id"].isin(common_pids)]
         upop_file = "urbanpop.common"
         upop_df.to_feather(upop_file + ".feather")
