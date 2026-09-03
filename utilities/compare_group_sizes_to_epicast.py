@@ -152,7 +152,10 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
         ):
             sorted_sizes = np.sort(sizes)
             cumulative_frac = np.arange(1, len(sorted_sizes) + 1) / len(sorted_sizes)
-            ax.step(sorted_sizes, cumulative_frac, where="post", color=color, linewidth=2, label=label)
+            # alpha<1, like the histogram's fill, so an overlapping segment blends to a visibly
+            # distinct color instead of the later-drawn line fully hiding the other
+            ax.step(sorted_sizes, cumulative_frac, where="post", color=color, linewidth=2,
+                    alpha=0.7, label=label)
         ax.set_ylabel("Cumulative fraction")
     else:
         # Shared, density-normalized bins (the two models produce very different group counts,
