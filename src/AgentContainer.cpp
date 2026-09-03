@@ -421,25 +421,22 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
             int raw_n_classes = (effective_teacher_count > 0.0_rt)
                                         ? std::max(1, (int)effective_teacher_count)
                                         : std::max(1, (int)std::ceil(student_count_h[idx] / (Real)params.school_class_size));
-            int lower = (int)std::ceil(student_count_h[idx] / (Real)params.school_class_size_max);
+            // A raw group that needs more classes than its teacher headcount provides gets
+            // bumped up to the minimum class count that keeps every class under the cap.
+            // Splitting N students into exactly that minimum forces nearly every class in a
+            // raw group needing many classes (colleges, big multi-grade schools) to size out
+            // at *precisely* school_class_size_max -- e.g. splitting 1049 students into
+            // ceil(1049/50)=21 classes gives twenty classes of 50 and one of 49, since the
+            // round-robin remainder (< the class count itself, once there are more than ~49
+            // classes) always lands as a handful of full classes rather than spreading below
+            // the cap. Real schools don't run every room at exactly the legal max, so instead
+            // of always targeting school_class_size_max exactly, use a per-raw-group cap drawn
+            // from [max-5, max+10] (45-60 for the default max of 50) -- spreading the sizes
+            // cap-driven groups land on across a band instead of pinning them all to one value.
+            Real jittered_max = (Real)params.school_class_size_max - 5.0_rt + hash01(idx) * 15.0_rt;
+            int lower = (int)std::ceil(student_count_h[idx] / jittered_max);
             int upper = std::max(1, (int)(student_count_h[idx] / (Real)params.school_class_size_min));
             n_classes = std::max(lower, std::min(raw_n_classes, upper));
-            if (n_classes == lower) {
-                // Cap-driven: raw_n_classes (from actual teacher headcount) wasn't enough to
-                // keep classes under school_class_size_max, so class count got bumped up to
-                // the bare minimum (lower) that satisfies the cap. Splitting N students into
-                // exactly that many classes forces nearly every class in a raw group needing
-                // many classes (colleges, big multi-grade schools) to size out at *precisely*
-                // the cap -- e.g. splitting 1049 students into ceil(1049/50)=21 classes gives
-                // twenty classes of 50 and one of 49, since the round-robin remainder (< the
-                // class count itself, once there are more than ~49 classes) always lands as a
-                // handful of full classes rather than spreading below the cap. Real schools
-                // don't run every room at the legal max, so add up to 15% more classes than
-                // the bare minimum, pulling average size comfortably under the cap (still
-                // respecting school_class_size_min via the upper bound).
-                int extra = (int)std::ceil(lower * hash01(idx) * 0.15_rt);
-                n_classes = std::min(upper, lower + extra);
-            }
         }
         // else: zero students means zero real classes -- any educators recorded for this raw
         // group (total_count_h[idx] > 0 with no students) go entirely to the admin group(s) below,
