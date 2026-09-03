@@ -408,12 +408,6 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
     Vector<int> n_classes_h(n_flat);
     Vector<int> n_admin_h(n_flat);
     Vector<long> class_group_base_h(n_flat);
-    // Whether Pass 3 should split a raw group's students among its classes with a hash-based
-    // pseudo-random assignment instead of round-robin -- true when either (a) class count was
-    // driven up to the bare minimum needed to satisfy school_class_size_max rather than by
-    // actual teacher headcount, or (b) it's a college raw group (see below for why colleges get
-    // this regardless of (a)).
-    Vector<int> smear_classes_h(n_flat, 0);
     long max_class_group = 0;
     for (long idx = 0; idx < n_flat; ++idx) {
         int n_classes = 0;
@@ -435,19 +429,6 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
             int lower = (int)std::ceil(student_count_h[idx] / (Real)params.school_class_size_max);
             int upper = std::max(1, (int)(student_count_h[idx] / (Real)params.school_class_size_min));
             n_classes = std::max(lower, std::min(raw_n_classes, upper));
-            bool cap_driven = (n_classes == lower);
-            // Round-robin (the non-smeared default) balances every class in a raw group to
-            // within 1 student of each other. For an ordinary K-12 school that's desirable --
-            // it protects school_class_size_min from being violated by chance. But for colleges,
-            // effective_teacher_count is derived from a single fixed scaling constant
-            // (college_instructional_fraction) applied to total employment, so many different
-            // colleges around the state that happen to share a similar real student:employee
-            // ratio all get round-robin-balanced classes converging on nearly the same implied
-            // size -- producing a sharp, unrealistic spike (observed: NM's colleges piling up at
-            // exactly 40-41 students) rather than the more continuous spread real class sizes
-            // have. Colleges have no realistic risk of falling below school_class_size_min (their
-            // classes are large to begin with), so there's no downside to smearing them too.
-            smear_classes_h[idx] = (cap_driven || is_college) ? 1 : 0;
         }
         // else: zero students means zero real classes -- any educators recorded for this raw
         // group (total_count_h[idx] > 0 with no students) go entirely to the admin group(s) below,
@@ -464,16 +445,14 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
     Gpu::DeviceVector<int> n_classes_d(n_flat);
     Gpu::DeviceVector<int> n_admin_d(n_flat);
     Gpu::DeviceVector<long> class_group_base_d(n_flat);
-    Gpu::DeviceVector<int> smear_classes_d(n_flat);
     Gpu::copyAsync(Gpu::hostToDevice, n_classes_h.begin(), n_classes_h.end(), n_classes_d.begin());
     Gpu::copyAsync(Gpu::hostToDevice, n_admin_h.begin(), n_admin_h.end(), n_admin_d.begin());
     Gpu::copyAsync(Gpu::hostToDevice, class_group_base_h.begin(), class_group_base_h.end(), class_group_base_d.begin());
-    Gpu::copyAsync(Gpu::hostToDevice, smear_classes_h.begin(), smear_classes_h.end(), smear_classes_d.begin());
     Gpu::streamSynchronize();
     auto* n_classes_ptr = n_classes_d.data();
     auto* n_admin_ptr = n_admin_d.data();
     auto* class_group_base_ptr = class_group_base_d.data();
-    auto* smear_classes_ptr = smear_classes_d.data();
+    const int min_students_per_class = params.school_class_size_min;
 
     // tallies, per finalized school_class_group id, student headcount for real classes and
     // teacher headcount for admin buckets (deliberately not counting a class's own homeroom
@@ -488,29 +467,37 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
 
     // Pass 3: assign each school_id>0 agent a class within its raw group, deterministically for
     // both teachers and students using the ranks stashed in Pass 1 (plus a hash of each
-    // student's rank for cap-driven groups -- still fully deterministic, just not a simple
-    // function of rank alone; no amrex::Random() or other shared RNG state is used here).
+    // student's rank for the "remainder" phase below -- still fully deterministic, just not a
+    // simple function of rank alone; no amrex::Random() or other shared RNG state is used here).
     // Teachers: one real class per teacher, at most (excess go to one of the raw group's admin
     // groups, sentinel school_class == -2, -3, -4, ... -- see InteractionModSchool.H for how
-    // those groups' teacher-teacher contact is modeled). Students in a normal (teacher-driven)
-    // raw group: round-robin (rank % n_classes) rather than an independent random draw per
-    // student, so real classes come out balanced to within 1 student of each other instead of
-    // the Poisson-ish size variance an independent draw would produce (which was found to push
-    // a meaningful fraction of classes below school_class_size_min purely by chance). Students
-    // in a smeared raw group (see smear_classes_h above -- cap-driven groups, plus colleges
-    // unconditionally) instead get a hash-based pseudo-random class: round-robin's near-equal
-    // split would otherwise concentrate a large raw group's many classes at nearly one size
-    // (e.g. a college with hundreds of classes would put nearly all of them within 1 student of
-    // each other, and many different colleges sharing a similar implied staffing ratio would
-    // then all converge on nearly the same size too), whereas a class-size floor of
-    // school_class_size_min is not a concern here -- these are exactly the large classes where
-    // independent assignment's natural multinomial variance (std ~ sqrt(mean), small relative to
-    // a mean already near school_class_size_max) spreads sizes realistically across a band
-    // instead of pinning them to one value. Note the round-robin case makes a raw
-    // group's classes a deterministic partition of its students by particle-processing order
-    // rather than a fresh random sample every run -- if that order ever correlates with
-    // something epidemiologically relevant (e.g. household adjacency), classmates would inherit
-    // that correlation; no evidence of this so far.
+    // those groups' teacher-teacher contact is modeled).
+    //
+    // Students: split into a deterministic "baseline" phase followed by a hash-smeared
+    // "remainder" phase, rather than pure round-robin. Pure round-robin balances every class in
+    // a raw group to within 1 student of each other -- great for protecting
+    // school_class_size_min, but it also means many different raw groups that happen to share a
+    // similar real teacher:student ratio (e.g. colleges, whose class count is derived from a
+    // single fixed college_instructional_fraction scaling constant, or childcare, whose
+    // real-world staffing ratio is close to a fixed constant across the whole state) all
+    // converge on nearly the exact same implied class size -- producing sharp, unrealistic
+    // spikes (observed: NM's colleges piling up at exactly 40-41 students, childcare piling up
+    // at 6-7) instead of the more continuous spread real class sizes have. Pure independent
+    // random assignment (as tried first) fixes the spikes but isn't safe either: its natural
+    // multinomial variance (std ~ sqrt(mean)) pushed a meaningful fraction of classes below
+    // school_class_size_min purely by chance, which is exactly what round-robin was protecting
+    // against in the first place. The baseline/remainder split gets both: the first
+    // min_students_per_class * n_classes student ranks are assigned round-robin, deterministically
+    // giving every class its guaranteed floor of min_students_per_class students (this can never
+    // exceed the raw group's real student count -- n_classes is always chosen so that
+    // min_students_per_class * n_classes <= student_count, and when the raw group is smaller than that,
+    // every rank falls into this phase anyway, degrading gracefully to plain round-robin); any
+    // remaining ranks beyond that baseline are hash-smeared on top, spreading only the surplus
+    // above the guaranteed floor. Note the round-robin phase makes a raw group's classes a
+    // deterministic partition of its students by particle-processing order rather than a fresh
+    // random sample every run -- if that order ever correlates with something epidemiologically
+    // relevant (e.g. household adjacency), classmates would inherit that correlation; no
+    // evidence of this so far.
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev = GetParticles(lev);
         for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
@@ -560,16 +547,17 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
                         }
                     } else {
                         // student: school_class_ptr[ip] currently holds this student's rank from
-                        // Pass 1. Round-robin across the raw group's real classes, except for a
-                        // smeared raw group (see the Pass 3 doc comment above), which instead
-                        // gets a hash-based pseudo-random class -- deterministic (same raw_group
-                        // and rank always hash to the same class), but not a simple function of
-                        // rank alone, so a large raw group's many classes don't all converge on
-                        // nearly the same size the way a balanced round-robin split would.
+                        // Pass 1. Baseline/remainder split (see the Pass 3 doc comment above):
+                        // the first min_students_per_class * n_classes ranks round-robin, guaranteeing
+                        // every class its floor; any rank beyond that hashes to a class instead,
+                        // deterministically (same raw_group and rank always hash to the same
+                        // class) but not a simple function of rank alone, so the surplus above
+                        // the floor spreads realistically instead of also being perfectly balanced.
                         int rank = school_class_ptr[ip];
-                        int school_class = smear_classes_ptr[raw_group]
-                                                    ? (int)(hash64((uint64_t)raw_group, (uint64_t)rank) % (uint64_t)n_classes)
-                                                    : rank % n_classes;
+                        int base_total = min_students_per_class * n_classes;
+                        int school_class = (rank < base_total)
+                                                    ? rank % n_classes
+                                                    : (int)(hash64((uint64_t)raw_group, (uint64_t)rank) % (uint64_t)n_classes);
                         school_class_ptr[ip] = school_class;
                         school_class_group_ptr[ip] = (int)(class_group_base_ptr[raw_group] + school_class);
                         Gpu::Atomic::AddNoRet(&class_group_occupancy_ptr[school_class_group_ptr[ip]], 1.0_rt);
