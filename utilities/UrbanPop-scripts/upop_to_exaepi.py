@@ -274,6 +274,13 @@ def get_args():
         help="File containing schools data in CSV format",
     )
     parser.add_argument("--rseed", "-r", default=29, type=int, help="Random seed")
+    parser.add_argument(
+        "--workgroup_sizes_file",
+        default="workgroup_sizes_us.txt",
+        help="Per-(state, NAICS) target workgroup size table (see compute_workgroup_sizes.py). "
+        "Used only to cap how strongly alloc_workers' NAICS-concentration bonus can pull worker "
+        "destinations away from real LODES flow proportions -- see alloc_workers.",
+    )
 
     main_args = {}
     reqd_args = []
@@ -713,8 +720,36 @@ def load_schools(fname: str) -> pl.DataFrame:
     return schools_df
 
 
+DEFAULT_WORKGROUP_TARGET = 20  # matches Utils.H's workgroup_size default
+
+
+def load_workgroup_targets(fname: str) -> dict[tuple[int, str], int]:
+    """Loads the per-(state_fips, NAICS code) target workgroup size table written by
+    compute_workgroup_sizes.py. Returns {} (all targets then fall back to
+    DEFAULT_WORKGROUP_TARGET) if fname is empty or doesn't exist -- this table only bounds
+    alloc_workers' NAICS-concentration bonus, it isn't required for correctness."""
+    if not fname or not os.path.exists(fname):
+        warn(f"workgroup sizes file '{fname}' not found -- NAICS-concentration bonus in "
+             f"alloc_workers will be capped at the flat default of {DEFAULT_WORKGROUP_TARGET} "
+             "for every NAICS code")
+        return {}
+    targets = {}
+    with open(fname) as f:
+        for line in f:
+            if line.startswith("#"):
+                continue
+            parts = line.split()
+            if len(parts) != 3:
+                continue
+            state, naics, size = parts
+            targets[(int(state), naics)] = int(size)
+    return targets
+
+
 @timer
-def alloc_workers(lodes_df: pl.DataFrame, workers_df: pl.DataFrame) -> pl.DataFrame:
+def alloc_workers(
+    lodes_df: pl.DataFrame, workers_df: pl.DataFrame, workgroup_sizes_file: str = ""
+) -> pl.DataFrame:
     printgreen("Allocating workers")
     # Get unique worker home geoids
     worker_geoids = set(workers_df["home_geoid"].unique().to_list())
@@ -750,6 +785,23 @@ def alloc_workers(lodes_df: pl.DataFrame, workers_df: pl.DataFrame) -> pl.DataFr
     naics_arr = workers_df["naics"].to_numpy()
     num_workers = len(workers_df)
 
+    # Per-worker cap on the concentration bonus below, in real establishment-size units: the
+    # target workgroup size for this worker's own (home state, NAICS) pair, or the flat default
+    # if the table doesn't cover it. naics_arr holds the *integer* categorical code, so map it
+    # back to the raw NAICS string the target table is keyed on via the same category list
+    # set_types() used to build that encoding.
+    workgroup_targets = load_workgroup_targets(workgroup_sizes_file)
+    naics_categs = list(categ_types["pr_naics"].categories)
+    state_fips_arr = np.array([int(g[:2]) for g in home_geoid_arr])
+    target_arr = np.array(
+        [
+            workgroup_targets.get((s, naics_categs[n]), DEFAULT_WORKGROUP_TARGET)
+            if 0 <= n < len(naics_categs)
+            else DEFAULT_WORKGROUP_TARGET
+            for s, n in zip(state_fips_arr, naics_arr)
+        ]
+    )
+
     # Process workers in one shuffled, state-wide order rather than per-home-geoid batches:
     # the point of the self-reinforcing bonus is to let workers from different (but nearby,
     # commute-compatible) home geoids converge on the same workplace instead of each
@@ -783,8 +835,17 @@ def alloc_workers(lodes_df: pl.DataFrame, workers_df: pl.DataFrame) -> pl.DataFr
             # Polya-urn-style reweighting: never introduces a destination this worker couldn't
             # otherwise have reached, only breaks ties toward ones already accumulating the same
             # NAICS, so real commute geography (the base flow probabilities) is preserved exactly
-            # wherever no other same-NAICS worker has landed yet.
-            weights = base_probs * (counts[dest_idx] + 1.0)
+            # wherever no other same-NAICS worker has landed yet. The bonus is capped at this
+            # worker's own target establishment size -- uncapped, this is an unbounded Polya urn
+            # and *will* collapse almost the entire state's workforce for a NAICS onto whichever
+            # destination happened to win early draws, drowning out the real flow probabilities
+            # entirely (observed: one geoid absorbing 78% of all workers statewide, tanking the
+            # LODES flow correlation from 0.92 to 0.47). Capping at ~one realistic establishment's
+            # worth means later same-NAICS workers still prefer an already-forming cluster, but
+            # only up to a plausible size, after which they fall back to real flow probabilities
+            # and can seed a second real cluster instead of endlessly reinforcing the first.
+            bonus = np.minimum(counts[dest_idx], target_arr[i])
+            weights = base_probs * (bonus + 1.0)
             weights /= weights.sum()
         chosen = np.random.choice(dest_idx, p=weights)
         work_geoid_arr[i] = dest_geoids[chosen]
@@ -1199,7 +1260,11 @@ def print_school_counts(students_df: pl.DataFrame, workers_df: pl.DataFrame):
 
 @timer
 def generate_nt_dt(
-    schools_df: pl.DataFrame, upop_df: pl.DataFrame, lodes_df: pl.DataFrame, seed: int
+    schools_df: pl.DataFrame,
+    upop_df: pl.DataFrame,
+    lodes_df: pl.DataFrame,
+    seed: int,
+    workgroup_sizes_file: str = "",
 ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     # randomly allocate some young agents to childcare
     upop_df = set_childcare(upop_df, seed)
@@ -1238,7 +1303,7 @@ def generate_nt_dt(
             pl.lit(-1, dtype=pl.Int16).alias("naics"),
         ]
     )
-    workers_nt_dt_df = alloc_workers(lodes_df, workers_df)
+    workers_nt_dt_df = alloc_workers(lodes_df, workers_df, workgroup_sizes_file)
     if num_unique_ids != (len(workers_nt_dt_df) + len(students_df) + len(unemp_df)):
         raise_err(f"Incorrect number of unique IDS after worker allocation")
     students_nt_dt_df = alloc_students(schools_df, students_df)
@@ -2014,7 +2079,7 @@ def main():
     # filter out those schools that don't have the same geoid as the home geoids
     schools_df = schools_df.filter(pl.col("geoid").is_in(upop_df["home_geoid"].unique().to_list()))
     workers_df, students_df, schools_df, unemp_df = generate_nt_dt(
-        schools_df, upop_df, lodes_df, args.rseed
+        schools_df, upop_df, lodes_df, args.rseed, args.workgroup_sizes_file
     )
     check_flows_correlation(workers_df, lodes_df)
     # workers_df.write_ipc("workers_df.feather")
