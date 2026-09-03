@@ -647,7 +647,26 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             naics_ptr[i] = agent.naics;
             // set up workers
             if (agent.naics != -1) {
-                if (agent.travel == TRAVEL::_wfh) {
+                if (agent.school_id != 0) {
+                    // Educator: work-based mixing is already modeled via the school_class_group
+                    // assigned in AgentContainer::assignSchoolClasses (see InteractionModSchool.H),
+                    // which covers every school_id>0 agent -- students and educators alike -- in
+                    // properly class-sized buckets. Routing educators through the workgroup/
+                    // work_nborhood channels too on top of that (as raw school_id, unsplit by
+                    // workgroup_size/nborhood_size) double-counts their contacts and, for a large
+                    // school (e.g. a university with thousands of staff), collapses them into one
+                    // giant undifferentiated transmission pool. Treat them like a non-worker for
+                    // these two channels instead. Checked before the work-from-home case below
+                    // (unlike a regular worker, an educator's work_i/work_j must stay at the real
+                    // school's location regardless of commute mode -- assignSchoolClasses keys its
+                    // raw groups off exactly that location, via school_id, which is itself only
+                    // unique within that location; overriding it to home_i/home_j here silently
+                    // reassigns the agent to whatever unrelated school_id happens to be locally
+                    // numbered the same at home, corrupting both that agent's class assignment and
+                    // (from the phantom single-agent groups it creates) the real school's size).
+                    workgroup_ptr[i] = 0;
+                    work_nborhood_ptr[i] = nborhood_ptr[i];
+                } else if (agent.travel == TRAVEL::_wfh) {
                     // declared work-from-home: no real commute, and no physical collocation with
                     // real workplace colleagues, so treat like a non-worker for workgroup/
                     // work_nborhood purposes (naics_population/work_population describe the
@@ -658,7 +677,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     work_nborhood_ptr[i] = nborhood_ptr[i];
                     work_i_ptr[i] = home_i_ptr[i];
                     work_j_ptr[i] = home_j_ptr[i];
-                } else if (agent.school_id == 0) {
+                } else {
                     // the group work population for this agent is for the NAICS category for the agent,
                     // and the target work-group size is looked up for the agent's workplace state
                     int state_fips = agents_extras_ptr[i].work_state_fips;
@@ -672,18 +691,6 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     int max_work_nborhood = get_max_nborhood(nborhood_size, agents_extras_ptr[i].work_population);
                     work_nborhood_ptr[i] = Random_int(max_work_nborhood, engine);
                     AMREX_ASSERT(work_nborhood_ptr[i] < 5000);
-                } else {
-                    // Educator: work-based mixing is already modeled via the school_class_group
-                    // assigned in AgentContainer::assignSchoolClasses (see InteractionModSchool.H),
-                    // which covers every school_id>0 agent -- students and educators alike -- in
-                    // properly class-sized buckets. Routing educators through the workgroup/
-                    // work_nborhood channels too on top of that (as raw school_id, unsplit by
-                    // workgroup_size/nborhood_size) double-counts their contacts and, for a large
-                    // school (e.g. a university with thousands of staff), collapses them into one
-                    // giant undifferentiated transmission pool. Treat them like a non-worker for
-                    // these two channels instead.
-                    workgroup_ptr[i] = 0;
-                    work_nborhood_ptr[i] = nborhood_ptr[i];
                 }
             } else {
                 workgroup_ptr[i] = 0;
