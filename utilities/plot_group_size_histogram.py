@@ -126,6 +126,7 @@ def main():
     parser.add_argument(
         "--cdf", action="store_true", help="Plot the empirical cumulative distribution instead of a histogram"
     )
+    parser.add_argument("--logx", action="store_true", help="Use a logarithmic x axis")
     parser.add_argument(
         "--output", "-o", default=None, help="Output image file (default: <field>_sizes_<histogram|cdf>.png)"
     )
@@ -151,6 +152,9 @@ def main():
     print(f"Found {len(sizes)} {plural}")
     print(sizes.describe())
 
+    if args.logx and sizes.min() <= 0:
+        sys.exit(f"--logx requires strictly positive {stat_noun}s, but the minimum is {sizes.min()}")
+
     fig, ax = plt.subplots(figsize=(5, 4))
     if args.cdf:
         sorted_sizes = np.sort(sizes.to_numpy())
@@ -164,7 +168,13 @@ def main():
         # edges land, which looks like structure in the data but isn't. An explicit --bins
         # still wins, and wide-spanning data (community sizes) falls back to 50.
         span = int(sizes.max() - sizes.min())
-        if args.bins is not None:
+        if args.logx:
+            # Linear (equal-width) bins would render as ever-narrower, unreadable slivers
+            # once the x axis is log-scaled, since most of them get squeezed into the
+            # rightmost decade. Log-spaced bins keep them visually even instead.
+            n_bins = args.bins if args.bins is not None else 50
+            bins = np.logspace(np.log10(sizes.min()), np.log10(sizes.max()), n_bins + 1)
+        elif args.bins is not None:
             bins = args.bins
         elif span <= MAX_INTEGER_BINS:
             bins = np.arange(sizes.min() - 0.5, sizes.max() + 1.5, 1.0).tolist()
@@ -172,6 +182,8 @@ def main():
             bins = 50
         ax.hist(sizes, bins=bins, color="blue", alpha=0.7, edgecolor="black")
         ax.set_ylabel("Frequency")
+    if args.logx:
+        ax.set_xscale("log")
     ax.set_xlabel(xlabel)
     #ax.set_title(f"Histogram of ExaEpi {args.field} sizes")
     ax.grid(True, alpha=0.3)

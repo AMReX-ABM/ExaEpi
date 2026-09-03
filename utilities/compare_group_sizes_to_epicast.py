@@ -123,6 +123,10 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
     epicast_sizes = np.asarray(epicast_sizes)
     exaepi_sizes = np.asarray(exaepi_sizes)
 
+    if logx and (epicast_sizes.min() <= 0 or exaepi_sizes.min() <= 0):
+        sys.exit(f"--logx requires strictly positive sizes, but {title} has a minimum of "
+                 f"{min(epicast_sizes.min(), exaepi_sizes.min())}")
+
     if cdf:
         for sizes, color, label in (
             (epicast_sizes, "blue", "Epicast"),
@@ -132,10 +136,6 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
             cumulative_frac = np.arange(1, len(sorted_sizes) + 1) / len(sorted_sizes)
             ax.step(sorted_sizes, cumulative_frac, where="post", color=color, linewidth=2, label=label)
         ax.set_ylabel("Cumulative fraction")
-        if logx:
-            ax.set_xscale("log")
-        if logy:
-            ax.set_yscale("log")
     else:
         # Shared, density-normalized bins (the two models produce very different group counts,
         # so only a density comparison is fair) -- one bin per integer when the combined span is
@@ -143,17 +143,28 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
         # plot_group_size_histogram.py's convention.
         combined_max = max(epicast_sizes.max(), exaepi_sizes.max())
         combined_min = min(epicast_sizes.min(), exaepi_sizes.min())
-        span = int(combined_max - combined_min)
-        bins = (
-            np.arange(combined_min - 0.5, combined_max + 1.5, 1.0)
-            if span <= max_integer_bins
-            else 50
-        )
+        if logx:
+            # Linear (equal-width) bins would render as ever-narrower, unreadable slivers
+            # once the x axis is log-scaled, since most of them get squeezed into the
+            # rightmost decade. Log-spaced bins keep them visually even instead.
+            bins = np.logspace(np.log10(combined_min), np.log10(combined_max), 51)
+        else:
+            span = int(combined_max - combined_min)
+            bins = (
+                np.arange(combined_min - 0.5, combined_max + 1.5, 1.0)
+                if span <= max_integer_bins
+                else 50
+            )
         ax.hist(epicast_sizes, bins=bins, density=True, color="blue", alpha=0.5,
                 edgecolor="black", label="Epicast")
         ax.hist(exaepi_sizes, bins=bins, density=True, color="red", alpha=0.5,
                 edgecolor="black", label="ExaEpi")
         ax.set_ylabel("Density")
+
+    if logx:
+        ax.set_xscale("log")
+    if logy:
+        ax.set_yscale("log")
 
     ax.set_xlabel(xlabel)
     ax.set_title(title)
@@ -200,18 +211,15 @@ def main():
         "--cdf", action="store_true", help="Plot empirical CDFs instead of density histograms",
     )
     parser.add_argument(
-        "--logx", action="store_true", help="Use a logarithmic x-axis (only applies with --cdf)",
+        "--logx", action="store_true", help="Use a logarithmic x-axis",
     )
     parser.add_argument(
-        "--logy", action="store_true", help="Use a logarithmic y-axis (only applies with --cdf)",
+        "--logy", action="store_true", help="Use a logarithmic y-axis",
     )
     parser.add_argument(
         "--output", "-o", default="group_size_comparison.png", help="Output image file",
     )
     args = parser.parse_args()
-
-    if (args.logx or args.logy) and not args.cdf:
-        parser.error("--logx/--logy only apply with --cdf")
 
     epicast_files = {
         "workgroup": args.epicast_workgroup,
