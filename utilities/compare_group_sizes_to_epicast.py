@@ -58,18 +58,24 @@ GROUP_INFO = {
         "xlabel": "Workgroup size (number of agents)",
         "title": "Workgroup size",
         "basename": "workgroup_sizes",
+        "weight_noun": "worker",
     },
     "class": {
         "epicast_file": os.path.join(EPICAST_DIR, "epicast_nm_schoolgroup_sizes.txt"),
         "xlabel": "Class size (number of students)",
         "title": "School class size",
         "basename": "class_sizes",
+        "weight_noun": "student",
     },
     "school": {
         "epicast_file": os.path.join(EPICAST_DIR, "epicast_nm_school_sizes.txt"),
         "xlabel": "School size (number of agents)",
         "title": "School size",
         "basename": "school_sizes",
+        # school size includes both students and staff (see exaepi_school_sizes' docstring
+        # note above), but students dominate the headcount, so "student-weighted" is the more
+        # intuitive label here even though it's not literally students-only.
+        "weight_noun": "student",
     },
 }
 
@@ -155,8 +161,8 @@ def nice_linear_bins(vmin, vmax, target_bins=50):
     return np.arange(first_center - width / 2, vmax + width, width)
 
 
-def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=False, logy=False,
-                     max_integer_bins=200, xlim=None):
+def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, weight_noun="member",
+                     logx=False, logy=False, max_integer_bins=200, xlim=None):
     epicast_sizes = np.asarray(epicast_sizes)
     exaepi_sizes = np.asarray(exaepi_sizes)
     overall_min = min(epicast_sizes.min(), exaepi_sizes.min())
@@ -167,16 +173,16 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
                  f"{min(epicast_sizes.min(), exaepi_sizes.min())}")
 
     def label_with_stats(name, sizes):
-        # Weighted by size (each group of size s stands in for s workers who experience that
+        # Weighted by size (each group of size s stands in for s members who experience that
         # group size) rather than one point per group -- a plain per-group histogram makes the
-        # many small groups look dominant even when most workers are actually in a big one, so
-        # both the plot and its summary stats are worker-weighted throughout.
-        n_workers = sizes.sum()
+        # many small groups look dominant even when most members are actually in a big one, so
+        # both the plot and its summary stats are weighted throughout by weight_noun.
+        n_members = sizes.sum()
         weighted_mean = np.average(sizes, weights=sizes)
         sorted_sizes = np.sort(sizes)
-        cum_workers = np.cumsum(sorted_sizes)
-        weighted_median = sorted_sizes[np.searchsorted(cum_workers, cum_workers[-1] / 2)]
-        return (f"{name}: n={len(sizes):,} groups ({n_workers:,} workers), "
+        cum_members = np.cumsum(sorted_sizes)
+        weighted_median = sorted_sizes[np.searchsorted(cum_members, cum_members[-1] / 2)]
+        return (f"{name}: n={len(sizes):,} groups ({n_members:,} {weight_noun}s), "
                 f"mean={weighted_mean:.1f}, median={weighted_median:.1f}, max={sizes.max():,}")
 
     if cdf:
@@ -194,7 +200,7 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
             # distinct color instead of the later-drawn line fully hiding the other
             ax.step(sorted_sizes, cumulative_frac, where="post", color=color, linewidth=2,
                     alpha=0.7, label=label)
-        ax.set_ylabel("Cumulative fraction of workers")
+        ax.set_ylabel(f"Cumulative fraction of {weight_noun}s")
     else:
         # Shared, density-normalized bins (the two models produce very different group counts,
         # so only a density comparison is fair) -- one bin per integer when the combined span is
@@ -237,7 +243,7 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
                 alpha=0.5, edgecolor="black", label=label_with_stats("Epicast", epicast_sizes))
         ax.hist(exaepi_sizes, bins=bins, weights=exaepi_sizes, density=True, color="red",
                 alpha=0.5, edgecolor="black", label=label_with_stats("ExaEpi", exaepi_sizes))
-        ax.set_ylabel("Density (worker-weighted)")
+        ax.set_ylabel(f"Density ({weight_noun}-weighted)")
 
     if logx:
         ax.set_xscale("log")
@@ -314,7 +320,8 @@ def main():
         epicast_data = load_epicast_sizes(epicast_files[group_name])
         exaepi_data = exaepi_sizes(args.plot_dir, group_name)
         plot_comparison(ax, epicast_data, exaepi_data, info["xlabel"], info["title"], cdf,
-                         logx=args.logx, logy=args.logy, xlim=args.xlim)
+                         weight_noun=info["weight_noun"], logx=args.logx, logy=args.logy,
+                         xlim=args.xlim)
 
     plt.tight_layout()
     plt.savefig(args.output, dpi=300, bbox_inches="tight")
