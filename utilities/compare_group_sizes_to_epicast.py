@@ -203,7 +203,11 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
                 else nice_linear_bins(combined_min, bin_max)
             )
         if bin_max < combined_max:
-            bins = np.append(bins, combined_max)
+            # nice_linear_bins() (and the integer scheme) can both overshoot bin_max by up to
+            # one bin width, which -- for an xlim close enough to the true max -- can already
+            # exceed combined_max. Drop any such edges before appending it, or the result isn't
+            # monotonically increasing and numpy.histogram rejects it outright.
+            bins = np.append(bins[bins < combined_max], combined_max)
         ax.hist(epicast_sizes, bins=bins, density=True, color="blue", alpha=0.5,
                 edgecolor="black", label="Epicast")
         ax.hist(exaepi_sizes, bins=bins, density=True, color="red", alpha=0.5,

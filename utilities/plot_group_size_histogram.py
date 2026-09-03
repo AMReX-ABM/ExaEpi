@@ -227,7 +227,12 @@ def main():
         else:
             bins = nice_linear_bins(sizes.min(), bin_max).tolist()
         if bin_max < data_max and not isinstance(bins, int):
-            bins = np.append(bins, data_max)
+            # nice_linear_bins() (and the integer scheme) can both overshoot bin_max by up to
+            # one bin width, which -- for an xlim close enough to the true max -- can already
+            # exceed data_max. Drop any such edges before appending it, or the result isn't
+            # monotonically increasing and numpy.histogram rejects it outright.
+            bins = np.asarray(bins)
+            bins = np.append(bins[bins < data_max], data_max)
         ax.hist(sizes, bins=bins, color="blue", alpha=0.7, edgecolor="black")
         ax.set_ylabel("Frequency")
     if args.logx:
