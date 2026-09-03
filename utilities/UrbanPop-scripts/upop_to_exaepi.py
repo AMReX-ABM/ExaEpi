@@ -1747,7 +1747,7 @@ def print_agents(
         pl.Int16: "h",
         pl.UInt16: "H",
         pl.Int8: "b",
-        pl.UInt64: "B",
+        pl.UInt8: "B",
     }
     for col in agent_fields:
         dtype = df[col].dtype
