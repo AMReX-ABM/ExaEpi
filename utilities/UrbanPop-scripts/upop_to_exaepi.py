@@ -722,56 +722,86 @@ def alloc_workers(lodes_df: pl.DataFrame, workers_df: pl.DataFrame) -> pl.DataFr
     lodes_df = lodes_df.filter(
         pl.col("w_geocode").is_in(worker_geoids) & pl.col("h_geocode").is_in(worker_geoids)
     )
-    # Group by home geoid and LODES origin
-    worker_groups_dict = {geoid: group for geoid, group in workers_df.group_by("home_geoid")}
+
+    # Destinations get a dense integer id so the per-NAICS concentration counts below (one
+    # array per NAICS code, indexed by destination) are plain numpy arrays rather than dicts.
+    dest_geoids = sorted(lodes_df["w_geocode"].unique().to_list())
+    dest_id = {g: i for i, g in enumerate(dest_geoids)}
+    num_dests = len(dest_geoids)
+
     lodes_groups_dict = {
         name: group for name, group in lodes_df.group_by("h_geocode", maintain_order=True)
     }
-    num_geoids = workers_df["home_geoid"].n_unique()
-    all_workers = []
-    missing_geoids = []
-    num_geoids = len(worker_groups_dict)
-    ticker = ProgressTicker(
-        f"Assigning workers in {num_geoids} GEOIDS for {len(lodes_groups_dict)} LODES groups: ",
-        num_geoids,
-    )
-    for i, (home_geoid_tuple, worker_group) in enumerate(sorted(worker_groups_dict.items())):
+    # Precompute each home geoid's real LODES-observed candidate destinations and their base
+    # (NAICS-agnostic) flow probabilities once -- every worker from that home geoid draws from
+    # exactly this same candidate set, only the per-NAICS concentration bonus below varies.
+    home_data = {}
+    for home_geoid_tuple, lodes_group in lodes_groups_dict.items():
         home_geoid = (
             home_geoid_tuple[0] if isinstance(home_geoid_tuple, tuple) else home_geoid_tuple
         )
-        ticker.update(i)
-        num_workers = len(worker_group)
-        # Try to get matching LODES group
-        lodes_group = lodes_groups_dict.get(home_geoid_tuple)
-        if lodes_group is None:
-            # the home geoid derived from the upop workers is not found in the home (origin) geoid
-            # in the LODES data, so we have no flows from that geoid
-            # warn(
-            #    f"Could not find origin GEOID {home_geoid} in LODES data for {num_workers} workers"
-            # )
-            lodes_group = pl.DataFrame(
-                {"w_geocode": [home_geoid], "h_geocode": [home_geoid], "count": [num_workers]}
-            )
-            missing_geoids.append(home_geoid)
-        sum_flows = lodes_group["count"].sum()
-        flow_probs = (lodes_group["count"] / sum_flows).to_numpy()
-        # Sample work locations based on flow probabilities
-        work_geocodes = lodes_group["w_geocode"].to_list()
-        sampled_work = np.random.choice(work_geocodes, size=num_workers, p=flow_probs)
-        # Add work_geoid to workers
-        worker_ids = worker_group["id"].to_list()
-        for worker_id, work_geoid in zip(worker_ids, sampled_work):
-            all_workers.append({"id": worker_id, "work_geoid": work_geoid})
-    ticker.finish()
-    if len(missing_geoids) > 0:
-        num_missing = len(missing_geoids)
-        warn(
-            f"Could not find {num_missing} (out of {num_geoids}) origin GEOIDs in LODES:\n"
-            + f"{missing_geoids}"
+        dest_idx = np.fromiter(
+            (dest_id[g] for g in lodes_group["w_geocode"].to_list()), dtype=np.int64
         )
-    work_assignments = pl.DataFrame(all_workers)
-    # Join with original workers
-    workers_df = workers_df.join(work_assignments, on="id", how="left")
+        counts = lodes_group["count"].to_numpy().astype(np.float64)
+        home_data[home_geoid] = (dest_idx, counts / counts.sum())
+
+    home_geoid_arr = workers_df["home_geoid"].to_numpy()
+    naics_arr = workers_df["naics"].to_numpy()
+    num_workers = len(workers_df)
+
+    # Process workers in one shuffled, state-wide order rather than per-home-geoid batches:
+    # the point of the self-reinforcing bonus is to let workers from different (but nearby,
+    # commute-compatible) home geoids converge on the same workplace instead of each
+    # independently thin-spreading across their own full candidate list (see the workgroup-size
+    # investigation this replaces -- naics_population per (block group, NAICS) was landing at a
+    # median of 2, versus a CBP-derived target mean around 26, because destination sampling was
+    # otherwise completely NAICS-blind). That only works if the accumulated same-NAICS counts
+    # are shared across the whole population, not reset per geoid.
+    order = np.random.permutation(num_workers)
+    work_geoid_arr = np.empty(num_workers, dtype=object)
+    # naics code -> per-destination count of same-NAICS workers already placed there
+    naics_dest_count: dict[int, np.ndarray] = {}
+    missing_geoid_set = set()
+
+    ticker = ProgressTicker(f"Assigning destinations for {num_workers} workers: ", num_workers)
+    for n, i in enumerate(order):
+        ticker.update(n)
+        home_geoid = home_geoid_arr[i]
+        hd = home_data.get(home_geoid)
+        if hd is None:
+            # no LODES flows at all from this home geoid -- fall back to a self-loop
+            work_geoid_arr[i] = home_geoid
+            missing_geoid_set.add(home_geoid)
+            continue
+        dest_idx, base_probs = hd
+        naics_val = naics_arr[i]
+        counts = naics_dest_count.get(naics_val)
+        if counts is None:
+            weights = base_probs
+        else:
+            # Polya-urn-style reweighting: never introduces a destination this worker couldn't
+            # otherwise have reached, only breaks ties toward ones already accumulating the same
+            # NAICS, so real commute geography (the base flow probabilities) is preserved exactly
+            # wherever no other same-NAICS worker has landed yet.
+            weights = base_probs * (counts[dest_idx] + 1.0)
+            weights /= weights.sum()
+        chosen = np.random.choice(dest_idx, p=weights)
+        work_geoid_arr[i] = dest_geoids[chosen]
+        if counts is None:
+            counts = np.zeros(num_dests, dtype=np.float64)
+            naics_dest_count[naics_val] = counts
+        counts[chosen] += 1.0
+    ticker.finish()
+
+    if missing_geoid_set:
+        num_geoids = workers_df["home_geoid"].n_unique()
+        warn(
+            f"Could not find {len(missing_geoid_set)} (out of {num_geoids}) origin GEOIDs in LODES:\n"
+            + f"{sorted(missing_geoid_set)}"
+        )
+
+    workers_df = workers_df.with_columns(pl.Series("work_geoid", work_geoid_arr))
     # Set grade to -1 and school_id to empty for all workers
     workers_df = workers_df.with_columns(
         [pl.lit(-1, dtype=pl.Int8).alias("grade"), pl.lit("").alias("school_id")]
