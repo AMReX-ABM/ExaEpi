@@ -167,8 +167,17 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
                  f"{min(epicast_sizes.min(), exaepi_sizes.min())}")
 
     def label_with_stats(name, sizes):
-        return (f"{name}: n={len(sizes):,}, mean={sizes.mean():.1f}, "
-                f"median={np.median(sizes):.1f}, max={sizes.max():,}")
+        # Weighted by size (each group of size s stands in for s workers who experience that
+        # group size) rather than one point per group -- a plain per-group histogram makes the
+        # many small groups look dominant even when most workers are actually in a big one, so
+        # both the plot and its summary stats are worker-weighted throughout.
+        n_workers = sizes.sum()
+        weighted_mean = np.average(sizes, weights=sizes)
+        sorted_sizes = np.sort(sizes)
+        cum_workers = np.cumsum(sorted_sizes)
+        weighted_median = sorted_sizes[np.searchsorted(cum_workers, cum_workers[-1] / 2)]
+        return (f"{name}: n={len(sizes):,} groups ({n_workers:,} workers), "
+                f"mean={weighted_mean:.1f}, median={weighted_median:.1f}, max={sizes.max():,}")
 
     if cdf:
         for sizes, color, label in (
@@ -176,12 +185,16 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
             (exaepi_sizes, "red", label_with_stats("ExaEpi", exaepi_sizes)),
         ):
             sorted_sizes = np.sort(sizes)
-            cumulative_frac = np.arange(1, len(sorted_sizes) + 1) / len(sorted_sizes)
+            # Weighted cumulative fraction: cumsum(sorted_sizes) at position i is exactly "how
+            # many workers are in a group of size <= sorted_sizes[i]" (each group's own size is
+            # both its x-value and its worker-count contribution), divided by the total worker
+            # count to normalize to a fraction.
+            cumulative_frac = np.cumsum(sorted_sizes) / sorted_sizes.sum()
             # alpha<1, like the histogram's fill, so an overlapping segment blends to a visibly
             # distinct color instead of the later-drawn line fully hiding the other
             ax.step(sorted_sizes, cumulative_frac, where="post", color=color, linewidth=2,
                     alpha=0.7, label=label)
-        ax.set_ylabel("Cumulative fraction")
+        ax.set_ylabel("Cumulative fraction of workers")
     else:
         # Shared, density-normalized bins (the two models produce very different group counts,
         # so only a density comparison is fair) -- one bin per integer when the combined span is
@@ -220,11 +233,11 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
             # exceed combined_max. Drop any such edges before appending it, or the result isn't
             # monotonically increasing and numpy.histogram rejects it outright.
             bins = np.append(bins[bins < combined_max], combined_max)
-        ax.hist(epicast_sizes, bins=bins, density=True, color="blue", alpha=0.5,
-                edgecolor="black", label=label_with_stats("Epicast", epicast_sizes))
-        ax.hist(exaepi_sizes, bins=bins, density=True, color="red", alpha=0.5,
-                edgecolor="black", label=label_with_stats("ExaEpi", exaepi_sizes))
-        ax.set_ylabel("Density")
+        ax.hist(epicast_sizes, bins=bins, weights=epicast_sizes, density=True, color="blue",
+                alpha=0.5, edgecolor="black", label=label_with_stats("Epicast", epicast_sizes))
+        ax.hist(exaepi_sizes, bins=bins, weights=exaepi_sizes, density=True, color="red",
+                alpha=0.5, edgecolor="black", label=label_with_stats("ExaEpi", exaepi_sizes))
+        ax.set_ylabel("Density (worker-weighted)")
 
     if logx:
         ax.set_xscale("log")

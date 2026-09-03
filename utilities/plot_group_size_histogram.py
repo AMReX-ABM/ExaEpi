@@ -196,15 +196,27 @@ def main():
 
     fig, ax = plt.subplots(figsize=(5, 4))
     left_edge = sizes.min() if args.logx else 0
+    sizes_arr = sizes.to_numpy()
+    # Weighted by size (each group of size s stands in for s members who experience that group
+    # size) rather than one point per group -- a plain per-group view makes the many small
+    # groups look dominant even when most members are actually in a big one, so both the plot
+    # and its summary stats are member-weighted throughout.
+    n_members = sizes_arr.sum()
+    weighted_mean = np.average(sizes_arr, weights=sizes_arr)
+    sorted_sizes = np.sort(sizes_arr)
+    cum_members = np.cumsum(sorted_sizes)
+    weighted_median = sorted_sizes[np.searchsorted(cum_members, cum_members[-1] / 2)]
     series_label = (
-        f"{plural.capitalize()}: n={len(sizes):,}, mean={sizes.mean():.2f}, "
-        f"median={sizes.median():.2f}, max={sizes.max():,}"
+        f"{plural.capitalize()}: n={len(sizes):,} ({n_members:,} {stat_noun}s), "
+        f"mean={weighted_mean:.2f}, median={weighted_median:.2f}, max={sizes.max():,}"
     )
     if args.cdf:
-        sorted_sizes = np.sort(sizes.to_numpy())
-        cumulative_frac = np.arange(1, len(sorted_sizes) + 1) / len(sorted_sizes)
+        # Weighted cumulative fraction: cumsum(sorted_sizes) at position i is exactly "how many
+        # members are in a group of size <= sorted_sizes[i]" (each group's own size is both its
+        # x-value and its member-count contribution), divided by the total member count.
+        cumulative_frac = np.cumsum(sorted_sizes) / sorted_sizes.sum()
         ax.step(sorted_sizes, cumulative_frac, where="post", color="blue", label=series_label)
-        ax.set_ylabel("Cumulative fraction")
+        ax.set_ylabel("Cumulative fraction of members")
     else:
         # These are all integer counts, so by default give each distinct value its own bin
         # centered on it. A fixed bin count whose width isn't a whole number of integers
@@ -245,8 +257,9 @@ def main():
             # monotonically increasing and numpy.histogram rejects it outright.
             bins = np.asarray(bins)
             bins = np.append(bins[bins < data_max], data_max)
-        ax.hist(sizes, bins=bins, color="blue", alpha=0.7, edgecolor="black", label=series_label)
-        ax.set_ylabel("Frequency")
+        ax.hist(sizes, bins=bins, weights=sizes_arr, color="blue", alpha=0.7, edgecolor="black",
+                label=series_label)
+        ax.set_ylabel(f"Frequency ({stat_noun}s)")
     if args.logx:
         ax.set_xscale("log")
     # Anchor the left edge explicitly rather than leaving it to matplotlib's default ~5%
