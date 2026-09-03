@@ -118,6 +118,24 @@ def exaepi_sizes(plot_dir, group_name):
     return sizes
 
 
+def log_spaced_integer_bins(vmin, vmax, max_bins=50):
+    """Log-spaced bin edges from vmin to vmax, capped so no bin is narrower than 1 unit.
+
+    Log-spaced bins are the right choice for a log-x histogram since equal *ratio* renders as
+    equal visual width -- but for integer count data, too many bins makes the ones near vmin
+    narrower than a single unit, which then look like huge density spikes purely from having a
+    tiny bin_width denominator (count / bin_width), not from the data. Rather than patch that by
+    flooring individual bin widths after the fact (which breaks the constant-ratio property and
+    makes bars render at visibly different widths), this picks a small enough bin count up front
+    that every bin -- including the narrowest, at vmin -- stays >= 1 unit wide on its own.
+    """
+    if vmin <= 0 or vmax <= vmin:
+        return max_bins
+    max_n_for_resolution = int(np.floor(np.log(vmax / vmin) / np.log(1 + 1.0 / vmin)))
+    n_bins = max(1, min(max_bins, max_n_for_resolution))
+    return np.logspace(np.log10(vmin), np.log10(vmax), n_bins + 1)
+
+
 def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=False, logy=False,
                      max_integer_bins=200):
     epicast_sizes = np.asarray(epicast_sizes)
@@ -147,7 +165,7 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
             # Linear (equal-width) bins would render as ever-narrower, unreadable slivers
             # once the x axis is log-scaled, since most of them get squeezed into the
             # rightmost decade. Log-spaced bins keep them visually even instead.
-            bins = np.logspace(np.log10(combined_min), np.log10(combined_max), 51)
+            bins = log_spaced_integer_bins(combined_min, combined_max)
         else:
             span = int(combined_max - combined_min)
             bins = (
@@ -208,7 +226,11 @@ def main():
         help="Epicast school sizes file (one size per line)",
     )
     parser.add_argument(
-        "--cdf", action="store_true", help="Plot empirical CDFs instead of density histograms",
+        "--histogram", action="store_true",
+        help="Plot density histograms instead of the default CDF. Group sizes here span "
+        "several orders of magnitude, and a log-x histogram's bins can't be both uniform "
+        "width and finer than the ~1.5x-per-bin resolution set by the smallest sizes -- the "
+        "CDF has no such trade-off, so it's the default.",
     )
     parser.add_argument(
         "--logx", action="store_true", help="Use a logarithmic x-axis",
@@ -220,6 +242,7 @@ def main():
         "--output", "-o", default="group_size_comparison.png", help="Output image file",
     )
     args = parser.parse_args()
+    cdf = not args.histogram
 
     epicast_files = {
         "workgroup": args.epicast_workgroup,
@@ -235,12 +258,12 @@ def main():
         info = GROUP_INFO[group_name]
         epicast_data = load_epicast_sizes(epicast_files[group_name])
         exaepi_data = exaepi_sizes(args.plot_dir, group_name)
-        plot_comparison(ax, epicast_data, exaepi_data, info["xlabel"], info["title"], args.cdf,
+        plot_comparison(ax, epicast_data, exaepi_data, info["xlabel"], info["title"], cdf,
                          logx=args.logx, logy=args.logy)
 
     plt.tight_layout()
     plt.savefig(args.output, dpi=300, bbox_inches="tight")
-    print(f"{'CDF' if args.cdf else 'Histogram'} comparison saved to {args.output}")
+    print(f"{'CDF' if cdf else 'Histogram'} comparison saved to {args.output}")
 
 
 if __name__ == "__main__":

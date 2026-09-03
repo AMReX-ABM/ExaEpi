@@ -95,6 +95,25 @@ def nborhoods_per_community(ds):
 # bars get too thin to read and a fixed bin count is the better default.
 MAX_INTEGER_BINS = 200
 
+
+def log_spaced_integer_bins(vmin, vmax, max_bins=50):
+    """Log-spaced bin edges from vmin to vmax, capped so no bin is narrower than 1 unit.
+
+    Log-spaced bins are the right choice for a log-x histogram since equal *ratio* renders as
+    equal visual width -- but for integer count data, too many bins makes the ones near vmin
+    narrower than a single unit, which then look like huge density spikes purely from having a
+    tiny bin_width denominator (count / bin_width), not from the data. Rather than patch that by
+    flooring individual bin widths after the fact (which breaks the constant-ratio property and
+    makes bars render at visibly different widths), this picks a small enough bin count up front
+    that every bin -- including the narrowest, at vmin -- stays >= 1 unit wide on its own.
+    """
+    if vmin <= 0 or vmax <= vmin:
+        return max_bins
+    max_n_for_resolution = int(np.floor(np.log(vmax / vmin) / np.log(1 + 1.0 / vmin)))
+    n_bins = max(1, min(max_bins, max_n_for_resolution))
+    return np.logspace(np.log10(vmin), np.log10(vmax), n_bins + 1)
+
+
 # Per --field presentation: what one sample is (used for the count line in the stats box and
 # the "Found N ..." message), the x-axis label, the noun for the quantity being summarized,
 # and the default output basename.
@@ -172,8 +191,8 @@ def main():
             # Linear (equal-width) bins would render as ever-narrower, unreadable slivers
             # once the x axis is log-scaled, since most of them get squeezed into the
             # rightmost decade. Log-spaced bins keep them visually even instead.
-            n_bins = args.bins if args.bins is not None else 50
-            bins = np.logspace(np.log10(sizes.min()), np.log10(sizes.max()), n_bins + 1)
+            max_bins = args.bins if args.bins is not None else 50
+            bins = log_spaced_integer_bins(sizes.min(), sizes.max(), max_bins=max_bins)
         elif args.bins is not None:
             bins = args.bins
         elif span <= MAX_INTEGER_BINS:
