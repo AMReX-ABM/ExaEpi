@@ -195,6 +195,7 @@ def main():
         sys.exit(f"--logx requires strictly positive {stat_noun}s, but the minimum is {sizes.min()}")
 
     fig, ax = plt.subplots(figsize=(5, 4))
+    left_edge = sizes.min() if args.logx else 0
     if args.cdf:
         sorted_sizes = np.sort(sizes.to_numpy())
         cumulative_frac = np.arange(1, len(sorted_sizes) + 1) / len(sorted_sizes)
@@ -226,6 +227,13 @@ def main():
             bins = np.arange(sizes.min() - 0.5, bin_max + 1.5, 1.0).tolist()
         else:
             bins = nice_linear_bins(sizes.min(), bin_max).tolist()
+        if not isinstance(bins, int):
+            # nice_linear_bins() (and the integer scheme) anchor bin centers/edges relative to
+            # the data, but nice_linear_bins can still put a bin's left edge below 0 even
+            # though the data's own minimum is well above it. Forcing the view to start exactly
+            # at 0 would then clip that bin in half; starting it at the bin's own left edge
+            # instead always shows the full first bar.
+            left_edge = bins[0]
         if bin_max < data_max and not isinstance(bins, int):
             # nice_linear_bins() (and the integer scheme) can both overshoot bin_max by up to
             # one bin width, which -- for an xlim close enough to the true max -- can already
@@ -241,7 +249,7 @@ def main():
     # margin (which otherwise leaves a visible gap before 0, or goes negative once xlim pulls
     # the right edge in far enough that the margin becomes a large fraction of the range).
     # right=None (the default, when --xlim isn't given) leaves the right edge autoscaled.
-    ax.set_xlim(left=(sizes.min() if args.logx else 0), right=args.xlim)
+    ax.set_xlim(left=left_edge, right=args.xlim)
     ax.set_xlabel(xlabel)
     #ax.set_title(f"Histogram of ExaEpi {args.field} sizes")
     ax.grid(True, alpha=0.3)

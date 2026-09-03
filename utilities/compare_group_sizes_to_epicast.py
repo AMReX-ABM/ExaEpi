@@ -160,6 +160,7 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
     epicast_sizes = np.asarray(epicast_sizes)
     exaepi_sizes = np.asarray(exaepi_sizes)
     overall_min = min(epicast_sizes.min(), exaepi_sizes.min())
+    left_edge = overall_min if logx else 0
 
     if logx and (epicast_sizes.min() <= 0 or exaepi_sizes.min() <= 0):
         sys.exit(f"--logx requires strictly positive sizes, but {title} has a minimum of "
@@ -202,6 +203,13 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
                 if span <= max_integer_bins
                 else nice_linear_bins(combined_min, bin_max)
             )
+            # nice_linear_bins() anchors bin centers to global multiples of the bin width (so
+            # they land on the same "nice" values matplotlib's tick locator picks -- see its
+            # docstring), which can put a bin's center at/near 0 even though the data's own
+            # minimum is well above it. Forcing the view to start exactly at 0 would then clip
+            # that bin in half; starting it at the bin's own left edge instead always shows the
+            # full first bar, at the cost of a little empty margin left of 0 when this happens.
+            left_edge = bins[0]
         if bin_max < combined_max:
             # nice_linear_bins() (and the integer scheme) can both overshoot bin_max by up to
             # one bin width, which -- for an xlim close enough to the true max -- can already
@@ -222,7 +230,7 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
     # margin (which otherwise leaves a visible gap before 0, or goes negative once xlim pulls
     # the right edge in far enough that the margin becomes a large fraction of the range).
     # right=None (the default, when xlim isn't given) leaves the right edge autoscaled.
-    ax.set_xlim(left=(overall_min if logx else 0), right=xlim)
+    ax.set_xlim(left=left_edge, right=xlim)
 
     ax.set_xlabel(xlabel)
     ax.set_title(title)
