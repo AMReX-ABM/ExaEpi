@@ -9,22 +9,18 @@
 
 import gc
 import io
-from multiprocessing import Pool
-from functools import partial
-from multiprocessing.pool import ThreadPool
 import os
+import struct
 import sys
-import pandas as pd
+import time
+import polars as pl
 import numpy as np
 import argparse
 import configparser
-import struct
 import glob
 from colorama import Fore
 import psutil
 from pandas.api.types import CategoricalDtype
-from get_schools import timer
-import get_schools
 
 
 DUMP_INTERMEDIATES = False
@@ -152,6 +148,82 @@ teacher_ratios = {
 }
 
 
+class ProgressTicker:
+    """Print progress updates on the same line with a message prefix"""
+
+    def __init__(self, message: str, total: int, steps: int = 10):
+        """
+        Args:
+            message: Prefix message to display
+            total: Total number of items to process
+            steps: Number of progress updates to show (default: 10)
+        """
+        self.message = message
+        self.total = total
+        self.step = max(1, total // steps)
+        self.width = 0
+        self.started = False
+
+    def update(self, current: int):
+        """Update progress display
+
+        Args:
+            current: Current item number (0-indexed)
+        """
+        if not self.started:
+            print(self.message, end="", flush=True)
+            self.started = True
+        if current % self.step == 0 or current == self.total - 1:
+            # Erase previous progress
+            print("\b" * self.width, end="", flush=True)
+            # Format and print new progress
+            # progress = f"{current}/{self.total}"
+            perc_progress = 100.0 * current / self.total
+            progress = f"{perc_progress:.0f}%"
+            self.width = len(progress)
+            print(f"{progress}", end="", flush=True)
+
+    def finish(self):
+        """Complete the progress line with a newline"""
+        if self.started:
+            # Erase progress counter
+            print("\b" * self.width, end="", flush=True)
+            # Print final count
+            final = f"{self.total}/{self.total}"
+            print(final)
+        self.started = False
+        self.width = 0
+
+
+def format_bytes(bytes: int) -> str:
+    """Format bytes into human-readable string (KB, MB, GB, etc.)"""
+    b = float(bytes)
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if b < 1024.0:
+            return f"{b:.2f} {unit}"
+        b /= 1024.0
+    return f"{b:.2f} PB"
+
+
+def timer(func):
+    # @functools.wraps(func)
+    def wrapper_timer(*args, **kwargs):
+        process = psutil.Process(os.getpid())
+        mem_before = process.memory_info().rss
+        tic = time.perf_counter()
+        value = func(*args, **kwargs)
+        toc = time.perf_counter()
+        elapsed_time = toc - tic
+        mem_after = process.memory_info().rss
+        mem_used = float(mem_after - mem_before) / 1024 / 1024 / 1024
+        print(
+            f"{Fore.BLUE}Elapsed time for {func.__name__}: {elapsed_time:0.2f} seconds, memory {mem_used:0.2f} G{Fore.RESET}"
+        )
+        return value
+
+    return wrapper_timer
+
+
 def warn(fmt_str, *args):
     print(f"{Fore.RED}WARNING: {fmt_str}{Fore.RESET}" % args)
 
@@ -168,7 +240,8 @@ def get_args():
     """Process command line arguments and configuration file settings.
 
     This function implements a two-stage argument parsing system that allows arguments
-    to be specified either via command line or through a configuration file. The process works as follows:
+    to be specified either via command line or through a configuration file. The process works as
+    follows:
     Arguments can be provided in two ways:
     1. Command line: python script.py --output out.csv --upop_files data/*.feather
     2. Config file:  python script.py -c config.cfg
@@ -185,36 +258,20 @@ def get_args():
     parser.add_argument(
         "--upop_files", "-f", nargs="+", required=True, help="UrbanPop feather files"
     )
-    # parser.add_argument(
-    #    "--shape_files",
-    #    "-e",
-    #    nargs="+",
-    #    required=True,
-    #    default=[],
-    #    help="Census block group shape files. Available from\n"
-    #    + "https://www.census.gov/cgi-bin/geo/shapefiles/index.php?year=2010&layergroup=Block+Groups",
-    # )
     parser.add_argument(
         "--lodes_files",
         "-l",
         nargs="+",
         required=True,
         default=[],
-        help="LODES7 origin-destination (OD) files in CSV format. Not needed if UrbanPop nighttime/daytime files are used",
+        help="LODES7 origin-destination (OD) files in CSV format",
     )
     parser.add_argument(
         "--schools_file",
         "-s",
         required=True,
         default="",
-        help="File containing schools data in CSV format. Not needed if UrbanPop nighttime/daytime files are used",
-    )
-    parser.add_argument(
-        "--up_nt_dt_files",
-        "-n",
-        nargs="+",
-        default=[],
-        help="Files containing nighttime/daytime data from UrbanPop in feather format. Used instead of LODES files",
+        help="File containing schools data in CSV format",
     )
     parser.add_argument("--rseed", "-r", default=29, type=int, help="Random seed")
 
@@ -283,203 +340,223 @@ def get_args():
     return args
 
 
-def dump_intermediate(df, fname, override=False):
+def dump_intermediate(df: pl.DataFrame, fname: str, override: bool = False):
     if DUMP_INTERMEDIATES or override:
         print(f"{Fore.CYAN}Dumping intermediate file {fname}.intermediate.csv{Fore.RESET}")
-        df.to_csv(fname + ".intermediate.csv", index=False)
+        # Replace empty strings with null before writing
+        str_cols = [col for col, dtype in df.schema.items() if dtype == pl.Utf8]
+        if str_cols:
+            df = df.with_columns(
+                [
+                    pl.when(pl.col(col) == "").then(None).otherwise(pl.col(col)).alias(col)
+                    for col in str_cols
+                ]
+            )
+        df.write_csv(fname + ".intermediate.csv", quote_style="necessary")
 
 
 @timer
-def load_upop_feather_files(fnames, out_fname=""):
-    printgreen(f"Reading UrbanPop data from {len(fnames)} files")
-    dfs = []
-    df = pd.DataFrame()
-    chunk_size = int(len(fnames) / 10)
-    for i, fname in enumerate(fnames):
-        df_read = pd.read_feather(fname, use_threads=True)
-        dfs.append(df_read)
-        if i == len(fnames) - 1 or i % chunk_size == 0:
-            dfs.append(df)
-            df = pd.concat(dfs, ignore_index=True)
-            del dfs
-            dfs = []
-            gc.collect()
-            mem_used = float(psutil.Process(os.getpid()).memory_info().rss) / 1024 / 1024 / 1024
-            mem_of_df = float(df.memory_usage().sum()) / 1024 / 1024 / 1024
-            if chunk_size > 0:
-                print(f"  {int(i / chunk_size)}:", end="")
-            print(f" read {fname}, memory RSS {mem_used:0.2f} G, memory of df {mem_of_df:0.2f} G")
+def load_upop_feather_files(fnames: list[str], out_fname: str = "") -> pl.DataFrame:
+    num_files = len(fnames)
+    printgreen(f"Reading UrbanPop data from {num_files} files")
 
-    print(f"Read {len(df.index)} records")
-    # need to sort to ensure the order is the same between the population files and the
-    # daytime/nighttime files
-    df.sort_values(by=["p_id"], inplace=True)
+    try:
+        # Try lazy loading with scan_ipc
+        lazy_frames = []
+        for i, fname in enumerate(fnames):
+            lazy_frames.append(pl.scan_ipc(fname))
+        print(f"Collecting {len(lazy_frames)} lazy frames...")
+        df = pl.concat(lazy_frames).collect()
+        mem_used = float(psutil.Process(os.getpid()).memory_info().rss) / 1024 / 1024 / 1024
+        mem_of_df = float(df.estimated_size()) / 1024 / 1024 / 1024
+        print(f"Read {num_files} files, " + f"RSS {mem_used:0.2f} G, df memory {mem_of_df:0.2f} G")
+    except Exception as e:
+        dfs = []
+        df = pl.DataFrame()
+        chunk_size = int(num_files // 20)
+        for i, fname in enumerate(fnames):
+            df_read = pl.read_ipc(fname, memory_map=False)
+            dfs.append(df_read)
+            # Concatenate and clean up at chunk boundaries or end
+            if i == num_files - 1 or (chunk_size > 0 and (i + 1) % chunk_size == 0):
+                df = pl.concat(dfs)
+                dfs = [df]  # Keep only the concatenated result
+                gc.collect()
+                mem_used = float(psutil.Process(os.getpid()).memory_info().rss) / 1024 / 1024 / 1024
+                mem_of_df = float(df.estimated_size()) / 1024 / 1024 / 1024  # polars method
+                print(
+                    f" read {i}/{num_files} files, "
+                    + f"RSS {mem_used:0.2f} G, df memory {mem_of_df:0.2f} G"
+                )
+        df = dfs[0]
+    print(f"Read {len(df)} records")
     if out_fname != "":
         dump_intermediate(df, out_fname + ".upop")
     return df
 
 
 @timer
-def set_types(df):
-    # treat the NAICS types as strings for later sorting - make them string to convert to a category
-    df.pr_naics = df.pr_naics.str.extract(r"(\d+)", expand=False).fillna(-1).astype("string")
-    df.h_id = df.h_id.str.split("-").str[-1].astype("int32")
-
-    for field_type in df:
-        if field_type in categ_types:
-            # compare the list with the unique to make sure we haven't found anything not in our
-            # predefined list
-            categs_found = list(df[field_type].unique())
-            categs_expected = list(categ_types[field_type].categories)
-            missing = [
-                x
-                for x in categs_found
-                if x not in categs_expected and x != "" and x != "-1" and x is not None
-            ]
-            if missing:
-                warn(f"Found missing categories for {field_type}: {missing}")
-            df[field_type] = df[field_type].astype(categ_types[field_type]).cat.codes
+def set_types(df: pl.DataFrame) -> pl.DataFrame:
+    printgreen("Setting types")
+    # Extract NAICS digits and convert h_id in one pass
+    df = df.with_columns(
+        [
+            pl.col("pr_naics").str.extract(r"(\d+)", 0).fill_null("-1").alias("pr_naics"),
+            pl.col("h_id")
+            .str.split("-")
+            .list.last()
+            .cast(pl.Int32, strict=False)
+            .fill_null(-1)
+            .alias("h_id"),
+        ]
+    )
+    # Build categorical mappings once
+    categorical_mappings = {}
+    for field_type, categ_dtype in categ_types.items():
+        if field_type not in df.columns or field_type == "pr_naics":
+            continue
+        categs_expected = list(categ_dtype.categories)
+        # Check for missing categories
+        categs_found = df[field_type].unique().drop_nulls().to_list()
+        missing = [x for x in categs_found if x not in categs_expected and x != "" and x != "-1"]
+        if missing:
+            warn(f"Found missing categories for {field_type}: {missing}")
+        # Create categorical mapping
+        cat_mapping = {cat: idx for idx, cat in enumerate(categs_expected)}
+        cat_mapping[""] = -1
+        # Determine appropriate dtype based on number of categories
+        num_categories = len(categs_expected)
+        if num_categories < 127:
+            return_dtype = pl.Int8
+        elif num_categories < 32767:
+            return_dtype = pl.Int16
         else:
-            if df.dtypes[field_type] == object:
-                df[field_type] = df[field_type].astype("string")
-            else:
-                # this converts all float to int
-                max_val = df[field_type].max()
-                if max_val < 128:
-                    df[field_type] = df[field_type].astype("int8")
-                elif max_val < 2**15:
-                    df[field_type] = df[field_type].astype("int16")
-                elif max_val < 2**31:
-                    df[field_type] = df[field_type].astype("int32")
-                else:
-                    df[field_type] = df[field_type].astype("int64")
+            return_dtype = pl.Int32
+        categorical_mappings[field_type] = (cat_mapping, return_dtype)
+    # Apply all categorical mappings in one operation
+    if categorical_mappings:
+        df = df.with_columns(
+            [
+                pl.col(field_type)
+                .fill_null("")
+                .replace_strict(cat_mapping, default=-1)
+                .cast(return_dtype)
+                .alias(field_type)
+                for field_type, (cat_mapping, return_dtype) in categorical_mappings.items()
+            ]
+        )
+    # Optimize integer types for non-categorical columns in batch
+    cols_to_optimize = [
+        col for col in df.columns if col not in categ_types and col not in ["pr_naics", "h_id"]
+    ]
+    # Collect all type changes first
+    type_changes = []
+    for col in cols_to_optimize:
+        dtype = df[col].dtype
+        if dtype not in [pl.Int64, pl.Int32, pl.Int16, pl.Int8, pl.Float32, pl.Float64]:
+            continue
+        max_val = df[col].max()
+        if max_val is None or not isinstance(max_val, (int, float)):
+            continue
+        # Determine optimal type
+        if max_val < 128:
+            new_dtype = pl.Int8
+        elif max_val < 2**15:
+            new_dtype = pl.Int16
+        elif max_val < 2**31:
+            new_dtype = pl.Int32
+        else:
+            new_dtype = pl.Int64
+        if new_dtype != dtype:
+            type_changes.append(pl.col(col).cast(new_dtype))
+    # Apply all type changes in one operation
+    if type_changes:
+        df = df.with_columns(type_changes)
+    # Handle pr_naics separately (still a string at this point)
+    if "pr_naics" in categ_types and "pr_naics" in df.columns:
+        naics_categs = list(categ_types["pr_naics"].categories)
+        naics_mapping = {cat: idx for idx, cat in enumerate(naics_categs)}
+        naics_mapping["-1"] = -1
+        naics_mapping[""] = -1
+        # Use replace instead of map_elements for better performance
+        # For values not in mapping, try to cast to int
+        df = df.with_columns(
+            [
+                pl.col("pr_naics")
+                .replace_strict(naics_mapping, default=None)
+                .fill_null(
+                    # Try to convert remaining values to int
+                    pl.col("pr_naics")
+                    .cast(pl.Int16, strict=False)
+                    .fill_null(-1)
+                )
+                .cast(pl.Int16)
+                .alias("pr_naics")
+            ]
+        )
+    return df
 
-    df.pr_naics = df.pr_naics.astype("int16")
 
-
-def rename_fields(df):
-    df.rename(columns={"geoid": "home_geoid", "h_id": "household_id", "p_id": "id"}, inplace=True)
+def rename_fields(df: pl.DataFrame) -> pl.DataFrame:
+    # Rename base fields
+    df = df.rename({"geoid": "home_geoid", "h_id": "household_id", "p_id": "id"})
+    # Build a mapping dictionary for all column renames
+    rename_map = {}
     for col in df.columns:
         if col.startswith("pr_"):
-            df.rename(columns={col: col[3:]}, inplace=True)
+            rename_map[col] = col[3:]
         elif col.startswith("h_"):
-            df.rename(columns={col: "home_" + col[2:]}, inplace=True)
+            rename_map[col] = "home_" + col[2:]
         elif col.startswith("w_"):
-            df.rename(columns={col: "work_" + col[2:]}, inplace=True)
+            rename_map[col] = "work_" + col[2:]
         elif col.startswith("hh_"):
-            df.rename(columns={col: "household_" + col[3:]}, inplace=True)
+            rename_map[col] = "household_" + col[3:]
+    # Apply all renames at once
+    if rename_map:
+        df = df.rename(rename_map)
+    return df
 
 
-def get_level_from_age(min_age, max_age):
+def get_school_level_from_age(start_age: int, end_age: int) -> str:
+    PREK_SCHOOL_AGES = [0, 4]
+    ELEM_SCHOOL_AGES = [5, 10]
+    MID_SCHOOL_AGES = [11, 13]
+    HIGH_SCHOOL_AGES = [14, 18]
+    LEVEL_KEYS = {0: "P", 1: "E", 2: "M", 3: "H"}
+
+    levels = ""
+    try:
+        start_age = int(start_age)
+        end_age = int(end_age)
+    except:
+        # if the age ranges are messed up, just use full range
+        start_age = ELEM_SCHOOL_AGES[0]
+        end_age = HIGH_SCHOOL_AGES[1]
+    for i, (low_age, high_age) in enumerate(
+        [PREK_SCHOOL_AGES, ELEM_SCHOOL_AGES, MID_SCHOOL_AGES, HIGH_SCHOOL_AGES]
+    ):
+        if start_age >= low_age and start_age <= high_age:
+            levels += LEVEL_KEYS[i]
+        elif end_age >= low_age and end_age <= high_age:
+            levels += LEVEL_KEYS[i]
+        elif start_age < low_age and end_age > high_age:
+            levels += LEVEL_KEYS[i]
+    # for those rare cases when no start and end grades are present, just assume the schools handles all levels
+    if levels == "":
+        levels = "PEMH"
+    return levels
+
+
+def get_level_from_age(min_age: int, max_age: int):
     if min_age >= 18:
         return "U"
     if max_age == 3:
         return "C"
-    return get_schools.get_level_from_age(min_age, max_age)
+    return get_school_level_from_age(min_age, max_age)
 
 
 @timer
-def process_upop_nt_dt(up_nt_dt_files, upop_df):
-    printgreen("Loading UrbanPop nighttime/daytime files")
-    df = pd.DataFrame()
-    # get NAICS from base UrbanPop data - it gives more detailed categories
-    for fname in up_nt_dt_files:
-        region_df = pd.read_feather(fname)[
-            ["p_id", "role", "orig_geoid", "dest_geoid", "school_id", "grade"]
-        ].astype({"orig_geoid": "string", "dest_geoid": "string"})
-        df = pd.concat([df, region_df], ignore_index=True)
-    print(f"Loaded {len(df)} entries from {len(up_nt_dt_files)} files")
-    df.sort_values(by=["p_id"], inplace=True)
-    # convert the grades to a number (category code)
-    idx = df["grade"].isin(
-        ["childcare", "undergrad_male", "undergrad_female", "grad_male", "grad_female"]
-    )
-    df.loc[idx, "grade"] = df.loc[idx, "grade"].str.split("_", n=1, expand=True).iloc[:, 0]
-    df.loc[~idx, "grade"] = df.loc[~idx, "grade"].str.split("_", n=1, expand=True).iloc[:, 1]
-    df["grade"] = df.grade.astype(categ_types["pr_grade"]).cat.codes
-    df.loc[df.grade != -1, "grade"] += 3  # add 3 to the grade to match UrbanPop data
-    df.rename(
-        columns={
-            "p_id": "id",
-            "orig_geoid": "home_geoid",
-            "dest_geoid": "work_geoid",
-            "grade": "nt_dt_grade",
-        },
-        inplace=True,
-    )
-
-    upop_len = len(upop_df)
-    upop_df = upop_df[upop_df["id"].isin(df["id"])].reset_index(drop=True)
-    if len(upop_df) != upop_len:
-        warn(f"Dropped {upop_len - len(upop_df)} entries not found in daytime/nightime")
-
-    if not np.array_equal(df.id.to_numpy(), upop_df.id.to_numpy()):
-        print(f"ids: {df.id.to_numpy()[:10]}\n{upop_df.id.to_numpy()[:10]}")
-        raise_err("Mismatched p_ids for population vs daytime/nightime")
-    if not np.array_equal(df.home_geoid.to_numpy(), upop_df.home_geoid.to_numpy()):
-        print(f"home geoids: {df.home_geoid.to_numpy()[:10]}\n{upop_df.home_geoid.to_numpy()[:10]}")
-        raise_err("Mismatched geoids for population vs daytime/nightime")
-
-    df.drop(columns=["home_geoid"], inplace=True)
-    df = df.merge(upop_df, on="id", how="outer")
-
-    # dump the mismatched grades
-    if not np.array_equal(df.grade.to_numpy(), df.nt_dt_grade.to_numpy()):
-        mismatched_df = df[df.grade != df.nt_dt_grade].copy()
-        mismatched_df.to_csv("upop_grade_mismatches.csv", index=False)
-        print(f"Saved {len(mismatched_df)} mismatched grade rows to upop_grade_mismatches.csv")
-
-    dump_intermediate(df, "upop_with_nt_dt")
-    # copy the grades from the upop nt/dt data
-    df["grade"] = df.nt_dt_grade.astype("int8")
-    df.loc[(df.role == "worker") | (df.role == "nope"), "grade"] = np.int8(-1)
-    df.loc[(df.role == "worker") | (df.role == "nope"), "school_id"] = ""
-    df.drop(columns=["nt_dt_grade"], inplace=True)
-
-    workers_df = df[df.role == "worker"].reset_index(drop=True).drop(columns=["role"])
-    dump_intermediate(workers_df, "workers_from_upop_nt_dt")
-    dump_intermediate(workers_df, "workers_from_upop_nt_dt")
-
-    unemp_df = df[df.role == "nope"].reset_index(drop=True).drop(columns=["role"])
-    dump_intermediate(unemp_df, "unemployed_from_upop_nt_dt")
-
-    # students must also have an allocated school_id
-    students_without_schools = len(df[(df.role == "student") & (df.school_id == "")])
-    if students_without_schools > 0:
-        warn(f"Found {students_without_schools} students without school assignments")
-    students_df = df[(df.role == "student") & (df.school_id != "")].reset_index(drop=True)
-    students_df.drop(columns=["role"], inplace=True)
-    students_df["naics"] = -1
-    dump_intermediate(students_df, "students_from_upop_nt_dt")
-
-    schools_df = (
-        students_df.groupby(["school_id", "work_geoid"]).size().reset_index(name="students")
-    )
-    dump_intermediate(schools_df, "schools_from_upop_nt_dt")
-    schools_df.rename(columns={"school_id": "id", "work_geoid": "geoid"}, inplace=True)
-    schools_df["min_age"] = students_df.groupby(["school_id", "work_geoid"], as_index=False)[
-        "grade"
-    ].min()["grade"]
-    schools_df["max_age"] = students_df.groupby(["school_id", "work_geoid"], as_index=False)[
-        "grade"
-    ].max()["grade"]
-    schools_df["level"] = list(
-        map(get_level_from_age, schools_df["min_age"], schools_df["max_age"])
-    )
-
-    # set the teachers according to predefined ratios
-    schools_df["teachers"] = schools_df["students"].astype("float") / schools_df["level"].map(
-        teacher_ratios
-    ).round().astype("int32")
-    schools_df["teachers"] = schools_df["teachers"].clip(lower=1)  # at least one teacher per school
-
-    schools_df = schools_df[["id", "students", "teachers", "level", "geoid"]]
-    dump_intermediate(schools_df, "schools_with_geoids_upop_nt_dt")
-    return workers_df, students_df, schools_df, unemp_df
-
-
-@timer
-def process_upop(df, out_fname):
+def process_upop(df: pl.DataFrame, out_fname: str) -> pl.DataFrame:
     printgreen("Processing UrbanPop data")
     # only include these fields in the output csv and c++ structure
     include_fields = {
@@ -512,15 +589,26 @@ def process_upop(df, out_fname):
         # "pr_commute",
         "pr_grade",
     }
-    df.drop(columns=set(df.columns.values) - include_fields, inplace=True)
-    set_types(df)
-    rename_fields(df)
-    df.loc[df.grade != -1, "grade"] += 3
+    # Drop columns not in include_fields
+    cols_to_keep = [col for col in df.columns if col in include_fields]
+    df = df.select(cols_to_keep)
+    df = set_types(df)
+    df = rename_fields(df)
+    # Add 3 to grade for students (grade != -1)
+    df = df.with_columns(
+        [
+            pl.when(pl.col("grade") != -1)
+            .then(pl.col("grade") + 3)
+            .otherwise(pl.col("grade"))
+            .alias("grade")
+        ]
+    )
     dump_intermediate(df, out_fname + ".upop.purged")
+    return df
 
 
 @timer
-def get_lodes_groups(lodes_fnames):
+def get_lodes_groups(lodes_fnames: list[str]) -> pl.DataFrame:
     printgreen("Loading LODES files")
     # Origin-Destination (OD) File Structure (LODES flows)
     # Pos Variable Type Explanation
@@ -537,197 +625,335 @@ def get_lodes_groups(lodes_fnames):
     # 11 SI02 Num Number of jobs in Trade, Transportation, and Utilities industry sectors
     # 12 SI03 Num Number of jobs in All Other Services industry sectors
     # 13 createdate Char Date on which data was created, formatted as YYYYMMDD
-    df = pd.DataFrame()
+    dfs = []
     for lodes_fname in lodes_fnames:
         print("Loading", lodes_fname)
-        lodes_df = pd.read_csv(
-            lodes_fname, dtype={"w_geocode": str, "h_geocode": str, "S000": int}
-        )[["w_geocode", "h_geocode", "S000"]]
-        # print("Loaded", len(lodes_df), "entries")
-        # truncate geoids to first 12, i.e. just census block groups
-        lodes_df["h_geocode"] = lodes_df.h_geocode.str[:12]
-        lodes_df["w_geocode"] = lodes_df.w_geocode.str[:12]
-        lodes_df = (
-            lodes_df.groupby(["w_geocode", "h_geocode"])
-            .S000.sum()
-            .reset_index()
-            .rename(columns={0: "count"})
+        lodes_df = pl.read_csv(lodes_fname, columns=["w_geocode", "h_geocode", "S000"])
+        # ensure that the geocodes are zero padded to correspond to the values in the UrbanPop files
+        # and truncate geoids to first 12, i.e. just census block groups
+        lodes_df = lodes_df.with_columns(
+            [
+                pl.col("w_geocode").cast(pl.Utf8).str.zfill(15).str.slice(0, 12).alias("w_geocode"),
+                pl.col("h_geocode").cast(pl.Utf8).str.zfill(15).str.slice(0, 12).alias("h_geocode"),
+                pl.col("S000").cast(pl.Int32),
+            ]
+        )
+        lodes_df = lodes_df.group_by(["w_geocode", "h_geocode"], maintain_order=True).agg(
+            pl.col("S000").sum().alias("count")
         )
         dump_intermediate(lodes_df, lodes_fname + "_short")
-        df = pd.concat([df, lodes_df], ignore_index=True)
+        dfs.append(lodes_df)
+    df = pl.concat(dfs)
     return df
 
 
 @timer
-def set_childcare(upop_df):
+def set_childcare(upop_df: pl.DataFrame, seed: int) -> pl.DataFrame:
     printgreen("Setting childcare")
     # UrbanPop doesn't have allocations to childcare outside of PK in schools, so we randomly
     # assign agents under age 5 not in PK to childcare. According to NCES, 32% of under 1 year,
     # 47% of 1-2 yrs and 83 of 3-5 yrs are in center-based care
-    PROBS = {0: 0.32, 1: 0.47, 2: 0.47, 3: 0.83, 4: 0.83}
-    df = upop_df.copy()
-    for age in np.arange(0, 5):
-        is_candidate = (df.grade == -1) & (df.age == age)
-        num_candidates = int(len(df[is_candidate]) * PROBS[age])  # type: ignore
-        to_set = df[is_candidate].sample(n=num_candidates, replace=False)
-        print("  Age", age, "set", len(to_set), "out of", len(df[is_candidate]))
-        df.loc[to_set.index, "grade"] = 3
 
-    print("Set", len(df[df.grade == 3]), "agents to childcare")
-    dump_intermediate(df, "childcare")
-    return df
+    # Create a probability column based on age
+    upop_df = upop_df.with_columns(
+        [
+            pl.when(pl.col("age") == 0)
+            .then(pl.lit(0.32))
+            .when(pl.col("age") == 1)
+            .then(pl.lit(0.47))
+            .when(pl.col("age") == 2)
+            .then(pl.lit(0.47))
+            .when(pl.col("age") == 3)
+            .then(pl.lit(0.83))
+            .when(pl.col("age") == 4)
+            .then(pl.lit(0.83))
+            .otherwise(pl.lit(0.0))
+            .alias("childcare_prob")
+        ]
+    )
+    # Filter eligible candidates (grade == -1 and age < 5)
+    eligible_mask = (pl.col("grade") == -1) & (pl.col("age") < 5)
+    # Generate random values for all rows
+    random_vals = np.random.uniform(size=len(upop_df))
+    upop_df = upop_df.with_columns([pl.Series("random_val", random_vals)])
+    # Update grade to 3 (childcare) based on probability
+    upop_df = upop_df.with_columns(
+        [
+            pl.when(eligible_mask & (pl.col("random_val") < pl.col("childcare_prob")))
+            .then(pl.lit(3, dtype=pl.Int8))
+            .otherwise(pl.col("grade"))
+            .alias("grade")
+        ]
+    )
+    # Print statistics per age
+    for age in range(5):
+        # the total includes those without schools, and those that were allocated to childcare
+        total = len(upop_df.filter((pl.col("grade").is_in([-1, 3])) & (pl.col("age") == age)))
+        in_childcare = len(upop_df.filter((pl.col("grade") == 3) & (pl.col("age") == age)))
+        if total > 0:
+            print(
+                f"  Age {age} set {in_childcare} out of {total} ({in_childcare / total * 100:.0f}%)"
+            )
+    # Clean up temporary columns
+    upop_df = upop_df.drop(["childcare_prob", "random_val"])
+    print(f"Set {len(upop_df.filter(pl.col('grade') == 3))} agents to childcare")
+    dump_intermediate(upop_df, "childcare")
+    return upop_df
 
 
 @timer
-def load_schools(fname):
+def load_schools(fname: str) -> pl.DataFrame:
     printgreen(f"Loading schools from {fname}")
-    schools_df = pd.read_csv(fname, low_memory=False, dtype={"geoid": str})
+    schools_df = pl.read_csv(fname, schema_overrides={"geoid": pl.Utf8, "id": pl.Utf8})
     print(
-        f"Loaded {len(schools_df)} entries: {schools_df.students.sum()} students, "
-        f"{schools_df.teachers.sum()} teachers"
+        f"Loaded {len(schools_df)} entries: {schools_df["students"].sum()} students, "
+        f"{schools_df["teachers"].sum()} teachers"
     )
     dump_intermediate(schools_df, "schools")
     return schools_df
 
 
 @timer
-def alloc_workers(lodes_df, workers_df):
+def alloc_workers(lodes_df: pl.DataFrame, workers_df: pl.DataFrame) -> pl.DataFrame:
     printgreen("Allocating workers")
-    worker_groups = workers_df.groupby(["home_geoid"])
-    # only use the lodes groups where both the home and work geoids are found in the workers home
-    # geoid
-    worker_geoids = set(worker_groups.groups.keys())
-    lodes_groups = lodes_df[
-        lodes_df.w_geocode.isin(worker_geoids) & lodes_df.h_geocode.isin(worker_geoids)
-    ].groupby(["h_geocode"])
-    df = pd.DataFrame()
-    print(f"Assigning workers in {len(worker_groups)} GEOIDS for {len(lodes_groups)} LODES groups")
-    i = 0
-    nt_dts = [df]
-    for name, worker_group in worker_groups:
-        i += 1
-        if i % 100 == 0:
-            print(f"  {i} {name[0]}")
+    # Get unique worker home geoids
+    worker_geoids = set(workers_df["home_geoid"].unique().to_list())
+    # Filter LODES data to only include flows between worker geoids
+    lodes_df = lodes_df.filter(
+        pl.col("w_geocode").is_in(worker_geoids) & pl.col("h_geocode").is_in(worker_geoids)
+    )
+    # Group by home geoid and LODES origin
+    worker_groups_dict = {geoid: group for geoid, group in workers_df.group_by("home_geoid")}
+    lodes_groups_dict = {
+        name: group for name, group in lodes_df.group_by("h_geocode", maintain_order=True)
+    }
+    num_geoids = workers_df["home_geoid"].n_unique()
+    all_workers = []
+    missing_geoids = []
+    num_geoids = len(worker_groups_dict)
+    ticker = ProgressTicker(
+        f"Assigning workers in {num_geoids} GEOIDS for {len(lodes_groups_dict)} LODES groups: ",
+        num_geoids,
+    )
+    for i, (home_geoid_tuple, worker_group) in enumerate(sorted(worker_groups_dict.items())):
+        home_geoid = (
+            home_geoid_tuple[0] if isinstance(home_geoid_tuple, tuple) else home_geoid_tuple
+        )
+        ticker.update(i)
         num_workers = len(worker_group)
-        try:
-            lodes_group = lodes_groups.get_group(name)
-        except KeyError as err:
+        # Try to get matching LODES group
+        lodes_group = lodes_groups_dict.get(home_geoid_tuple)
+        if lodes_group is None:
             # the home geoid derived from the upop workers is not found in the home (origin) geoid
-            # in the LODES data, so we haveno flows from that geoid
-            warn(f"Could not find origin GEOID {name} in LODES data for {num_workers} workers")
-            lodes_group = pd.DataFrame()
-            lodes_group["w_geocode"] = name
-            lodes_group["h_geocode"] = name
-            lodes_group["S000"] = num_workers
-            # raise err
-        sum_flows = lodes_group["S000"].sum()
-        flow_probs = lodes_group["S000"] / sum_flows
-        rnd_sample = lodes_group.sample(n=num_workers, weights=flow_probs, replace=True)
-        # nt_dt_group = worker_group[["id", "home_geoid", "naics", "grade"]]
-        worker_group = worker_group.assign(dest_geoid=rnd_sample["w_geocode"].tolist())
-        nt_dts.append(worker_group)
-
-    df = pd.concat(nt_dts, ignore_index=True)
-    df.rename(columns={"dest_geoid": "work_geoid"}, inplace=True)
-    # workers have no grade since that indicates that the agent is in school
-    df["grade"] = np.int8(-1)
-    df["school_id"] = ""
-    num_without_naics = len(df.loc[df["naics"] == -1, "naics"])
+            # in the LODES data, so we have no flows from that geoid
+            # warn(
+            #    f"Could not find origin GEOID {home_geoid} in LODES data for {num_workers} workers"
+            # )
+            lodes_group = pl.DataFrame(
+                {"w_geocode": [home_geoid], "h_geocode": [home_geoid], "count": [num_workers]}
+            )
+            missing_geoids.append(home_geoid)
+        sum_flows = lodes_group["count"].sum()
+        flow_probs = (lodes_group["count"] / sum_flows).to_numpy()
+        # Sample work locations based on flow probabilities
+        work_geocodes = lodes_group["w_geocode"].to_list()
+        sampled_work = np.random.choice(work_geocodes, size=num_workers, p=flow_probs)
+        # Add work_geoid to workers
+        worker_ids = worker_group["id"].to_list()
+        for worker_id, work_geoid in zip(worker_ids, sampled_work):
+            all_workers.append({"id": worker_id, "work_geoid": work_geoid})
+    ticker.finish()
+    if len(missing_geoids) > 0:
+        num_missing = len(missing_geoids)
+        warn(
+            f"Could not find {num_missing} (out of {num_geoids}) origin GEOIDs in LODES:\n"
+            + f"{missing_geoids}"
+        )
+    work_assignments = pl.DataFrame(all_workers)
+    # Join with original workers
+    workers_df = workers_df.join(work_assignments, on="id", how="left")
+    # Set grade to -1 and school_id to empty for all workers
+    workers_df = workers_df.with_columns(
+        [pl.lit(-1, dtype=pl.Int8).alias("grade"), pl.lit("").alias("school_id")]
+    )
+    # Check for workers without NAICS
+    num_without_naics = len(workers_df.filter(pl.col("naics") == -1))
     if num_without_naics > 0:
         warn(f"There are {num_without_naics} workers without NAICS classification")
-    print("Added destinations for", len(df), "workers")
-    dump_intermediate(df, "workers_nt_dt")
+    print("Added destinations for", len(workers_df), "workers")
+    dump_intermediate(workers_df, "workers_nt_dt")
 
-    return df
+    return workers_df
 
 
-# @timer
-def alloc_students_region(students_df, schools_df, geoid_scaling, alloc_all):
-    schools_df["region"] = schools_df.geoid.str[:geoid_scaling]
-    dump_intermediate(schools_df, "schools_" + region_scales[geoid_scaling])
-    students_df["region"] = students_df.home_geoid.str[:geoid_scaling]
-    dump_intermediate(students_df, "students_" + region_scales[geoid_scaling])
-    student_groups = students_df.groupby(["region"])
-    school_groups = schools_df.groupby(["region"])
-
-    def process_region(args):
-        region, student_group = args
-        num_students_reqd = len(student_group)
-        if num_students_reqd == 0:
-            warn(f"No students requested for group {region}")
-            return None
-        try:
-            school_group = school_groups.get_group(region)
-        except KeyError:
-            return None
-        school_group = school_group[["geoid", "id", "remaining_student_places"]]
-        sum_remaining_student_places = school_group.remaining_student_places.sum()
-        if not alloc_all and num_students_reqd > sum_remaining_student_places:
-            # add an extra dummy row so that all students have a chance of being allocated to
-            # available slots
-            school_group.loc[len(school_group)] = [
-                "",
-                "",
-                num_students_reqd - sum_remaining_student_places,
-            ]
-            sum_remaining_student_places = school_group.remaining_student_places.sum()
-
-        school_probs = school_group.remaining_student_places / sum_remaining_student_places
-        schools_selected = school_group.sample(
-            n=num_students_reqd, weights=school_probs, replace=True
+def process_students_region(
+    region: str,
+    student_group: pl.DataFrame,
+    school_groups_dict: dict[str, pl.DataFrame],
+    alloc_all: bool,
+) -> tuple[list[str], list[str], list[str], pl.DataFrame] | None:
+    num_students_reqd = len(student_group)
+    if num_students_reqd == 0:
+        warn(f"No students requested for group {region}")
+        return None
+    # Try to get matching school group
+    school_group = school_groups_dict.get(region)
+    if school_group is None:
+        # No schools in this region
+        return None
+    # Select only needed columns
+    school_group = school_group.select(["geoid", "id", "remaining_student_places"])
+    sum_remaining_student_places = school_group["remaining_student_places"].sum()
+    if not alloc_all and num_students_reqd > sum_remaining_student_places:
+        # Add extra dummy row so all students have chance of being allocated
+        dummy_row = pl.DataFrame(
+            {
+                "geoid": [""],
+                "id": [""],
+                "remaining_student_places": [num_students_reqd - sum_remaining_student_places],
+            },
+            schema={
+                "geoid": pl.Utf8,
+                "id": pl.Utf8,
+                "remaining_student_places": school_group["remaining_student_places"].dtype,
+            },
         )
-        geoids = schools_selected.geoid.values
-        school_ids = schools_selected.id.values
-        # clear out dummy schools
-        schools_selected.index.rename("index", inplace=True)
-        schools_selected = schools_selected[(schools_selected.id != "")]
-        if len(schools_selected) == 0:
-            return None
-        counts = schools_selected.groupby("index").size()
-        return {
-            "student_idx": student_group.index,
-            "work_geoids": geoids,
-            "school_ids": school_ids,
-            "school_counts": counts,
-        }
+        school_group = pl.concat([school_group, dummy_row])
+        sum_remaining_student_places = school_group["remaining_student_places"].sum()
+    # Sample schools based on probabilities
+    # Calculate probabilities for weighted sampling
+    school_probs = (
+        school_group["remaining_student_places"] / sum_remaining_student_places
+    ).to_numpy()
+    # Use numpy random choice with weights, then select those rows
+    school_rnd_indices = np.random.choice(
+        len(school_group), size=num_students_reqd, replace=True, p=school_probs
+    )
+    # Select schools by indices
+    schools_selected = school_group[school_rnd_indices]
+    geoids = schools_selected["geoid"].to_list()
+    school_ids = schools_selected["id"].to_list()
+    # Filter out dummy schools
+    schools_selected = schools_selected.filter(pl.col("id") != "")
+    if len(schools_selected) == 0:
+        return None
+    # Count assignments per school
+    counts = schools_selected.group_by("id", maintain_order=True).agg(pl.len().alias("count"))
+    return student_group["id"].to_list(), geoids, school_ids, counts
 
-    with ThreadPool(processes=1) as pool:
-        results = pool.map(process_region, [(region, group) for region, group in student_groups])
 
-    for result in results:
+def alloc_students_region(
+    level: str,
+    students_df: pl.DataFrame,
+    schools_df: pl.DataFrame,
+    geoid_scaling: int,
+    alloc_all: bool,
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    # Add region column based on geoid scaling
+    schools_df = schools_df.with_columns(
+        [pl.col("geoid").str.slice(0, geoid_scaling).alias("region")]
+    )
+    # dump_intermediate(schools_df, "schools_" + region_scales[geoid_scaling] + "-" + level)
+    students_df = students_df.with_columns(
+        [pl.col("home_geoid").str.slice(0, geoid_scaling).alias("region")]
+    )
+    # dump_intermediate(students_df, "students_" + region_scales[geoid_scaling] + "-" + level)
+    # Group by region
+    student_groups_dict = {}
+    for key_tuple, group_df in students_df.group_by("region", maintain_order=True):
+        # Extract the string value from the tuple
+        region = key_tuple[0] if isinstance(key_tuple, tuple) else key_tuple
+        student_groups_dict[region] = group_df
+    school_groups_dict = {}
+    for key_tuple, group_df in schools_df.group_by("region", maintain_order=True):
+        region = key_tuple[0] if isinstance(key_tuple, tuple) else key_tuple
+        school_groups_dict[region] = group_df
+    all_student_ids = []
+    all_work_geoids = []
+    all_school_ids = []
+    all_school_counts = []
+    # Process all regions
+    for region, group in sorted(student_groups_dict.items()):
+        result = process_students_region(region, group, school_groups_dict, alloc_all)
         if result is None:
             continue
-        students_df.loc[result["student_idx"], "work_geoid"] = result["work_geoids"]
-        students_df.loc[result["student_idx"], "school_id"] = result["school_ids"]
-        schools_df.loc[result["school_counts"].index, "remaining_student_places"] -= result[
-            "school_counts"
-        ].values
-        schools_df.remaining_student_places = schools_df.remaining_student_places.clip(lower=1)
-
+        all_student_ids.extend(result[0])
+        all_work_geoids.extend(result[1])
+        all_school_ids.extend(result[2])
+        all_school_counts.append(result[3])
+    if len(all_student_ids) > 0:
+        updates_df = pl.DataFrame(
+            {
+                "id": all_student_ids,
+                "work_geoid": all_work_geoids,
+                "school_id": all_school_ids,
+            }
+        )
+        school_counts_df = pl.concat(all_school_counts)
+        # Update students dataframe
+        students_df = students_df.join(updates_df, on="id", how="left", suffix="_new")
+        students_df = students_df.with_columns(
+            [
+                pl.when(pl.col("work_geoid_new").is_not_null())
+                .then(pl.col("work_geoid_new"))
+                .otherwise(pl.col("work_geoid"))
+                .alias("work_geoid"),
+                pl.when(pl.col("school_id_new").is_not_null())
+                .then(pl.col("school_id_new"))
+                .otherwise(pl.col("school_id"))
+                .alias("school_id"),
+            ]
+        ).drop(["work_geoid_new", "school_id_new"])
+        # Update schools dataframe
+        # Aggregate all school counts by id
+        school_counts_agg = school_counts_df.group_by("id", maintain_order=True).agg(
+            pl.col("count").sum().alias("allocated_count")
+        )
+        schools_df = schools_df.join(school_counts_agg, on="id", how="left")
+        schools_df = schools_df.with_columns(
+            [
+                pl.when(pl.col("allocated_count").is_not_null())
+                .then(pl.col("remaining_student_places") - pl.col("allocated_count"))
+                .otherwise(pl.col("remaining_student_places"))
+                .alias("remaining_student_places")
+            ]
+        ).drop("allocated_count")
+        # Clip to minimum of 1
+        schools_df = schools_df.with_columns(
+            [pl.col("remaining_student_places").clip(lower_bound=1)]
+        )
+    num_allocated = len(students_df.filter(pl.col("school_id") != ""))
     print(
-        f"  For {region_scales[geoid_scaling]}, allocated "
-        f"{len(students_df[students_df.school_id != ''])} students"
-        f" out of {len(students_df)}"
+        f"  For {region_scales[geoid_scaling]}, allocated {num_allocated} students "
+        f"out of {len(students_df)}"
     )
-
-    students_df.drop(columns=["region"], inplace=True)
-    return students_df
+    # Drop region column
+    students_df = students_df.drop("region")
+    schools_df = schools_df.drop("region")
+    return students_df, schools_df
 
 
 @timer
-def alloc_students_level(schools_df, students_df, level):
-    ids_before = students_df.id.to_numpy()
+def alloc_students_level(
+    schools_df: pl.DataFrame, students_df: pl.DataFrame, level: str
+) -> pl.DataFrame:
+    ids_before = students_df["id"].to_list()
     print(f"Allocating {len(students_df)} students for level {level}")
-    dump_intermediate(students_df[["id", "grade"]], "students-" + level)
+    dump_intermediate(students_df.select(["id", "grade"]), "students-" + level)
     # Get all schools with the required level
-    schools_df = schools_df[(schools_df.level.str.find(level) != -1)].copy()
+    schools_df = schools_df.filter(pl.col("level").str.contains(level))
     # Some schools have multiple levels and so students should be allocated proportionately. For
     # simplicity, we just allocate uniformly among the levels, e.g. a EMH school would have 1/3
     # students each in elem, middle and high
-    schools_df.loc[:, "students"] = np.int32(
-        np.ceil(schools_df.students / schools_df.level.str.len())
+    schools_df = schools_df.with_columns(
+        [
+            (pl.col("students") / pl.col("level").str.len_chars())
+            .ceil()
+            .cast(pl.Int32)
+            .alias("students")
+        ]
     )
-    schools_df["remaining_student_places"] = schools_df.students
+    schools_df = schools_df.with_columns([pl.col("students").alias("remaining_student_places")])
     # for childcare, we assume that it is all close to home
     scales = list(region_scales.keys()) if level != "C" else list(region_scales.keys())[:3]
     # pick schools for students from decreasing resolution; the goal is to allocate students as
@@ -735,129 +961,164 @@ def alloc_students_level(schools_df, students_df, level):
     for scale in scales:
         # make sure to allocate all at the final region scale
         alloc_all = True if scale == scales[-1] else False
-        unassigned_df = students_df[(students_df.school_id == "")].copy()
-        assigned_df = alloc_students_region(unassigned_df, schools_df, scale, alloc_all)
-        students_df.loc[assigned_df.index, "school_id"] = assigned_df.school_id.astype("string")
-        students_df.loc[assigned_df.index, "work_geoid"] = assigned_df.work_geoid
-        num_unalloc = len(students_df[(students_df.school_id == "")])
+        unassigned_df = students_df.filter(pl.col("school_id") == "")
+        assigned_df, schools_df = alloc_students_region(
+            level, unassigned_df, schools_df, scale, alloc_all
+        )
+        # Update students_df with assignments
+        if len(assigned_df) > 0:
+            # Create update dataframe with only assigned students
+            update_df = assigned_df.select(["id", "school_id", "work_geoid"])
+            # Join and update
+            students_df = students_df.join(update_df, on="id", how="left", suffix="_new")
+            students_df = students_df.with_columns(
+                [
+                    pl.when(pl.col("school_id_new").is_not_null())
+                    .then(pl.col("school_id_new"))
+                    .otherwise(pl.col("school_id"))
+                    .alias("school_id"),
+                    pl.when(pl.col("work_geoid_new").is_not_null())
+                    .then(pl.col("work_geoid_new"))
+                    .otherwise(pl.col("work_geoid"))
+                    .alias("work_geoid"),
+                ]
+            ).drop(["school_id_new", "work_geoid_new"])
+        num_unalloc = len(students_df.filter(pl.col("school_id") == ""))
         if num_unalloc == 0:
             break
-
-    num_unalloc = len(students_df[(students_df.school_id == "")])
+    num_unalloc = len(students_df.filter(pl.col("school_id") == ""))
     if num_unalloc > 0:
-        students_df.loc[students_df.school_id == "", "work_geoid"] = students_df.home_geoid
-        students_df.loc[students_df.school_id == "", "grade"] = -1
-
-    ids_after = students_df.id.to_numpy()
-    if not np.array_equal(ids_before, ids_after):
+        students_df = students_df.with_columns(
+            [
+                pl.when(pl.col("school_id") == "")
+                .then(pl.col("home_geoid"))
+                .otherwise(pl.col("work_geoid"))
+                .alias("work_geoid"),
+                pl.when(pl.col("school_id") == "")
+                .then(pl.lit(-1, dtype=pl.Int8))
+                .otherwise(pl.col("grade"))
+                .alias("grade"),
+            ]
+        )
+    ids_after = students_df["id"].to_list()
+    if ids_before != ids_after:
         raise_err(f"mismatched ids: {len(ids_before)} != {len(ids_after)}")
-
     return students_df
-
-
-def process_level(level, schools, students):
-    level_students = students[
-        (students.grade >= age_levels[level][0]) & (students.grade <= age_levels[level][1])
-    ].copy()
-    if len(level_students) == 0:
-        return pd.DataFrame()
-    return alloc_students_level(schools, level_students, level)
 
 
 @timer
-def alloc_students(schools_df, students_df):
+def alloc_students(schools_df: pl.DataFrame, students_df: pl.DataFrame) -> pl.DataFrame:
     printgreen("Allocating students")
-    num_unique_before = len(students_df.id.unique())
-    students_df["school_id"] = ""
-    students_df["naics"] = -1
-    students_df["work_geoid"] = students_df.home_geoid
-
-    USE_MULTIPROCS = True
+    num_unique_before = students_df["id"].n_unique()
+    # Add initial columns
+    students_df = students_df.with_columns(
+        [
+            pl.lit("").alias("school_id"),
+            pl.lit(-1, dtype=pl.Int16).alias("naics"),
+            pl.col("home_geoid").alias("work_geoid"),
+        ]
+    )
     dfs = []
     # allocate students from each level
-    if not USE_MULTIPROCS:
-        for level in ["P", "E", "M", "H", "U", "C"]:
-            level_students_df = students_df[
-                (students_df.grade >= age_levels[level][0])
-                & (students_df.grade <= age_levels[level][1])
-            ].copy()
-            if len(level_students_df) == 0:
-                continue
-            df = alloc_students_level(schools_df, level_students_df, level=level)
-            dfs.append(df)
-
-    elif USE_MULTIPROCS:
-        levels = ["P", "E", "M", "H", "U", "C"]
-        with Pool(processes=1) as pool:
-            process_level_partial = partial(process_level, schools=schools_df, students=students_df)
-            dfs = pool.map(process_level_partial, levels)
-
-    students_df = pd.concat(dfs, ignore_index=True)
-
-    num_unique_after = len(students_df.id.unique())
+    for level in ["P", "E", "M", "H", "U", "C"]:
+        level_students_df = students_df.filter(
+            (pl.col("grade") >= age_levels[level][0]) & (pl.col("grade") <= age_levels[level][1])
+        )
+        if len(level_students_df) == 0:
+            continue
+        level_students_df = alloc_students_level(schools_df, level_students_df, level=level)
+        dfs.append(level_students_df)
+    students_df = pl.concat(dfs)
+    num_unique_after = students_df["id"].n_unique()
     if num_unique_before != num_unique_after:
         warn(f"mismatched unique ids: {num_unique_before} != {num_unique_after}")
     # set all unallocated students
-    unalloc = students_df.school_id == ""
-    if len(students_df.loc[unalloc]) > 0:
-        warn(f"Found {len(students_df.loc[unalloc])} unallocated students")
-        students_df.loc[unalloc, "work_geoid"] = students_df.home_geoid
-        students_df.loc[unalloc, "grade"] = -1
-
+    unalloc_count = len(students_df.filter(pl.col("school_id") == ""))
+    if unalloc_count > 0:
+        perc_unalloc = 100.0 * unalloc_count / len(students_df)
+        warn(f"Found {unalloc_count} unallocated students ({perc_unalloc:.1f}%%)")
+        students_df = students_df.with_columns(
+            [
+                pl.when(pl.col("school_id") == "")
+                .then(pl.col("home_geoid"))
+                .otherwise(pl.col("work_geoid"))
+                .alias("work_geoid"),
+                pl.when(pl.col("school_id") == "")
+                .then(pl.lit(-1, dtype=pl.Int8))
+                .otherwise(pl.col("grade"))
+                .alias("grade"),
+            ]
+        )
     dump_intermediate(students_df, "students_nt_dt")
-
     return students_df
 
 
-def check_school_id_correlation(students_df, schools_df, description):
+def check_school_id_correlation(
+    students_df: pl.DataFrame, schools_df: pl.DataFrame, description: str
+):
     # now check correlation of generated data with actual schools data, for each named school size
-    gen_schools_df = students_df.groupby(["school_id"]).size().reset_index(name="students")
-    gen_schools_df["key"] = gen_schools_df["school_id"].astype(str)
-
-    schools_check_df = schools_df.copy()
-    schools_check_df["key"] = schools_check_df["id"].astype(str)
+    gen_schools_df = students_df.group_by("school_id", maintain_order=True).agg(
+        pl.len().alias("students")
+    )
+    gen_schools_df = gen_schools_df.with_columns([pl.col("school_id").cast(pl.Utf8).alias("key")])
+    schools_check_df = schools_df.with_columns([pl.col("id").cast(pl.Utf8).alias("key")])
     # only merge in the matching schools from the actual data, since that consists of potentially
     # many more schools than we are using for this subset (e.g. if we are doing a single state)
-    merged_df = gen_schools_df.merge(
-        schools_check_df, on="key", how="left", suffixes=["_gen", "_orig"]
-    )[["key", "students_gen", "students_orig"]]
-    merged_df = merged_df.fillna(0).astype({"students_gen": "int", "students_orig": "int"})
+    merged_df = gen_schools_df.join(
+        schools_check_df.select(["key", "students"]), on="key", how="left", suffix="_orig"
+    ).select(["key", "students", "students_orig"])
+    merged_df = merged_df.with_columns(
+        [
+            pl.col("students_orig").fill_null(0).cast(pl.Int32),
+            pl.col("students").cast(pl.Int32).alias("students_gen"),
+        ]
+    ).select(["key", "students_gen", "students_orig"])
     dump_intermediate(merged_df, "schools_check_name")
-    corr = merged_df.students_gen.corr(merged_df.students_orig)
+    corr = merged_df.select(pl.corr("students_gen", "students_orig")).item()
     print(
         f"{description} school ID correlation: {corr:.3f} "
-        + f"(generated count {merged_df.students_gen.sum()}, "
-        f"actual count {merged_df.students_orig.sum()})"
+        + f"(generated count {merged_df['students_gen'].sum()}, "
+        f"actual count {merged_df['students_orig'].sum()})"
     )
     if corr < CORR_CHECK_LEVEL:
         warn("Low correlation!")
 
 
-def check_school_geoid_correlation(students_df, schools_df, description):
+def check_school_geoid_correlation(
+    students_df: pl.DataFrame, schools_df: pl.DataFrame, description: str
+):
     # now check correlation for location (geoid)
-    gen_schools_df = students_df.groupby(["work_geoid"]).size().reset_index(name="count")
-    gen_schools_df["key"] = gen_schools_df["work_geoid"].astype(str)
-
-    schools_check_df = schools_df.groupby(["geoid"]).students.sum().reset_index(name="count")
-    schools_check_df["key"] = schools_check_df["geoid"].astype(str)
+    gen_schools_df = students_df.group_by(["work_geoid"], maintain_order=True).agg(
+        pl.len().alias("count")
+    )
+    gen_schools_df = gen_schools_df.with_columns([pl.col("work_geoid").cast(pl.Utf8).alias("key")])
+    schools_check_df = schools_df.group_by(["geoid"], maintain_order=True).agg(
+        pl.col("students").sum().alias("count")
+    )
+    schools_check_df = schools_check_df.with_columns([pl.col("geoid").cast(pl.Utf8).alias("key")])
     # only merge in the matching schools from the actual data, since that consists of potentially
     # many more schools than we are using for this subset (e.g. if we are doing a single state)
-    merged_df = gen_schools_df.merge(
-        schools_check_df, on="key", how="left", suffixes=["_gen", "_orig"]
-    )[["key", "count_gen", "count_orig"]]
-    merged_df = merged_df.fillna(0).astype({"count_gen": "int", "count_orig": "int"})
+    merged_df = gen_schools_df.join(
+        schools_check_df.select(["key", "count"]), on="key", how="left", suffix="_orig"
+    ).select(["key", "count", "count_orig"])
+    merged_df = merged_df.with_columns(
+        [
+            pl.col("count_orig").fill_null(0).cast(pl.Int32),
+            pl.col("count").cast(pl.Int32).alias("count_gen"),
+        ]
+    ).select(["key", "count_gen", "count_orig"])
     dump_intermediate(merged_df, "schools_check_geoid")
-    corr = merged_df.count_gen.corr(merged_df.count_orig)
+    corr = merged_df.select(pl.corr("count_gen", "count_orig")).item()
     print(
         f"{description} school geoid correlation: {corr:.3f} "
-        + f"(generated count {merged_df.count_gen.sum()}, "
-        f"actual count {merged_df.count_orig.sum()})"
+        + f"(generated count {merged_df['count_gen'].sum()}, "
+        f"actual count {merged_df['count_orig'].sum()})"
     )
     if corr < CORR_CHECK_LEVEL:
         warn("Low correlation!")
 
 
-def print_school_counts(students_df, workers_df):
+def print_school_counts(students_df: pl.DataFrame, workers_df: pl.DataFrame):
     print("School counts (educators, students, ratio):")
     level_names = {
         "C": "Childcare",
@@ -870,17 +1131,17 @@ def print_school_counts(students_df, workers_df):
     tot_teachers = 0
     for level in ["U", "H", "M", "PE", "C"]:
         num_students = len(
-            students_df[
-                (students_df.grade >= age_levels[level][0])
-                & (students_df.grade <= age_levels[level][1])
-            ]
+            students_df.filter(
+                (pl.col("grade") >= age_levels[level][0])
+                & (pl.col("grade") <= age_levels[level][1])
+            )
         )
         tot_students += num_students
         num_teachers = len(
-            workers_df[
-                (workers_df.grade >= age_levels[level][0])
-                & (workers_df.grade <= age_levels[level][1])
-            ]
+            workers_df.filter(
+                (pl.col("grade") >= age_levels[level][0])
+                & (pl.col("grade") <= age_levels[level][1])
+            )
         )
         print(
             f"  {level_names[level]:10s} {num_teachers} {num_students} "
@@ -891,12 +1152,12 @@ def print_school_counts(students_df, workers_df):
 
 
 @timer
-def generate_nt_dt(schools_df, upop_df, lodes_df):
+def generate_nt_dt(
+    schools_df: pl.DataFrame, upop_df: pl.DataFrame, lodes_df: pl.DataFrame, seed: int
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     # randomly allocate some young agents to childcare
-    upop_df = set_childcare(upop_df)
-
-    num_unique_ids = len(upop_df.id.unique())
-
+    upop_df = set_childcare(upop_df, seed)
+    num_unique_ids = upop_df["id"].n_unique()
     # now split into students, workers and unemployed.
     # Note that the UrbanPop nt/dt data classifies mil as unemployed (nope); because they don't
     # commute?
@@ -904,14 +1165,11 @@ def generate_nt_dt(schools_df, upop_df, lodes_df):
     # workers. Not sure when/why it does this. We will assume that employed agents with assigned
     # grades are students if they are under 25 in age. We determine who is employed by checking who
     # has a NAICS code
-    # is_employed = (upop_df.pr_emp_stat == "employed") & (
-    #    (upop_df.pr_grade == "") | (upop_df.pr_age >= 25)
-    # )
-    is_employed = (upop_df.naics != -1) & ((upop_df.grade == -1) | (upop_df.age > 26))
-    in_school = (upop_df.grade != -1) & ~is_employed
-    students_df = upop_df[in_school].copy()
-    workers_df = upop_df[is_employed]
-    unemp_df = upop_df[~is_employed & ~in_school].copy()
+    is_employed = (pl.col("naics") != -1) & ((pl.col("grade") == -1) | (pl.col("age") > 26))
+    in_school = (pl.col("grade") != -1) & ~is_employed
+    students_df = upop_df.filter(in_school)
+    workers_df = upop_df.filter(is_employed)
+    unemp_df = upop_df.filter(~is_employed & ~in_school)
     tot = len(workers_df) + len(students_df) + len(unemp_df)
     print("Counts:")
     print("  workers:   ", len(workers_df))
@@ -926,242 +1184,374 @@ def generate_nt_dt(schools_df, upop_df, lodes_df):
             len(upop_df),
             "in UrbanPop feather files",
         )
-
+    unemp_df = unemp_df.with_columns(
+        [
+            pl.col("home_geoid").alias("work_geoid"),
+            pl.lit("").alias("school_id"),
+            pl.lit(-1, dtype=pl.Int8).alias("grade"),
+            pl.lit(-1, dtype=pl.Int16).alias("naics"),
+        ]
+    )
     workers_nt_dt_df = alloc_workers(lodes_df, workers_df)
-
-    df = pd.concat([workers_nt_dt_df, students_df, unemp_df], ignore_index=True)
-    if num_unique_ids != len(df.id.unique()):
-        raise_err(f"Incorrect number of unique IDS {len(df.id.unique())}")
-
+    if num_unique_ids != (len(workers_nt_dt_df) + len(students_df) + len(unemp_df)):
+        raise_err(f"Incorrect number of unique IDS after worker allocation")
     students_nt_dt_df = alloc_students(schools_df, students_df)
-
-    df = pd.concat([workers_nt_dt_df, students_nt_dt_df, unemp_df], ignore_index=True)
-    if num_unique_ids != len(df.id.unique()):
+    if num_unique_ids != (len(workers_nt_dt_df) + len(students_nt_dt_df) + len(unemp_df)):
         print(len(students_df), len(students_nt_dt_df))
-        raise_err(f"Incorrect number of unique IDS {len(df.id.unique())}")
-
-    unemp_df["work_geoid"] = unemp_df.home_geoid
-    unemp_df.school_id = ""
-    unemp_df.grade = np.int8(-1)
-    unemp_df.naics = np.int16(-1)
+        raise_err(f"Incorrect number of unique IDS after student allocation")
 
     return workers_nt_dt_df, students_nt_dt_df, schools_df, unemp_df
 
 
-def alloc_teachers_region(teachers_df, schools_df, geoid_scaling):
-    schools_df["region"] = schools_df.geoid.str[:geoid_scaling]
-    teachers_df["region"] = teachers_df.work_geoid.str[:geoid_scaling]
-    teacher_groups = teachers_df.groupby(["region"])
-    school_groups = schools_df.groupby(["region"])
+def alloc_teachers_region(
+    teachers_df: pl.DataFrame, schools_df: pl.DataFrame, geoid_scaling: int, seed: int
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    # Add region columns
+    schools_df = schools_df.with_columns(
+        [pl.col("geoid").str.slice(0, geoid_scaling).alias("region")]
+    )
+    teachers_df = teachers_df.with_columns(
+        [pl.col("work_geoid").str.slice(0, geoid_scaling).alias("region")]
+    )
+    # Create dictionaries from group_by
+    teacher_groups_dict = {
+        name: group for name, group in teachers_df.group_by("region", maintain_order=True)
+    }
+    school_groups_dict = {
+        name: group for name, group in schools_df.group_by("region", maintain_order=True)
+    }
     missing_regions = 0
     tot_reqd_teachers = 0
-    for group_name, school_group in school_groups:
-        num_teachers_reqd = school_group.adj_teachers.sum()
-        # print(f"group name {group_name} num_teachers_reqd {num_teachers_reqd}")
+    # Collect all teacher updates (can be batched - teachers don't affect each other)
+    all_teacher_updates = []
+    for group_name_tuple, school_group in sorted(school_groups_dict.items()):
+        num_teachers_reqd = int(school_group["adj_teachers"].sum())
         if num_teachers_reqd == 0:
             continue
         tot_reqd_teachers += num_teachers_reqd
-        try:
-            teacher_group = teacher_groups.get_group(group_name)
-        except KeyError:
+        group_name = (
+            group_name_tuple[0] if isinstance(group_name_tuple, tuple) else group_name_tuple
+        )
+        teacher_group = teacher_groups_dict.get(group_name_tuple)
+        if teacher_group is None:
             missing_regions += 1
             continue
-        num_teachers_reqd = min(num_teachers_reqd, teacher_group.id.count())
-        teachers_selected = teacher_group.sample(n=num_teachers_reqd, replace=False)
-        probs = school_group.adj_teachers / num_teachers_reqd
-        schools_selected = school_group.sample(n=num_teachers_reqd, weights=probs, replace=True)
-        schools_selected.index.rename("index", inplace=True)
-        schools_selected["grade"] = (
-            schools_selected["level"]
-            .map(age_levels)
-            .apply(lambda x: np.random.randint(x[0], x[1] + 1))
-            .astype("int8")
+        num_teachers_reqd = min(num_teachers_reqd, len(teacher_group))
+        # Sample teachers
+        teachers_selected = teacher_group.sample(n=num_teachers_reqd, seed=seed)
+        # Calculate probabilities and sample schools
+        probs = (school_group["adj_teachers"] / school_group["adj_teachers"].sum()).to_numpy()
+        probs = probs / probs.sum()
+        school_indices = np.random.choice(
+            len(school_group), size=num_teachers_reqd, replace=True, p=probs
         )
-        # the university teachers will be uniformly split betw undergrad and grad. Readjust this to
-        # a 80:20 split
-        # FIXME: at college level, "teachers" will likely interact with both grad and undergrads
-        schools_selected["rnd"] = np.random.uniform(size=len(schools_selected))
-        schools_selected.loc[
-            (schools_selected.grade == 19) & (schools_selected.rnd < 0.5), "grade"
-        ] = 18
-        schools_selected.grade = schools_selected.grade.astype("int8")
-        schools_selected.id = schools_selected.id.astype("string")
-        teachers_df.loc[teachers_selected.index, "school_id"] = list(schools_selected.id)
-        teachers_df.loc[teachers_selected.index, "grade"] = np.array(
-            list(schools_selected.grade), dtype=np.int8
+        schools_selected = school_group[school_indices]
+        # Vectorized grade assignment - combine all operations
+        levels_array = schools_selected["level"].to_numpy()
+        grades = np.zeros(len(levels_array), dtype=np.int8)
+        for level, (min_age, max_age) in age_levels.items():
+            mask = levels_array == level
+            if mask.any():
+                grades[mask] = np.random.randint(min_age, max_age + 1, size=mask.sum())
+        if np.any(grades == 0):
+            unknown_levels = np.unique(levels_array[grades == 0])
+            raise_err(f"Unknown school levels: {unknown_levels}")
+        # Adjust university teachers in one operation
+        rnd_vals = np.random.uniform(size=len(grades))
+        grades = np.where((grades == 19) & (rnd_vals < 0.5), 18, grades)
+        # Collect teacher updates (can batch these)
+        all_teacher_updates.append(
+            pl.DataFrame(
+                {
+                    "id": teachers_selected["id"].to_list(),
+                    "school_id": schools_selected["id"].cast(pl.Utf8).to_list(),
+                    "work_geoid": schools_selected["geoid"].to_list(),
+                    "grade": grades.tolist(),
+                }
+            )
         )
-        teachers_df.loc[teachers_selected.index, "work_geoid"] = list(schools_selected.geoid)
-        # reduce the reqd teachers count according to how many have been allocated
-        schools_selected_groups = schools_selected.groupby(["index"])
-        selected_school_indexes = list(schools_selected_groups.groups.keys())
-        selected_school_counts = schools_selected_groups.id.count().tolist()
-        schools_df.loc[schools_df.index.isin(selected_school_indexes), "adj_teachers"] -= np.int32(
-            selected_school_counts
+        # Update schools_df IMMEDIATELY (cannot batch - affects next iteration)
+        school_counts = schools_selected.group_by("id", maintain_order=True).agg(
+            pl.len().alias("count")
         )
-        schools_df.loc[schools_df.adj_teachers < 0, "adj_teachers"] = 0
-        schools_df.loc[
-            schools_df.index.isin(selected_school_indexes), "alloc_teachers"
-        ] -= np.int32(selected_school_counts)
-
-    teachers_df.drop("region", axis=1, inplace=True)
-    num_allocated = len(teachers_df[(teachers_df.grade != -1)])
+        schools_df = schools_df.join(school_counts, on="id", how="left")
+        schools_df = schools_df.with_columns(
+            [
+                pl.when(pl.col("count").is_not_null())
+                .then((pl.col("adj_teachers") - pl.col("count")).clip(lower_bound=0))
+                .otherwise(pl.col("adj_teachers"))
+                .alias("adj_teachers"),
+                pl.when(pl.col("count").is_not_null())
+                .then(pl.col("alloc_teachers") - pl.col("count"))
+                .otherwise(pl.col("alloc_teachers"))
+                .alias("alloc_teachers"),
+            ]
+        ).drop("count")
+        # Update the school_groups_dict entry for this region with new adj_teachers
+        school_groups_dict[group_name_tuple] = schools_df.filter(pl.col("region") == group_name)
+    # Apply all teacher updates in one batch (these don't affect each other)
+    if all_teacher_updates:
+        updates_df = pl.concat(all_teacher_updates)
+        teachers_df = teachers_df.join(updates_df, on="id", how="left", suffix="_new")
+        teachers_df = teachers_df.with_columns(
+            [
+                pl.coalesce([pl.col("school_id_new"), pl.col("school_id")]).alias("school_id"),
+                pl.coalesce([pl.col("work_geoid_new"), pl.col("work_geoid")]).alias("work_geoid"),
+                pl.coalesce([pl.col("grade_new"), pl.col("grade")]).alias("grade"),
+            ]
+        ).drop(["school_id_new", "work_geoid_new", "grade_new"])
+    # Drop the region column
+    teachers_df = teachers_df.drop("region")
+    num_allocated = len(teachers_df.filter(pl.col("grade") != -1))
     print(
         f"  For {region_scales[geoid_scaling]}, allocated {num_allocated} teachers"
         f" out of {tot_reqd_teachers}"
     )
-    return teachers_df
+    return teachers_df, schools_df
 
 
 @timer
-def alloc_teachers_for_school_type(workers_df, students_df, schools_df, school_type):
+def alloc_teachers_for_school_type(
+    workers_df: pl.DataFrame,
+    students_df: pl.DataFrame,
+    schools_df: pl.DataFrame,
+    school_type: str,
+    seed: int,
+) -> pl.DataFrame:
     printgreen(f"Allocating teachers for {school_type}")
+    naics_code: int = -1
     # The number of students at each school will not exactly match the original schools data, so we
     # use the actual number of students we have allocated, and the original student/teacher ratio
     # to set the desired teacher counts for each school
     if school_type == "childcare":
-        naics_code = categ_types["pr_naics"].categories.get_loc("6244")
-        schools_df = schools_df[schools_df.level == "C"]
-        students_df = students_df[students_df.grade <= 3]
+        naics_categs = list(categ_types["pr_naics"].categories)
+        naics_code = naics_categs.index("6244")
+        schools_df = schools_df.filter(pl.col("level") == "C")
+        students_df = students_df.filter(pl.col("grade") <= 3)
     elif school_type == "secondary":
-        naics_code = categ_types["pr_naics"].categories.get_loc("6111")
-        schools_df = schools_df[
-            (schools_df.level == "E")
-            | (schools_df.level == "EM")
-            | (schools_df.level == "EMH")
-            | (schools_df.level == "M")
-            | (schools_df.level == "MH")
-            | (schools_df.level == "H")
-            | (schools_df.level == "P")
-            | (schools_df.level == "PE")
-            | (schools_df.level == "PEM")
-            | (schools_df.level == "PEMH")
-        ]
-        students_df = students_df[(students_df.grade > 3) & (students_df.grade <= 17)]
+        naics_categs = list(categ_types["pr_naics"].categories)
+        naics_code = naics_categs.index("6111")
+        schools_df = schools_df.filter(
+            pl.col("level").is_in(["E", "EM", "EMH", "M", "MH", "H", "P", "PE", "PEM", "PEMH"])
+        )
+        students_df = students_df.filter((pl.col("grade") > 3) & (pl.col("grade") <= 17))
     elif school_type == "university":
-        naics_code = categ_types["pr_naics"].categories.get_loc("611")
-        schools_df = schools_df[schools_df.level == "U"]
-        students_df = students_df[(students_df.grade >= 18) & (students_df.grade <= 19)]
+        naics_categs = list(categ_types["pr_naics"].categories)
+        naics_code = naics_categs.index("611")
+        schools_df = schools_df.filter(pl.col("level") == "U")
+        students_df = students_df.filter((pl.col("grade") >= 18) & (pl.col("grade") <= 19))
     else:
         raise_err(f"School_type {school_type} not valid")
-
     print(f"Number of schools to use {len(schools_df)}, number of students {len(students_df)}")
-
-    alloc_schools_df = students_df.groupby(["school_id"])["id"].count().reset_index()
-    alloc_schools_df = alloc_schools_df.rename(columns={"id": "alloc_students", "school_id": "id"})
-
-    schools_df = schools_df.merge(alloc_schools_df, on="id")
-    schools_df["ratio"] = schools_df.alloc_students / schools_df.students
-    schools_df["adj_teachers"] = np.int32(np.ceil(schools_df.teachers * schools_df.ratio))
-
+    # Count allocated students per school
+    alloc_schools_df = (
+        students_df.group_by("school_id", maintain_order=True)
+        .agg(pl.len().alias("alloc_students"))
+        .rename({"school_id": "id"})
+    )
+    # Join with schools data
+    schools_df = schools_df.join(alloc_schools_df, on="id", how="inner")
+    # Calculate adjustment ratios and adjusted teacher counts
+    schools_df = schools_df.with_columns(
+        [
+            (pl.col("alloc_students") / pl.col("students")).alias("ratio"),
+            (pl.col("teachers") * pl.col("alloc_students") / pl.col("students"))
+            .ceil()
+            .cast(pl.Int32)
+            .alias("adj_teachers"),
+        ]
+    )
     dump_intermediate(schools_df, "schools_" + school_type)
-    schools_df["alloc_teachers"] = schools_df.adj_teachers
-    teachers_df = workers_df[workers_df.naics == naics_code].copy()  # type: ignore
-    num_reqd_teachers = schools_df.adj_teachers.sum()
+    schools_df = schools_df.with_columns([pl.col("adj_teachers").alias("alloc_teachers")])
+    # Get teachers with the appropriate NAICS code
+    teachers_df = workers_df.filter(pl.col("naics") == naics_code)
+    num_reqd_teachers = float(schools_df["adj_teachers"].sum())
     print(
-        f"Found {len(teachers_df)} workers with NAICS code {naics_code} for "  # type: ignore
+        f"Found {len(teachers_df)} workers with NAICS code {naics_code} for "
         f"{num_reqd_teachers} required teachers, ratio {len(students_df) / num_reqd_teachers:.2f}"
     )
     scales = list(region_scales.keys())
-    teachers_df["school_id"] = ""  # pd.Series([""] * len(teachers_df), dtype="string")
-    teachers_df["grade"] = np.int8(-1)
-    # pick schools for teachers from decreasing resolution; the goal is to allocate teachers as
+    # Initialize teacher assignment columns
+    teachers_df = teachers_df.with_columns(
+        [pl.lit("").alias("school_id"), pl.lit(-1, dtype=pl.Int8).alias("grade")]
+    )
+    # Pick schools for teachers from decreasing resolution; the goal is to allocate teachers as
     # close to home as possible
     for scale in scales:
-        avail_teachers = teachers_df[teachers_df.grade == -1].copy()
-        teachers_df = alloc_teachers_region(avail_teachers, schools_df, scale)
-        assigned_df = teachers_df[teachers_df.grade != -1]
-        dump_intermediate(assigned_df, "teachers_" + school_type + "_" + str(region_scales[scale]))
-        workers_df.loc[assigned_df.index, "school_id"] = assigned_df.school_id.astype("string")
-        workers_df.loc[assigned_df.index, "work_geoid"] = assigned_df.work_geoid
-        workers_df.loc[assigned_df.index, "grade"] = assigned_df.grade.astype("int8")
-    num_alloced = len(workers_df[(workers_df.grade != -1)])
-    if (num_reqd_teachers - num_alloced) > 0:
-        warn(f"Failed to allocate {num_reqd_teachers - num_alloced} teachers")
-
+        avail_teachers = teachers_df.filter(pl.col("grade") == -1)
+        teachers_df, schools_df = alloc_teachers_region(avail_teachers, schools_df, scale, seed)
+        assigned_df = teachers_df.filter(pl.col("grade") != -1)
+        # dump_intermediate(assigned_df, "teachers_" + school_type + "_" + str(region_scales[scale]))
+        # Update workers_df with assigned teachers
+        # Create update DataFrame
+        update_df = assigned_df.select(["id", "school_id", "work_geoid", "grade"])
+        workers_df = workers_df.join(update_df, on="id", how="left", suffix="_new")
+        workers_df = workers_df.with_columns(
+            [
+                pl.when(pl.col("school_id_new").is_not_null())
+                .then(pl.col("school_id_new"))
+                .otherwise(pl.col("school_id"))
+                .alias("school_id"),
+                pl.when(pl.col("work_geoid_new").is_not_null())
+                .then(pl.col("work_geoid_new"))
+                .otherwise(pl.col("work_geoid"))
+                .alias("work_geoid"),
+                pl.when(pl.col("grade_new").is_not_null())
+                .then(pl.col("grade_new"))
+                .otherwise(pl.col("grade"))
+                .alias("grade"),
+            ]
+        ).drop(["school_id_new", "work_geoid_new", "grade_new"])
+    num_alloced = len(workers_df.filter(pl.col("grade") != -1))
+    num_unalloc = num_reqd_teachers - num_alloced
+    if (num_unalloc) > 0:
+        perc_unalloc = 100.0 * num_unalloc / (num_reqd_teachers)
+        warn(f"Failed to allocate {num_unalloc} teachers ({perc_unalloc:.1f}%%)")
     return workers_df
 
 
 @timer
-def allocate_teachers(workers_df, students_df, schools_df):
+def allocate_teachers(
+    workers_df: pl.DataFrame, students_df: pl.DataFrame, schools_df: pl.DataFrame, seed: int
+) -> pl.DataFrame:
+    printgreen("Allocating teachers")
     # Filter schools to only include those in worker home geoids
-    worker_geoids = set(workers_df.home_geoid.unique())
+    worker_geoids = set(workers_df["home_geoid"].unique().to_list())
     schools_filtered = len(schools_df)
-    schools_df = schools_df[schools_df.geoid.isin(worker_geoids)]
+    schools_df = schools_df.filter(pl.col("geoid").is_in(worker_geoids))
     if len(schools_df) != schools_filtered:
         print(
             f"Filtered out {schools_filtered - len(schools_df)} "
             f"schools not in worker home geoids"
         )
-
     for school_type in ["childcare", "secondary", "university"]:
         workers_df = alloc_teachers_for_school_type(
-            workers_df, students_df, schools_df, school_type
+            workers_df, students_df, schools_df, school_type, seed
         )
+    return workers_df
 
 
-def adjust_indexes(df, output):
-    orig_ids_df = pd.DataFrame()
-    df.sort_values(by=["id"], inplace=True)
-    orig_ids_df["orig_id"] = df.id
-    # make sure all the ids are globally unique and just integers
-    df.id = np.arange(0, len(df.index))
-    orig_ids_df["new_id"] = df.id
-    orig_ids_df.to_csv(output + ".idmap.csv", index=False)
-
-    # convert school ids to unique 64 bit ints
-    df.loc[df.school_id == None, "school_id"] = ""
-    df.school_id = df.school_id.astype(str)
-    df.loc[df.school_id == "nan", "school_id"] = ""
-    unique_school_ids = sorted(df.school_id.unique())
-    school_id_map = dict(zip(unique_school_ids, range(len(unique_school_ids))))
+def adjust_indexes(df: pl.DataFrame, output: str) -> pl.DataFrame:
+    df = df.sort("id")
+    # orig_ids_df = df.select(
+    #    [pl.col("id").alias("orig_id"), pl.arange(0, pl.len(), dtype=pl.Int64).alias("new_id")]
+    # ).sort("orig_id")
+    # orig_ids_df.write_csv(output + ".idmap.csv", quote_style="necessary")
+    # Replace ids with sequential integers
+    df = df.with_columns([pl.arange(0, len(df), dtype=pl.Int64).alias("id")])
+    # Convert school ids to unique integers
+    # First, handle None and empty values
+    df = df.with_columns(
+        [
+            pl.when(pl.col("school_id").is_null())
+            .then(pl.lit(""))
+            .otherwise(pl.col("school_id").cast(pl.Utf8))
+            .alias("school_id")
+        ]
+    )
+    # Get unique school IDs and create mapping
+    unique_school_ids = sorted(df["school_id"].unique().to_list())
+    school_id_map = {sid: idx for idx, sid in enumerate(unique_school_ids)}
     school_id_map[""] = 0
     print(f"Found {len(school_id_map)} unique school ids")
-    df.school_id = df.school_id.map(school_id_map).astype("int64")
-    # save the current 0 values
-    zero_idx = df.school_id == 0
-    # set school ids to be unique only to work geoid
-    df.school_id = df.groupby(["work_geoid"])["school_id"].transform(lambda x: pd.factorize(x)[0])
-    # do this to ensure that no valid school remains at 0
-    df.school_id += 1
-    # reset the non-school rows
-    df.loc[zero_idx, "school_id"] = 0
-    df.school_id = df.school_id.astype("int16")
-
-    # set household ids to be unique only to home geoid
-    df.household_id = (
-        df.groupby(["home_geoid"])["household_id"]
-        .transform(lambda x: pd.factorize(x)[0])
-        .astype("int16")
+    # Map school IDs to integers
+    df = df.with_columns(
+        [
+            pl.col("school_id")
+            .map_elements(lambda x: school_id_map.get(x, 0), return_dtype=pl.Int64)
+            .alias("school_id")
+        ]
+    )
+    # Save zero indices for later
+    zero_mask = pl.col("school_id") == 0
+    # Make school IDs unique within each work_geoid using dense_rank
+    df = df.with_columns(
+        [
+            pl.col("school_id")
+            .rank(method="dense")
+            .over("work_geoid")
+            .cast(pl.Int16)
+            .alias("school_id")
+        ]
+    )
+    # Reset non-school rows to 0
+    df = df.with_columns(
+        [
+            pl.when(zero_mask)
+            .then(pl.lit(0, dtype=pl.Int16))
+            .otherwise(pl.col("school_id"))
+            .alias("school_id")
+        ]
+    )
+    # Make household IDs unique within each home_geoid
+    df = df.with_columns(
+        [
+            (pl.col("household_id").rank(method="dense").over("home_geoid") - 1)
+            .cast(pl.Int16)
+            .alias("household_id")
+        ]
     )
 
+    return df
 
-def check_flows_correlation(df, lodes_df):
+
+def check_flows_correlation(df: pl.DataFrame, lodes_df: pl.DataFrame):
     # check that the actual allocated workers follow the lodes flows closely
-    generated_df = df.groupby(["home_geoid", "work_geoid"]).size().reset_index(name="total")
-    generated_df["key"] = (
-        generated_df["home_geoid"].astype(str) + "-" + generated_df["work_geoid"].astype(str)
+    generated_df = df.group_by(["home_geoid", "work_geoid"], maintain_order=True).agg(
+        pl.len().alias("total")
     )
-    lodes_df["key"] = lodes_df["h_geocode"].astype(str) + "-" + lodes_df["w_geocode"].astype(str)
-    merged_df = generated_df.merge(lodes_df, on="key", how="outer")[["key", "total", "S000"]]
-    merged_df = merged_df.fillna(0).astype({"total": "int", "S000": "int"})
-    dump_intermediate(merged_df, "worker_check_ods.csv")
-    corr = merged_df.total.corr(merged_df.S000)
+    generated_df = generated_df.with_columns(
+        [
+            (pl.col("home_geoid").cast(pl.Utf8) + "-" + pl.col("work_geoid").cast(pl.Utf8)).alias(
+                "key"
+            )
+        ]
+    )
+    lodes_df = lodes_df.with_columns(
+        [(pl.col("h_geocode").cast(pl.Utf8) + "-" + pl.col("w_geocode").cast(pl.Utf8)).alias("key")]
+    )
+    merged_df = generated_df.join(lodes_df.select(["key", "count"]), on="key", how="full").select(
+        ["key", "total", "count"]
+    )
+    merged_df = merged_df.with_columns(
+        [pl.col("total").fill_null(0).cast(pl.Int32), pl.col("count").fill_null(0).cast(pl.Int32)]
+    )
+    dump_intermediate(merged_df, "worker_check_ods")
+    corr = merged_df.select(pl.corr("total", "count")).item()
     print(
-        f"LODES flows correlation: {corr:.3f} (generated count {merged_df.total.sum()}, "
-        f"actual count {merged_df.S000.sum()})"
+        f"LODES flows correlation: {corr:.3f} (generated count {merged_df['total'].sum()}, "
+        f"actual count {merged_df['count'].sum()})"
     )
     if corr < CORR_CHECK_LEVEL:
-        warn(f"Low correlation")
+        warn("Low correlation")
 
 
-def print_cpp_header(df):
+def polars_dtype_to_cpp(dtype: pl.DataType) -> str:
+    """Convert Polars dtype to C++ type string"""
+    if dtype == pl.Float32:
+        return "float32"
+    elif dtype == pl.Int8:
+        return "int8"
+    elif dtype == pl.Int16:
+        return "int16"
+    elif dtype == pl.Int32:
+        return "int32"
+    elif dtype == pl.Int64:
+        return "int64"
+    elif dtype == pl.Utf8:
+        return "string"
+    # Add other types as needed
+    return str(dtype).lower()
+
+
+def print_cpp_header(df: pl.DataFrame):
     hdr_fname = "UrbanPopAgentStruct.H"
     print("Writing C++ header file at", hdr_fname)
 
     hdr = f"""
 /*! @file {hdr_fname}
     \\brief Contains #UrbanPopAgent class used for reading in UrbanPop data
-    File automatically generated by UrbanPop-scripts/extract_urbanpop_feather.py
+    File automatically generated by UrbanPop-scripts/upop_to_exaepi_polars.py
 */
 
 #pragma once
@@ -1179,10 +1569,9 @@ namespace UrbanPop {{
 const size_t NUM_COLS = {len(df.columns)};
 
 """
-    # """
 
     # print out string arrays with category names
-    for field_type in df:
+    for field_type in df.columns:
         categs_expected = None
         if field_type in categ_types:
             categs_expected = list(categ_types[field_type].categories)
@@ -1210,8 +1599,10 @@ static std::vector<string> splitString(const string &s, char delim) {{
 """
 
     hdr += f"struct UrbanPopAgent {{\n"
-    for i, col in enumerate(df.columns):
-        hdr += f"    {df.dtypes.iloc[i]}_t {col};\n"
+    for col in df.columns:
+        dtype = df[col].dtype
+        cpp_type = polars_dtype_to_cpp(dtype)
+        hdr += f"    {cpp_type}_t {col};\n"
 
     hdr += """
     bool readCsv(std::ifstream &f) {
@@ -1229,14 +1620,17 @@ static std::vector<string> splitString(const string &s, char delim) {{
                                          " got " + std::to_string(tokens.size()));\n"""
 
     for i, col in enumerate(df.columns):
-        if df.dtypes.iloc[i] == "float32":
+        dtype = df[col].dtype
+        cpp_type = polars_dtype_to_cpp(dtype)
+        if cpp_type == "float32":
             hdr += f"            {col} = stof(tokens[{i}]);\n"
-        elif df.dtypes.iloc[i] == "int64":
+        elif cpp_type == "int64":
             hdr += f"            {col} = stol(tokens[{i}]);\n"
-        elif df.dtypes.iloc[i] == "string":
-            hdr += f"            {col} = tokens[{i});\n"
+        elif cpp_type == "string":
+            hdr += f"            {col} = tokens[{i}];\n"
         else:
             hdr += f"            {col} = stoi(tokens[{i}]);\n"
+
     hdr += f"""
         }} catch (const std::exception &ex) {{
             std::ostringstream os;
@@ -1248,8 +1642,10 @@ static std::vector<string> splitString(const string &s, char delim) {{
     }}\n"""
 
     hdr += "\n    bool readBinary(std::ifstream &f) {\n"
-    for i, col in enumerate(df.columns):
-        hdr += f"        if (!f.read(reinterpret_cast<char*>(&{col}), sizeof({df.dtypes.iloc[i]}_t))) return false;\n"
+    for col in df.columns:
+        dtype = df[col].dtype
+        cpp_type = polars_dtype_to_cpp(dtype)
+        hdr += f"        if (!f.read(reinterpret_cast<char*>(&{col}), sizeof({cpp_type}_t))) return false;\n"
     hdr += "        return true;\n    }\n"
 
     hdr += f"""
@@ -1257,8 +1653,10 @@ static std::vector<string> splitString(const string &s, char delim) {{
         os << std::fixed << std::setprecision(6);\n"""
 
     for i, col in enumerate(df.columns):
+        dtype = df[col].dtype
+        cpp_type = polars_dtype_to_cpp(dtype)
         agent = f"agent.{col}"
-        if str(df.dtypes.iloc[i]) == "int8":
+        if cpp_type == "int8":
             hdr += f"        os << (int){agent}"
         else:
             hdr += f"        os << {agent}"
@@ -1284,235 +1682,302 @@ static std::vector<string> splitString(const string &s, char delim) {{
 
 
 @timer
-def print_agents_csv(df, out_fname):
-    num_rows = len(df.index)
-    # start with a distinct marker so that the file can be read in parallel more easily
-    df.index = ["*"] * num_rows
-    # print each geoid in turn so we can track the file offsets
-    buff = io.StringIO()
-    foffsets = []
-    home_pops = []
-    home_geoids = []
-
-    num_geoids = df.home_geoid.unique()
-    step = int(len(num_geoids) / 10)
-    out_fname_csv = out_fname + ".csv"
-    printgreen(f"Writing CSV text data to {out_fname_csv}")
-    for i, (geoid, subset_df) in enumerate(df.groupby("home_geoid")):
-        home_geoids.append(geoid)
-        if i % step == 0:
-            print(f"  GEOID {geoid} {i}", flush=True)
-        foffsets.append(buff.tell())
-        home_pops.append(len(subset_df))
-        subset_df.to_csv(buff, index=True, header=(i == 0))
-    out_fname_csv = out_fname + ".csv"
-    with open(out_fname_csv, "w") as f:
-        print(buff.getvalue(), end="", file=f)
-        print(f"Wrote {len(df)} records in {buff.tell()} bytes")
-    buff.close()
-
-    return foffsets, home_pops, home_geoids
-
-
-@timer
-def print_agents_bin(df, out_fname):
-    num_rows = len(df.index)
-    # start with a distinct marker so that the file can be read in parallel more easily
-    df.index = ["*"] * num_rows
-    # print each geoid in turn so we can track the file offsets
-    # buff = io.StringIO()
-    foffsets = []
-    home_pops = []
-    home_geoids = []
-    grouped = df.groupby("home_geoid")
-    num_geoids = len(grouped)
-    step = max(1, num_geoids // 10)
-    out_fname_bin = out_fname + ".bin"
-    printgreen(f"Writing binary data to {out_fname_bin}")
-
-    # Build struct format for entire row
-    struct_formats = {
-        "int64": "q",
-        "int32": "i",
-        "int16": "h",
-        "int8": "b",
-        "float32": "f",
-        "float64": "d",
-    }
-
-    row_format = "".join(struct_formats[str(dt)] for dt in df.dtypes)
-    row_struct = struct.Struct(row_format)
-
-    with open(out_fname_bin, "wb") as f:
-        for i, (geoid, subset_df) in enumerate(grouped):
-            if i % step == 0:
-                print(f"  GEOID {geoid} {i}/{num_geoids}", flush=True)
-
-            home_geoids.append(geoid)
-            foffsets.append(f.tell())
-            home_pops.append(len(subset_df))
-
-            # Convert entire subset to bytes at once
-            data_array = subset_df.to_numpy()
-            for row in data_array:
-                f.write(row_struct.pack(*row))
-
-        file_size = f.tell()
-        print(f"Wrote {num_rows} records in {file_size:,} bytes")
-
-    return foffsets, home_pops, home_geoids
-
-
-@timer
-def compute_worker_populations(df):
-    class Fake(object):
-        def __init__(self, list_obj):
-            self.obj = list_obj
-
-    # compute worker populations for each NAICS code
-    work_geoids = df.work_geoid.unique()
+def compute_worker_populations(df: pl.DataFrame) -> tuple[pl.DataFrame, list[int]]:
+    # Compute worker populations for each NAICS code
+    work_geoids = sorted(df["work_geoid"].unique().to_list())
+    # Get list of NAICS codes from categorical types
     naics_types = list(range(len(categ_types["pr_naics"].categories)))
-    print(f"Found {len(work_geoids)} unique work GEOIDS and {len(naics_types)} unique NAICS codes")
+    print(f"Found {len(work_geoids)} unique work GEOIDs and {len(naics_types)} unique NAICS codes")
+    # Count workers by work_geoid and naics (excluding unemployed with naics == -1)
     work_geoids_df = (
-        df.loc[df.naics != -1]
-        .groupby(["work_geoid", "naics"])["naics"]
-        .count()
-        .reset_index(name="num")
+        df.filter(pl.col("naics") != -1)
+        .group_by(["work_geoid", "naics"], maintain_order=True)
+        .agg(pl.len().alias("num"))
     )
-    # ensure every GEOID has entries for all the NAICS codes, even ones for count 0
-    full_naics_df = pd.DataFrame()
-    full_naics_df["work_geoid"] = work_geoids
-    full_naics_df["naics"] = Fake(naics_types)  # type: ignore[reportArgumentType, reportCallIssue]
-    full_naics_df["num"] = 0
-    full_naics_df["naics"] = full_naics_df.naics.apply(lambda x: x.obj)
-    full_naics_df = full_naics_df.explode("naics")
-    work_geoids_pops_df = work_geoids_df.merge(
-        full_naics_df, on=["work_geoid", "naics"], how="outer"
-    ).rename(columns={"num_x": "num"})
-    work_geoids_pops_df.drop(columns="num_y", inplace=True)
-    work_geoids_pops_df["num"] = work_geoids_pops_df["num"].fillna(0).astype("int")
+    # Create full DataFrame with all combinations of work_geoid and naics
+    # This ensures every GEOID has entries for all NAICS codes, even with count 0
+    full_naics_df = pl.DataFrame(
+        {
+            "work_geoid": [geoid for geoid in work_geoids for _ in naics_types],
+            "naics": naics_types * len(work_geoids),
+        }
+    )
+    # Join with actual counts, filling missing values with 0
+    work_geoids_pops_df = full_naics_df.join(
+        work_geoids_df, on=["work_geoid", "naics"], how="left"
+    ).with_columns([pl.col("num").fill_null(0).cast(pl.Int32)])
     return work_geoids_pops_df, naics_types
 
 
 @timer
-def print_index(df, out_fname, foffsets, home_pops, home_geoids):
+def print_agents(
+    df: pl.DataFrame,
+    out_fname: str,
+):
+    printgreen(f"Writing agents to {out_fname}.bin")
+    # Sort by home_geoid for consistent ordering
+    df = df.sort("home_geoid")
+    # Get unique home geoids in sorted order
+    home_geoids = sorted(df["home_geoid"].unique().to_list())
+    # Compute work populations
     work_geoids_pops_df, naics_types = compute_worker_populations(df)
     dump_intermediate(work_geoids_pops_df, out_fname + "_work_geoids_pops")
-    work_geoids = df.work_geoid.unique()
-    step = int(len(work_geoids) / 10)
-    out_fname_idx = out_fname + ".idx"
-    printgreen(f"Writing block group indexes to {out_fname_idx}")
-    with open(out_fname_idx, mode="w") as f:
-        naics_descrs = list(categ_types["pr_naics"].categories)
-        print("geoid foff h_pop w_pop", " ".join(naics_descrs), file=f)
-        # print work-only GEOIDs
-        if len(work_geoids) > len(home_geoids):
-            only_work_geoids = list(set(work_geoids) - set(home_geoids))
-            warn(f"Found {len(only_work_geoids)} work-only geoids out of {len(work_geoids)}")
-            for geoid in only_work_geoids:
-                work_pops = work_geoids_pops_df.loc[
-                    work_geoids_pops_df.work_geoid == geoid
-                ].num.to_list()
-                tot_work_pop = np.sum(work_pops)
-                print(geoid, 0, 0, tot_work_pop, " ".join(map(str, work_pops)), file=f)
+    work_geoids = sorted(df["work_geoid"].unique().to_list())
+    naics_descrs = list(categ_types["pr_naics"].categories)
+    # Pre-compute work populations dictionary for O(1) lookups
+    work_pops_dict = {}
+    for geoid_tuple, group in work_geoids_pops_df.group_by("work_geoid"):
+        geoid = geoid_tuple[0] if isinstance(geoid_tuple, tuple) else geoid_tuple
+        counts = group.sort("naics").select("num").to_series().to_list()
+        work_pops_dict[int(geoid)] = counts
+    # Identify work-only GEOIDs
+    work_only_geoids = sorted(set(int(g) for g in work_geoids) - set(int(g) for g in home_geoids))
+    # Prepare binary formats
+    num_naics = len(naics_types)
+    # Index entry format
+    index_struct = struct.Struct(f"<QQI I {num_naics}I")  # geoid, foff, h_pop, w_pop, naics_counts
+    # Agent entry format (based on df columns)
+    agent_fields = df.columns
+    agent_format = ""
+    dtype_codes = {
+        pl.Int64: "q",
+        pl.UInt64: "Q",
+        pl.Int32: "i",
+        pl.UInt32: "I",
+        pl.Int16: "h",
+        pl.UInt16: "H",
+        pl.Int8: "b",
+        pl.UInt64: "B",
+    }
+    for col in agent_fields:
+        dtype = df[col].dtype
+        dtype_code = dtype_codes.get(dtype)
+        if dtype_code == None:
+            raise_err(f"Unsupported dtype {dtype} for column {col}")
+        else:
+            agent_format += dtype_code
+
+    agent_struct = struct.Struct(f"<{agent_format}")
+    # Write to single binary file
+    with open(out_fname + ".bin", mode="wb") as f:
+        # ========== WRITE FILE HEADER ==========
+        # Format:
+        # - magic_number: uint32 (0x55504F50 = "UPOP")
+        # - version: uint32
+        # - num_naics: uint32
+        # - num_geoids: uint32 (total including work-only)
+        # - num_agents: uint64
+        # - agent_record_size: uint32
+        # - index_end_offset: uint64 (byte offset where agent data starts)
+        header_struct = struct.Struct("<2I 2I Q I Q")
+        magic_number = 0x55504F50  # "UPOP" in hex
+        version = 1
+        num_geoids = len(home_geoids) + len(work_only_geoids)
+        num_agents = len(df)
+        agent_record_size = agent_struct.size
+        # Reserve space for header (will write index_end_offset later)
+        header_offset = f.tell()
+        f.write(b"\x00" * header_struct.size)  # Placeholder
+        # ========== WRITE INDEX DATA ==========
+        # Write work-only GEOIDs first
+        if work_only_geoids:
+            warn(f"Found {len(work_only_geoids)} work-only geoids out of {len(work_geoids)}")
+            for geoid in work_only_geoids:
+                work_pops = work_pops_dict.get(geoid, [0] * num_naics)
+                tot_work_pop = sum(work_pops)
+                if len(work_pops) != num_naics:
+                    raise_err(
+                        f"For work-only geoid {geoid}, work pops != NAICS types, "
+                        f"{len(work_pops)} != {num_naics}"
+                    )
+                # Pack: geoid, foff=0, h_pop=0, w_pop, naics_counts
+                f.write(index_struct.pack(geoid, 0, 0, tot_work_pop, *work_pops))
+        # Write home GEOIDs with file offsets
+        home_pops = []
+        foffsets = []
+        ticker = ProgressTicker(f"Writing {len(home_geoids)} indexes: ", len(home_geoids))
         for i, geoid in enumerate(home_geoids):
-            if i % step == 0:
-                print(f"  GEOID {geoid} {i}", flush=True)
-            work_pops = work_geoids_pops_df.loc[
-                work_geoids_pops_df.work_geoid == geoid
-            ].num.to_list()
-            tot_work_pop = np.sum(work_pops)
-            if tot_work_pop == 0:
-                work_pops = [0] * len(naics_types)
-            if len(work_pops) != len(naics_types):
-                print(f"len work_pops {len(work_pops)} != len naics_types {len(naics_types)}")
+            ticker.update(i)
+            geoid_int = int(geoid)
+            work_pops = work_pops_dict.get(geoid_int, [0] * num_naics)
+            tot_work_pop = sum(work_pops)
+            # Get home population for this geoid
+            h_pop = len(df.filter(pl.col("home_geoid") == geoid))
+            home_pops.append(h_pop)
+            # File offset will be calculated after index is complete
+            foffsets.append(0)  # Placeholder
+            # Validation check
+            if len(work_pops) != num_naics:
+                print(f"len work_pops {len(work_pops)} != len naics_types {num_naics}")
                 print(f"len naics_descrs {len(naics_descrs)}")
-                for i, p in enumerate(work_pops):
+                for idx, p in enumerate(work_pops):
                     if p > 0:
-                        print(i, p, naics_descrs[i])
-                print("")
+                        print(idx, p, naics_descrs[idx])
                 print(f"Total work pop: {sum(work_pops)}")
                 raise_err(
                     f"For geoid {geoid}, work pops != NAICS types, "
-                    f"{len(work_pops)} != {len(naics_types)}"
+                    f"{len(work_pops)} != {num_naics}"
                 )
-
-            print(
-                geoid,
-                foffsets[i],
-                home_pops[i],
-                tot_work_pop,
-                " ".join(map(str, work_pops)),
-                file=f,
+            # Pack: geoid, foff (placeholder), h_pop, w_pop, naics_counts
+            f.write(index_struct.pack(geoid_int, 0, h_pop, tot_work_pop, *work_pops))
+        ticker.finish()
+        # Record where index ends and agent data begins
+        index_end_offset = f.tell()
+        # ========== WRITE AGENT DATA ==========
+        # Group by home_geoid
+        grouped = list(df.group_by("home_geoid", maintain_order=True))
+        current_offset = index_end_offset
+        ticker = ProgressTicker(
+            f"Writing {len(df)} agents in {len(grouped)} GEOIDs: ", len(grouped)
+        )
+        for i, (geoid_tuple, subset_df) in enumerate(grouped):
+            ticker.update(i)
+            geoid = geoid_tuple[0] if isinstance(geoid_tuple, tuple) else geoid_tuple
+            # Find index in home_geoids list
+            try:
+                geoid_idx = home_geoids.index(geoid)
+                foffsets[geoid_idx] = current_offset
+            except ValueError:
+                warn(f"GEOID {geoid} not found in home_geoids list")
+                continue
+            # Convert to numpy array for faster iteration
+            data_array = subset_df.to_numpy()
+            # Write each agent record
+            for row in data_array:
+                f.write(agent_struct.pack(*row))
+                current_offset += agent_record_size
+        ticker.finish()
+        agent_data_end = f.tell()
+        # ========== UPDATE HEADER WITH FINAL VALUES ==========
+        f.seek(header_offset)
+        f.write(
+            header_struct.pack(
+                magic_number,
+                version,
+                num_naics,
+                num_geoids,
+                num_agents,
+                agent_record_size,
+                index_end_offset,
             )
+        )
+        # ========== UPDATE INDEX WITH FILE OFFSETS ==========
+        # Seek to start of home geoid entries (after work-only geoids)
+        index_offset = header_struct.size + len(work_only_geoids) * index_struct.size
+        for i, (geoid, foff, h_pop) in enumerate(zip(home_geoids, foffsets, home_pops)):
+            geoid_int = int(geoid)
+            work_pops = work_pops_dict.get(geoid_int, [0] * num_naics)
+            tot_work_pop = sum(work_pops)
+            # Seek to this entry's position in index
+            f.seek(index_offset + i * index_struct.size)
+            # Write updated entry with correct file offset
+            f.write(index_struct.pack(geoid_int, foff, h_pop, tot_work_pop, *work_pops))
+        # Seek to end
+        f.seek(agent_data_end)
+        file_size = f.tell()
+        print(f"Wrote agents to binary file:")
+        print(f"  Index: {format_bytes(index_end_offset)} ({num_geoids} geoids)")
+        print(f"  Agents: {format_bytes(file_size - index_end_offset)} ({num_agents} agents)")
+        print(f"  Total: {format_bytes(file_size)}")
 
 
-def sanity_checks(df):
-    students_df = df[(df.grade != -1) & (df.naics == -1)]
-    mismatches = students_df[(students_df.school_id == 0)]
+def sanity_checks(df: pl.DataFrame):
+    students_df = df.filter((pl.col("grade") != -1) & (pl.col("naics") == -1))
+    mismatches = students_df.filter(pl.col("school_id") == 0)
     if len(mismatches) > 0:
         warn(f"There are {len(mismatches)} students with no school_id")
-    teachers_df = df[(df.naics != -1) & (df.grade != -1)]
-    mismatches = teachers_df[(teachers_df.school_id == 0)]
+    teachers_df = df.filter((pl.col("naics") != -1) & (pl.col("grade") != -1))
+    mismatches = teachers_df.filter(pl.col("school_id") == 0)
     if len(mismatches) > 0:
         warn(f"There are {len(mismatches)} teachers with no school_id")
-    workers_df = df[(df.grade == -1) & (df.naics != -1)]
-    mismatches = workers_df[(workers_df.school_id != 0)]
+    workers_df = df.filter((pl.col("grade") == -1) & (pl.col("naics") != -1))
+    mismatches = workers_df.filter(pl.col("school_id") != 0)
     if len(mismatches) > 0:
         warn(f"There are {len(mismatches)} workers with a school_id")
-    unemp_df = df[(df.grade == -1) & (df.naics == -1)]
-    mismatches = unemp_df[(unemp_df.school_id != 0)]
+    unemp_df = df.filter((pl.col("grade") == -1) & (pl.col("naics") == -1))
+    mismatches = unemp_df.filter(pl.col("school_id") != 0)
     if len(mismatches) > 0:
         warn(f"There are {len(mismatches)} unemployed agents with a school_id")
-    mismatches = df[(df.naics == -1) & (df.grade == -1) & (df.home_geoid != df.work_geoid)]
+    mismatches = df.filter(
+        (pl.col("naics") == -1)
+        & (pl.col("grade") == -1)
+        & (pl.col("home_geoid") != pl.col("work_geoid"))
+    )
     if len(mismatches) > 0:
         warn(f"There are {len(mismatches)} unemployed agents with differing home and dest geoids")
+
+
+def align_to_schema(
+    df: pl.DataFrame, col_order: list[str], common_schema: dict[str, pl.DataType]
+) -> pl.DataFrame:
+    return df.select(
+        [
+            (
+                pl.col(c).cast(common_schema[c])
+                if c in df.columns
+                else pl.lit(None).cast(common_schema[c]).alias(c)
+            )
+            for c in col_order
+        ]
+    )
+
+
+def concat_all(
+    workers_df: pl.DataFrame, students_df: pl.DataFrame, unemp_df: pl.DataFrame
+) -> pl.DataFrame:
+    # Ensure column order and types before concat
+    all_cols = set(workers_df.columns) | set(students_df.columns) | set(unemp_df.columns)
+    col_order = sorted(list(all_cols))
+    # Get common schema again (types may have changed after teacher allocation)
+    common_schema = {}
+    for col in col_order:
+        if col in workers_df.columns:
+            common_schema[col] = workers_df[col].dtype
+        elif col in students_df.columns:
+            common_schema[col] = students_df[col].dtype
+        else:
+            common_schema[col] = unemp_df[col].dtype
+    # Apply schema to all DataFrames
+    workers_df = align_to_schema(workers_df, col_order, common_schema)
+    students_df = align_to_schema(students_df, col_order, common_schema)
+    unemp_df = align_to_schema(unemp_df, col_order, common_schema)
+    return pl.concat([workers_df, students_df, unemp_df])
 
 
 @timer
 def main():
     args = get_args()
     np.random.seed(args.rseed)
-
     upop_df = load_upop_feather_files(args.upop_files, args.output)
-    process_upop(upop_df, args.output)
-
+    upop_df = process_upop(upop_df, args.output)
     lodes_df = get_lodes_groups(args.lodes_files)
     schools_df = load_schools(args.schools_file)
     # filter out those schools that don't have the same geoid as the home geoids
-    schools_df = schools_df[schools_df.geoid.isin(upop_df.home_geoid.unique())]
-
-    if args.up_nt_dt_files:
-        workers_df, students_df, schools_df, unemp_df = process_upop_nt_dt(
-            args.up_nt_dt_files, upop_df
-        )
-    else:
-        workers_df, students_df, schools_df, unemp_df = generate_nt_dt(
-            schools_df, upop_df, lodes_df
-        )
-        df = pd.concat([workers_df, students_df, unemp_df], ignore_index=True)
-
+    schools_df = schools_df.filter(pl.col("geoid").is_in(upop_df["home_geoid"].unique().to_list()))
+    workers_df, students_df, schools_df, unemp_df = generate_nt_dt(
+        schools_df, upop_df, lodes_df, args.rseed
+    )
     check_flows_correlation(workers_df, lodes_df)
-
-    # workers_df.to_pickle("workers_df.pkl")
-    # students_df.to_pickle("students_df.pkl")
-    # schools_df.to_pickle("schools_df.pkl")
-    # unemp_df.to_pickle("unemp_df.pkl")
-
-    allocate_teachers(workers_df, students_df, schools_df)
-    teachers_df = workers_df[workers_df.grade != -1].copy()
-
-    check_school_id_correlation(students_df[students_df.school_id != ""], schools_df, "Students")
+    # workers_df.write_ipc("workers_df.feather")
+    # students_df.write_ipc("students_df.feather")
+    # schools_df.write_ipc("schools_df.feather")
+    # unemp_df.write_ipc("unemp_df.feather")
+    # Capture return values from allocate_teachers
+    workers_df = allocate_teachers(workers_df, students_df, schools_df, args.rseed)
+    teachers_df = workers_df.filter(pl.col("grade") != -1)
+    check_school_id_correlation(
+        students_df.filter(pl.col("school_id") != ""), schools_df, "Students"
+    )
     check_school_id_correlation(teachers_df, schools_df, "Teachers")
-    check_school_geoid_correlation(students_df[students_df.school_id != ""], schools_df, "Students")
+    check_school_geoid_correlation(
+        students_df.filter(pl.col("school_id") != ""), schools_df, "Students"
+    )
     check_school_geoid_correlation(teachers_df, schools_df, "Teachers")
-
     print_school_counts(students_df, workers_df)
-
-    df = pd.concat([workers_df, students_df, unemp_df], ignore_index=True)
-
+    df = concat_all(workers_df, students_df, unemp_df)
+    df = df.with_columns([pl.col("grade").cast(pl.Int8)])
     # reorder the columns so that we have the largest variables first
-    df = df[
+    df = df.select(
         [
             "id",
             "home_geoid",
@@ -1527,28 +1992,39 @@ def main():
             "veh_occ",
             "grade",
         ]
-    ]
-    # set the location types
-    df["home_geoid"] = df.home_geoid.astype("int64")
-    df["work_geoid"] = df.work_geoid.fillna(-1).astype("int64")
-    df.loc[df.work_geoid == -1, "work_geoid"] = df.home_geoid
-    df["naics"] = df.naics.astype("int16")
-
+    )
+    # Set the location types
+    df = df.with_columns(
+        [
+            pl.col("home_geoid").cast(pl.Int64),
+            pl.col("work_geoid").fill_null("-1").cast(pl.Int64),
+        ]
+    )
+    # Set work_geoid to home_geoid where work_geoid is -1
+    df = df.with_columns(
+        [
+            pl.when(pl.col("work_geoid") == -1)
+            .then(pl.col("home_geoid"))
+            .otherwise(pl.col("work_geoid"))
+            .alias("work_geoid")
+        ]
+    )
     dump_intermediate(df, args.output + "_nt_dt")
-    adjust_indexes(df, args.output)
-
-    print("Fields are:\n", df.dtypes, sep="")
-
+    df = adjust_indexes(df, args.output)
+    df = df.with_columns(
+        [
+            pl.when((pl.col("grade") == -1))
+            .then(pl.lit(0, dtype=pl.Int16))
+            .otherwise(pl.col("school_id"))
+            .alias("school_id")
+        ]
+    )
+    print("Fields are:")
+    for name, dtype in df.schema.items():
+        print(f"  {name:12s}  {dtype}")
     sanity_checks(df)
-
     print_cpp_header(df)
-    # foffsets, home_pops, home_geoids = print_agents_csv(df, args.output)
-    # print_index(df, args.output, foffsets, home_pops, home_geoids)
-    foffsets, home_pops, home_geoids = print_agents_bin(df, args.output + "-bin")
-    print_index(df, args.output + "-bin", foffsets, home_pops, home_geoids)
-
-    # foffsets, home_pops, home_geoids = print_agents_csv(df, args.output)
-    # print_index(df, args.output, foffsets, home_pops, home_geoids)
+    print_agents(df, args.output)
 
 
 if __name__ == "__main__":
