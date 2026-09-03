@@ -195,11 +195,11 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, logx=Fa
         ax.set_xscale("log")
     if logy:
         ax.set_yscale("log")
-    if xlim is not None:
-        # Anchor both edges explicitly -- leaving the left edge to whatever autoscale picked
-        # for the full (pre-clip) data range could leave it negative or otherwise nonsensical
-        # once the right edge is pulled far in by xlim.
-        ax.set_xlim(left=(overall_min if logx else 0), right=xlim)
+    # Anchor the left edge explicitly rather than leaving it to matplotlib's default ~5%
+    # margin (which otherwise leaves a visible gap before 0, or goes negative once xlim pulls
+    # the right edge in far enough that the margin becomes a large fraction of the range).
+    # right=None (the default, when xlim isn't given) leaves the right edge autoscaled.
+    ax.set_xlim(left=(overall_min if logx else 0), right=xlim)
 
     ax.set_xlabel(xlabel)
     ax.set_title(title)
