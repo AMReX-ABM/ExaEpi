@@ -750,115 +750,210 @@ def load_workgroup_targets(fname: str) -> dict[tuple[int, str], int]:
 def alloc_workers(
     lodes_df: pl.DataFrame, workers_df: pl.DataFrame, workgroup_sizes_file: str = ""
 ) -> pl.DataFrame:
-    printgreen("Allocating workers")
-    # Get unique worker home geoids
+    """Destination-driven worker allocation.
+
+    Earlier approach (see git history) sampled each worker's destination independently, per
+    worker, then tried to bias that sampling toward NAICS-concentration after the fact (first
+    unbounded, then capped at the target establishment size). That still lost to raw
+    commute-flow-probability differences for geographically dispersed, large-establishment
+    industries (e.g. hospitals capped out at 38 despite an 86-person target), because a
+    destination's *size* was never decided up front -- it only emerged from many workers'
+    independent, competing draws.
+
+    This version decides each destination's size and NAICS mix first, from real aggregate data,
+    then pulls matching real workers to fill it:
+      1. dest_total[d]: real total inbound LODES flow into destination d -- already verified
+         (see the conversation this replaces) to correlate at ~0.97 with what naics-blind
+         per-worker sampling produces in aggregate, so it's a trustworthy destination "size".
+      2. Rather than splitting dest_total[d] by a flat statewide NAICS share (which would dilute
+         every destination across all ~251 codes, recreating the same fragmentation problem one
+         level up), each destination gets a small number of discrete "establishment slots"
+         (dest_total[d] / average establishment size), and each slot's NAICS is drawn from that
+         destination's *local* NAICS availability -- computed from the real geographic overlap
+         of (a) which home geoids actually have commute flow into d and (b) what NAICS mix the
+         synthetic population living at those homes actually has. This makes small destinations
+         randomly specialize in whichever few NAICS codes their real commute-shed supports,
+         instead of uniformly diluting.
+      3. Implied per-(destination, NAICS) demand is then rescaled so each NAICS's total across
+         all destinations matches its true statewide worker count exactly (workers can be
+         relocated, not invented or dropped).
+      4. Each NAICS's destinations are filled in descending order of demand, pulling workers
+         from that NAICS's still-unassigned pool weighted by their own home's real flow to that
+         destination -- never a destination a worker's home has zero real flow to.
+      5. Any worker left over (implausible demand, or a destination's real local supply ran out)
+         falls back to plain per-worker home-flow sampling, same as the original algorithm.
+    """
+    printgreen("Allocating workers (destination-driven)")
     worker_geoids = set(workers_df["home_geoid"].unique().to_list())
-    # Filter LODES data to only include flows between worker geoids
     lodes_df = lodes_df.filter(
         pl.col("w_geocode").is_in(worker_geoids) & pl.col("h_geocode").is_in(worker_geoids)
     )
 
-    # Destinations get a dense integer id so the per-NAICS concentration counts below (one
-    # array per NAICS code, indexed by destination) are plain numpy arrays rather than dicts.
+    home_geoids = sorted(worker_geoids)
+    home_id = {g: i for i, g in enumerate(home_geoids)}
     dest_geoids = sorted(lodes_df["w_geocode"].unique().to_list())
     dest_id = {g: i for i, g in enumerate(dest_geoids)}
-    num_dests = len(dest_geoids)
+    n_home = len(home_geoids)
+    n_dest = len(dest_geoids)
 
-    lodes_groups_dict = {
-        name: group for name, group in lodes_df.group_by("h_geocode", maintain_order=True)
-    }
-    # Precompute each home geoid's real LODES-observed candidate destinations and their base
-    # (NAICS-agnostic) flow probabilities once -- every worker from that home geoid draws from
-    # exactly this same candidate set, only the per-NAICS concentration bonus below varies.
-    home_data = {}
-    for home_geoid_tuple, lodes_group in lodes_groups_dict.items():
-        home_geoid = (
-            home_geoid_tuple[0] if isinstance(home_geoid_tuple, tuple) else home_geoid_tuple
-        )
-        dest_idx = np.fromiter(
-            (dest_id[g] for g in lodes_group["w_geocode"].to_list()), dtype=np.int64
-        )
-        counts = lodes_group["count"].to_numpy().astype(np.float64)
-        home_data[home_geoid] = (dest_idx, counts / counts.sum())
+    naics_categs = list(categ_types["pr_naics"].categories)
+    n_naics = len(naics_categs)
+    workgroup_targets = load_workgroup_targets(workgroup_sizes_file)
+
+    def target_for(state_fips: int, naics_idx: int) -> int:
+        if not (0 <= naics_idx < n_naics):
+            return DEFAULT_WORKGROUP_TARGET
+        return workgroup_targets.get((state_fips, naics_categs[naics_idx]), DEFAULT_WORKGROUP_TARGET)
 
     home_geoid_arr = workers_df["home_geoid"].to_numpy()
     naics_arr = workers_df["naics"].to_numpy()
     num_workers = len(workers_df)
+    home_idx_of_worker = np.array([home_id[g] for g in home_geoid_arr])
 
-    # Per-worker cap on the concentration bonus below, in real establishment-size units: the
-    # target workgroup size for this worker's own (home state, NAICS) pair, or the flat default
-    # if the table doesn't cover it. naics_arr holds the *integer* categorical code, so map it
-    # back to the raw NAICS string the target table is keyed on via the same category list
-    # set_types() used to build that encoding.
-    workgroup_targets = load_workgroup_targets(workgroup_sizes_file)
-    naics_categs = list(categ_types["pr_naics"].categories)
-    state_fips_arr = np.array([int(g[:2]) for g in home_geoid_arr])
-    target_arr = np.array(
-        [
-            workgroup_targets.get((s, naics_categs[n]), DEFAULT_WORKGROUP_TARGET)
-            if 0 <= n < len(naics_categs)
-            else DEFAULT_WORKGROUP_TARGET
-            for s, n in zip(state_fips_arr, naics_arr)
-        ]
+    # --- dense (dest x home) real flow matrix -- small enough at block-group scale (a few
+    # thousand geoids at most) that dense beats the bookkeeping overhead of sparse. ---
+    lodes_idx = lodes_df.with_columns(
+        pl.col("w_geocode").replace_strict(dest_id, default=-1).alias("dest_idx"),
+        pl.col("h_geocode").replace_strict(home_id, default=-1).alias("home_idx"),
+    )
+    flow = np.zeros((n_dest, n_home), dtype=np.float64)
+    np.add.at(
+        flow,
+        (lodes_idx["dest_idx"].to_numpy(), lodes_idx["home_idx"].to_numpy()),
+        lodes_idx["count"].to_numpy().astype(np.float64),
+    )
+    dest_total = flow.sum(axis=1)
+
+    # --- (home x naics) real population matrix, from the synthetic agents themselves -- this
+    # is what makes a destination's random NAICS specialization respect actual local supply
+    # instead of an abstract statewide share. ---
+    home_naics_counts = (
+        pl.DataFrame({"home_idx": home_idx_of_worker, "naics": naics_arr})
+        .group_by(["home_idx", "naics"])
+        .agg(pl.len().alias("cnt"))
+    )
+    home_naics = np.zeros((n_home, n_naics), dtype=np.float64)
+    home_naics[home_naics_counts["home_idx"].to_numpy(), home_naics_counts["naics"].to_numpy()] = (
+        home_naics_counts["cnt"].to_numpy().astype(np.float64)
     )
 
-    # Process workers in one shuffled, state-wide order rather than per-home-geoid batches:
-    # the point of the self-reinforcing bonus is to let workers from different (but nearby,
-    # commute-compatible) home geoids converge on the same workplace instead of each
-    # independently thin-spreading across their own full candidate list (see the workgroup-size
-    # investigation this replaces -- naics_population per (block group, NAICS) was landing at a
-    # median of 2, versus a CBP-derived target mean around 26, because destination sampling was
-    # otherwise completely NAICS-blind). That only works if the accumulated same-NAICS counts
-    # are shared across the whole population, not reset per geoid.
-    order = np.random.permutation(num_workers)
-    work_geoid_arr = np.empty(num_workers, dtype=object)
-    # naics code -> per-destination count of same-NAICS workers already placed there
-    naics_dest_count: dict[int, np.ndarray] = {}
-    missing_geoid_set = set()
+    # local_naics_weight[d, n]: how much real, commute-reachable NAICS-n supply exists for
+    # destination d, combining real flow strength and real local population composition.
+    local_naics_weight = flow @ home_naics
 
-    ticker = ProgressTicker(f"Assigning destinations for {num_workers} workers: ", num_workers)
-    for n, i in enumerate(order):
-        ticker.update(n)
-        home_geoid = home_geoid_arr[i]
-        hd = home_data.get(home_geoid)
-        if hd is None:
-            # no LODES flows at all from this home geoid -- fall back to a self-loop
-            work_geoid_arr[i] = home_geoid
-            missing_geoid_set.add(home_geoid)
+    # --- how many discrete establishment "slots" each destination gets, sized by its real
+    # total inbound flow relative to a typical establishment. ---
+    state_fips_arr = np.array([int(g[:2]) for g in home_geoid_arr])
+    avg_target_size = np.mean([target_for(s, n) for s, n in zip(state_fips_arr, naics_arr)])
+    n_slots = np.where(dest_total > 0, np.maximum(1, np.round(dest_total / avg_target_size)), 0).astype(
+        np.int64
+    )
+
+    # --- randomly draw each destination's slots' NAICS codes, weighted by local availability ---
+    slot_naics_count = np.zeros((n_dest, n_naics), dtype=np.int64)
+    for d in range(n_dest):
+        if n_slots[d] <= 0:
             continue
-        dest_idx, base_probs = hd
-        naics_val = naics_arr[i]
-        counts = naics_dest_count.get(naics_val)
-        if counts is None:
-            weights = base_probs
-        else:
-            # Polya-urn-style reweighting: never introduces a destination this worker couldn't
-            # otherwise have reached, only breaks ties toward ones already accumulating the same
-            # NAICS, so real commute geography (the base flow probabilities) is preserved exactly
-            # wherever no other same-NAICS worker has landed yet. The bonus is capped at this
-            # worker's own target establishment size -- uncapped, this is an unbounded Polya urn
-            # and *will* collapse almost the entire state's workforce for a NAICS onto whichever
-            # destination happened to win early draws, drowning out the real flow probabilities
-            # entirely (observed: one geoid absorbing 78% of all workers statewide, tanking the
-            # LODES flow correlation from 0.92 to 0.47). Capping at ~one realistic establishment's
-            # worth means later same-NAICS workers still prefer an already-forming cluster, but
-            # only up to a plausible size, after which they fall back to real flow probabilities
-            # and can seed a second real cluster instead of endlessly reinforcing the first.
-            bonus = np.minimum(counts[dest_idx], target_arr[i])
-            weights = base_probs * (bonus + 1.0)
-            weights /= weights.sum()
-        chosen = np.random.choice(dest_idx, p=weights)
-        work_geoid_arr[i] = dest_geoids[chosen]
-        if counts is None:
-            counts = np.zeros(num_dests, dtype=np.float64)
-            naics_dest_count[naics_val] = counts
-        counts[chosen] += 1.0
+        w = local_naics_weight[d]
+        total_w = w.sum()
+        if total_w <= 0:
+            continue
+        draws = np.random.choice(n_naics, size=n_slots[d], p=w / total_w)
+        slot_naics_count[d] = np.bincount(draws, minlength=n_naics)
+
+    # --- implied demand, using each destination's own state for the target-size lookup ---
+    dest_state_fips = np.array([int(g[:2]) for g in dest_geoids])
+    target_by_state = {
+        s: np.array([target_for(s, ni) for ni in range(n_naics)]) for s in np.unique(dest_state_fips)
+    }
+    target_size_matrix = np.stack([target_by_state[s] for s in dest_state_fips])
+    implied_demand = slot_naics_count * target_size_matrix
+
+    # --- rescale so each NAICS's total demand matches its true statewide worker count exactly
+    # (workers can only be relocated among destinations, never invented or dropped), then round
+    # to integers via largest-remainder so the per-NAICS column sums stay exact. ---
+    true_total_per_naics = np.bincount(naics_arr[naics_arr >= 0], minlength=n_naics)
+    implied_total_per_naics = implied_demand.sum(axis=0)
+    scale = np.divide(
+        true_total_per_naics,
+        implied_total_per_naics,
+        out=np.zeros(n_naics),
+        where=implied_total_per_naics > 0,
+    )
+    implied_demand = implied_demand * scale[np.newaxis, :]
+
+    demand_int = np.zeros((n_dest, n_naics), dtype=np.int64)
+    for ni in range(n_naics):
+        target_total = int(true_total_per_naics[ni])
+        if target_total == 0:
+            continue
+        col = implied_demand[:, ni]
+        floor_vals = np.floor(col).astype(np.int64)
+        remainder = target_total - int(floor_vals.sum())
+        if remainder > 0:
+            top = np.argsort(-(col - floor_vals))[:remainder]
+            floor_vals[top] += 1
+        elif remainder < 0:
+            nz = np.where(floor_vals > 0)[0]
+            trim = nz[np.argsort(floor_vals[nz])][: min(-remainder, len(nz))]
+            floor_vals[trim] -= 1
+        demand_int[:, ni] = floor_vals
+
+    # --- fill: for each NAICS, pull from its still-unassigned worker pool into destinations in
+    # descending demand order, weighted by each candidate's own real flow to that destination. ---
+    work_geoid_arr = np.empty(num_workers, dtype=object)
+    assigned = np.zeros(num_workers, dtype=bool)
+
+    naics_values = [ni for ni in range(n_naics) if true_total_per_naics[ni] > 0]
+    ticker = ProgressTicker(f"Filling destinations for {len(naics_values)} NAICS codes: ", len(naics_values))
+    for k, ni in enumerate(naics_values):
+        ticker.update(k)
+        rows = np.where(naics_arr == ni)[0]
+        rows_home_idx = home_idx_of_worker[rows]
+        active = np.ones(len(rows), dtype=bool)
+        demand_col = demand_int[:, ni]
+        dest_order = np.where(demand_col > 0)[0]
+        dest_order = dest_order[np.argsort(-demand_col[dest_order])]
+        for d in dest_order:
+            if not active.any():
+                break
+            target_count = int(demand_col[d])
+            weights = np.where(active, flow[d, rows_home_idx], 0.0)
+            nz = np.where(weights > 0)[0]
+            if len(nz) == 0:
+                continue
+            k_pull = min(target_count, len(nz))
+            chosen = np.random.choice(nz, size=k_pull, replace=False, p=weights[nz] / weights[nz].sum())
+            work_geoid_arr[rows[chosen]] = dest_geoids[d]
+            assigned[rows[chosen]] = True
+            active[chosen] = False
     ticker.finish()
 
+    # --- leftover fallback: implausible demand or exhausted local supply -- same plain
+    # home-flow sampling the original algorithm used for everyone. ---
+    leftover = np.where(~assigned)[0]
+    missing_geoid_set = set()
+    if len(leftover) > 0:
+        warn(f"{len(leftover):,} of {num_workers:,} workers unfilled by destination demand -- "
+             "falling back to home-flow sampling for them")
+        home_data = {}
+        for home_geoid_tuple, lodes_group in lodes_df.group_by("h_geocode", maintain_order=True):
+            hg = home_geoid_tuple[0] if isinstance(home_geoid_tuple, tuple) else home_geoid_tuple
+            counts = lodes_group["count"].to_numpy().astype(np.float64)
+            home_data[hg] = (lodes_group["w_geocode"].to_list(), counts / counts.sum())
+        for i in leftover:
+            hg = home_geoid_arr[i]
+            hd = home_data.get(hg)
+            if hd is None:
+                work_geoid_arr[i] = hg
+                missing_geoid_set.add(hg)
+                continue
+            dests, probs = hd
+            work_geoid_arr[i] = np.random.choice(dests, p=probs)
+
     if missing_geoid_set:
-        num_geoids = workers_df["home_geoid"].n_unique()
         warn(
-            f"Could not find {len(missing_geoid_set)} (out of {num_geoids}) origin GEOIDs in LODES:\n"
+            f"Could not find {len(missing_geoid_set)} origin GEOIDs in LODES for fallback assignment:\n"
             + f"{sorted(missing_geoid_set)}"
         )
 
