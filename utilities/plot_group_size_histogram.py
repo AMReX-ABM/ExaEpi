@@ -206,8 +206,10 @@ def main():
     sorted_sizes = np.sort(sizes_arr)
     cum_members = np.cumsum(sorted_sizes)
     weighted_median = sorted_sizes[np.searchsorted(cum_members, cum_members[-1] / 2)]
+    # Split across two lines -- matplotlib legends render "\n" fine, and this single label is
+    # long enough on one line to push the legend box wider than the whole figure.
     series_label = (
-        f"{plural.capitalize()}: n={len(sizes):,} ({n_members:,} {stat_noun}s), "
+        f"{plural.capitalize()}: n={len(sizes):,} ({n_members:,} {stat_noun}s)\n"
         f"mean={weighted_mean:.2f}, median={weighted_median:.2f}, max={sizes.max():,}"
     )
     if args.cdf:
