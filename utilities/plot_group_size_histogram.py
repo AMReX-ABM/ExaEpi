@@ -23,6 +23,7 @@ import argparse
 import sys
 
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
 import yt
@@ -283,6 +284,13 @@ def main():
     # the right edge in far enough that the margin becomes a large fraction of the range).
     # right=None (the default, when --xlim isn't given) leaves the right edge autoscaled.
     ax.set_xlim(left=left_edge, right=args.xlim)
+    if not args.logx:
+        # Default tick count/spacing can pack 5-6 digit values (e.g. community size, up to the
+        # tens of thousands) too tightly for the figure width, running labels into each other.
+        # Fewer ticks plus thousands separators keeps them legible; skipped for --logx, which
+        # already gets its own (multiplicative) tick locator suited to a log axis.
+        ax.xaxis.set_major_locator(mticker.MaxNLocator(nbins=6))
+        ax.xaxis.set_major_formatter(mticker.StrMethodFormatter("{x:,.0f}"))
     # Headroom above the tallest bar/curve for the legend to sit in -- with only a handful of
     # bins/series, "best" placement sometimes has nowhere left to go but on top of a peak,
     # especially for a single narrow-peaked series (e.g. neighborhood size) or the two-line-per-
