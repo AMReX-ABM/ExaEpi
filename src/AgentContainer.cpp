@@ -17,11 +17,14 @@ namespace {
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 uint64_t hash64 (uint64_t a, uint64_t b = 0) {
     uint64_t h = a * 2654435761ull + b * 0x9E3779B97F4A7C15ull + 0x9E3779B97F4A7C15ull;
-    h ^= (h >> 33); h *= 0xff51afd7ed558ccdull; h ^= (h >> 33);
-    h *= 0xc4ceb9fe1a85ec53ull; h ^= (h >> 33);
+    h ^= (h >> 33);
+    h *= 0xff51afd7ed558ccdull;
+    h ^= (h >> 33);
+    h *= 0xc4ceb9fe1a85ec53ull;
+    h ^= (h >> 33);
     return h;
 }
-}
+} // namespace
 
 // repeat macro for repeating identical tokens
 #define REPEAT_0(x)
@@ -420,9 +423,7 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
             // staffing level instead of routinely blowing through the class-size clamp below
             int grade = (int)(idx % max_grade);
             bool is_college = (getSchoolType(grade) == SchoolType::college);
-            Real effective_teacher_count = is_college
-                                                   ? teacher_count * params.college_instructional_fraction
-                                                   : teacher_count;
+            Real effective_teacher_count = is_college ? teacher_count * params.college_instructional_fraction : teacher_count;
             int raw_n_classes = (effective_teacher_count > 0.0_rt)
                                         ? std::max(1, (int)effective_teacher_count)
                                         : std::max(1, (int)std::ceil(student_count_h[idx] / (Real)params.school_class_size));
@@ -556,8 +557,8 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
                         int rank = school_class_ptr[ip];
                         int base_total = min_students_per_class * n_classes;
                         int school_class = (rank < base_total)
-                                                    ? rank % n_classes
-                                                    : (int)(hash64((uint64_t)raw_group, (uint64_t)rank) % (uint64_t)n_classes);
+                                                   ? rank % n_classes
+                                                   : (int)(hash64((uint64_t)raw_group, (uint64_t)rank) % (uint64_t)n_classes);
                         school_class_ptr[ip] = school_class;
                         school_class_group_ptr[ip] = (int)(class_group_base_ptr[raw_group] + school_class);
                         Gpu::Atomic::AddNoRet(&class_group_occupancy_ptr[school_class_group_ptr[ip]], 1.0_rt);

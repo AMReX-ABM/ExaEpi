@@ -927,8 +927,8 @@ void runAgent () {
                 // pre-assignment defaults.
                 if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
                     if (params.ic_type == ICType::Census) {
-                        ExaEpi::IO::writePlotFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf,
-                                                  params.num_diseases, params.disease_names, cur_time, i);
+                        ExaEpi::IO::writePlotFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf,
+                                                  &censusData.comm_mf, params.num_diseases, params.disease_names, cur_time, i);
                     } else {
                         ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
                                                   params.num_diseases, params.disease_names, cur_time, i);
