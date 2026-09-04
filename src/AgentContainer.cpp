@@ -627,8 +627,17 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
         }
     }
 
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(admin_size_max <= (Real)params.workgroup_size,
-                                     "assignSchoolClasses: an admin group ended up larger than workgroup_size");
+    // Census-type sims never set IntIdx::naics (it stays at its default of 0, not the -1
+    // UrbanPop uses to mark students -- see the naics==-1 comment in Pass 1 above), so every
+    // school_id>0 agent here is misclassified as a "teacher" and routed to admin pools instead
+    // of real classes. n_admin is still sized off that (inflated) teacher_count, so the pools
+    // stay bounded by workgroup_size the same way -- but the invariant this assert is protecting
+    // (a real class's excess teachers fit in workgroup_size-sized admin pools) isn't meaningful
+    // for census sims, so skip it there.
+    if (params.ic_type != ExaEpi::ICType::Census) {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(admin_size_max <= (Real)params.workgroup_size,
+                                         "assignSchoolClasses: an admin group ended up larger than workgroup_size");
+    }
 
     if (ParallelDescriptor::IOProcessor()) {
         Print() << "SchoolClasses: class size avg=" << (num_classes > 0 ? class_size_sum / num_classes : 0.0_rt)
