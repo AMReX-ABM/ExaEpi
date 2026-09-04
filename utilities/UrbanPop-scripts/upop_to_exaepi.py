@@ -713,8 +713,8 @@ def load_schools(fname: str) -> pl.DataFrame:
     printgreen(f"Loading schools from {fname}")
     schools_df = pl.read_csv(fname, schema_overrides={"geoid": pl.Utf8, "id": pl.Utf8})
     print(
-        f"Loaded {len(schools_df)} entries: {schools_df["students"].sum()} students, "
-        f"{schools_df["teachers"].sum()} teachers"
+        f"Loaded {len(schools_df)} entries: {schools_df['students'].sum()} students, "
+        f"{schools_df['teachers'].sum()} teachers"
     )
     dump_intermediate(schools_df, "schools")
     return schools_df
