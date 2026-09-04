@@ -139,7 +139,7 @@ struct TestParams {
         lets each college's derived class size reflect its own reported staffing level again
         (validated empirically: with fraction=0.1, only 2 of 68 NM college raw groups still hit
         the clamp, versus the previous approach where effectively all of them did). */
-    amrex::Real college_instructional_fraction = 0.1;
+    amrex::Real college_instructional_fraction = amrex::Real(0.1);
 
     /*! Worker flow filename (ExaEpi::Initialization::readWorkerflow):
         It is a binary file that contains 3 x (number of work patthers) unsigned integer
