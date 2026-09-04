@@ -255,8 +255,8 @@ def main():
             # one bin width, which -- for an xlim close enough to the true max -- can already
             # exceed data_max. Drop any such edges before appending it, or the result isn't
             # monotonically increasing and numpy.histogram rejects it outright.
-            bins = np.asarray(bins)
-            bins = np.append(bins[bins < data_max], data_max)
+            bins_arr = np.asarray(bins)
+            bins = np.append(bins_arr[bins_arr < data_max], data_max).tolist()
         ax.hist(sizes, bins=bins, weights=sizes_arr, color="blue", alpha=0.7, edgecolor="black",
                 label=series_label)
         ax.set_ylabel(f"Frequency ({stat_noun}s)")
