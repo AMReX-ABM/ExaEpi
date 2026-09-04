@@ -20,7 +20,7 @@ using namespace amrex;
 */
 AirTravelFlow::AirTravelFlow (const ::std::string fname /*!< Filename to read case data from */) {}
 
-void AirTravelFlow::readAirports (const std::string fname, DemographicData& demo) {
+void AirTravelFlow::readAirports (const std::string fname, const AirTravelDemoData& demo) {
     Vector<char> fileCharPtr;
     ParallelDescriptor::ReadAndBcastFile(fname, fileCharPtr);
     std::string fileCharPtrString(fileCharPtr.dataPtr());
@@ -46,9 +46,9 @@ void AirTravelFlow::readAirports (const std::string fname, DemographicData& demo
         if (inAirportRangePop.find(airportCode) == inAirportRangePop.end()) { // the first time we see this airport
             airport_id[airportCode] = air_i;
             id_to_airport[air_i++] = airportCode;
-            inAirportRangePop[airportCode] = demo.CountyPop[FIPS];
+            inAirportRangePop[airportCode] = demo.CountyPop.at(FIPS);
         } else {
-            inAirportRangePop[airportCode] += demo.CountyPop[FIPS];
+            inAirportRangePop[airportCode] += demo.CountyPop.at(FIPS);
         }
         cnt++;
     }
@@ -99,7 +99,7 @@ void AirTravelFlow::readAirTravelFlow (const std::string fname /*!< Filename to 
         destAirportMap[org].push_back(dest);
         int pax_per_day = (int)(pax / 365);
         travel_path_prob[org][dest] =
-                (float)pax_per_day; // just initialize, will be finalized later in ComputeTravelProbs(DemographicData& demo)
+                (float)pax_per_day; // just initialize, will be finalized later in computeTravelProbs(const AirTravelDemoData&)
 
         if (originPax.find(org) == originPax.end()) {
             originPax[org] = pax_per_day;
@@ -115,7 +115,7 @@ void AirTravelFlow::readAirTravelFlow (const std::string fname /*!< Filename to 
     }
 }
 
-void AirTravelFlow::computeTravelProbs (DemographicData& demo) {
+void AirTravelFlow::computeTravelProbs (const AirTravelDemoData& demo) {
     air_travel_prob.resize(demo.Nunit);
     assigned_airport.resize(demo.Nunit);
     for (int i = 0; i < demo.Nunit; i++) {

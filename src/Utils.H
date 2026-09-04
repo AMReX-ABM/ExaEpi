@@ -9,8 +9,6 @@
 #include <AMReX_IntVect.H>
 #include <vector>
 
-#include "DemographicData.H"
-
 #include <map>
 #include <string>
 
@@ -20,37 +18,20 @@ namespace ExaEpi {
     for the input file provided in the command line.
 */
 struct TestParams {
-    amrex::IntVect size;                                       /*!< domain size; (used only for ic_type = demo)
-                                                                    (see ExaEpi::Utils::getGeometry) */
-    int max_box_size = 16;                                     /*!< box size */
-    static constexpr const char* default_ic_type = "urbanpop"; /*!< initial condition type, before ParmParse override */
-    int nsteps = 1;                                            /*!< number of simulation steps */
-    int plot_int = -1;                                         /*!< plot interval (see ExaEpi::IO::writePlotFile) */
-    int check_int = -1;                                        /*!< checkpoint interval (see ExaEpi::IO::writeCheckpointFile) */
-    int random_travel_int = -1;                                /*!< steps between random travel events
-                                                                    (see AgentContainer::moveRandomTravel) */
-    amrex::Real random_travel_prob = amrex::Real(0.0001);      /*!< probability of an agent going on random travel */
+    amrex::IntVect size;                                  /*!< domain size (see ExaEpi::Utils::getGeometry) */
+    int max_box_size = 16;                                /*!< box size */
+    int nsteps = 1;                                       /*!< number of simulation steps */
+    int plot_int = -1;                                    /*!< plot interval (see ExaEpi::IO::writePlotFile) */
+    int check_int = -1;                                   /*!< checkpoint interval (see ExaEpi::IO::writeCheckpointFile) */
+    int random_travel_int = -1;                           /*!< steps between random travel events
+                                                               (see AgentContainer::moveRandomTravel) */
+    amrex::Real random_travel_prob = amrex::Real(0.0001); /*!< probability of an agent going on random travel */
     int air_travel_int = -1;
-    short ic_type;                                             /*!< initialization type (see ExaEpi::ICType) */
     int weather_int = -1;
 
-    int num_diseases = 1;                                      /*!< Number of diseases to track */
-    std::vector<std::string> disease_names;                    /*!< Names of the diseases */
+    int num_diseases = 1;                   /*!< Number of diseases to track */
+    std::vector<std::string> disease_names; /*!< Names of the diseases */
 
-    /*! Census data filename (DemographicData::initFromFile)
-
-        The file contents are:
-        + The first line of the file contains the number of units.
-        + The following lines have the following data:
-          + ID (US-wide census tract ID)
-          + Population
-          + Number of day workers
-          + FIPS code
-          + Census tract number
-          + Numbers of people in age groups: under 5, 5-17, 18-29, 30-64, and 65+
-          + Number of households with: 1, 2, 3, 4, 5, 6, and 7 member(s)
-    */
-    std::string census_filename;
     std::string air_traffic_filename;
     std::string airports_filename;
     std::string weather_filename;
@@ -61,11 +42,10 @@ struct TestParams {
     std::string urbanpop_filename;
 
     /*! Optional per-(state, NAICS-code) work-group target size table (see
-        utilities/UrbanPop-scripts/compute_workgroup_sizes.py). Only used when
-        ic_type == "urbanpop". File format: first non-comment line is a row count,
-        followed by "<state_fips> <naics_code> <int size>" lines (order-independent,
-        matched by state FIPS and NAICS code string, not position). If empty (the
-        default), every state/NAICS combination falls back to the flat #workgroup_size,
+        utilities/UrbanPop-scripts/compute_workgroup_sizes.py). File format: first non-comment
+        line is a row count, followed by "<state_fips> <naics_code> <int size>" lines
+        (order-independent, matched by state FIPS and NAICS code string, not position). If empty
+        (the default), every state/NAICS combination falls back to the flat #workgroup_size,
         exactly as before this feature existed -- fully backward compatible. */
     std::string workgroup_size_filename;
 
@@ -74,10 +54,11 @@ struct TestParams {
         When true, this populates AgentContainer::comm_density_scale (nighttime, keyed on
         home_population) and comm_density_scale_work (daytime, keyed on day_population -- the true
         daytime headcount, not BlockGroup::work_populations[0], which structurally excludes
-        non-commuting residents and students). xmit_comm_scale/min_scale/max_scale below are shared
-        by both -- a decoupled sweep (fixing home, tuning work independently) found no fit
-        improvement over keeping them equal, so a single set is kept rather than duplicating
-        home/work variants.
+        non-commuting residents and students). Both share the same clip bounds (compile-time
+        constants in UrbanPopData.cpp, not user-tunable) -- a decoupled sweep (fixing home, tuning
+        work independently) found no fit improvement over keeping them equal, so a single set is
+        kept rather than duplicating home/work variants. The disease-specific overall magnitude of
+        community transmission is a separate knob -- see DiseaseParm::xmit_comm_scale.
 
         There is no beta exponent to tune: both mechanisms hard-code a 1/population correction (see
         computeCommunitySizeScale). InteractionModComm.H/InteractionModNborhood.H count the *raw
@@ -94,20 +75,6 @@ struct TestParams {
         hypothesis about large communities transmitting differently -- so it's built in rather than
         left tunable. */
     bool size_scale_enabled = true;
-    amrex::Real xmit_comm_scale = 1.0; /*!< population-weighted average scale factor applied only to
-                                            xmit_comm (see InteractionModComm.H) -- the overall
-                                            calibrated magnitude of community transmission once the
-                                            1/population correction above has removed the
-                                            community-size artifact. Does not affect household,
-                                            neighborhood, workgroup, school, or any other venue
-                                            (InteractionModNborhood.H deliberately skips this
-                                            correction -- see its file header). Parsed under the
-                                            "disease" ParmParse prefix (disease.xmit_comm_scale), like
-                                            the other transmission-scale knobs, even though it lives
-                                            on TestParams alongside the other UrbanPop/agent settings.
-                                            The clip bounds on the per-community scale factor are
-                                            compile-time constants in UrbanPopData.cpp, not
-                                            user-tunable. */
 
     /*! Split each (community, school_id, grade) group into classes (see
         AgentContainer::assignSchoolClasses) so school transmission happens within a class
@@ -119,7 +86,7 @@ struct TestParams {
         bucket), clamped so no class averages fewer than #school_class_size_min or more than
         #school_class_size_max students. #school_class_size itself is now only the fallback
         target used when a raw group has students but zero identified teachers. */
-    int school_class_size = 15;     /*!< fallback target students-per-class for raw groups with no identified teachers */
+    int school_class_size = 20;     /*!< fallback target students-per-class for raw groups with no identified teachers */
     int school_class_size_min = 5;  /*!< floor on average class size (bounds class count from above) */
     int school_class_size_max = 50; /*!< cap on average class size (bounds class count from below) */
 
@@ -141,14 +108,6 @@ struct TestParams {
         the clamp, versus the previous approach where effectively all of them did). */
     amrex::Real college_instructional_fraction = amrex::Real(0.1);
 
-    /*! Worker flow filename (ExaEpi::Initialization::readWorkerflow):
-        It is a binary file that contains 3 x (number of work patthers) unsigned integer
-        data. The 3 integers are: from, to, and the number of workers with this from and to.
-        The from and to are the IDs from the first column of the census data file
-        (#DemographicData::myID).
-    */
-    std::string workerflow_filename;
-
     int aggregated_diag_int = -1;                 /*!< interval for writing aggregated diagnostic data
                                                        (see: ExaEpi::IO::writeFIPSData) */
     std::string aggregated_diag_prefix = "cases"; /*!< filename prefix for diagnostic data, used only if
@@ -159,7 +118,7 @@ struct TestParams {
     int shelter_start = -1;
     int shelter_length = 0;
 
-    int nborhood_size = 500;
+    int nborhood_size = 360;
     int workgroup_size = 20;
 
     bool fast = false;         /*!< Use the fast implementations for various operations, e.g. binning, at the cost of
@@ -167,17 +126,6 @@ struct TestParams {
 
     bool context_diag = false; /*!< If true, attribute infections to interaction contexts via snapshotProbs /
                                     sumContextInfections and write per-context columns to the output file. */
-};
-
-/**
- * \brief enum for the different initial condition options.\n
- *        census reads in census data.\n
- */
-struct ICType {
-    enum {
-        Census = 0,  /*!< Census data. Default */
-        UrbanPop = 1 /*!< Data generated by UrbanPop */
-    };
 };
 
 /*! \brief Namespace with utility functions */

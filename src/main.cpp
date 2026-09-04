@@ -17,7 +17,6 @@
 #include "AgentContainer.H"
 #include "AirTravelFlow.H"
 #include "CaseData.H"
-#include "DemographicData.H"
 #include "DiseaseParm.H"
 #include "IO.H"
 #include "InitializeInfections.H"
@@ -121,21 +120,16 @@ void printHelp (const char* prog) {
     line("weather_filename", "required if weather_int > 0", "");
     desc_line("weather data file");
     line("startdate", fmt(tp.startdate), "simulation start date (YYYY-MM-DD)");
-    line("ic_type", ExaEpi::TestParams::default_ic_type, "initial condition type: \"census\" or \"urbanpop\"");
-    line("census_filename", "required if ic_type=census", "");
-    desc_line("census data file");
-    line("workerflow_filename", "required if ic_type=census", "");
-    desc_line("worker flow binary file");
-    line("air_traffic_filename", "required if ic_type=census and air_travel_int > 0", "");
-    desc_line("air traffic flow file");
-    line("airports_filename", "required if ic_type=census and air_travel_int > 0", "");
-    desc_line("airports file");
-    line("urbanpop_filename", "required if ic_type=urbanpop", "");
+    line("urbanpop_filename", "required", "");
     desc_line("UrbanPop data file");
+    line("air_traffic_filename", "required if air_travel_int > 0", "");
+    desc_line("air traffic flow file");
+    line("airports_filename", "required if air_travel_int > 0", "");
+    desc_line("airports file");
     line("workgroup_size_filename", fmt(tp.workgroup_size_filename),
-         "optional per-(state, NAICS-code) work-group target size table (urbanpop only); falls back to "
+         "optional per-(state, NAICS-code) work-group target size table; falls back to "
          "workgroup_size for any (state, NAICS) pair not in the file");
-    line("size_scale_enabled", fmt(tp.size_scale_enabled), "enable population-size-based transmission scaling (urbanpop only)");
+    line("size_scale_enabled", fmt(tp.size_scale_enabled), "enable population-size-based transmission scaling");
     line("school_class_size", fmt(tp.school_class_size),
          "fallback target students-per-class for raw groups with no identified teachers");
     line("school_class_size_min", fmt(tp.school_class_size_min), "floor on average class size (bounds class count from above)");
@@ -155,9 +149,6 @@ void printHelp (const char* prog) {
     line("fast", fmt(tp.fast), "use fast, non-bitwise-reproducible implementations");
     line("context_diag", fmt(tp.context_diag), "attribute infections to interaction contexts in the output file");
     line("shelter_compliance", fmt(AgentContainer::default_shelter_compliance), "shelter-in-place compliance rate");
-    line("student_teacher_ratio", fmtArr(AgentContainer::default_student_teacher_ratio), "");
-    desc_line("students-per-teacher, census only, by school type");
-    desc_line("(none, college, high, middle, elem, daycare)");
     line("symptomatic_withdraw_compliance_day_0", fmtArr(AgentContainer::default_symptomatic_withdraw_compliance_day_0), "");
     line("symptomatic_withdraw_compliance_day_1", fmtArr(AgentContainer::default_symptomatic_withdraw_compliance_day_1), "");
     line("symptomatic_withdraw_compliance_day_2", fmtArr(AgentContainer::default_symptomatic_withdraw_compliance_day_2), "");
@@ -180,9 +171,8 @@ void printHelp (const char* prog) {
     line("num_initial_cases", fmt(dp.num_initial_cases), "number of initial cases (if initial_case_type=random)");
     line("xmit_comm", fmtArr(dp.xmit_comm, AgeGroups::total), "");
     desc_line("community transmission prob, by age group of receiver");
-    line("xmit_comm_scale", fmt(tp.xmit_comm_scale),
-         "overall magnitude of community transmission (population-size-scaled, urbanpop only; does not affect "
-         "xmit_hood)");
+    line("xmit_comm_scale", fmt(dp.xmit_comm_scale),
+         "overall magnitude of community transmission (population-size-scaled; does not affect xmit_hood)");
     line("xmit_hood", fmtArr(dp.xmit_hood, AgeGroups::total), "");
     desc_line("neighborhood transmission prob, by age group of receiver");
     line("xmit_hh_adult", fmtArr(dp.xmit_hh_adult, AgeGroups::total), "");
@@ -344,27 +334,18 @@ int main (int argc, /*!< Number of command line arguments */
 
     \b Initialization
     + Read test parameters (#ExaEpi::TestParams) from command line input file
-    + If initialization type (#ExaEpi::TestParams::ic_type) is ExaEpi::ICType::Census,
-      + Read #DemographicData from #ExaEpi::TestParams::census_filename
-        (see DemographicData::initFromFile)
-      + Read #CaseData from #ExaEpi::TestParams::case_filename
-        (see CaseData::initFromFile)
+    + Read #UrbanPopData from #ExaEpi::TestParams::urbanpop_filename (see UrbanPopData::init)
+    + Read #CaseData from #ExaEpi::TestParams::case_filename (see CaseData::initFromFile)
     + Get computational domain from ExaEpi::Utils::getGeometry. Each grid cell corresponds to
-      a community.
+      a community (block group).
     + Create box arrays and distribution mapping based on #ExaEpi::TestParams::max_box_size.
     + Initialize the following MultiFabs:
-      + Number of residents: 6 components - number of residents in age groups under-5, 5-17,
-        18-29, 30-64, 65+, total.
-      + Unit number of the community at each grid cell (1 component).
       + FIPS code of the community at each grid cell (2 components - FIPS code, census tract ID).
       + Community number of the community at each grid cell.
       + Disease statistics with 4 components (hospitalization, ICU, ventilator, deaths)
       + Masking behavior
-    + Initialize agents (AgentContainer::initAgentsCensus).
-      If ExaEpi::TestParams::ic_type is ExaEpi::ICType::Census, then
-      + Read worker flow (ExaEpi::Initialization::readWorkerflow)
-      + Initialize cases (ExaEpi::Initialization::setInitialCases)
-
+    + Initialize agents (UrbanPopData::initAgents) and initial cases
+      (ExaEpi::Initialization::setInitialCasesFromFile / setInitialCasesRandom).
 
     \b Evolution
     At each step from 0 to #ExaEpi::TestParams::nsteps-1:
@@ -372,7 +353,7 @@ int main (int argc, /*!< Number of command line arguments */
       + if the current step number is a multiple of #ExaEpi::TestParams::plot_int, then write
         out plot file - see ExaEpi::IO::writePlotFile()
       + if current step number is a multiple of #ExaEpi::TestParams::aggregated_diag_int, then write
-        out aggregated diagnostic data - see ExaEpi::IO::writeFIPSData().
+        out aggregated diagnostic data - see ExaEpi::IO::writeAggregatedData().
     + Agents behavior:
       + Update agent #Status based on their age, number of days since infection, hospitalization,
         etc. - see AgentContainer::updateStatus().
@@ -387,7 +368,7 @@ int main (int argc, /*!< Number of command line arguments */
     \b Finalize
     + Report peak infections, day of peak infections, and cumulative deaths.
     + Write out final plot file - see ExaEpi::IO::writePlotFile()
-    + Write out final aggregated diagnostic data - see ExaEpi::IO::writeFIPSData().
+    + Write out final aggregated diagnostic data - see ExaEpi::IO::writeAggregatedData().
 */
 void runAgent () {
     BL_PROFILE("runAgent");
@@ -402,20 +383,17 @@ void runAgent () {
     Geometry geom;
     BoxArray ba;
     DistributionMapping dm;
-    CensusData censusData;
     UrbanPopData urbanPopData;
 
-    if (params.ic_type == ICType::Census) {
-        censusData.init(params, geom, ba, dm);
-    } else if (params.ic_type == ICType::UrbanPop) {
-        urbanPopData.init(params, geom, ba, dm);
-    }
+    urbanPopData.init(params, geom, ba, dm);
 
     AirTravelFlow air;
     if (params.air_travel_int > 0) {
-        air.readAirports(params.airports_filename, censusData.demo);
+        AirTravelDemoData airDemo{(int)urbanPopData.FIPS_codes.size(), urbanPopData.FIPS_codes, urbanPopData.Population,
+                                  urbanPopData.CountyPop, urbanPopData.fips_community_start_d};
+        air.readAirports(params.airports_filename, airDemo);
         air.readAirTravelFlow(params.air_traffic_filename);
-        air.computeTravelProbs(censusData.demo);
+        air.computeTravelProbs(airDemo);
     }
 
     WeatherData wd;
@@ -479,29 +457,20 @@ void runAgent () {
     MultiFab mask_behavior(ba, dm, 1, 0);
     mask_behavior.setVal(1);
 
-    AgentContainer pc(geom, dm, ba, params.num_diseases, params.disease_names, params.fast, params.ic_type);
+    AgentContainer pc(geom, dm, ba, params.num_diseases, params.disease_names, params.fast);
     bool stable_redistribute = !params.fast;
     pc.setStableRedistribute(stable_redistribute);
-    pc.setTileSize(censusData.unit_mf.mfiter_tile_size);
 
     amrex::Real cur_time = 0;
     int start_day = 0;
     {
         BL_PROFILE_REGION("Initialization");
         if (params.restart_chkfile.empty()) {
-            if (params.ic_type == ICType::Census) {
-                censusData.initAgents(pc, params.nborhood_size);
-                censusData.readWorkerflow(pc, params.workerflow_filename, params.workgroup_size);
-            } else if (params.ic_type == ICType::UrbanPop) {
-                urbanPopData.initAgents(pc, params);
-            } else {
-                Abort("Unimplemented ic_type");
-            }
+            urbanPopData.initAgents(pc, params);
 
 #ifdef AMREX_DEBUG
             //  dump a text file of the initial agent fields for debugging purposes
-            string agents_fname =
-                    std::string("initial_agents.") + (params.ic_type == ICType::UrbanPop ? "urbanpop" : "census") + ".csv";
+            string agents_fname = std::string("initial_agents.urbanpop.csv");
             pc.WriteAsciiFile(agents_fname);
             if (ParallelDescriptor::IOProcessor()) {
                 std::ofstream agents_f(agents_fname, std::ios_base::app);
@@ -519,18 +488,12 @@ void runAgent () {
             // communities, so that index cases are drawn independently and proportional to each
             // community's population -- matching Epicast's scheme of giving every susceptible
             // agent in a county equal probability of being seeded, rather than concentrating
-            // batches of cases in a single, uniformly-chosen community. For the deprecated Census
-            // path, a uniform placeholder reproduces the previous (uniform) seeding behavior.
-            const Vector<int>& unit_community_start_seed =
-                    (params.ic_type == ICType::Census ? censusData.demo.Start : urbanPopData.fips_community_start);
+            // batches of cases in a single, uniformly-chosen community.
+            const Vector<int>& unit_community_start_seed = urbanPopData.fips_community_start;
             Vector<int> community_population;
-            if (params.ic_type == ICType::UrbanPop) {
-                community_population.resize(urbanPopData.block_groups.size(), 0);
-                for (int c = 0; c < (int)urbanPopData.block_groups.size(); ++c) {
-                    community_population[c] = urbanPopData.block_groups[c].home_population;
-                }
-            } else {
-                community_population.assign(censusData.demo.Ncommunity, 1);
+            community_population.resize(urbanPopData.block_groups.size(), 0);
+            for (int c = 0; c < (int)urbanPopData.block_groups.size(); ++c) {
+                community_population[c] = urbanPopData.block_groups[c].home_population;
             }
             Vector<float> community_cum_prob =
                     ExaEpi::Initialization::buildCommunityCumProb(unit_community_start_seed, community_population);
@@ -540,42 +503,35 @@ void runAgent () {
                 if (disease_params->initial_case_type == CaseTypes::file) {
                     CaseData cases;
                     cases.initFromFile(disease_params->disease_name, std::string(disease_params->case_filename));
-                    setInitialCasesFromFile(pc, cases, disease_params->disease_name, d,
-                                            (params.ic_type == ICType::Census ? censusData.demo.FIPS : urbanPopData.FIPS_codes),
-                                            unit_community_start_seed, community_cum_prob,
-                                            (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.community_mf),
+                    setInitialCasesFromFile(pc, cases, disease_params->disease_name, d, urbanPopData.FIPS_codes,
+                                            unit_community_start_seed, community_cum_prob, urbanPopData.community_mf,
                                             params.fast);
                 } else {
                     setInitialCasesRandom(pc, disease_params->num_initial_cases, disease_params->disease_name, d,
-                                          (params.ic_type == ICType::Census ? censusData.demo.FIPS : urbanPopData.FIPS_codes),
-                                          unit_community_start_seed, community_cum_prob,
-                                          (params.ic_type == ICType::Census ? censusData.comm_mf : urbanPopData.community_mf),
-                                          params.fast);
+                                          urbanPopData.FIPS_codes, unit_community_start_seed, community_cum_prob,
+                                          urbanPopData.community_mf, params.fast);
                 }
             }
 
             pc.printStudentTeacherCounts();
             pc.printAgeGroupCounts();
 
-            if (params.ic_type == ICType::Census && params.air_travel_int > 0) {
-                pc.setAirTravel(censusData.unit_mf, air, censusData.demo);
+            if (params.air_travel_int > 0) {
+                AirTravelDemoData airDemo{(int)urbanPopData.FIPS_codes.size(), urbanPopData.FIPS_codes, urbanPopData.Population,
+                                          urbanPopData.CountyPop, urbanPopData.fips_community_start_d};
+                pc.setAirTravel(urbanPopData.unit_mf, air, airDemo);
             }
         } else {
-            if (params.ic_type == ICType::Census) {
-                IO::readCheckpointFile(params.restart_chkfile, pc, disease_stats, &(censusData.unit_mf), &(censusData.FIPS_mf),
-                                       &(censusData.comm_mf), cur_time, start_day);
-            } else {
-                IO::readCheckpointFile(params.restart_chkfile, pc, disease_stats, nullptr, &(urbanPopData.geoid_mf),
-                                       &(urbanPopData.community_mf), cur_time, start_day);
-            }
+            IO::readCheckpointFile(params.restart_chkfile, pc, disease_stats, nullptr, &(urbanPopData.geoid_mf),
+                                   &(urbanPopData.community_mf), cur_time, start_day);
         }
 
         // Populate pc.comm_density_scale from the population-size scale. Done after both the
         // fresh-init and restart branches above (urbanPopData.community_mf is valid either way), so
         // restarted runs get the same scaling as a fresh run rather than silently reverting to flat
         // 1.0.
-        if (params.ic_type == ICType::UrbanPop && params.size_scale_enabled) {
-            Vector<Real> comm_scale = computeCommunitySizeScale(urbanPopData.block_groups, params);
+        if (params.size_scale_enabled) {
+            Vector<Real> comm_scale = computeCommunitySizeScale(urbanPopData.block_groups);
             Gpu::DeviceVector<Real> comm_scale_d(comm_scale.size());
             Gpu::copyAsync(Gpu::hostToDevice, comm_scale.begin(), comm_scale.end(), comm_scale_d.begin());
             Gpu::streamSynchronize();
@@ -597,8 +553,8 @@ void runAgent () {
         // Used only for daytime interactions (see InteractionModComm.H / InteractionModNborhood.H),
         // since home_population isn't a meaningful covariate for the population physically present
         // in a community during the day.
-        if (params.ic_type == ICType::UrbanPop && params.size_scale_enabled) {
-            Vector<Real> work_scale = computeCommunityWorkSizeScale(urbanPopData.day_population, params);
+        if (params.size_scale_enabled) {
+            Vector<Real> work_scale = computeCommunityWorkSizeScale(urbanPopData.day_population);
             Gpu::DeviceVector<Real> work_scale_d(work_scale.size());
             Gpu::copyAsync(Gpu::hostToDevice, work_scale.begin(), work_scale.end(), work_scale_d.begin());
             Gpu::streamSynchronize();
@@ -701,13 +657,8 @@ void runAgent () {
                 amrex::Print() << "Extracting " << params.nsteps / 7 + 1 << " Weeks of Weather Data \n";
             }
             // extract weather data for the simulation timeframe
-            if (params.ic_type == ICType::Census) {
-                wd.extractActiveData(censusData.demo, weatherWeekIndex, params.nsteps / 7 + 1);
-                pc.initializeWeatherIndex(censusData.unit_mf, &wd.activeWeather);
-            } else {
-                wd.extractActiveData(urbanPopData, weatherWeekIndex, params.nsteps / 7 + 1);
-                pc.initializeWeatherIndex_UrbanPop(urbanPopData.geoid_mf, &wd.activeWeather);
-            }
+            wd.extractActiveData(urbanPopData, weatherWeekIndex, params.nsteps / 7 + 1);
+            pc.initializeWeatherIndex_UrbanPop(urbanPopData.geoid_mf, &wd.activeWeather);
         }
     }
 
@@ -735,34 +686,18 @@ void runAgent () {
             // below); every other day's write is unaffected.
             bool is_fresh_start = (i == start_day && params.restart_chkfile.empty());
             if ((params.plot_int > 0) && (i % params.plot_int == 0) && !is_fresh_start) {
-                if (params.ic_type == ICType::Census) {
-                    ExaEpi::IO::writePlotFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf,
-                                              params.num_diseases, params.disease_names, cur_time, i);
-                } else {
-                    ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
-                                              params.num_diseases, params.disease_names, cur_time, i);
-                }
+                ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
+                                          params.num_diseases, params.disease_names, cur_time, i);
             }
 
             if ((params.check_int > 0) && (i % params.check_int == 0) && ((params.restart_chkfile == "") || (i != start_day))) {
-                if (params.ic_type == ICType::Census) {
-                    ExaEpi::IO::writeCheckpointFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf,
-                                                    &censusData.comm_mf, params.num_diseases, params.disease_names, cur_time, i);
-                } else {
-                    ExaEpi::IO::writeCheckpointFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf,
-                                                    &urbanPopData.community_mf, params.num_diseases, params.disease_names,
-                                                    cur_time, i);
-                }
+                ExaEpi::IO::writeCheckpointFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
+                                                params.num_diseases, params.disease_names, cur_time, i);
             }
 
             if ((params.aggregated_diag_int > 0) && (i % params.aggregated_diag_int == 0)) {
-                if (params.ic_type == ICType::Census) {
-                    ExaEpi::IO::writeFIPSData(pc, censusData, params.aggregated_diag_prefix, params.num_diseases,
-                                              params.disease_names, i);
-                } else {
-                    ExaEpi::IO::writeAggregatedData(pc, urbanPopData, params.aggregated_diag_prefix, params.num_diseases,
-                                                    params.disease_names, i);
-                }
+                ExaEpi::IO::writeAggregatedData(pc, urbanPopData, params.aggregated_diag_prefix, params.num_diseases,
+                                                params.disease_names, i);
             }
             if (weatherWeekIndex >= 0) {
                 if ((weatherWeekIndex + 1) < wd.numWeeks) {
@@ -902,9 +837,7 @@ void runAgent () {
                 pc.moveRandomTravel(params.random_travel_prob);
             }
 
-            if ((params.air_travel_int > 0) && (i % params.air_travel_int == 0)) {
-                pc.moveAirTravel(censusData.unit_mf, air, censusData.demo);
-            }
+            if ((params.air_travel_int > 0) && (i % params.air_travel_int == 0)) { pc.moveAirTravel(urbanPopData.unit_mf, air); }
 
             using InteractFn = void (AgentContainer::*)(amrex::MultiFab&);
             auto interact = [&] (InteractFn fn, amrex::Real& diag) {
@@ -926,13 +859,8 @@ void runAgent () {
                 // after school_class/school_class_group have real values instead of their
                 // pre-assignment defaults.
                 if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
-                    if (params.ic_type == ICType::Census) {
-                        ExaEpi::IO::writePlotFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf,
-                                                  &censusData.comm_mf, params.num_diseases, params.disease_names, cur_time, i);
-                    } else {
-                        ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
-                                                  params.num_diseases, params.disease_names, cur_time, i);
-                    }
+                    ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
+                                              params.num_diseases, params.disease_names, cur_time, i);
                 }
             }
 
@@ -1026,32 +954,17 @@ void runAgent () {
     amrex::Print() << "\n \n";
 
     if (params.plot_int > 0) {
-        if (params.ic_type == ICType::Census) {
-            ExaEpi::IO::writePlotFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf,
-                                      params.num_diseases, params.disease_names, cur_time, params.nsteps);
-        } else {
-            ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
-                                      params.num_diseases, params.disease_names, cur_time, params.nsteps);
-        }
+        ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
+                                  params.num_diseases, params.disease_names, cur_time, params.nsteps);
     }
 
     if (params.check_int > 0) {
-        if (params.ic_type == ICType::Census) {
-            ExaEpi::IO::writeCheckpointFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf,
-                                            params.num_diseases, params.disease_names, cur_time, params.nsteps);
-        } else {
-            ExaEpi::IO::writeCheckpointFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
-                                            params.num_diseases, params.disease_names, cur_time, params.nsteps);
-        }
+        ExaEpi::IO::writeCheckpointFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
+                                        params.num_diseases, params.disease_names, cur_time, params.nsteps);
     }
 
     if ((params.aggregated_diag_int > 0) && (params.nsteps % params.aggregated_diag_int == 0)) {
-        if (params.ic_type == ICType::Census) {
-            ExaEpi::IO::writeFIPSData(pc, censusData, params.aggregated_diag_prefix, params.num_diseases, params.disease_names,
-                                      params.nsteps);
-        } else {
-            ExaEpi::IO::writeAggregatedData(pc, urbanPopData, params.aggregated_diag_prefix, params.num_diseases,
-                                            params.disease_names, params.nsteps);
-        }
+        ExaEpi::IO::writeAggregatedData(pc, urbanPopData, params.aggregated_diag_prefix, params.num_diseases,
+                                        params.disease_names, params.nsteps);
     }
 }

@@ -41,8 +41,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
   public:
     AgentContainer(const amrex::Geometry& a_geom, const amrex::DistributionMapping& a_dmap, const amrex::BoxArray& a_ba,
-                   const int& a_num_diseases, const std::vector<std::string>& a_disease_names, const bool fast,
-                   const short a_ic_type);
+                   const int& a_num_diseases, const std::vector<std::string>& a_disease_names, const bool fast);
 
     void morningCommute(amrex::MultiFab&);
 
@@ -65,9 +64,9 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     void interactNborhoodNight(amrex::MultiFab&);
     void interactCommNight(amrex::MultiFab&);
 
-    void moveAirTravel(const amrex::iMultiFab& unit_mf, AirTravelFlow& air, DemographicData& demo);
+    void moveAirTravel(const amrex::iMultiFab& unit_mf, AirTravelFlow& air);
 
-    void setAirTravel(const iMultiFab& unit_mf, AirTravelFlow& air, DemographicData& demo);
+    void setAirTravel(const iMultiFab& unit_mf, AirTravelFlow& air, const AirTravelDemoData& demo);
 
     void moveAgentsRandomWalk();
 
@@ -111,7 +110,6 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     void setTileSize (IntVect newTileSize) { tile_size = newTileSize; }
 
     void setActiveWeatherWeek (int week) { activeWeatherWeek = week; }
-    void initializeWeatherIndex(const iMultiFab&, ActiveWeather*);
     void initializeWeatherIndex_UrbanPop(const iMultiFab&, ActiveWeather*);
     void advanceWeatherIndex();
 
@@ -134,18 +132,13 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     /*! Default values for the members below, exposed as named constants (rather than bare
      *  initializers) so that main.cpp's printHelp() can print the actual defaults instead of
      *  a hardcoded copy that can drift out of sync. */
-    static constexpr amrex::GpuArray<int, SchoolType::total> default_student_teacher_ratio = {0, 15, 15, 15, 15, 15};
     static constexpr amrex::GpuArray<amrex::Real, AgeGroups::total> default_symptomatic_withdraw_compliance_day_0 =
             {0.3_rt, 0.3_rt, 0.3_rt, 0.3_rt, 0.3_rt, 0.3_rt};
     static constexpr amrex::GpuArray<amrex::Real, AgeGroups::total> default_symptomatic_withdraw_compliance_day_1 =
-            {0.8_rt, 0.6_rt, 0.5_rt, 0.5_rt, 0.5_rt, 0.5_rt};
+            {0.8_rt, 0.7_rt, 0.5_rt, 0.5_rt, 0.5_rt, 0.5_rt};
     static constexpr amrex::GpuArray<amrex::Real, AgeGroups::total> default_symptomatic_withdraw_compliance_day_2 =
             {0.9_rt, 0.8_rt, 0.7_rt, 0.7_rt, 0.7_rt, 0.7_rt};
     static constexpr amrex::Real default_shelter_compliance = 0.95_rt; /*!< Shelter-in-place compliance rate */
-
-    amrex::iMultiFab m_student_counts;
-    /// Used only for Census data. A ratio for each school type: none, college, high, middle, elem, daycare
-    amrex::GpuArray<int, SchoolType::total> m_student_teacher_ratio = default_student_teacher_ratio;
 
     /*!< Symptomatic withdrawal compliance rate, day 0, AgeGroups u5, 5-17, 18-29, 30-49, 50-64, 65+*/
     amrex::GpuArray<amrex::Real, AgeGroups::total> m_symptomatic_withdraw_compliance_day_0 =
@@ -172,8 +165,6 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
         TestParams::size_scale_enabled / computeCommunityWorkSizeScale. Always valid (flat 1.0
         unless work-size-scale supplies real values in main.cpp). */
     amrex::MultiFab comm_density_scale_work;
-
-    short ic_type;
 
     int activeWeatherWeek;
     ActiveWeather* awd;

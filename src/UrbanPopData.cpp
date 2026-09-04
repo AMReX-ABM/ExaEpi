@@ -299,16 +299,24 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
         if (current_FIPS != fips) {
             FIPS_codes.push_back(fips);
             fips_community_start.push_back(num_communities);
+            Population.push_back(0);
             current_FIPS = fips;
         }
         num_communities++;
         if (geoid_to_block_groups.insert({block_group.geoid, i}).second == false) { Abort("Cannot insert new block group"); }
+        CountyPop[fips] += block_group.home_population;
+        Population.back() += block_group.home_population;
     }
     fips_community_start.push_back(num_communities);
     County_on_proc.resize(FIPS_codes.size());
     for (int i = 0; i < County_on_proc.size(); i++) {
         County_on_proc[i] = 0;
     }
+
+    // device copy of fips_community_start, for AgentContainer::setAirTravel (see AirTravelDemoData)
+    fips_community_start_d.resize(fips_community_start.size());
+    Gpu::copyAsync(Gpu::hostToDevice, fips_community_start.begin(), fips_community_start.end(), fips_community_start_d.begin());
+    Gpu::streamSynchronize();
 
     if (ParallelDescriptor::IOProcessor()) {
         Print() << "Found " << FIPS_codes.size() << " FIPS demographic units\n";
@@ -333,9 +341,11 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
 
     geoid_mf.define(ba, dm, 2, 0);
     community_mf.define(ba, dm, 1, 0);
+    unit_mf.define(ba, dm, 1, 0);
 
     geoid_mf.setVal(-1);
     community_mf.setVal(-1);
+    unit_mf.setVal(-1);
 
     std::ofstream geoid_coords_ofs;
     //  allocate block groups to x,y grid locations and use a map to keep track of them for later processing
@@ -392,10 +402,12 @@ void UrbanPopData::fillGridMetadataOnHost () {
     iMultiFab geoid_mf_h(geoid_mf.boxArray(), geoid_mf.DistributionMap(), 2, 0, MFInfo().SetArena(The_Pinned_Arena()));
     iMultiFab community_mf_h(community_mf.boxArray(), community_mf.DistributionMap(), 1, 0,
                              MFInfo().SetArena(The_Pinned_Arena()));
+    iMultiFab unit_mf_h(unit_mf.boxArray(), unit_mf.DistributionMap(), 1, 0, MFInfo().SetArena(The_Pinned_Arena()));
 
     for (MFIter mfi(geoid_mf_h); mfi.isValid(); ++mfi) {
         auto geoid_arr = geoid_mf_h[mfi].array();
         auto community_arr = community_mf_h[mfi].array();
+        auto unit_arr = unit_mf_h[mfi].array();
 
         const Box& box = mfi.validbox();
         const auto lo = lbound(box);
@@ -406,6 +418,7 @@ void UrbanPopData::fillGridMetadataOnHost () {
                 geoid_arr(x, y, 0, 0) = -1;
                 geoid_arr(x, y, 0, 1) = -1;
                 community_arr(x, y, 0) = -1;
+                unit_arr(x, y, 0) = -1;
 
                 auto it = xy_to_block_groups.find(IntVect(x, y));
                 if (it == xy_to_block_groups.end()) { continue; }
@@ -418,6 +431,12 @@ void UrbanPopData::fillGridMetadataOnHost () {
                 geoid_arr(x, y, 0, 0) = static_cast<int>(fips);
                 geoid_arr(x, y, 0, 1) = static_cast<int>(block_group.geoid - fips * 1e7);
                 community_arr(x, y, 0) = bi;
+                // fips_community_start[u] <= bi < fips_community_start[u+1] identifies the FIPS
+                // unit u that community bi belongs to (see AirTravelDemoData/FIPS_codes).
+                unit_arr(x, y, 0) =
+                        static_cast<int>(std::upper_bound(fips_community_start.begin(), fips_community_start.end(), bi) -
+                                         fips_community_start.begin()) -
+                        1;
             }
         }
 
@@ -431,6 +450,11 @@ void UrbanPopData::fillGridMetadataOnHost () {
         AMREX_ALWAYS_ASSERT(community_src.size() == community_dst.size());
         Gpu::copy(Gpu::hostToDevice, community_src.dataPtr(), community_src.dataPtr() + community_src.size(),
                   community_dst.dataPtr());
+
+        auto& unit_src = unit_mf_h[mfi];
+        auto& unit_dst = unit_mf[mfi];
+        AMREX_ALWAYS_ASSERT(unit_src.size() == unit_dst.size());
+        Gpu::copy(Gpu::hostToDevice, unit_src.dataPtr(), unit_src.dataPtr() + unit_src.size(), unit_dst.dataPtr());
     }
 
     Gpu::streamSynchronize();
@@ -780,11 +804,12 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
 
 /*! \brief Compute a per-community population-size scale factor that corrects the community
  *  interaction model (InteractionModComm.H) from density-dependent to frequency-dependent
- *  transmission, decoupled from the overall calibrated magnitude (xmit_comm_scale). Neighborhood
+ *  transmission, decoupled from the overall calibrated magnitude (DiseaseParm::xmit_comm_scale,
+ *  applied separately, per-disease, since this function has no disease to key on). Neighborhood
  *  transmission (InteractionModNborhood.H) deliberately does NOT use this correction -- see that
  *  file's header for why:
  *    raw[c]   = 1 / population[c]                                   -- fixed correction, not tunable
- *    scale[c] = clip(xmit_comm_scale * raw[c]/mean(raw), min_scale, max_scale)
+ *    scale[c] = clip(raw[c]/mean(raw), min_scale, max_scale)
  *  where mean(raw) is the population-weighted mean of raw[] over all communities. InteractionModComm.H
  *  multiplies a susceptible's infection probability once per *raw count* of infectious agents in
  *  their entire community, so without correction the force of infection scales with the absolute
@@ -803,8 +828,7 @@ constexpr Real size_min_scale = 0.05_rt;
 constexpr Real size_max_scale = 20.0_rt;
 } // namespace
 
-amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockGroup>& block_groups,
-                                                      const ExaEpi::TestParams& params) {
+amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockGroup>& block_groups) {
     Vector<Real> scale(block_groups.size(), 1.0_rt);
     if (block_groups.empty()) { return scale; }
 
@@ -823,11 +847,11 @@ amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockG
     Real mean_raw = (weight_sum > 0.0_rt) ? (weighted_raw_sum / weight_sum) : 1.0_rt;
 
     for (int c = 0; c < (int)block_groups.size(); ++c) {
-        Real s = params.xmit_comm_scale * raw[c] / mean_raw;
+        Real s = raw[c] / mean_raw;
         scale[c] = std::max(size_min_scale, std::min(size_max_scale, s));
     }
 
-    amrex::Print() << "SizeScale: " << block_groups.size() << " communities (xmit_comm_scale=" << params.xmit_comm_scale << ")\n";
+    amrex::Print() << "SizeScale: " << block_groups.size() << " communities\n";
 
     return scale;
 }
@@ -837,13 +861,13 @@ amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockG
  *  comment for why this is used instead of BlockGroup::work_populations[0]) instead of
  *  home_population:
  *    raw[c]   = 1 / day_population[c]                             -- fixed correction, not tunable
- *    scale[c] = clip(xmit_comm_scale * raw[c]/mean(raw), min_scale, max_scale)
+ *    scale[c] = clip(raw[c]/mean(raw), min_scale, max_scale)
  *  where mean(raw) is the day-population-weighted mean of raw[] over all communities. Communities
- *  with zero daytime population get scale=1.0, unaffected by xmit_comm_scale, and don't contribute
- *  to the weighted mean. Shares xmit_comm_scale/min_scale/max_scale with computeCommunitySizeScale
- *  (a decoupled sweep found no benefit to tuning them separately from the home/night values). */
-amrex::Vector<amrex::Real> computeCommunityWorkSizeScale (const amrex::Vector<amrex::Real>& day_population,
-                                                          const ExaEpi::TestParams& params) {
+ *  with zero daytime population get scale=1.0 and don't contribute to the weighted mean. Shares
+ *  min_scale/max_scale with computeCommunitySizeScale (a decoupled sweep found no benefit to
+ *  tuning them separately from the home/night values). The disease-specific overall magnitude
+ *  (DiseaseParm::xmit_comm_scale) is applied separately, per-disease. */
+amrex::Vector<amrex::Real> computeCommunityWorkSizeScale (const amrex::Vector<amrex::Real>& day_population) {
     Vector<Real> scale(day_population.size(), 1.0_rt);
     if (day_population.empty()) { return scale; }
 
@@ -864,12 +888,11 @@ amrex::Vector<amrex::Real> computeCommunityWorkSizeScale (const amrex::Vector<am
 
     for (int c = 0; c < (int)day_population.size(); ++c) {
         if (day_population[c] <= 0.0_rt) { continue; }
-        Real s = params.xmit_comm_scale * raw[c] / mean_raw;
+        Real s = raw[c] / mean_raw;
         scale[c] = std::max(size_min_scale, std::min(size_max_scale, s));
     }
 
-    amrex::Print() << "WorkSizeScale: " << day_population.size() << " communities (xmit_comm_scale=" << params.xmit_comm_scale
-                   << ")\n";
+    amrex::Print() << "WorkSizeScale: " << day_population.size() << " communities\n";
 
     return scale;
 }

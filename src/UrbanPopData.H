@@ -5,6 +5,7 @@
 #pragma once
 
 #include <iostream>
+#include <map>
 #include <string>
 
 #include <AMReX_GpuContainers.H>
@@ -54,8 +55,7 @@ struct BlockGroup {
     neighborhood interaction models from density-dependent to frequency-dependent transmission
     (a fixed 1/population correction, not a tunable exponent -- see the .cpp for why), keyed on
     home_population (population is always available from the UrbanPop binary). */
-amrex::Vector<amrex::Real> computeCommunitySizeScale(const amrex::Vector<BlockGroup>& block_groups,
-                                                     const ExaEpi::TestParams& params);
+amrex::Vector<amrex::Real> computeCommunitySizeScale(const amrex::Vector<BlockGroup>& block_groups);
 
 /*! \brief Daytime analog of computeCommunitySizeScale, keyed on each community's true daytime
     headcount (UrbanPopData::day_population) instead of home_population. Meant to populate a
@@ -72,8 +72,7 @@ amrex::Vector<amrex::Real> computeCommunitySizeScale(const amrex::Vector<BlockGr
     push the 1/population correction toward its size_max_scale clip for the most heavily
     residential/school-heavy communities -- exactly backwards, since those are typically among the
     *largest* daytime-occupied communities, not the smallest. */
-amrex::Vector<amrex::Real> computeCommunityWorkSizeScale(const amrex::Vector<amrex::Real>& day_population,
-                                                         const ExaEpi::TestParams& params);
+amrex::Vector<amrex::Real> computeCommunityWorkSizeScale(const amrex::Vector<amrex::Real>& day_population);
 
 struct UrbanPopData {
     // these three data structures are used for setting the initial cases
@@ -81,6 +80,19 @@ struct UrbanPopData {
     amrex::Vector<int> County_on_proc;
     amrex::Vector<int> fips_community_start;
     amrex::Vector<BlockGroup> block_groups;
+
+    /*! Total residential population per FIPS county, keyed by FIPS code -- feeds
+        AirTravelFlow::readAirports (see AirTravelDemoData), which needs the population served by
+        each airport's county. */
+    std::map<int, int> CountyPop;
+    /*! Residential population per FIPS unit, index-aligned with FIPS_codes/fips_community_start
+        -- feeds AirTravelFlow::computeTravelProbs (see AirTravelDemoData::Population). For
+        UrbanPop, a "unit" is exactly one FIPS county, so this holds the same values as
+        CountyPop[FIPS_codes[i]], just index-aligned for device use. */
+    amrex::Vector<int> Population;
+    /*! Device copy of fips_community_start, for AgentContainer::setAirTravel's per-agent kernel
+        (see AirTravelDemoData::Start_d). */
+    amrex::Gpu::DeviceVector<int> fips_community_start_d;
 
     /*! Real US state/territory FIPS codes top out at 78 (US Virgin Islands); this gives
         headroom without a remapping table -- workgroup_size_table is indexed directly by
@@ -104,6 +116,11 @@ struct UrbanPopData {
 
     amrex::iMultiFab geoid_mf;     /*!< FIPS code (component 0) and census block group number (component 1) of each block group */
     amrex::iMultiFab community_mf; /*!< Index for community == block group */
+    /*! Compact FIPS-unit index (0..FIPS_codes.size()-1, index-aligned with FIPS_codes/
+        fips_community_start) of each grid cell -- for AgentContainer::setAirTravel/moveAirTravel
+        (see AirTravelDemoData), which need a per-cell index into the same per-unit arrays that
+        AirTravelFlow::readAirports/computeTravelProbs build from FIPS_codes. */
+    amrex::iMultiFab unit_mf;
 
     UrbanPopData () {}
 

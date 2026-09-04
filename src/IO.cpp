@@ -16,10 +16,11 @@ using namespace amrex;
 namespace ExaEpi {
 namespace IO {
 
-/*! \brief Write plotfile of computational domain with disease spread and census data at a given step.
+/*! \brief Write plotfile of computational domain with disease spread and geographic data at a
+    given step.
 
-    Writes the current disease spread information and census data (unit, FIPS code, census tract ID,
-    and community number) to a plotfile:
+    Writes the current disease spread information and geographic data (FIPS code, census tract
+    ID, and community number) to a plotfile:
     + Create an output MultiFab (with the same domain and distribution map as the particle container)
       with 5*(number of diseases)+4 components:
 
@@ -34,16 +35,19 @@ namespace IO {
       + component 5*n+d (d being the disease index and n the number of diseases)
 
       Then (n being the number of diseases):
-      + component 6*n+0: unit number
-      + component 6*n+1: FIPS ID
-      + component 6*n+2: census tract number
-      + component 6*n+3: community number
+      + component 6*n+0: FIPS ID
+      + component 6*n+1: census tract number
+      + component 6*n+2: community number
     + Get disease spread data (first 7*n components) from AgentContainer::generateCellData() and
     + also the disease_stats multifab, which tracts the number of new cases each day.
-    + Copy unit number, FIPS code, census tract ID, and community number from the input MultiFabs to
+    + Copy FIPS code, census tract ID, and community number from the input MultiFabs to
       the remaining components.
     + Write the output MultiFab to file.
     + Write agents to file - see AgentContainer::WritePlotFile().
+
+    \p unit_mf_ptr is always nullptr today (UrbanPop has no separate "unit" concept distinct from
+    FIPS); the parameter is kept as a nullable-pointer interface in case a future IC source needs
+    it again.
 */
 void writePlotFile (const AgentContainer& pc,                      /*!< Agent (particle) container */
                     const MFPtrVec& a_disease_stats,               /*!< Disease stats tracker */
@@ -61,7 +65,7 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
     static const Vector<std::string> status_names = {"total", "never_infected", "infected", "immune", "susceptible"};
 
     static const int ncomp_d = status_names.size();
-    // if ic_type == urbanpop then unit_mf_ptr == nullptr
+    // unit_mf_ptr is always nullptr today (see doc comment above)
     // the +4 (+3) is for new_cases, FIPS, Tract, Unit (new_cases, FIPS, Tract)
     static const int ncomp = ncomp_d * num_diseases + num_diseases + (unit_mf_ptr != nullptr ? 4 : 3);
 
@@ -328,88 +332,6 @@ void writeCheckpointFile (const AgentContainer& pc,                      /*!< Ag
     }
 
     pc.Checkpoint(checkpointname, "agents");
-}
-
-/*! \brief Writes diagnostic data by FIPS code
-
-    Writes a file with the total number of infected agents for each unit;
-    it writes out the number of infected agents in the same order as the units in the
-    census data file.
-    + Creates a output vector of size #DemographicData::Nunit (total number of units).
-    + Gets the disease status in agents from AgentContainer::generateCellData().
-    + On each processor, sets the unit-th element of the output vector to the number of
-      infected agents in the communities on this processor belonging to that unit.
-    + Sum across all processors and write to file.
-*/
-void writeFIPSData (const AgentContainer& agents,                  /*!< Agents (particle) container */
-                    const CensusData& censusData,                  /*!< Census data */
-                    const std::string& prefix,                     /*!< Filename prefix */
-                    const int num_diseases,                        /*!< Number of diseases */
-                    const std::vector<std::string>& disease_names, /*!< Names of diseases */
-                    const int step /*!< Current step */) {
-    static const int ncomp_d = 5;
-    static const int ncomp = ncomp_d * num_diseases + 4;
-
-    static const int nlevs = std::max(0, agents.finestLevel() + 1);
-    std::vector<std::unique_ptr<MultiFab>> mf_vec;
-    mf_vec.resize(nlevs);
-    for (int lev = 0; lev < nlevs; ++lev) {
-        mf_vec[lev] = std::make_unique<MultiFab>(agents.ParticleBoxArray(lev), agents.ParticleDistributionMap(lev), ncomp, 0);
-        mf_vec[lev]->setVal(0.0);
-        agents.generateCellData(*mf_vec[lev], ncomp_d);
-    }
-
-    for (int d = 0; d < num_diseases; d++) {
-
-        amrex::Print() << "Generating diagnostic data by FIPS code " << "for " << disease_names[d] << "\n";
-
-        std::vector<amrex::Real> data(censusData.demo.Nunit, 0.0);
-        amrex::Gpu::DeviceVector<amrex::Real> d_data(data.size(), 0.0);
-        amrex::Real* const AMREX_RESTRICT data_ptr = d_data.dataPtr();
-
-        for (int lev = 0; lev < nlevs; ++lev) {
-#ifdef AMREX_USE_OMP
-#pragma omp parallel if (amrex::Gpu::notInLaunchRegion())
-#endif
-            {
-                for (MFIter mfi(*mf_vec[lev]); mfi.isValid(); ++mfi) {
-                    auto unit_arr = censusData.unit_mf[mfi].array();
-                    auto cell_data_arr = (*mf_vec[lev])[mfi].array();
-
-                    auto bx = mfi.tilebox();
-                    amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
-                        int unit = unit_arr(i, j, k); // which FIPS
-                        if (unit < 0) { return; }     // cell has no assigned FIPS unit
-                        int num_infected = int(cell_data_arr(i, j, k, 5 * d + 2));
-                        amrex::Gpu::Atomic::AddNoRet(&data_ptr[unit], (amrex::Real)num_infected);
-                    });
-                }
-            }
-        }
-
-        // blocking copy from device to host
-        amrex::Gpu::copy(amrex::Gpu::deviceToHost, d_data.begin(), d_data.end(), data.begin());
-
-        // reduced sum over mpi ranks
-        ParallelDescriptor::ReduceRealSum(data.data(), data.size(), ParallelDescriptor::IOProcessorNumber());
-
-        if (ParallelDescriptor::IOProcessor()) {
-            std::string fn = amrex::Concatenate(prefix, step, 5);
-            if (num_diseases > 1) { fn += ("_" + disease_names[d]); }
-            std::ofstream ofs{fn, std::ofstream::out | std::ofstream::app};
-
-            // set precision
-            ofs << std::fixed << std::setprecision(14) << std::scientific;
-
-            // loop over data size and write
-            for (const auto& item : data) {
-                ofs << " " << item;
-            }
-
-            ofs << std::endl;
-            ofs.close();
-        }
-    }
 }
 
 /*! \brief Writes diagnostic data aggregated by block group

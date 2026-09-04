@@ -12,7 +12,6 @@
 #include <AMReX_Print.H>
 #include <AMReX_RealBox.H>
 
-#include "DemographicData.H"
 #include "Utils.H"
 
 #include <algorithm>
@@ -46,27 +45,14 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
 
     if (params.weather_int > 0) { pp.get("weather_filename", params.weather_filename); }
 
-    std::string ic_type = TestParams::default_ic_type;
-    pp.query("ic_type", ic_type);
-    if (ic_type == "census") {
-        params.ic_type = ICType::Census;
-        pp.get("census_filename", params.census_filename);
-        pp.get("workerflow_filename", params.workerflow_filename);
-        if (params.air_travel_int > 0) {
-            pp.get("air_traffic_filename", params.air_traffic_filename);
-            pp.get("airports_filename", params.airports_filename);
-        }
-    } else if (ic_type == "urbanpop") {
-        params.ic_type = ICType::UrbanPop;
-        pp.get("urbanpop_filename", params.urbanpop_filename);
+    pp.get("urbanpop_filename", params.urbanpop_filename);
+    pp.query("workgroup_size_filename", params.workgroup_size_filename);
 
-        pp.query("workgroup_size_filename", params.workgroup_size_filename);
+    pp.query("size_scale_enabled", params.size_scale_enabled);
 
-        pp.query("size_scale_enabled", params.size_scale_enabled);
-        ParmParse pp_disease("disease");
-        pp_disease.query("xmit_comm_scale", params.xmit_comm_scale);
-    } else {
-        amrex::Abort("ic_type not recognized (currently supported 'census')");
+    if (params.air_travel_int > 0) {
+        pp.get("air_traffic_filename", params.air_traffic_filename);
+        pp.get("airports_filename", params.airports_filename);
     }
 
     pp.query("school_class_size", params.school_class_size);

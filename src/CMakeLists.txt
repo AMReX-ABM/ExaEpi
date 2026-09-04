@@ -11,12 +11,8 @@ set(_sources
     WeatherData.H
     WeatherData.cpp
     DiseaseCoupling.H
-    CensusData.H
-    CensusData.cpp
     DiseaseParm.H
     DiseaseParm.cpp
-    DemographicData.H
-    DemographicData.cpp
     IO.H
     IO.cpp
     InteractionModel.H

@@ -30,6 +30,7 @@ void DiseaseParm::readInputs (const std::string& a_pp_str /*!< Parmparse string 
     }
 
     queryArray(pp, "xmit_comm", xmit_comm, AgeGroups::total);
+    pp.query("xmit_comm_scale", xmit_comm_scale);
     queryArray(pp, "xmit_hood", xmit_hood, AgeGroups::total);
     queryArray(pp, "xmit_hh_adult", xmit_hh_adult, AgeGroups::total);
     queryArray(pp, "xmit_hh_child", xmit_hh_child, AgeGroups::total);
@@ -123,7 +124,7 @@ void DiseaseParm::initialize () {
     xmit_work *= p_trans;
 
     for (int i = 0; i < AgeGroups::total; i++) {
-        xmit_comm[i] *= p_trans;
+        xmit_comm[i] *= xmit_comm_scale * p_trans;
         xmit_hood[i] *= p_trans;
         xmit_nc_adult[i] *= p_trans;
         xmit_nc_child[i] *= p_trans;

@@ -5,13 +5,23 @@
 #ifndef AIR_TRAFFIC_H_
 #define AIR_TRAFFIC_H_
 
-#include "DemographicData.H"
 #include <AMReX_GpuContainers.H>
 #include <AMReX_Vector.H>
 
+#include <map>
 #include <string>
 typedef std::map<std::string, std::map<std::string, float>> airTravelType;
 using namespace amrex;
+
+/*! \brief Lightweight struct providing the demographic data AirTravelFlow needs, populated from
+    UrbanPopData (see UrbanPopData::CountyPop / fips_community_start_d). */
+struct AirTravelDemoData {
+    int Nunit;                                    /*!< Number of geographic (FIPS) units */
+    const amrex::Vector<int>& FIPS;               /*!< FIPS code per unit */
+    const amrex::Vector<int>& Population;         /*!< Residential population per unit */
+    const std::map<int, int>& CountyPop;          /*!< Total residential population per FIPS county */
+    const amrex::Gpu::DeviceVector<int>& Start_d; /*!< Community start index per unit (device) */
+};
 
 /*! \brief Structure containing information of traffic among major airport hubs*/
 struct AirTravelFlow {
@@ -21,8 +31,8 @@ struct AirTravelFlow {
     AirTravelFlow(const ::std::string fname);
 
     void readAirTravelFlow(const std::string fname);
-    void readAirports(const std::string fname, DemographicData& demo);
-    void computeTravelProbs(DemographicData& demo);
+    void readAirports(const std::string fname, const AirTravelDemoData& demo);
+    void computeTravelProbs(const AirTravelDemoData& demo);
     void Print() const;
 
     void copyToDeviceAsync (const amrex::Vector<int>& h_vec, /*!< host vector */

@@ -11,7 +11,6 @@
 #include <AMReX_iMultiFab.H>
 
 #include "AgentContainer.H"
-#include "CensusData.H"
 #include "UrbanPopData.H"
 
 #include <string>
@@ -32,9 +31,6 @@ void readCheckpointFile(const std::string restart_chkfile, AgentContainer& pc, M
 void writeCheckpointFile(const AgentContainer& pc, const MFPtrVec& a_disease_stats, const iMultiFab* unit_mf_ptr,
                          const iMultiFab* FIPS_mf_ptr, const iMultiFab* comm_mf_ptr, const int num_diseases,
                          const std::vector<std::string>& disease_names, const Real cur_time, const int step);
-
-void writeFIPSData(const AgentContainer& pc, const CensusData& censusData, const std::string& prefix, const int num_diseases,
-                   const std::vector<std::string>& disease_names, const int step);
 
 void writeAggregatedData(const AgentContainer& pc, const UrbanPopData& urbanpopData, const std::string& prefix,
                          const int num_diseases, const std::vector<std::string>& disease_names, const int step);

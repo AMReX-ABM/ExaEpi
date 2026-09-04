@@ -107,20 +107,15 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
                                 const amrex::BoxArray& a_ba,                     /*!< Box array */
                                 const int& a_num_diseases,                       /*!< Number of diseases */
                                 const std::vector<std::string>& a_disease_names, /*!< names of the diseases */
-                                const bool fast,                                 /*!< faster but non-deterministic computation*/
-                                const short a_ic_type /*!< type of initialization */)
+                                const bool fast /*!< faster but non-deterministic computation*/)
     : amrex::ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>(a_geom, a_dmap, a_ba),
-      m_student_counts(a_ba, a_dmap, SchoolCensusIDType::total - 1, 0), comm_density_scale(a_ba, a_dmap, 1, 0),
-      comm_density_scale_work(a_ba, a_dmap, 1, 0), m_mod_nborhood_day(true), m_mod_nborhood_night(false), m_mod_comm_day(true),
-      m_mod_comm_night(false) {
+      comm_density_scale(a_ba, a_dmap, 1, 0), comm_density_scale_work(a_ba, a_dmap, 1, 0), m_mod_nborhood_day(true),
+      m_mod_nborhood_night(false), m_mod_comm_day(true), m_mod_comm_night(false) {
     BL_PROFILE("AgentContainer::AgentContainer");
-
-    ic_type = a_ic_type;
 
     m_num_diseases = a_num_diseases;
     AMREX_ASSERT(m_num_diseases < ExaEpi::max_num_diseases);
 
-    m_student_counts.setVal(0);             // Initialize the MultiFab to zero
     comm_density_scale.setVal(1.0_rt);      // Default: no size scaling until main.cpp supplies real values
     comm_density_scale_work.setVal(1.0_rt); // Default: no work-size scaling until main.cpp supplies real values
 
@@ -129,7 +124,6 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
     amrex::ParmParse pp("agent");
 
     pp.query("shelter_compliance", m_shelter_compliance);
-    queryGpuArray<int, SchoolType::total>(pp, "student_teacher_ratio", m_student_teacher_ratio);
 
     queryGpuArray<Real, AgeGroups::total>(pp, "symptomatic_withdraw_compliance_day_0", m_symptomatic_withdraw_compliance_day_0);
     queryGpuArray<Real, AgeGroups::total>(pp, "symptomatic_withdraw_compliance_day_1", m_symptomatic_withdraw_compliance_day_1);
@@ -627,17 +621,8 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
         }
     }
 
-    // Census-type sims never set IntIdx::naics (it stays at its default of 0, not the -1
-    // UrbanPop uses to mark students -- see the naics==-1 comment in Pass 1 above), so every
-    // school_id>0 agent here is misclassified as a "teacher" and routed to admin pools instead
-    // of real classes. n_admin is still sized off that (inflated) teacher_count, so the pools
-    // stay bounded by workgroup_size the same way -- but the invariant this assert is protecting
-    // (a real class's excess teachers fit in workgroup_size-sized admin pools) isn't meaningful
-    // for census sims, so skip it there.
-    if (params.ic_type != ExaEpi::ICType::Census) {
-        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(admin_size_max <= (Real)params.workgroup_size,
-                                         "assignSchoolClasses: an admin group ended up larger than workgroup_size");
-    }
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(admin_size_max <= (Real)params.workgroup_size,
+                                     "assignSchoolClasses: an admin group ended up larger than workgroup_size");
 
     if (ParallelDescriptor::IOProcessor()) {
         Print() << "SchoolClasses: class size avg=" << (num_classes > 0 ? class_size_sum / num_classes : 0.0_rt)
@@ -722,7 +707,7 @@ void AgentContainer::moveRandomTravel (const amrex::Real random_travel_prob) {
 /*! \brief Select agents to travel by air
 
 */
-void AgentContainer::moveAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air, DemographicData& demo) {
+void AgentContainer::moveAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air) {
     BL_PROFILE("AgentContainer::moveAirTravel");
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev = GetParticles(lev);
@@ -766,7 +751,7 @@ void AgentContainer::moveAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air
     // AMREX_ALWAYS_ASSERT(OK());
 }
 
-void AgentContainer::setAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air, DemographicData& demo) {
+void AgentContainer::setAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air, const AirTravelDemoData& demo) {
     BL_PROFILE("AgentContainer::setAirTravel");
 
     amrex::Print() << "Compute air travel statistics" << "\n";
@@ -938,47 +923,6 @@ void AgentContainer::returnAirTravel () {
     }
     Redistribute();
     AMREX_ALWAYS_ASSERT(OK());
-}
-
-void AgentContainer::initializeWeatherIndex (const iMultiFab& unit_mf, ActiveWeather* activeWeatherdata) {
-    BL_PROFILE("AgentContainer::initializeWeatherIndex");
-    awd = activeWeatherdata;
-
-    for (int lev = 0; lev <= finestLevel(); ++lev) {
-        auto& plev = GetParticles(lev);
-#ifdef AMREX_USE_OMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
-            auto& ptile = plev[{mfi.index(), mfi.LocalTileIndex()}];
-            auto& aos = ptile.GetArrayOfStructs();
-            const size_t np = aos.numParticles();
-            auto& soa = ptile.GetStructOfArrays();
-            const auto unit_arr = unit_mf[mfi].array();
-            auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
-            auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
-            auto unitVec = awd->unitVec.data();
-            int nUnits = awd->unitVec.size();
-            auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
-
-            amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
-                int unit = unit_arr(home_i_ptr[i], home_j_ptr[i], 0);
-                int lunit = 0;
-                bool found = false;
-                for (; lunit < nUnits; lunit++) {
-                    if (unitVec[lunit] == unit) {
-                        found = true;
-                        break;
-                    }
-                }
-                if (found) {
-                    weatherIdxPtr[i] = lunit;
-                } else {
-                    weatherIdxPtr[i] = -1;
-                }
-            });
-        }
-    }
 }
 
 void AgentContainer::initializeWeatherIndex_UrbanPop (const iMultiFab& geoid_mf, ActiveWeather* activeWeatherdata) {

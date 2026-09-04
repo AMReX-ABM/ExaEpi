@@ -38,7 +38,7 @@ struct RealIdxDisease {
 /*! \brief Integer-type SoA attributes of agent */
 struct IntIdx {
     enum {
-        age_group = 0, /*!< Age group (under 5, 5-17, 18-29, 30-64, 65+) */
+        age_group = 0, /*!< Age group (see #AgeGroups: under 5, 5-17, 18-29, 30-49, 50-64, 65+) */
         family,        /*!< Family ID */
         home_i,        /*!< home location index */
         home_j /*!< home location index */,
@@ -93,19 +93,6 @@ struct SchoolType {
         middle,
         elem,
         daycare,
-        total
-    };
-};
-
-/*! \brief School types used only in initializing census data approach */
-struct SchoolCensusIDType {
-    enum {
-        none,      /*!< Not in school */
-        high_1,    /*!< High School */
-        middle_2,  /*!< Middle School */
-        elem_3,    /*!< Elementary School, nborhoods 1 and 2 */
-        elem_4,    /*!< Elementary School, nborhoods 3 and 4 */
-        daycare_5, /*!< Day care + Playground */
         total
     };
 };
@@ -433,7 +420,7 @@ static int schoolTypeToGrade (const int school_type) {
 /*! \brief Set computational domain, i.e., number of cells in each direction, from the number of communities.
  *
  *  + The domain is a 2D square, where the total number of cells is the lowest square of an
- *    integer that is greater than #DemographicData::Ncommunity
+ *    integer that is greater than the number of communities (\p ncommunity)
  *  + The physical size is 1.0 in each dimension.
  *
  *  A periodic Cartesian grid is defined.

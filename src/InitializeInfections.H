@@ -12,7 +12,6 @@
 
 #include "AgentContainer.H"
 #include "CaseData.H"
-#include "DemographicData.H"
 #include "Utils.H"
 
 namespace ExaEpi {

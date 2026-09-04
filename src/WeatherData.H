@@ -1,7 +1,6 @@
 #ifndef WEATHER_H_
 #define WEATHER_H_
 
-#include "DemographicData.H"
 #include "UrbanPopData.H"
 #include "Utils.H"
 #include <AMReX_GpuContainers.H>
@@ -102,7 +101,6 @@ struct WeatherData {
     void readDataFromFile(const std::string& weatherFilename);
     bool computeIndex(date d, int& weekIndex, int& daysToWeatherWeekend);
     bool lookupWeatherVars(int stateFP, int countyFP, date d, int& weatherWeekIndex, weatherVars& vars);
-    void extractActiveData(DemographicData& demo, int startWeek, int numSimWeeks);
     void extractActiveData(UrbanPopData& upop, int startWeek, int numSimWeeks);
     void print () {
         amrex::Print() << "STATEFP " << "COUNTYFP " << "hurs " << "huss " << "pr " << "rlds " << "rsds " << "sfcWind " << "tas "
