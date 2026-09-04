@@ -283,6 +283,11 @@ def main():
     # the right edge in far enough that the margin becomes a large fraction of the range).
     # right=None (the default, when --xlim isn't given) leaves the right edge autoscaled.
     ax.set_xlim(left=left_edge, right=args.xlim)
+    # Headroom above the tallest bar/curve for the legend to sit in -- with only a handful of
+    # bins/series, "best" placement sometimes has nowhere left to go but on top of a peak,
+    # especially for a single narrow-peaked series (e.g. neighborhood size) or the two-line-per-
+    # series labels used here.
+    ax.set_ylim(top=ax.get_ylim()[1] * 1.25)
     ax.set_xlabel(xlabel)
     #ax.set_title(f"Histogram of ExaEpi {args.field} sizes")
     ax.grid(True, alpha=0.3)
