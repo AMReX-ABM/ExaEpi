@@ -66,8 +66,8 @@ def load_community_density(plot_dir, shape_files):
 
 
 def plot_community_size_vs_density(df, output):
-    plt.rcParams.update({"font.size": 10})
-    fig, ax = plt.subplots(figsize=(5, 4))
+    plt.rcParams.update({"font.size": 18})
+    fig, ax = plt.subplots(figsize=(10, 8))
     ax.scatter(df["pop"], df["density"], s=100, alpha=0.35, color=SERIES_COLOR, linewidths=0)
 
     # Median community size within log-spaced density bins -- shows the trend through the
