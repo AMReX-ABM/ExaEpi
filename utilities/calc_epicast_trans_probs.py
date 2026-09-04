@@ -20,23 +20,19 @@ infectious = [0.0] * 4
 infectious.extend([0.1, 0.3, 0.5, 0.7, 0.85, 0.95, 1.0])
 
 transitions = [
-    #(exposed_to_presymp, 2.82, 1.36, 0.0, "Exposed to Presymptomatic"),
+    # (exposed_to_presymp, 2.82, 1.36, 0.0, "Exposed to Presymptomatic"),
     (exposed_to_presymp, 2.77, 1.5, 0.0, "Exposed to Presymptomatic"),
-    #(exposed_to_presymp, 1.95, 2.53, 0.0, "Exposed to Presymptomatic"),
-    #(exposed_to_presymp, 6, 0.73, 0, "Exposed to Presymptomatic"),
-    #(exposed_to_presymp, 2.55, 1.34, 0.0, "Exposed to Presymptomatic"),
-    #(exposed_to_presymp, 1.5, 3.0, 0.0, "Exposed to Presymptomatic"),
-    
-    #(infectious, 1.5, 3, 3.0, "Infectious Period"),
-    #(infectious, 5.221, 0.946, 2.24, "Infectious Period"),
-    
-    #(infectious, 3.54, 1.22, 2.75, "Infectious Period"),
-    #(infectious, 2.5, 1.3, 3.0, "Infectious Period"),
-    
-    #(infectious, 11.95, 0.51, 1.0, "Infectious Period"),
-    
-    #(incubation, 2.82, 1.36, 1.0, "Incubation Period"),
-    #(incubation, 2.55, 1.34, 1.0, "Incubation Period"),
+    # (exposed_to_presymp, 1.95, 2.53, 0.0, "Exposed to Presymptomatic"),
+    # (exposed_to_presymp, 6, 0.73, 0, "Exposed to Presymptomatic"),
+    # (exposed_to_presymp, 2.55, 1.34, 0.0, "Exposed to Presymptomatic"),
+    # (exposed_to_presymp, 1.5, 3.0, 0.0, "Exposed to Presymptomatic"),
+    # (infectious, 1.5, 3, 3.0, "Infectious Period"),
+    # (infectious, 5.221, 0.946, 2.24, "Infectious Period"),
+    # (infectious, 3.54, 1.22, 2.75, "Infectious Period"),
+    # (infectious, 2.5, 1.3, 3.0, "Infectious Period"),
+    # (infectious, 11.95, 0.51, 1.0, "Infectious Period"),
+    # (incubation, 2.82, 1.36, 1.0, "Incubation Period"),
+    # (incubation, 2.55, 1.34, 1.0, "Incubation Period"),
 ]
 
 
@@ -133,7 +129,9 @@ def discrete_gamma_cdf(day_indices, shape, scale, loc):
     periods drawn in setInfected() are rounded to whole days downstream) -- evaluating the
     continuous CDF at t instead shifts every point by half a day's worth of probability.
     """
-    return gamma.cdf(np.asarray(day_indices, dtype=float) + 0.5, a=shape, loc=loc, scale=scale)
+    return gamma.cdf(
+        np.asarray(day_indices, dtype=float) + 0.5, a=shape, loc=loc, scale=scale
+    )
 
 
 def group_transitions(trans_list):
@@ -151,14 +149,16 @@ def group_transitions(trans_list):
 
 parser = argparse.ArgumentParser(
     description="Compare manually-tuned gamma distributions against Epicast's per-day "
-                "transition probability tables.",
+    "transition probability tables.",
 )
 parser.add_argument(
-    "--fit", "-f",
-    action="store_true", default=False,
+    "--fit",
+    "-f",
+    action="store_true",
+    default=False,
     help="Also derive gamma parameters automatically by least-squares fitting the PMF, and "
-         "overlay the result. Off by default because the global differential-evolution "
-         "search it runs per group is slow.",
+    "overlay the result. Off by default because the global differential-evolution "
+    "search it runs per group is slow.",
 )
 args = parser.parse_args()
 
@@ -217,7 +217,11 @@ for idx, group in enumerate(groups):
         gamma_manual = discrete_gamma_cdf(day_indices, shape, scale, loc)
         corr_manual = pearsonr(gamma_manual, trans_probs)[0]
         params_str = f"α={shape:.2f}, β={scale:.2f}, loc={loc:.2f} r={corr_manual:.3f}"
-        label = f"{title}: Gamma ({params_str})" if label_with_title else f"Gamma ({params_str})"
+        label = (
+            f"{title}: Gamma ({params_str})"
+            if label_with_title
+            else f"Gamma ({params_str})"
+        )
         corr_by_series.append(("Manual", params_str, corr_manual))
         ax.plot(
             day_indices,
@@ -243,13 +247,19 @@ for idx, group in enumerate(groups):
         pmf = cumulative_to_pmf(trans_probs)
 
         # --- Fit gamma to the PMF via optimization ---
-        shape_opt, loc_opt, scale_opt = fit_gamma_to_pmf(day_indices, pmf, title=group_title)
+        shape_opt, loc_opt, scale_opt = fit_gamma_to_pmf(
+            day_indices, pmf, title=group_title
+        )
 
         # --- Plot optimized gamma (green) ---
         gamma_opt = discrete_gamma_cdf(day_indices, shape_opt, scale_opt, loc_opt)
         corr_opt = pearsonr(gamma_opt, trans_probs)[0]
         corr_by_series.append(
-            ("Optimized", f"α={shape_opt:.2f}, β={scale_opt:.2f}, loc={loc_opt:.2f}", corr_opt)
+            (
+                "Optimized",
+                f"α={shape_opt:.2f}, β={scale_opt:.2f}, loc={loc_opt:.2f}",
+                corr_opt,
+            )
         )
         ax.plot(
             day_indices,
