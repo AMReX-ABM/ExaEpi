@@ -1,5 +1,4 @@
 ##
-agent.ic_type = "urbanpop"
 agent.urbanpop_filename = "data/UrbanPop/urbanpop_nm.bin"
 
 agent.nsteps = 4

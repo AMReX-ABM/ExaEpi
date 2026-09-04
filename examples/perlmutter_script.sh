@@ -10,4 +10,4 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-task=1
 
-srun ./agent inputs &> run_out.txt
+srun ./agent inputs.ca &> run_out.txt

@@ -1,7 +1,5 @@
 ##
-agent.ic_type = "census"
-agent.census_filename = "data/CensusData/CA.dat"
-agent.workerflow_filename = "data/CensusData/CA-wf.bin"
+agent.urbanpop_filename = "data/UrbanPop/urbanpop_nm.bin"
 
 agent.nsteps = 13
 agent.plot_int = 4

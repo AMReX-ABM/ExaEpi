@@ -1,5 +1,4 @@
-# The input data file for urbanpop ic_type. Do not include the extension. There must be two files, with extensions .csv and .idx.
-agent.ic_type = "urbanpop"
+# The UrbanPop data file. Do not include the extension. There must be two files, with extensions .csv and .idx.
 agent.urbanpop_filename = "../../data/UrbanPop/urbanpop_nm.bin"
 
 agent.nsteps = 70

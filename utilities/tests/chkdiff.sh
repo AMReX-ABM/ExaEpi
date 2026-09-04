@@ -48,7 +48,6 @@ compare_amrex_files() {
                           "infected"
                           "immune"
                           "susceptible"
-                          "unit"
                           "FIPS"
                           "Tract"
                           "comm")
