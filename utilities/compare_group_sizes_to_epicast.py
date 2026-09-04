@@ -182,7 +182,9 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, weight_
         sorted_sizes = np.sort(sizes)
         cum_members = np.cumsum(sorted_sizes)
         weighted_median = sorted_sizes[np.searchsorted(cum_members, cum_members[-1] / 2)]
-        return (f"{name}: n={len(sizes):,} groups ({n_members:,} {weight_noun}s), "
+        # Split across two lines -- matplotlib legends render "\n" fine, and this label is long
+        # enough on one line to overlap the histogram's peak bars.
+        return (f"{name}: n={len(sizes):,} groups ({n_members:,} {weight_noun}s)\n"
                 f"mean={weighted_mean:.1f}, median={weighted_median:.1f}, max={sizes.max():,}")
 
     if cdf:
@@ -233,7 +235,7 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, weight_
             # that bin in half; starting it at the bin's own left edge instead always shows the
             # full first bar, at the cost of a little empty margin left of 0 when this happens.
             left_edge = bins[0]
-        if bin_max < combined_max:
+        if bin_max < combined_max and not isinstance(bins, int):
             # nice_linear_bins() (and the integer scheme) can both overshoot bin_max by up to
             # one bin width, which -- for an xlim close enough to the true max -- can already
             # exceed combined_max. Drop any such edges before appending it, or the result isn't
@@ -254,6 +256,10 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, weight_
     # the right edge in far enough that the margin becomes a large fraction of the range).
     # right=None (the default, when xlim isn't given) leaves the right edge autoscaled.
     ax.set_xlim(left=left_edge, right=xlim)
+    # Headroom above the tallest bar/curve for the legend to sit in -- "best" placement
+    # sometimes has nowhere left to go but on top of a peak, especially with a two-line label
+    # per series.
+    ax.set_ylim(top=ax.get_ylim()[1] * 1.25)
 
     ax.set_xlabel(xlabel)
     ax.set_title(title)
