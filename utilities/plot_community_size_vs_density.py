@@ -114,42 +114,48 @@ def load_community_density(plot_dir, shape_files):
     return df
 
 
-def _add_series(ax, df, pop_col, density_col, style, label_suffix=""):
+def _add_series(ax, df, pop_col, density_col, style, log, label_suffix=""):
     """Scatter one (population, density) series plus its own binned-median trend line, and
     return the Pearson correlation (log10 density, population) for the printed summary."""
     sub = df[df[pop_col] > 0]
     ax.scatter(sub[pop_col], sub[density_col], s=100, alpha=0.35, color=style["scatter"],
                linewidths=0, label=style["label"] + label_suffix)
 
-    # Median community size within log-spaced density bins -- shows the trend through the
-    # scatter's heavy overplotting rather than relying on the eye to average it.
-    log_density = np.log10(sub[density_col])
-    bins = np.linspace(log_density.min(), log_density.max(), 25)
-    bin_idx = np.digitize(log_density, bins)
+    # Median community size within density bins -- shows the trend through the scatter's heavy
+    # overplotting rather than relying on the eye to average it. Bin edges are spaced in
+    # whichever space matches the displayed axis: log10(density) for --log (equal *ratio* bins,
+    # matching a log-scaled axis), raw density otherwise (equal-width bins, matching a linear
+    # one) -- the wrong choice would bunch most bins at one end of the axis actually shown.
+    density = np.log10(sub[density_col]) if log else sub[density_col]
+    bins = np.linspace(density.min(), density.max(), 25)
+    bin_idx = np.digitize(density, bins)
     bin_centers, bin_medians = [], []
     for i in range(1, len(bins)):
         sel = sub[pop_col][bin_idx == i]
         if len(sel) >= MIN_BIN_COUNT:
-            bin_centers.append(10 ** ((bins[i - 1] + bins[i]) / 2))
+            center = (bins[i - 1] + bins[i]) / 2
+            bin_centers.append(10 ** center if log else center)
             bin_medians.append(sel.median())
     ax.plot(bin_medians, bin_centers, color=style["trend"], lw=5,
             label=f"Median {style['label'].lower()} size (binned)")
 
+    log_density = np.log10(sub[density_col])
     return np.corrcoef(log_density, sub[pop_col])[0, 1], len(sub)
 
 
-def plot_community_size_vs_density(df, output):
+def plot_community_size_vs_density(df, output, log=False):
     plt.rcParams.update({"font.size": 18})
     fig, ax = plt.subplots(figsize=(10, 8))
 
     for series, pop_col, density_col in (("night", "night_pop", "density_night"),
                                           ("day", "day_pop", "density_day")):
-        corr, n = _add_series(ax, df, pop_col, density_col, SERIES_STYLE[series])
+        corr, n = _add_series(ax, df, pop_col, density_col, SERIES_STYLE[series], log)
         print(f"{n} communities plotted ({series})")
         print(f"Pearson correlation (log10 density, community size), {series}: {corr:.3f}")
 
-    ax.set_xscale("log")
-    ax.set_yscale("log")
+    if log:
+        ax.set_xscale("log")
+        ax.set_yscale("log")
     ax.set_xlabel("Community size (population)")
     ax.set_ylabel("Population density (people / km²)")
     ax.legend(frameon=False, fontsize=12)
@@ -175,10 +181,13 @@ def main():
         "https://www.census.gov/cgi-bin/geo/shapefiles/index.php?year=2010&layergroup=Block+Groups",
     )
     parser.add_argument("--output", "-o", default="community_size_vs_density.png", help="Output plot file name")
+    parser.add_argument(
+        "--log", action="store_true", help="Use log-log axes instead of the default linear-linear"
+    )
     args = parser.parse_args()
 
     df = load_community_density(args.plot_dir, args.shape_files)
-    plot_community_size_vs_density(df, args.output)
+    plot_community_size_vs_density(df, args.output, log=args.log)
 
 
 if __name__ == "__main__":
