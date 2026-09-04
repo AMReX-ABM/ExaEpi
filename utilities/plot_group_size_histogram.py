@@ -3,9 +3,10 @@
 """Plot a histogram of ExaEpi community/neighborhood sizes, or of neighborhoods per
 community, from a run's plotfile.
 
-Community size is the number of agents whose home is in a given community (one AMReX
-grid cell == one community in ExaEpi). This is read directly from the "comm" and
-"total" mesh fields written to every plotfile, so it works for a plotfile from any day.
+Community size is plotted as two overlaid series: agents grouped by home (home_i, home_j)
+-- the residential/nighttime population per community -- and by work (work_i, work_j) --
+the daytime population (every agent has a work_i/work_j: a real job/school site for
+workers/students, or straight to home_i/home_j for everyone else).
 
 Neighborhood size is the number of agents in a given (community, neighborhood) pair --
 neighborhood IDs are only unique within a community, so agents are grouped by the
@@ -14,9 +15,8 @@ neighborhood IDs are only unique within a community, so agents are grouped by th
 Neighborhoods per community is the number of distinct neighborhood IDs among the agents
 living in each community.
 
-Both of the latter two read the per-agent "nborhood" field, which is only written to the
-first plotfile of a run (typically plt00000), so --field neighborhood and
---field nborhoods_per_community require that file.
+All three read per-agent fields (home_i/j, work_i/j, nborhood) that are only written to
+the first plotfile of a run (typically plt00000), so this script requires that file.
 """
 
 import argparse
@@ -30,46 +30,45 @@ import yt.frontends.amrex.api  # noqa: F401  (registers the AMReX frontend's IO 
 from yt.frontends.amrex.data_structures import AMReXDataset
 
 
-def _find_mesh_field(ds, name):
-    """Resolve a mesh field name, allowing for the per-disease prefix ExaEpi uses when a
-    run has more than one disease (e.g. "total" -> "covid_total")."""
-    field_names = {f[1] for f in ds.field_list}
-    if name in field_names:
-        return name
-    candidates = sorted(f for f in field_names if f.endswith("_" + name))
-    if not candidates:
-        sys.exit(f"Field '{name}' not found in plotfile")
-    if len(candidates) > 1:
-        print(f"Multiple '{name}' fields found for multi-disease run {candidates}; using {candidates[0]}")
-    return candidates[0]
-
-
-def community_sizes(ds):
-    ad = ds.all_data()
-    comm = np.rint(np.asarray(ad[_find_mesh_field(ds, "comm")])).astype(int)
-    total = np.rint(np.asarray(ad[_find_mesh_field(ds, "total")])).astype(int)
-    return total[comm != -1]
-
-
-def _home_nborhood_df(ds):
-    """Per-agent home community (home_i, home_j) and neighborhood ID, as a DataFrame."""
+def _agent_df(ds, *fields):
+    """Per-agent particle fields, as a DataFrame. These (home_i/j, work_i/j, nborhood, ...) are
+    static per-agent attributes only written to the first plotfile of a run (e.g. plt00000)."""
     ptype = "agents"
     particle_fields = {f[1] for f in ds.field_list if f[0] == ptype}
-    required = {"particle_home_i", "particle_home_j", "particle_nborhood"}
+    required = {f"particle_{f}" for f in fields}
     missing = required - particle_fields
     if missing:
         sys.exit(
-            f"Plotfile is missing per-agent field(s) {sorted(missing)} needed for neighborhood "
-            "data; these are only written to the first plotfile of a run (e.g. plt00000)."
+            f"Plotfile is missing per-agent field(s) {sorted(missing)}; these are only written "
+            "to the first plotfile of a run (e.g. plt00000)."
         )
     ad = ds.all_data()
     return pd.DataFrame(
-        {
-            "home_i": np.rint(np.asarray(ad[(ptype, "particle_home_i")])).astype(int),
-            "home_j": np.rint(np.asarray(ad[(ptype, "particle_home_j")])).astype(int),
-            "nborhood": np.rint(np.asarray(ad[(ptype, "particle_nborhood")])).astype(int),
-        }
+        {f: np.rint(np.asarray(ad[(ptype, f"particle_{f}")])).astype(int) for f in fields}
     )
+
+
+def home_community_sizes(ds):
+    """Residential (nighttime) population per community -- agents grouped by home (home_i,
+    home_j). Community size straight from the "comm"/"total" mesh fields would be equivalent and
+    doesn't require plt00000, but computing it the same way as work_community_sizes (per-agent
+    fields) keeps the two directly comparable -- both counts then come from exactly the same
+    agent set and grouping logic, just on a different pair of columns."""
+    df = _agent_df(ds, "home_i", "home_j")
+    return df.groupby(["home_i", "home_j"]).size().to_numpy()
+
+
+def work_community_sizes(ds):
+    """Daytime population per community -- agents grouped by work (work_i, work_j). Every agent
+    has a work_i/work_j (UrbanPopData.cpp sets it to a real job/school site for workers/students,
+    or straight to home_i/home_j for everyone else -- work-from-home, unemployed, retired, etc.),
+    so this is the true daytime headcount, not just employed workers."""
+    df = _agent_df(ds, "work_i", "work_j")
+    return df.groupby(["work_i", "work_j"]).size().to_numpy()
+
+
+def _home_nborhood_df(ds):
+    return _agent_df(ds, "home_i", "home_j", "nborhood")
 
 
 def neighborhood_sizes(ds):
@@ -181,43 +180,54 @@ def main():
     ds = AMReXDataset(args.plot_dir)
 
     if args.field == "community":
-        sizes = community_sizes(ds)
+        # Two overlaid series -- residential (home) vs daytime (work) population per community
+        # -- rather than the single series every other --field produces.
+        series_list = [("Home", home_community_sizes(ds)), ("Work", work_community_sizes(ds))]
     elif args.field == "neighborhood":
-        sizes = neighborhood_sizes(ds)
+        series_list = [(plural.capitalize(), neighborhood_sizes(ds))]
     else:
-        sizes = nborhoods_per_community(ds)
-    sizes = pd.Series(sizes, name=stat_noun)
+        series_list = [(plural.capitalize(), nborhoods_per_community(ds))]
 
-    print(f"Found {len(sizes)} {plural}")
-    print(sizes.describe())
+    for name, sizes in series_list:
+        found_what = f"{name.lower()} {plural}" if args.field == "community" else plural
+        print(f"Found {len(sizes)} {found_what}")
+        print(pd.Series(sizes, name=stat_noun).describe())
 
-    if args.logx and sizes.min() <= 0:
-        sys.exit(f"--logx requires strictly positive {stat_noun}s, but the minimum is {sizes.min()}")
+    all_sizes = np.concatenate([sizes for _, sizes in series_list])
+    if args.logx and all_sizes.min() <= 0:
+        sys.exit(f"--logx requires strictly positive {stat_noun}s, but the minimum is {all_sizes.min()}")
 
     fig, ax = plt.subplots(figsize=(5, 4))
-    left_edge = sizes.min() if args.logx else 0
-    sizes_arr = sizes.to_numpy()
-    # Weighted by size (each group of size s stands in for s members who experience that group
-    # size) rather than one point per group -- a plain per-group view makes the many small
-    # groups look dominant even when most members are actually in a big one, so both the plot
-    # and its summary stats are member-weighted throughout.
-    n_members = sizes_arr.sum()
-    weighted_mean = np.average(sizes_arr, weights=sizes_arr)
-    sorted_sizes = np.sort(sizes_arr)
-    cum_members = np.cumsum(sorted_sizes)
-    weighted_median = sorted_sizes[np.searchsorted(cum_members, cum_members[-1] / 2)]
-    # Split across two lines -- matplotlib legends render "\n" fine, and this single label is
-    # long enough on one line to push the legend box wider than the whole figure.
-    series_label = (
-        f"{plural.capitalize()}: n={len(sizes):,} ({n_members:,} {stat_noun}s)\n"
-        f"mean={weighted_mean:.2f}, median={weighted_median:.2f}, max={sizes.max():,}"
-    )
+    left_edge = float(all_sizes.min()) if args.logx else 0
+    colors = ["tab:blue", "tab:red", "tab:green", "tab:orange"]
+
+    def label_with_stats(name, sizes):
+        # Weighted by size (each group of size s stands in for s members who experience that
+        # group size) rather than one point per group -- a plain per-group view makes the many
+        # small groups look dominant even when most members are actually in a big one, so both
+        # the plot and its summary stats are member-weighted throughout. Split across two lines
+        # -- matplotlib legends render "\n" fine, and this label is long enough on one line to
+        # push the legend box wider than the whole figure.
+        n_members = sizes.sum()
+        weighted_mean = np.average(sizes, weights=sizes)
+        sorted_sizes = np.sort(sizes)
+        cum_members = np.cumsum(sorted_sizes)
+        weighted_median = sorted_sizes[np.searchsorted(cum_members, cum_members[-1] / 2)]
+        return (
+            f"{name}: n={len(sizes):,} ({n_members:,} {stat_noun}s)\n"
+            f"mean={weighted_mean:.2f}, median={weighted_median:.2f}, max={sizes.max():,}"
+        )
+
     if args.cdf:
-        # Weighted cumulative fraction: cumsum(sorted_sizes) at position i is exactly "how many
-        # members are in a group of size <= sorted_sizes[i]" (each group's own size is both its
-        # x-value and its member-count contribution), divided by the total member count.
-        cumulative_frac = np.cumsum(sorted_sizes) / sorted_sizes.sum()
-        ax.step(sorted_sizes, cumulative_frac, where="post", color="blue", label=series_label)
+        for (name, sizes), color in zip(series_list, colors):
+            # Weighted cumulative fraction: cumsum(sorted_sizes) at position i is exactly "how
+            # many members are in a group of size <= sorted_sizes[i]" (each group's own size is
+            # both its x-value and its member-count contribution), divided by the total member
+            # count.
+            sorted_sizes = np.sort(sizes)
+            cumulative_frac = np.cumsum(sorted_sizes) / sorted_sizes.sum()
+            ax.step(sorted_sizes, cumulative_frac, where="post", color=color, alpha=0.7,
+                    label=label_with_stats(name, sizes))
         ax.set_ylabel("Cumulative fraction of members")
     else:
         # These are all integer counts, so by default give each distinct value its own bin
@@ -229,22 +239,24 @@ def main():
         # data range -- otherwise a few extreme outliers can set a bin width so wide that only
         # one or two giant bins are even visible in the zoomed view. A final catch-all bin
         # (invisible once xlim clips the view) keeps all the data in the density/frequency
-        # normalization.
-        data_max = sizes.max()
+        # normalization. Bins are shared across all series (sized from their combined range) so
+        # multiple series overlay on a fair, common set of bars.
+        overall_min = all_sizes.min()
+        data_max = all_sizes.max()
         bin_max = min(data_max, args.xlim) if args.xlim is not None else data_max
-        span = int(bin_max - sizes.min())
+        span = int(bin_max - overall_min)
         if args.logx:
             # Linear (equal-width) bins would render as ever-narrower, unreadable slivers
             # once the x axis is log-scaled, since most of them get squeezed into the
             # rightmost decade. Log-spaced bins keep them visually even instead.
             max_bins = args.bins if args.bins is not None else 50
-            bins = log_spaced_integer_bins(sizes.min(), bin_max, max_bins=max_bins)
+            bins = log_spaced_integer_bins(overall_min, bin_max, max_bins=max_bins)
         elif args.bins is not None:
             bins = args.bins
         elif span <= MAX_INTEGER_BINS:
-            bins = np.arange(sizes.min() - 0.5, bin_max + 1.5, 1.0).tolist()
+            bins = np.arange(overall_min - 0.5, bin_max + 1.5, 1.0).tolist()
         else:
-            bins = nice_linear_bins(sizes.min(), bin_max).tolist()
+            bins = nice_linear_bins(overall_min, bin_max).tolist()
         if not isinstance(bins, int):
             # nice_linear_bins() (and the integer scheme) anchor bin centers/edges relative to
             # the data, but nice_linear_bins can still put a bin's left edge below 0 even
@@ -259,9 +271,11 @@ def main():
             # monotonically increasing and numpy.histogram rejects it outright.
             bins_arr = np.asarray(bins)
             bins = np.append(bins_arr[bins_arr < data_max], data_max).tolist()
-        ax.hist(sizes, bins=bins, weights=sizes_arr, color="blue", alpha=0.7, edgecolor="black",
-                label=series_label)
-        ax.set_ylabel(f"Frequency ({stat_noun}s)")
+        for (name, sizes), color in zip(series_list, colors):
+            ax.hist(sizes, bins=bins, weights=sizes, density=len(series_list) > 1, color=color,
+                    alpha=0.5 if len(series_list) > 1 else 0.7, edgecolor="black",
+                    label=label_with_stats(name, sizes))
+        ax.set_ylabel(f"Density ({stat_noun}-weighted)" if len(series_list) > 1 else f"Frequency ({stat_noun}s)")
     if args.logx:
         ax.set_xscale("log")
     # Anchor the left edge explicitly rather than leaving it to matplotlib's default ~5%
