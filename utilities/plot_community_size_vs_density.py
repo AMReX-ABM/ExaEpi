@@ -158,8 +158,8 @@ def plot_community_size_vs_density(df, output, log=False):
         ax.set_yscale("log")
     ax.set_xlabel("Community size (population)")
     ax.set_ylabel("Population density (people / km²)")
-    ax.legend(frameon=False, fontsize=12)
-
+    ax.legend(frameon=False, fontsize=18, loc="upper left")
+    ax.set_ylim(0.01, 1000000)
     plt.tight_layout()
     print("Plotting results to", output)
     plt.savefig(output, bbox_inches="tight")

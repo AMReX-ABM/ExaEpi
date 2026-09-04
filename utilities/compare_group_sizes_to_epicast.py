@@ -259,7 +259,7 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, weight_
     # Headroom above the tallest bar/curve for the legend to sit in -- "best" placement
     # sometimes has nowhere left to go but on top of a peak, especially with a two-line label
     # per series.
-    ax.set_ylim(top=ax.get_ylim()[1] * 1.25)
+    #ax.set_ylim(top=ax.get_ylim()[1] * 1.25)
 
     ax.set_xlabel(xlabel)
     ax.set_title(title)
