@@ -1,160 +1,222 @@
-# The number of diseases
-agent.number_of_diseases = 1
-# A list of strings of the names of the diseases, one for each disease. Will default to disease00, disease01, ...
-agent.disease_names = default00
-# The type of initialization: census or urbanpop.
-agent.ic_type = census
-# The input data file for census ic_type.
-# no default, must be set when ic_type is census
-# agent.census_filename
-# The input worker flow filename for census ic_type.
-# no default, must be set when ic_type is census
-# agent.workerflow_filename
-# The number of agents in a neighborhood.
-agent.nborhood_size = 500
-# The number of agents in a workgroup.
-agent.workgroup_size = 20
-# The input data file for urbanpop ic_type. Do not include the extension. There must be two files, with extensions .csv and .idx.
-# no default, must be set when ic_type = census
-# agent.urbanpop_filename
-# The input data file containing the airports.
-# no default, must be set when agent.air_travel_int != -1
-# agent.airports_filename
-# The input data file containing air traffic.
-# no defalut, must be set when agent.air_travel_int != -1
-# agent.air_traffic_filename
-# The nnumber of time steps (days) for the simulation.
+# This file lists every recognized runtime parameter, set to its default value where one
+# exists. Parameters with no default (marked "no default") must be set explicitly, at least
+# under the conditions noted. This list is generated from -- and should always match --
+# `./agent --help`, which reads these same defaults live from the code.
+
+## ---------------------------------------------------------------------------------------
+## agent.* -- overall simulation
+## ---------------------------------------------------------------------------------------
+
+# Number of simulation steps (days).
 agent.nsteps = 1
-# The plotting interval in time steps; set to -1 for no plotting.
+# Plot file interval, in steps; <=0 disables.
 agent.plot_int = -1
-# The time steps between random travel events; set to -1 for no random travel.
+# Checkpoint file interval, in steps; <=0 disables.
+agent.check_int = -1
+# Interval between random travel events, in steps; <=0 disables.
 agent.random_travel_int = -1
-# The probability of an agent traveling randomly in any travel event.
+# Probability of an agent going on random travel in each event.
 agent.random_travel_prob = 0.0001
-# The time steps between air travel events; set to -1 for no air travel.
+# Interval between air travel events, in steps; <=0 disables.
 agent.air_travel_int = -1
-# The time steps between writing aggregated data; set to -1 to disable writing.
-agent.aggregated_diag_int = -1
-# The prefix to use when writing aggregated data.
-agent.aggregated_diag_prefix = cases
-# The random seed used in the simulation.
-agent.seed = 0
-# The time step on which to start shelter-in-place; set to -1 to disable.
-agent.shelter_start = -1
-# The time steps that shelter-in-place lasts.
-agent.shelter_length = 0
-# The compliance rate for shelter-in-place, i.e. the probability of an agent actually sheltering.
-agent.shelter_compliance = 0.95
-# The probability of an agent withdrawing on day 0, day 1 and day 2 for age groups u5, 5-17, 18-29, 30-49, 50-64, 65+
-agent.symptomatic_withdraw_compliance_day_0 = 0.3 0.3 0.3 0.3 0.3 0.3
-agent.symptomatic_withdraw_compliance_day_1 = 0.8 0.6 0.5 0.5 0.5 0.5
-agent.symptomatic_withdraw_compliance_day_2 = 0.9 0.8 0.7 0.7 0.7 0.7
-# The compliance rate for children when schools are closed. This reduces the probability of transmission in the neighborhood.
-agent.child_compliance = 0.5
-# A factor for increasing transmission by children within households when schools are closed.
-agent.child_HH_closure = 2
-# The ratio of educators to students for school levels none, college, high, middle, elementary, daycare. Ignored for none.
-# This is only used for the census data.
-agent.student_teacher_ratio = 0 15 15 15 15 15
-# The maximum grid size used for MPI domain decomposition. Adjusting this can change the computation time and load balance.
+# Number of diseases to track.
+agent.number_of_diseases = 1
+# Names of the diseases (one per agent.number_of_diseases). Defaults to default00, default01, ...
+agent.disease_names = default00
+# Interval for weather effects, in steps; <=0 disables.
+agent.weather_int = -1
+# Weather data file. No default; must be set if agent.weather_int > 0.
+# agent.weather_filename =
+# Simulation start date (YYYY-MM-DD). Only meaningful if agent.weather_int > 0.
+agent.startdate = ""
+# The UrbanPop data file. Do not include the extension -- there must be two files alongside
+# it, with extensions .csv and .idx. No default; always required.
+# agent.urbanpop_filename =
+# Air traffic flow file. No default; must be set if agent.air_travel_int > 0.
+# agent.air_traffic_filename =
+# Airports file (which counties each airport serves). No default; must be set if
+# agent.air_travel_int > 0.
+# agent.airports_filename =
+# Optional per-(state, NAICS-code) work-group target size table (see
+# utilities/UrbanPop-scripts/compute_workgroup_sizes.py). Falls back to agent.workgroup_size
+# for any (state, NAICS) pair not in the file. Empty disables it entirely.
+agent.workgroup_size_filename = ""
+# Enable population-size-based transmission scaling (keeps community/neighborhood
+# transmission frequency-dependent rather than density-dependent).
+agent.size_scale_enabled = true
+# Fallback target students-per-class, for raw (community, school, grade) groups with no
+# identified teachers.
+agent.school_class_size = 20
+# Floor on average class size (bounds class count from above).
+agent.school_class_size_min = 5
+# Cap on average class size (bounds class count from below).
+agent.school_class_size_max = 50
+# Correction factor applied to a college-level raw group's reported teacher/staff headcount
+# (which is a total-employment figure, not faculty-specific) before it drives class count.
+agent.college_instructional_fraction = 0.1
+# Maximum box size used for MPI domain decomposition.
 agent.max_box_size = 16
+# Interval for writing aggregated diagnostic data, in steps; <=0 disables.
+agent.aggregated_diag_int = -1
+# Filename prefix for aggregated diagnostic output.
+agent.aggregated_diag_prefix = cases
+# Checkpoint file to restart from. Empty means start fresh.
+agent.restart = ""
+# Step at which to start shelter-in-place; <=0 disables.
+agent.shelter_start = -1
+# Number of steps shelter-in-place lasts.
+agent.shelter_length = 0
+# Target neighborhood size (number of agents).
+agent.nborhood_size = 360
+# Target workgroup size (number of agents).
+agent.workgroup_size = 20
+# RNG seed. No default -- if unset, AMReX's own default seeding is used.
+# agent.seed =
+# Use faster, non-bitwise-reproducible implementations (e.g. binning).
+agent.fast = false
+# Attribute infections to interaction contexts and write per-context columns to the output file.
+agent.context_diag = false
+# Shelter-in-place compliance rate (probability an agent actually shelters).
+agent.shelter_compliance = 0.95
+# Symptomatic-withdrawal compliance rate on the 1st/2nd/3rd+ day of symptoms, by age group
+# (u5, 5-17, 18-29, 30-49, 50-64, 65+).
+agent.symptomatic_withdraw_compliance_day_0 = 0.3 0.3 0.3 0.3 0.3 0.3
+agent.symptomatic_withdraw_compliance_day_1 = 0.8 0.7 0.5 0.5 0.5 0.5
+agent.symptomatic_withdraw_compliance_day_2 = 0.9 0.8 0.7 0.7 0.7 0.7
 
-# A list of file names, one per disease, each one of which will be the output for the counts of the statuses for that disease.
-# defalut for one disease
+## ---------------------------------------------------------------------------------------
+## diag.* -- output file naming
+## ---------------------------------------------------------------------------------------
+
+# Output filename(s) for per-day status counts, one per disease. Defaults to output.dat for
+# a single disease, or output_<disease name>.dat per disease for multiple diseases.
 diag.output_filename = output.dat
-# default for multiple diseases
-# diag.output_filename = output_[disease name].dat
 
-# Disease options. Use disease.[key] = [value] with only one disease.
-# Use disease_[disease name].[key] = [value] with multiple diseases.
+## ---------------------------------------------------------------------------------------
+## disease.* -- common to all diseases. With multiple diseases, every key below may be
+## overridden per-disease as disease_<disease name>.<key> (disease_name from
+## agent.disease_names), which takes precedence over disease.<key>.
+## ---------------------------------------------------------------------------------------
 
-# The process to set the initial cases. Random means allocate randomly, and file means allocate from a file of data inputs.
+# How initial cases are seeded: "random" or "file".
 disease.initial_case_type = random
-# Input data file containing initial cases, one per disease. Only used if the initial_case_type is random.
-# no default, must be set when disease.initial_case_type = file for a single disease
-# disease.case_filename
-# The number of initial cases for each disease. Not needed when reading initial cases from files.
-# no default, must be set for each disease when disease_[disease name].initial_case_type = file for multiple diseases
-# disease.case_filename_[disease name]
+# Initial cases file: FIPS code, current cases, cumulative cases. No default; must be set
+# if initial_case_type = file.
+# disease.case_filename =
+# Number of initial cases (used only if initial_case_type = random).
 disease.num_initial_cases = 0
-# no default, must be set for each disease when disease_[disease name].num_initial_cases = random for multiple diseases
-# disease.num_initial_cases_[disease name] = 0
-
-# Probability of transmission given contact.
-disease.p_trans = 0.2
-# Probability of being asymptomatic.
-disease.p_asymp = 0.4
-# Relative infectiousness of asymptomatic individuals.
-disease.asymp_relative_inf = 0.75
-# Vaccine efficacy. Not yet implemented; leave at 0.
-disease.vac_eff = 0
-# Alpha parameter for the immume length Gamma distribution. The immune length is the length in days that agents are immune after recovery from an infection.
-disease.immune_length_alpha =540.0
-# Beta parameter for the immume length Gamma distribution. The immune length is the length in days that agents are immune after recovery from an infection.
-disease.immune_length_beta = 0.33
-# Alpha parameter for the latent length Gamma distribution. The latent length is the length in days from infection until an agent becomes infectious.
-disease.latent_length_alpha = 9.0
-# Beta parameter for the latent length Gamma distribution. The latent length is the length in days from infection until an agent becomes infectious.
-disease.latent_length_beta = 0.33
-# Alpha parameter for the infectious length Gamma distribution. The infectious length is the length in days of the time an agent is infectious.
-disease.infectious_length_alpha = 36.0
-# Beta parameter for the infectious length Gamma distribution. The infectious length is the length in days of the time an agent is infectious.
-disease.infectious_length_beta = 0.17
-# Alpha parameter for the incubation length Gamma distribution. The incubation length is the length in days from the time of infection until symptoms develop.
-disease.incubation_length_alpha = 25.0
-# Beta parameter for the incubation length Gamma distribution. The incubation length is the length in days from the time of infection until symptoms develop.
-disease.incubation_length_beta = 0.2
-# Alpha parameter for the hospital_delay length Gamma distribution. The hospital_delay length is the length in days after developing symptoms that agents seek treatment.
-disease.hospital_delay_length_alpha = 1.0
-# Beta parameter for the hospital_delay length Gamma distribution. The hospital_delay length is the length in days after developing symptoms that agents seek treatment.
-disease.hospital_delay_length_beta = 1.0
-
-# Number of days in hospital for age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
-disease.hospitalization_days = 3 3 3 3 8 7
-# Alpha parameter for days in hospital Gamma distribution, for age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
-disease.hospitalization_days_alpha = 1.33 1.33 1.33 1.33 0.5 0.57
-# Beta parameter for days in hospital Gamma distribution, for age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
-disease.hospitalization_days_beta = 1.5 1.5 1.5 1.5 4.0 3.5
-
-# Transmission probabilites at the community level, for both work and home locations,
-# for the age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
-disease.xmit_comm = 0.000018125 0.000054375 0.000145 0.000145 0.000145 0.0002175
-# Transmission probabilites at the neighborhood level, for both work and home locations,
-# for the age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
-disease.xmit_hood = 0.0000725 0.0002175 0.00058 0.00058 0.00058 0.00087
-# Transmission probabilites at the household level, where the infectious agent is an adult,
-# for the age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
+# Community transmission probability, by age group of the receiving agent
+# (u5, 5-17, 18-29, 30-49, 50-64, 65+).
+disease.xmit_comm = 0.000021 0.000062 0.000165 0.000165 0.000165 0.000247
+# Overall magnitude of community transmission (population-size-scaled; see
+# agent.size_scale_enabled). Does not affect disease.xmit_hood.
+disease.xmit_comm_scale = 1
+# Neighborhood transmission probability, by age group of the receiving agent.
+disease.xmit_hood = 0.000082 0.000247 0.00066 0.00066 0.00066 0.00099
+# Within-household transmission probability, transmitter is an adult, by age group of the
+# receiving agent.
 disease.xmit_hh_adult = 0.3 0.3 0.4 0.4 0.4 0.4
-# Transmission probabilites at the household level, where the infectious agent is a child,
-# for the age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
+# Within-household transmission probability, transmitter is a child.
 disease.xmit_hh_child = 0.6 0.6 0.3 0.3 0.3 0.3
-# Transmission probabilites at the neighborhood cluster level, where the infectious agent is an adult,
-# for the age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
-disease.xmit_nc_adult = 0.04 0.04 0.05 0.05 0.05 0.05
-# Transmission probabilites at the neighborhood cluster level, where the infectious agent is a child,
-# for the age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
-disease.xmit_nc_child = 0.075 0.075 0.04 0.04 0.04 0.04
-# Transmission probabilites within schools, where both agents are adults or both are children,
-# for school levels none, college, high, middle, elementary, daycare. Ignored for none.
-disease.xmit_school = 0 0.0315 0.0315 0.0375 0.0435 0.15
-# Transmission probabilites within schools, where transmitter is an adult and receiver is a child,
-# for school levels none, college, high, middle, elementary, daycare. Ignored for none.
-disease.xmit_school_a2c = 0 0.0315 0.0315 0.0375 0.0435 0.15
-# Transmission probabilites within schools, where transmitter is a child and receiver is an adult,
-# for school levels none, college, high, middle, elementary, daycare. Ignored for none.
-disease.xmit_school_c2a = 0 0.0315 0.0315 0.0375 0.0435 0.15
-# Transmission probability within workgroups
-disease.xmit_wwork = 0.0575
-
-# Probability of hospitalization when disease symptoms first appear, for age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
+# Neighborhood-cluster transmission probability, transmitter is an adult.
+disease.xmit_nc_adult = 0.132 0.132 0.165 0.165 0.165 0.165
+# Neighborhood-cluster transmission probability, transmitter is a child.
+disease.xmit_nc_child = 0.25 0.25 0.132 0.132 0.132 0.132
+# Child-to-child school transmission probability, by school type
+# (none, college, high, middle, elem, daycare). The first entry is ignored.
+disease.xmit_school = 0 0.441 0.441 0.525 0.609 0.15
+# Adult-to-child school transmission probability, by school type.
+disease.xmit_school_a2c = 0 0.2 0.2 0.25 0.3 0.3
+# Child-to-adult school transmission probability, by school type.
+disease.xmit_school_c2a = 0 0.2 0.2 0.25 0.3 0.3
+# Overall scale factor applied to all disease.xmit_school* values.
+disease.xmit_school_scale = 0.27
+# Workgroup transmission probability.
+disease.xmit_work = 0.13
+# Probability of transmission given contact.
+disease.p_trans = 0.1
+# Fraction of cases that are asymptomatic.
+disease.p_asymp = 0.3
+# Relative infectiousness of asymptomatic individuals.
+disease.asymp_relative_inf = 0.7
+# Vaccine efficacy. Not yet implemented; must be left at 0.
+disease.vac_eff = 0
+# Compliance rate for children when schools are closed (reduces neighborhood transmission).
+# NOTE: currently has no effect -- DiseaseParm::initialize() unconditionally overwrites this
+# to 0.5 regardless of what is set here.
+disease.child_compliance = 0.5
+# Factor for increasing within-household transmission by children when schools are closed.
+# NOTE: currently has no effect -- DiseaseParm::initialize() unconditionally overwrites this
+# to 2.0 regardless of what is set here.
+disease.child_hh_closure = 2.0
+# Sample latent/incubation/infectious periods from Epicast's fixed CDFs instead of the Gamma
+# distributions below.
+disease.compare_to_epicast = false
+# Gamma distribution alpha/beta for latent period length (time from infection until
+# infectious). Mean = alpha*beta, variance = alpha*beta^2.
+disease.latent_length_alpha = 2.77
+disease.latent_length_beta = 1.5
+# Gamma distribution alpha/beta/loc for infectious period length (time infectious, starting
+# once the latent phase ends). loc is a location (shift) applied to the sampled value.
+disease.infectious_length_alpha = 3.54
+disease.infectious_length_beta = 1.22
+disease.infectious_length_loc = 2.75
+# Gamma distribution alpha/beta/loc for incubation period length (time from infection until
+# symptoms appear).
+disease.incubation_length_alpha = 2.77
+disease.incubation_length_beta = 1.5
+disease.incubation_length_loc = 0.85
+# Gamma distribution alpha/beta/loc for hospital admission delay (time from symptom onset
+# until an agent seeks treatment).
+disease.hospital_delay_length_alpha = 0.0
+disease.hospital_delay_length_beta = 0.0
+disease.hospital_delay_length_loc = 2.0
+# Gamma distribution alpha/beta/loc for immunity period length (time immune after recovery).
+disease.immune_length_alpha = 1000.0
+disease.immune_length_beta = 1.0
+disease.immune_length_loc = 1000.0
+# Hospital stay length model: "constant" or "random".
+disease.hospital_stay_type = constant
+# Hospital stay length in days, by age group. Used only if hospital_stay_type = constant.
+disease.hospitalization_days = 3 3 3 3 8 7
+# Gamma distribution alpha/beta for hospital stay length, by age group. Used only if
+# hospital_stay_type = random.
+disease.hospitalization_days_alpha = 3 3 3 3 8 7
+disease.hospitalization_days_beta = 1 1 1 1 1 1
+# Symptomatic -> hospitalized probability, by age group.
 disease.CHR = 0.0104 0.0104 0.070 0.28 0.28 1.0
-# Probability of moving from hospitalization to ICU, for age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
+# Hospitalized -> ICU probability, by age group.
 disease.CIC = 0.24 0.24 0.24 0.36 0.36 0.35
-# Probability of moving from ICU to ventilator, for age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
+# ICU -> ventilator probability, by age group.
 disease.CVE = 0.12 0.12 0.12 0.22 0.22 0.22
-# Probability of death when in hospital, for age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
+# Probability of dying in hospital (non-ICU), by age group.
 disease.hospCVF = 0 0 0 0 0 0
-# Probability of death when in the ICU, for age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
+# Probability of dying in ICU (non-ventilated), by age group.
 disease.icuCVF = 0 0 0 0 0 0.26
-# Probability of death when on a ventilator, for age groups 0-4, 5-17, 18-29, 30-49, 50-64, 64+
+# Probability of dying while ventilated, by age group.
 disease.ventCVF = 0.20 0.20 0.20 0.45 0.45 1.0
+
+## ---------------------------------------------------------------------------------------
+## disease_coupling.* -- only relevant if agent.number_of_diseases > 1
+## ---------------------------------------------------------------------------------------
+
+# Co-immunity matrix (number_of_diseases x number_of_diseases, row-major): immunity to
+# disease j conferred by recovery from disease i. Default: identity (1.0 on the diagonal,
+# 0.0 off-diagonal).
+# disease_coupling.coimmunity_matrix =
+# Co-susceptibility matrix (number_of_diseases x number_of_diseases, row-major):
+# susceptibility to disease j while currently infected with i. Default: all 1.0.
+# disease_coupling.cosusceptibility_matrix =
+
+## ---------------------------------------------------------------------------------------
+## amrex.* / particles.* -- ExaEpi-adjusted AMReX defaults (see main.cpp,
+## overrideAmrexDefaults()); any other AMReX runtime parameter can also be set here, see
+## https://amrex-codes.github.io/amrex/docs_html/GPU.html#inputs-parameters
+## ---------------------------------------------------------------------------------------
+
+# Whether AMReX's default Arena uses managed memory. ExaEpi does not require it.
+amrex.the_arena_is_managed = false
+# Whether AMReX uses a dedicated comms arena.
+amrex.use_comms_arena = true
+# Whether to tile particle iteration. Defaults to true on CPU builds, false on GPU builds.
+particles.do_tiling = true

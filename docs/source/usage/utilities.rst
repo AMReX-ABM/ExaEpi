@@ -7,38 +7,53 @@ ExaEpi writes data on two levels: individual data and community data.
 
 Individual data fields
 ----------------------
-Individual datasets have more fields written on day 0 that are constant across the simulation.
-Data is either written as an ``int`` or a ``real``.
+Individual datasets have more fields written on day 0 that are constant across the simulation
+(these are checkpointed but only ever written to the day-0 plotfile -- see ``ExaEpi::IO::writePlotFile``).
+Data is either written as an ``int`` or a ``real``. With more than one disease, every
+disease-specific field below is repeated once per disease, prefixed with the disease's name
+(e.g. ``covid1_status``) instead of being written unprefixed.
 
 - Day 0 only (constant)
 
   - Int data:
 
-    - ``age_group``: Ranges from 0 to 4, indicating age group of agent. Age ranges are 0-5, 5-17, 18-29, 30-64, and 65+, respectively.
+    - ``age_group``: Age group of agent (see ``AgeGroups`` in ``AgentDefinitions.H``): 0=under 5, 1=5-17, 2=18-29, 3=30-49, 4=50-64, 5=65+.
 
-    - ``family``: ID of family of agent.
+    - ``family``: ID of family/household of agent.
 
-    - ``home_i``: x-coordinate of home location on AMReX grid. Can be used to match particle to home community.
+    - ``home_i``, ``home_j``: x/y-coordinate of home location (community) on the AMReX grid.
 
-    - ``home_j``: y-coordinate of home location on AMReX grid. Can be used to match particle to home community.
+    - ``work_i``, ``work_j``: x/y-coordinate of work location (community) on the AMReX grid.
 
-    - ``work_i``: x-coordinate of work location on AMReX grid. Can be used to match particle to work community.
+    - ``hosp_i``, ``hosp_j``: x/y-coordinate of the hospital location assigned to the agent (-1 if none assigned).
 
-    - ``work_j``: y-coordinate of work location on AMReX grid. Can be used to match particle to work community.
+    - ``trav_i``, ``trav_j``: x/y-coordinate of the agent's current air-travel destination (-1 if none assigned).
 
-    - ``nborhood``: Home neighborhood.
+    - ``nborhood``: Home neighborhood ID.
 
-    - ``school``: Ranges from -1 to 5, indicating type of school. -1 indicates not of school age, 0 indicates of school age but not in school, 1 indicates high school, 2 indicates middle school, and 3-5 indicate different elementary schools.
+    - ``hh_cluster``: Household cluster ID (a sub-neighborhood grouping used for close-contact interactions).
 
-    - ``work_nborhood``: Work neighborhood.
+    - ``school_grade``: School grade of the agent, including university-equivalent grades, or -1 if not a student.
 
-    - ``strain``: Marks which strain of disease (used for multiple diseases).
+    - ``school_id``: ID of the school the agent attends within its community, or 0 if not a student.
 
-  - Real data:
+    - ``school_closed``: 0 if the agent's school is open, 1 if closed.
+
+    - ``school_class``: 0-based class index within the agent's (community, school_id, grade) group, or a value <= -2 for a teacher assigned to that group's non-classroom "admin" pool -- see ``AgentContainer::assignSchoolClasses``.
+
+    - ``school_class_group``: Compact ID for the agent's actual (community, school_id, grade, school_class) mixing bucket, or -1 for agents not enrolled in school.
+
+    - ``naics``: NAICS industry code of the agent's employer, or -1 if the agent is a student, or unset (job-dependent) otherwise.
+
+    - ``workgroup``: Workgroup ID at the agent's workplace.
+
+    - ``work_nborhood``: Work neighborhood ID.
+
+  - Real data (one block per disease):
 
     - ``latent_period``: Latent period length, i.e. time between exposure and infectiousness.
 
-    - ``infectious_period``: Infections period length, i.e. time during which agent can spread disease
+    - ``infectious_period``: Infectious period length, i.e. time during which agent can spread disease.
 
     - ``incubation_period``: Symptom development period length (known as incubation period in some contexts), i.e. time between exposure and symptoms appearing.
 
@@ -48,13 +63,19 @@ Data is either written as an ``int`` or a ``real``.
 
   - Int data
 
-    - ``withdrawn``: Marks whether the agent is withdrawn. 0 for not withdrawn, 1 for withdrawn.
+    - ``withdrawn``: Marks whether the agent is withdrawn (e.g. self-isolating). 0 for not withdrawn, 1 for withdrawn.
 
-    - ``status``: Ranges from 0 to 4, indicating disease status. Corresponds to never infected, infected, immune, susceptible, and dead, respectively.
+    - ``random_travel``: Whether the agent is currently away on random long-distance travel (-1 if not).
 
-    - ``symptomatic``: Ranges from 0 to 2, indicating symptomaticity. Corresponds to presymptomatic (not yet symptomatic but will be), symptomatic, and a symptomatic.
+    - ``air_travel``: Whether the agent is currently away on air travel (-1 if not).
 
-  - Real data
+    - ``weatherLookup``: Index into the active weather-data table for the agent's home unit; incremented weekly. Only meaningful if ``agent.weather_int > 0``.
+
+    - ``status`` (one block per disease): Disease status. Corresponds to never infected (0), infected (1), immune (2), susceptible (3), and dead (4) -- see ``Status`` in ``AgentDefinitions.H``.
+
+    - ``symptomatic`` (one block per disease): Symptomaticity. 0 for presymptomatic (not yet symptomatic but will be), 1 for symptomatic, 2 for asymptomatic (and will remain so).
+
+  - Real data (one block per disease)
 
     - ``treatment_timer``: Time that agent has been in hospital.
 
@@ -62,10 +83,14 @@ Data is either written as an ``int`` or a ``real``.
 
     - ``infection_prob``: Probability that agent is infected at end of day.
 
+  Note: a ``hospital_random`` real attribute (the random draw used to decide hospitalization)
+  also exists per-disease but is never included in plotfile/HDF5 output.
+
 Community data fields
 ---------------------
-All data is written as a real, although all data should be integers. If any community does not exist, its ``unit``, ``FIPS``, ``Tract``, and ``comm`` values will be -1, while all agent counts will be 0.
-Note: this data is specific to the ``agent.ic_type="census"``.
+All data is written as a real, although all data should be integers. If any community does not exist, its ``FIPS``, ``Tract``, and ``comm`` values will be -1, while all agent counts will be 0.
+With more than one disease, ``total``/``never_infected``/``infected``/``immune``/``susceptible``/``new_cases``
+are each repeated once per disease, prefixed with the disease's name (e.g. ``covid1_total``).
 
 - ``total``: Total population in community.
 
@@ -77,7 +102,7 @@ Note: this data is specific to the ``agent.ic_type="census"``.
 
 - ``susceptible``: Number of susceptible (recovered from disease long enough ago to be able to be infected again) agents in community.
 
-- ``unit``: Unit at cell.
+- ``new_cases``: Number of newly-infected agents in community on this day.
 
 - ``FIPS``: FIPS code (county code) of community.
 
@@ -145,7 +170,7 @@ We provide an example of parsing files using h5py and python:
           community_indices[comm_file.attrs["component_" + str(i)]] = i
       # community_indices is:
       # {b'total': 0, b'never_infected': 1, b'infected': 2, b'immune': 3,
-      #  b'susceptible': 4, b'unit': 5, b'FIPS': 6, b'Tract': 7, b'comm': 8}
+      #  b'susceptible': 4, b'new_cases': 5, b'FIPS': 6, b'Tract': 7, b'comm': 8}
 
       # For example, get the totals
       community_totals = comm_file["level_0"]["data:datatype=" + str(community_indices[b'total'])]

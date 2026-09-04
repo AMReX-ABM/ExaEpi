@@ -36,11 +36,19 @@ A similar script for setting up the environment for Frontier can be found in etc
 
 ## Running the code
 
-Navigate to build/bin and run the executable using one of the "inputs" files in "examples".
+Navigate to build/bin and run the executable using one of the "inputs.*" files in "examples".
+Run `./agent` with no arguments (or `./agent --help`) to print the full list of recognized
+parameters and their current defaults; `examples/inputs.defaults` lists the same information
+as a ready-to-edit inputs file.
+
+Each example points at an UrbanPop data file under `data/UrbanPop/`; the large ones are
+committed gzip'd (`*.bin.gz`) to keep the repository small, so gunzip the one you need first,
+e.g. `gunzip -k data/UrbanPop/urbanpop_nm.bin.gz`.
 
 For example:
     cd build/bin
-    ./agent ../../examples/inputs
+    gunzip -k ../../data/UrbanPop/urbanpop_nm.bin.gz
+    ./agent ../../examples/inputs.nm
 
 On Aurora at ALCF, if compiled with SYCL be sure to add "agent.fast=1" at the end of the command line to speed up the case initialization
 
