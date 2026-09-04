@@ -115,7 +115,7 @@ def parse_naics_descriptions(header_path):
     return codes
 
 
-def resolve_naics_size(fipstate, naics_code, cbp):
+def resolve_naics_size(fipstate, naics_code: str, cbp):
     """Look up the average establishment size for one (state, NAICS code) pair, climbing
     the NAICS hierarchy (truncating trailing digits, floor at 2 digits) if the exact code
     is suppressed at the state level. Returns (avg_size_or_None, note)."""
@@ -173,7 +173,7 @@ def write_table(rows, out_path, default_size, cap):
         f.write("# this file entirely inherit the live runtime value.\n")
         f.write(f"{len(rows)}\n")
         for fipstate, code, size in rows:
-            f.write(f"{int(fipstate)}\t{code}\t{size}\n")
+            f.write(f"{int(fipstate)} {code} {size}\n")
 
 
 def main():
