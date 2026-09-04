@@ -11,7 +11,8 @@ US_2010_Census_BlockGroups
 US_2010_Census_States
 US_2010_Census_County
 US_2010_Census_Tracts
-UrbanPop
+UrbanPop/*
+!UrbanPop/urbanpop_ca.bin.gz
 !UrbanPop/urbanpop_nm.bin.gz
 !UrbanPop/urbanpop_nm.idx
 !UrbanPop/density_nm.txt
