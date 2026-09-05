@@ -1011,8 +1011,8 @@ def alloc_workers(
     leftover = np.where(~assigned)[0]
     missing_geoid_set = set()
     if len(leftover) > 0:
-        warn(f"{len(leftover):,} of {num_workers:,} workers unfilled by destination demand -- "
-             "falling back to home-flow sampling for them")
+        warn(f"{len(leftover)} of {num_workers} workers ({100.0 * len(leftover) / num_workers:.1f}%%) "
+             "unfilled by destination demand -- falling back to home-flow sampling for them")
         home_data = {}
         for home_geoid_tuple, lodes_group in lodes_df.group_by("h_geocode", maintain_order=True):
             hg = home_geoid_tuple[0] if isinstance(home_geoid_tuple, tuple) else home_geoid_tuple
