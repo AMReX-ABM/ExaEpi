@@ -131,7 +131,7 @@ bool BlockGroup::read (std::istream& f) {
     return true;
 }
 
-static void readBlockGroupsFile (std::ifstream& urbanpop_file, Vector<BlockGroup>& block_groups) {
+static void readBlockGroupsFile (std::ifstream& urbanpop_file, Vector<BlockGroup>& block_groups, const bool verbose) {
     BL_PROFILE("readBlockGroupsFile");
     // Each process opens the file separately
     // Read file header
@@ -152,7 +152,7 @@ static void readBlockGroupsFile (std::ifstream& urbanpop_file, Vector<BlockGroup
         Abort("NAICS count mismatch: file has " + to_string(num_naics) + " but code expects " + to_string(NAICS_COUNT));
     }
 
-    if (ParallelDescriptor::IOProcessor()) {
+    if (verbose && ParallelDescriptor::IOProcessor()) {
         Print() << "Reading combined binary file version " << version << "\n";
         Print() << "  Index section: " << index_end_offset << " bytes\n";
         Print() << "  GEOIDs: " << num_geoids << "\n";
@@ -233,8 +233,7 @@ static Vector<int> readWorkgroupSizeTable (const std::string& fname, int default
     }
     if (ParallelDescriptor::IOProcessor()) {
         Print() << "Read " << nrows_read << " per-(state, NAICS) work-group sizes from " << fname << " (declared "
-                << nrows_declared << "); combinations not in the file use the flat "
-                << "default (" << default_size << ").\n";
+                << nrows_declared << ")\n";
     }
     return sizes;
 }
@@ -282,7 +281,7 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
     if (!urbanpop_file) { Abort("Failed to open file: " + fname); }
 
     // every rank reads all the block groups from the index file
-    readBlockGroupsFile(urbanpop_file, block_groups);
+    readBlockGroupsFile(urbanpop_file, block_groups, params.verbose);
     // now sort block groups by geoid to make all FIPS units consecutively grouped
     std::sort(block_groups.begin(), block_groups.end(), [] (const BlockGroup& bg1, const BlockGroup& bg2) {
         return bg1.geoid < bg2.geoid;
@@ -380,7 +379,7 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
     // block_groups is fully populated identically on every rank (readBlockGroupsFile reads the
     // whole index everywhere), so these three histograms need no cross-rank gather -- build and
     // print directly on the IOProcessor.
-    if (ParallelDescriptor::IOProcessor()) {
+    if (params.verbose && ParallelDescriptor::IOProcessor()) {
         std::map<Long, Long> home_size_hist, work_size_hist, naics_worker_hist;
         for (auto& bg : block_groups) {
             if (bg.home_population > 0) { home_size_hist[bg.home_population]++; }
@@ -745,7 +744,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
     // household/cluster occupant tallies are two-stage: first "how many agents share this ID"
     // (many distinct keys, per-rank-partial), now converted to "how many IDs have this occupant
     // count" (the actual histogram, few distinct keys, a small payload to gather)
-    {
+    if (params.verbose) {
         std::map<Long, Long> household_size_hist, cluster_size_hist;
         for (auto& kv : household_occupants) {
             household_size_hist[kv.second]++;
@@ -828,7 +827,7 @@ constexpr Real size_min_scale = 0.05_rt;
 constexpr Real size_max_scale = 20.0_rt;
 } // namespace
 
-amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockGroup>& block_groups) {
+amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockGroup>& block_groups, const bool verbose) {
     Vector<Real> scale(block_groups.size(), 1.0_rt);
     if (block_groups.empty()) { return scale; }
 
@@ -851,7 +850,7 @@ amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockG
         scale[c] = std::max(size_min_scale, std::min(size_max_scale, s));
     }
 
-    amrex::Print() << "SizeScale: " << block_groups.size() << " communities\n";
+    if (verbose) { amrex::Print() << "SizeScale: " << block_groups.size() << " communities\n"; }
 
     return scale;
 }
@@ -867,7 +866,7 @@ amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockG
  *  min_scale/max_scale with computeCommunitySizeScale (a decoupled sweep found no benefit to
  *  tuning them separately from the home/night values). The disease-specific overall magnitude
  *  (DiseaseParm::xmit_comm_scale) is applied separately, per-disease. */
-amrex::Vector<amrex::Real> computeCommunityWorkSizeScale (const amrex::Vector<amrex::Real>& day_population) {
+amrex::Vector<amrex::Real> computeCommunityWorkSizeScale (const amrex::Vector<amrex::Real>& day_population, const bool verbose) {
     Vector<Real> scale(day_population.size(), 1.0_rt);
     if (day_population.empty()) { return scale; }
 
@@ -892,7 +891,7 @@ amrex::Vector<amrex::Real> computeCommunityWorkSizeScale (const amrex::Vector<am
         scale[c] = std::max(size_min_scale, std::min(size_max_scale, s));
     }
 
-    amrex::Print() << "WorkSizeScale: " << day_population.size() << " communities\n";
+    if (verbose) { amrex::Print() << "WorkSizeScale: " << day_population.size() << " communities\n"; }
 
     return scale;
 }

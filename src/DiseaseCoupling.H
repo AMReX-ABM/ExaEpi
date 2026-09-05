@@ -66,7 +66,7 @@ struct DiseaseCouplingParm {
     }
 
     /*! Read inputs from file */
-    inline void ReadInputs (const std::string& a_prefix /*!< prefix */) {
+    inline void ReadInputs (const std::string& a_prefix /*!< prefix */, const bool verbose = false) {
         ParmParse pp(a_prefix);
         {
             auto key_str = "coimmunity_matrix";
@@ -83,21 +83,23 @@ struct DiseaseCouplingParm {
             }
         }
 
-        Print() << "Co-immunity matrix:\n";
-        for (int i = 0; i < m_n; i++) {
-            Print() << "    ";
-            for (int j = 0; j < m_n; j++) {
-                Print() << m_coimmune_mat[idx1D(i, j, m_n)] << "    ";
+        if (verbose) {
+            Print() << "Co-immunity matrix:\n";
+            for (int i = 0; i < m_n; i++) {
+                Print() << "    ";
+                for (int j = 0; j < m_n; j++) {
+                    Print() << m_coimmune_mat[idx1D(i, j, m_n)] << "    ";
+                }
+                Print() << "\n";
             }
-            Print() << "\n";
-        }
-        Print() << "Co-susceptibility matrix:\n";
-        for (int i = 0; i < m_n; i++) {
-            Print() << "    ";
-            for (int j = 0; j < m_n; j++) {
-                Print() << m_cosuscept_mat[idx1D(i, j, m_n)] << "    ";
+            Print() << "Co-susceptibility matrix:\n";
+            for (int i = 0; i < m_n; i++) {
+                Print() << "    ";
+                for (int j = 0; j < m_n; j++) {
+                    Print() << m_cosuscept_mat[idx1D(i, j, m_n)] << "    ";
+                }
+                Print() << "\n";
             }
-            Print() << "\n";
         }
 
         // copy to GPU

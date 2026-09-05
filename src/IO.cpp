@@ -57,8 +57,9 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
                     const int num_diseases,                        /*!< Number of diseases */
                     const std::vector<std::string>& disease_names, /*!< Names of diseases */
                     const Real cur_time,                           /*!< current time */
-                    const int step /*!< Current step */) {
-    amrex::Print() << "Writing plotfile \n";
+                    const int step,                                /*!< Current step */
+                    const bool verbose /*!< print a message when writing the plotfile */) {
+    if (verbose) { amrex::Print() << "Writing plotfile \n"; }
 
     // make sure status_names are in the same order as the struct Status in AgentDefinitions.H
     // these are the names per disease, which do not include "dead", which will be added once at the end of all the diseases

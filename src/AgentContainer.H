@@ -41,7 +41,8 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
   public:
     AgentContainer(const amrex::Geometry& a_geom, const amrex::DistributionMapping& a_dmap, const amrex::BoxArray& a_ba,
-                   const int& a_num_diseases, const std::vector<std::string>& a_disease_names, const bool fast);
+                   const int& a_num_diseases, const std::vector<std::string>& a_disease_names, const bool fast,
+                   const bool verbose = false);
 
     void morningCommute(amrex::MultiFab&);
 

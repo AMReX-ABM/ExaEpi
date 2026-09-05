@@ -126,6 +126,11 @@ struct TestParams {
 
     bool context_diag = false; /*!< If true, attribute infections to interaction contexts via snapshotProbs /
                                     sumContextInfections and write per-context columns to the output file. */
+
+    bool verbose = false;      /*!< If true, print additional detail to the output trace: all histograms
+                                    (see ExaEpi::Utils::printHistogram), per-hub/per-FIPS detail while
+                                    initializing infections, a message each time a plotfile is written, and
+                                    the per-day infection/death update. */
 };
 
 /*! \brief Namespace with utility functions */

@@ -23,7 +23,8 @@ namespace IO {
 
 void writePlotFile(const AgentContainer& pc, const MFPtrVec& a_disease_stats, const iMultiFab* unit_mf_ptr,
                    const iMultiFab* FIPS_mf_ptr, const iMultiFab* comm_mf_ptr, const int num_diseases,
-                   const std::vector<std::string>& disease_names, const Real cur_time, const int step);
+                   const std::vector<std::string>& disease_names, const Real cur_time, const int step,
+                   const bool verbose = false);
 
 void readCheckpointFile(const std::string restart_chkfile, AgentContainer& pc, MFPtrVec& a_disease_stats, iMultiFab* unit_mf_ptr,
                         iMultiFab* FIPS_mf_ptr, iMultiFab* comm_mf_ptr, Real& cur_time, int& step);

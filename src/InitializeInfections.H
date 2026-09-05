@@ -32,8 +32,9 @@ amrex::Vector<float> buildCommunityCumProb(const Vector<int>& unit_community_sta
 
 void setInitialCasesFromFile(AgentContainer& pc, CaseData& cases, const std::string& name, int d_idx,
                              const Vector<int>& FIPS_codes, const Vector<int>& unit_community_start,
-                             const Vector<float>& community_cum_prob, iMultiFab& comm_mf, const bool fast_bin);
+                             const Vector<float>& community_cum_prob, iMultiFab& comm_mf, const bool fast_bin,
+                             const bool verbose = false);
 
 void setInitialCasesRandom(AgentContainer& pc, int num_cases, const std::string& name, int d_idx, const Vector<int>& FIPS_codes,
                            const Vector<int>& unit_community_start, const Vector<float>& community_cum_prob, iMultiFab& comm_mf,
-                           const bool fast_bin);
+                           const bool fast_bin, const bool verbose = false);

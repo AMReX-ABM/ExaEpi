@@ -107,7 +107,8 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
                                 const amrex::BoxArray& a_ba,                     /*!< Box array */
                                 const int& a_num_diseases,                       /*!< Number of diseases */
                                 const std::vector<std::string>& a_disease_names, /*!< names of the diseases */
-                                const bool fast /*!< faster but non-deterministic computation*/)
+                                const bool fast,                                 /*!< faster but non-deterministic computation*/
+                                const bool verbose /*!< print additional detail to the output trace */)
     : amrex::ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>(a_geom, a_dmap, a_ba),
       comm_density_scale(a_ba, a_dmap, 1, 0), comm_density_scale_work(a_ba, a_dmap, 1, 0), m_mod_nborhood_day(true),
       m_mod_nborhood_night(false), m_mod_comm_day(true), m_mod_comm_night(false) {
@@ -152,7 +153,7 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
     }
 
     m_disease_coupling = std::make_unique<DiseaseCouplingParm<PTDType>>(m_num_diseases);
-    m_disease_coupling->ReadInputs("disease_coupling");
+    m_disease_coupling->ReadInputs("disease_coupling", verbose);
 
     max_attribute_values.fill(-1);
 }
@@ -624,7 +625,7 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(admin_size_max <= (Real)params.workgroup_size,
                                      "assignSchoolClasses: an admin group ended up larger than workgroup_size");
 
-    if (ParallelDescriptor::IOProcessor()) {
+    if (params.verbose && ParallelDescriptor::IOProcessor()) {
         Print() << "SchoolClasses: class size avg=" << (num_classes > 0 ? class_size_sum / num_classes : 0.0_rt)
                 << " min=" << (num_classes > 0 ? class_size_min : 0.0_rt) << " max=" << class_size_max << " (" << num_classes
                 << " classes)\n"
@@ -650,11 +651,13 @@ void AgentContainer::assignSchoolClasses (const ExaEpi::TestParams& params) {
         ExaEpi::Utils::printHistogram("Enrollment per (school_id, grade)", enrollment_hist, 50, 60, 0, true);
     }
 
-    amrex::Print() << "SchoolClasses: " << max_class_group << " school_class_group buckets total (" << num_classes
-                   << " real classes + " << num_admin << " admin pools) across " << max_school_id << " school_ids x " << max_grade
-                   << " grades (school_class_size=" << params.school_class_size << ", min=" << params.school_class_size_min
-                   << ", max=" << params.school_class_size_max
-                   << ", college_instructional_fraction=" << params.college_instructional_fraction << ")\n";
+    if (params.verbose) {
+        amrex::Print() << "SchoolClasses: " << max_class_group << " school_class_group buckets total (" << num_classes
+                       << " real classes + " << num_admin << " admin pools) across " << max_school_id << " school_ids x "
+                       << max_grade << " grades (school_class_size=" << params.school_class_size
+                       << ", min=" << params.school_class_size_min << ", max=" << params.school_class_size_max
+                       << ", college_instructional_fraction=" << params.college_instructional_fraction << ")\n";
+    }
 }
 
 /*! \brief Move agents randomly

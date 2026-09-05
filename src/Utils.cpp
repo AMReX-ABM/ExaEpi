@@ -83,6 +83,7 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
 
     pp.query("fast", params.fast);
     pp.query("context_diag", params.context_diag);
+    pp.query("verbose", params.verbose);
 }
 
 void ExaEpi::Utils::printHistogram (const std::string& label, const std::map<Long, Long>& value_counts, int max_distinct_buckets,

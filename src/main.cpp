@@ -148,6 +148,9 @@ void printHelp (const char* prog) {
     line("seed", "unset", "RNG seed");
     line("fast", fmt(tp.fast), "use fast, non-bitwise-reproducible implementations");
     line("context_diag", fmt(tp.context_diag), "attribute infections to interaction contexts in the output file");
+    line("verbose", fmt(tp.verbose),
+         "print additional detail: all histograms, initial-infection detail, plotfile-write messages, "
+         "and the per-day infection/death update");
     line("shelter_compliance", fmt(AgentContainer::default_shelter_compliance), "shelter-in-place compliance rate");
     line("symptomatic_withdraw_compliance_day_0", fmtArr(AgentContainer::default_symptomatic_withdraw_compliance_day_0), "");
     line("symptomatic_withdraw_compliance_day_1", fmtArr(AgentContainer::default_symptomatic_withdraw_compliance_day_1), "");
@@ -271,6 +274,20 @@ void overrideAmrexDefaults () {
 
     bool use_comms_arena = true;
     pp.queryAdd("use_comms_arena", use_comms_arena);
+
+    // Tie AMReX's own verbosity (which gates its GPU-memory / Arena-usage report at
+    // amrex::Finalize(), among other things) to agent.verbose, unless the user has explicitly
+    // set amrex.verbose/amrex.v themselves -- ExaEpi's own inputs file has been fully parsed into
+    // the ParmParse table by this point (this runs as amrex::Initialize()'s func_parm_parse
+    // callback, before AMReX reads its own "amrex.verbose"/"amrex.v"), so agent.verbose is already
+    // available to query here even though ExaEpi::Utils::getTestParams() itself runs later.
+    if (!pp.contains("verbose") && !pp.contains("v")) {
+        amrex::ParmParse pp_agent("agent");
+        bool agent_verbose = false;
+        pp_agent.query("verbose", agent_verbose);
+        int amrex_verbose = agent_verbose ? 1 : 0;
+        pp.add("verbose", amrex_verbose);
+    }
 
     amrex::ParmParse pp2("particles");
     // enable for CPUs, disable for GPUs
@@ -457,7 +474,7 @@ void runAgent () {
     MultiFab mask_behavior(ba, dm, 1, 0);
     mask_behavior.setVal(1);
 
-    AgentContainer pc(geom, dm, ba, params.num_diseases, params.disease_names, params.fast);
+    AgentContainer pc(geom, dm, ba, params.num_diseases, params.disease_names, params.fast, params.verbose);
     bool stable_redistribute = !params.fast;
     pc.setStableRedistribute(stable_redistribute);
 
@@ -504,17 +521,19 @@ void runAgent () {
                     CaseData cases;
                     cases.initFromFile(disease_params->disease_name, std::string(disease_params->case_filename));
                     setInitialCasesFromFile(pc, cases, disease_params->disease_name, d, urbanPopData.FIPS_codes,
-                                            unit_community_start_seed, community_cum_prob, urbanPopData.community_mf,
-                                            params.fast);
+                                            unit_community_start_seed, community_cum_prob, urbanPopData.community_mf, params.fast,
+                                            params.verbose);
                 } else {
                     setInitialCasesRandom(pc, disease_params->num_initial_cases, disease_params->disease_name, d,
                                           urbanPopData.FIPS_codes, unit_community_start_seed, community_cum_prob,
-                                          urbanPopData.community_mf, params.fast);
+                                          urbanPopData.community_mf, params.fast, params.verbose);
                 }
             }
 
-            pc.printStudentTeacherCounts();
-            pc.printAgeGroupCounts();
+            if (params.verbose) {
+                pc.printStudentTeacherCounts();
+                pc.printAgeGroupCounts();
+            }
 
             if (params.air_travel_int > 0) {
                 AirTravelDemoData airDemo{(int)urbanPopData.FIPS_codes.size(), urbanPopData.FIPS_codes, urbanPopData.Population,
@@ -531,7 +550,7 @@ void runAgent () {
         // restarted runs get the same scaling as a fresh run rather than silently reverting to flat
         // 1.0.
         if (params.size_scale_enabled) {
-            Vector<Real> comm_scale = computeCommunitySizeScale(urbanPopData.block_groups);
+            Vector<Real> comm_scale = computeCommunitySizeScale(urbanPopData.block_groups, params.verbose);
             Gpu::DeviceVector<Real> comm_scale_d(comm_scale.size());
             Gpu::copyAsync(Gpu::hostToDevice, comm_scale.begin(), comm_scale.end(), comm_scale_d.begin());
             Gpu::streamSynchronize();
@@ -554,7 +573,7 @@ void runAgent () {
         // since home_population isn't a meaningful covariate for the population physically present
         // in a community during the day.
         if (params.size_scale_enabled) {
-            Vector<Real> work_scale = computeCommunityWorkSizeScale(urbanPopData.day_population);
+            Vector<Real> work_scale = computeCommunityWorkSizeScale(urbanPopData.day_population, params.verbose);
             Gpu::DeviceVector<Real> work_scale_d(work_scale.size());
             Gpu::copyAsync(Gpu::hostToDevice, work_scale.begin(), work_scale.end(), work_scale_d.begin());
             Gpu::streamSynchronize();
@@ -687,7 +706,7 @@ void runAgent () {
             bool is_fresh_start = (i == start_day && params.restart_chkfile.empty());
             if ((params.plot_int > 0) && (i % params.plot_int == 0) && !is_fresh_start) {
                 ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
-                                          params.num_diseases, params.disease_names, cur_time, i);
+                                          params.num_diseases, params.disease_names, cur_time, i, params.verbose);
             }
 
             if ((params.check_int > 0) && (i % params.check_int == 0) && ((params.restart_chkfile == "") || (i != start_day))) {
@@ -860,7 +879,7 @@ void runAgent () {
                 // pre-assignment defaults.
                 if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
                     ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
-                                              params.num_diseases, params.disease_names, cur_time, i);
+                                              params.num_diseases, params.disease_names, cur_time, i, params.verbose);
                 }
             }
 
@@ -885,14 +904,16 @@ void runAgent () {
 
             std::chrono::duration<double> elapsed_time = std::chrono::high_resolution_clock::now() - start_time;
 
-            Print() << "[Day " << cur_time << " " << std::fixed << std::setprecision(1) << elapsed_time.count()
-                    << "s] infected: ";
-            for (int d = 0; d < params.num_diseases; d++) {
-                if (d > 0) { Print() << ", "; }
-                Print() << params.disease_names[d] << " " << num_infected[d];
+            if (params.verbose) {
+                Print() << "[Day " << cur_time << " " << std::fixed << std::setprecision(1) << elapsed_time.count()
+                        << "s] infected: ";
+                for (int d = 0; d < params.num_diseases; d++) {
+                    if (d > 0) { Print() << ", "; }
+                    Print() << params.disease_names[d] << " " << num_infected[d];
+                }
+                // the cumulative deaths are not tracked separately for each disease
+                Print() << "; deaths: " << cumulative_deaths[0] << "\n";
             }
-            // the cumulative deaths are not tracked separately for each disease
-            Print() << "; deaths: " << cumulative_deaths[0] << "\n";
 
             cur_time += 1.0_rt; // time step is one day
 
@@ -942,7 +963,7 @@ void runAgent () {
         print_age_breakdown(indent + "    ", cumulative_deaths_by_age[d]);
     };
 
-    amrex::Print() << "\n \n";
+    if (params.verbose) { amrex::Print() << "\n \n"; }
     if (params.num_diseases == 1) {
         print_disease_summary(0, "");
     } else {
@@ -951,11 +972,11 @@ void runAgent () {
             print_disease_summary(d, "    ");
         }
     }
-    amrex::Print() << "\n \n";
+    if (params.verbose) { amrex::Print() << "\n \n"; }
 
     if (params.plot_int > 0) {
         ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
-                                  params.num_diseases, params.disease_names, cur_time, params.nsteps);
+                                  params.num_diseases, params.disease_names, cur_time, params.nsteps, params.verbose);
     }
 
     if (params.check_int > 0) {
