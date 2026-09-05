@@ -15,6 +15,7 @@ import sys
 import time
 import polars as pl
 import numpy as np
+import scipy.sparse as sp
 import argparse
 import configparser
 import glob
@@ -777,9 +778,10 @@ def alloc_workers(
       3. Implied per-(destination, NAICS) demand is then rescaled so each NAICS's total across
          all destinations matches its true statewide worker count exactly (workers can be
          relocated, not invented or dropped).
-      4. Each NAICS's destinations are filled in descending order of demand, pulling workers
-         from that NAICS's still-unassigned pool weighted by their own home's real flow to that
-         destination -- never a destination a worker's home has zero real flow to.
+      4. (destination, NAICS) pairs are filled in descending order of that pair's own demand,
+         pulling workers from that pair's still-unassigned local pool weighted by their own
+         home's real flow to that destination -- never a destination a worker's home has zero
+         real flow to.
       5. Any worker left over (implausible demand, or a destination's real local supply ran out)
          falls back to plain per-worker home-flow sampling, same as the original algorithm.
     """
@@ -810,19 +812,23 @@ def alloc_workers(
     num_workers = len(workers_df)
     home_idx_of_worker = np.array([home_id[g] for g in home_geoid_arr])
 
-    # --- dense (dest x home) real flow matrix -- small enough at block-group scale (a few
-    # thousand geoids at most) that dense beats the bookkeeping overhead of sparse. ---
+    # --- sparse (dest x home) real flow matrix -- real LODES commute flow is extremely sparse
+    # (each home only reaches a handful of destinations), so a dense n_dest x n_home matrix
+    # wastes both memory and the matmul below by orders of magnitude at state/country scale;
+    # CSR also gives O(1) access to a destination's real candidate homes (its own row), which
+    # the fill loop below relies on to stay off the full per-NAICS worker pool. ---
     lodes_idx = lodes_df.with_columns(
         pl.col("w_geocode").replace_strict(dest_id, default=-1).alias("dest_idx"),
         pl.col("h_geocode").replace_strict(home_id, default=-1).alias("home_idx"),
     )
-    flow = np.zeros((n_dest, n_home), dtype=np.float64)
-    np.add.at(
-        flow,
-        (lodes_idx["dest_idx"].to_numpy(), lodes_idx["home_idx"].to_numpy()),
-        lodes_idx["count"].to_numpy().astype(np.float64),
+    flow = sp.csr_matrix(
+        (
+            lodes_idx["count"].to_numpy().astype(np.float64),
+            (lodes_idx["dest_idx"].to_numpy(), lodes_idx["home_idx"].to_numpy()),
+        ),
+        shape=(n_dest, n_home),
     )
-    dest_total = flow.sum(axis=1)
+    dest_total = np.asarray(flow.sum(axis=1)).ravel()
 
     # --- (home x naics) real population matrix, from the synthetic agents themselves -- this
     # is what makes a destination's random NAICS specialization respect actual local supply
@@ -839,7 +845,7 @@ def alloc_workers(
 
     # local_naics_weight[d, n]: how much real, commute-reachable NAICS-n supply exists for
     # destination d, combining real flow strength and real local population composition.
-    local_naics_weight = flow @ home_naics
+    local_naics_weight = np.asarray(flow @ home_naics)
 
     # --- how many discrete establishment "slots" each destination gets, sized by its real
     # total inbound flow relative to a typical establishment. ---
@@ -899,34 +905,105 @@ def alloc_workers(
             floor_vals[trim] -= 1
         demand_int[:, ni] = floor_vals
 
-    # --- fill: for each NAICS, pull from its still-unassigned worker pool into destinations in
-    # descending demand order, weighted by each candidate's own real flow to that destination. ---
+    # --- fill: destination-outer, home-inner.
+    #
+    # Three prior attempts at this loop (per-home Python dict loop; a vectorized-filter version
+    # of it; a NAICS-outer loop with a reusable dense weight buffer) all iterated NAICS-outer:
+    # for each of the ~250 NAICS codes, rescan every destination that wants it, and at each one
+    # touch every worker who has that NAICS -- an O(sum_NAICS(D_naics * W_naics)) cost that
+    # collapses to Theta(W^2 / (g * N_eff)) (g = avg establishment size, N_eff = 1/sum(p_naics^2),
+    # the *effective* NAICS count once real industry concentration is accounted for). That's
+    # quadratic in worker count where the original per-worker algorithm was linear (O(W * k), k =
+    # avg real commute destinations per home) -- verified against real CA data: N_eff ~= 43 (not
+    # 251), predicting ~275B weight-touches, matching the measured ~283s almost exactly.
+    #
+    # This version instead visits each destination once, and for each of the small number of
+    # NAICS it actually has demand for (measured on real CA data: avg ~13 distinct NAICS per
+    # destination, not 251), gathers candidates from its real candidate homes only (from the CSR
+    # row -- avg ~383 homes for CA). That bounds the dominant cost by
+    # sum_dest(N_dest * k_dest) ~= 429M on the same data -- ~600x fewer touches -- because it
+    # scales with local commute-shed size (a geographic constant) instead of a NAICS's entire
+    # statewide worker population.
+    #
+    # Candidates for a (destination, NAICS) pair live in per-(home, NAICS) pools: workers grouped
+    # by (home_idx, NAICS) once up front (a single lexsort, randomized within each group so
+    # picking from the front of a pool is already a random pick), addressed as contiguous slices
+    # of pool_rows via pool_start/pool_count (mutable -- pool_count shrinks as workers are
+    # assigned). Gathering the ragged set of candidate rows across several homes at once (no
+    # per-home Python loop) uses the standard vectorized ragged-arange trick: cumsum of group
+    # sizes gives each group's offset into a flat arange, so a single np.repeat/indexing pass
+    # produces the concatenated candidate rows and their (per-home-constant) weights.
     work_geoid_arr = np.empty(num_workers, dtype=object)
     assigned = np.zeros(num_workers, dtype=bool)
 
-    naics_values = [ni for ni in range(n_naics) if true_total_per_naics[ni] > 0]
-    ticker = ProgressTicker(f"Filling destinations for {len(naics_values)} NAICS codes: ", len(naics_values))
-    for k, ni in enumerate(naics_values):
-        ticker.update(k)
-        rows = np.where(naics_arr == ni)[0]
-        rows_home_idx = home_idx_of_worker[rows]
-        active = np.ones(len(rows), dtype=bool)
-        demand_col = demand_int[:, ni]
-        dest_order = np.where(demand_col > 0)[0]
-        dest_order = dest_order[np.argsort(-demand_col[dest_order])]
-        for d in dest_order:
-            if not active.any():
-                break
-            target_count = int(demand_col[d])
-            weights = np.where(active, flow[d, rows_home_idx], 0.0)
-            nz = np.where(weights > 0)[0]
-            if len(nz) == 0:
-                continue
-            k_pull = min(target_count, len(nz))
-            chosen = np.random.choice(nz, size=k_pull, replace=False, p=weights[nz] / weights[nz].sum())
-            work_geoid_arr[rows[chosen]] = dest_geoids[d]
-            assigned[rows[chosen]] = True
-            active[chosen] = False
+    valid_worker = np.where(naics_arr >= 0)[0]
+    combo = home_idx_of_worker[valid_worker].astype(np.int64) * n_naics + naics_arr[valid_worker].astype(
+        np.int64
+    )
+    rand_keys = np.random.random(len(valid_worker))
+    combo_order = np.lexsort((rand_keys, combo))  # groups by combo, randomized within each group
+    pool_rows = valid_worker[combo_order]
+    sorted_combo = combo[combo_order]
+    uniq_combo, combo_start, combo_count = np.unique(sorted_combo, return_index=True, return_counts=True)
+    pool_start = np.zeros(n_home * n_naics, dtype=np.int64)
+    pool_count = np.zeros(n_home * n_naics, dtype=np.int64)
+    pool_start[uniq_combo] = combo_start
+    pool_count[uniq_combo] = combo_count
+
+    # Visit (destination, NAICS) pairs in descending order of that pair's own demand -- mirrors
+    # the original per-NAICS loop's "largest demand first" ordering, but globally, so one huge
+    # multi-industry hub can't monopolize a shared home's supply across *every* NAICS before any
+    # smaller destination gets a turn at even one (sorting destinations by their total demand
+    # first, tried before this, did exactly that -- CA's leftover-fallback rate nearly doubled
+    # versus this global ordering, 3.96% vs 1.69% of workers).
+    pair_dest, pair_naics = np.where(demand_int > 0)
+    pair_order = np.argsort(-demand_int[pair_dest, pair_naics])
+    pair_dest = pair_dest[pair_order]
+    pair_naics = pair_naics[pair_order]
+
+    ticker = ProgressTicker(f"Filling {len(pair_dest)} (destination, NAICS) pairs: ", len(pair_dest))
+    for pi in range(len(pair_dest)):
+        ticker.update(pi)
+        d = int(pair_dest[pi])
+        ni = int(pair_naics[pi])
+        d_homes = flow.indices[flow.indptr[d] : flow.indptr[d + 1]]
+        if len(d_homes) == 0:
+            continue
+        d_weights = flow.data[flow.indptr[d] : flow.indptr[d + 1]]
+        target_count = int(demand_int[d, ni])
+        combo_idx = d_homes * n_naics + ni
+        counts = pool_count[combo_idx]
+        hit = counts > 0
+        if not hit.any():
+            continue
+        starts_m = pool_start[combo_idx[hit]]
+        counts_m = counts[hit]
+        weights_m = d_weights[hit]
+        total = int(counts_m.sum())
+        group_off = np.cumsum(counts_m) - counts_m
+        local_idx = np.arange(total) - np.repeat(group_off, counts_m)
+        offsets = np.repeat(starts_m, counts_m) + local_idx
+        cand_rows = pool_rows[offsets]
+        cand_weights = np.repeat(weights_m, counts_m)
+        k_pull = min(target_count, total)
+        if k_pull <= 0:
+            continue
+        chosen_local = np.random.choice(
+            total, size=k_pull, replace=False, p=cand_weights / cand_weights.sum()
+        )
+        chosen_rows = cand_rows[chosen_local]
+        work_geoid_arr[chosen_rows] = dest_geoids[d]
+        assigned[chosen_rows] = True
+        # compact only the (home, NAICS) pools actually drawn from, so future lookups never
+        # see an already-assigned worker
+        for h in np.unique(home_idx_of_worker[chosen_rows]).tolist():
+            cidx = h * n_naics + ni
+            s = pool_start[cidx]
+            c = pool_count[cidx]
+            block = pool_rows[s : s + c]
+            keep = block[~assigned[block]]
+            pool_rows[s : s + len(keep)] = keep
+            pool_count[cidx] = len(keep)
     ticker.finish()
 
     # --- leftover fallback: implausible demand or exhausted local supply -- same plain
@@ -1256,9 +1333,14 @@ def alloc_students(schools_df: pl.DataFrame, students_df: pl.DataFrame) -> pl.Da
 
 
 def check_school_id_correlation(
-    students_df: pl.DataFrame, schools_df: pl.DataFrame, description: str
+    students_df: pl.DataFrame, schools_df: pl.DataFrame, description: str, count_col: str = "students"
 ):
-    # now check correlation of generated data with actual schools data, for each named school size
+    # now check correlation of generated data with actual schools data, for each named school size.
+    # count_col selects the real-data ground truth to compare against -- "students" for a student
+    # check, "teachers" for a teacher check (both columns come from schools_with_geoids.csv). Always
+    # comparing against "students" here, even for teachers, silently made every teacher check
+    # compare a ~50k generated teacher count against a ~530k real *student* count -- a real bug, not
+    # a sign of a teacher-allocation problem.
     gen_schools_df = students_df.group_by("school_id", maintain_order=True).agg(
         pl.len().alias("students")
     )
@@ -1267,7 +1349,9 @@ def check_school_id_correlation(
     # only merge in the matching schools from the actual data, since that consists of potentially
     # many more schools than we are using for this subset (e.g. if we are doing a single state)
     merged_df = gen_schools_df.join(
-        schools_check_df.select(["key", "students"]), on="key", how="left", suffix="_orig"
+        schools_check_df.select(["key", count_col]).rename({count_col: "students_orig"}),
+        on="key",
+        how="left",
     ).select(["key", "students", "students_orig"])
     merged_df = merged_df.with_columns(
         [
@@ -1287,21 +1371,22 @@ def check_school_id_correlation(
 
 
 def check_school_geoid_correlation(
-    students_df: pl.DataFrame, schools_df: pl.DataFrame, description: str
+    students_df: pl.DataFrame, schools_df: pl.DataFrame, description: str, count_col: str = "students"
 ):
-    # now check correlation for location (geoid)
+    # now check correlation for location (geoid). count_col selects the real-data ground truth --
+    # "students" for a student check, "teachers" for a teacher check -- see check_school_id_correlation.
     gen_schools_df = students_df.group_by(["work_geoid"], maintain_order=True).agg(
         pl.len().alias("count")
     )
     gen_schools_df = gen_schools_df.with_columns([pl.col("work_geoid").cast(pl.Utf8).alias("key")])
     schools_check_df = schools_df.group_by(["geoid"], maintain_order=True).agg(
-        pl.col("students").sum().alias("count")
+        pl.col(count_col).sum().alias("count_orig")
     )
     schools_check_df = schools_check_df.with_columns([pl.col("geoid").cast(pl.Utf8).alias("key")])
     # only merge in the matching schools from the actual data, since that consists of potentially
     # many more schools than we are using for this subset (e.g. if we are doing a single state)
     merged_df = gen_schools_df.join(
-        schools_check_df.select(["key", "count"]), on="key", how="left", suffix="_orig"
+        schools_check_df.select(["key", "count_orig"]), on="key", how="left"
     ).select(["key", "count", "count_orig"])
     merged_df = merged_df.with_columns(
         [
@@ -2187,11 +2272,11 @@ def main():
     check_school_id_correlation(
         students_df.filter(pl.col("school_id") != ""), schools_df, "Students"
     )
-    check_school_id_correlation(teachers_df, schools_df, "Teachers")
+    check_school_id_correlation(teachers_df, schools_df, "Teachers", count_col="teachers")
     check_school_geoid_correlation(
         students_df.filter(pl.col("school_id") != ""), schools_df, "Students"
     )
-    check_school_geoid_correlation(teachers_df, schools_df, "Teachers")
+    check_school_geoid_correlation(teachers_df, schools_df, "Teachers", count_col="teachers")
     print_school_counts(students_df, workers_df)
     df = concat_all(workers_df, students_df, unemp_df)
     df = df.with_columns([pl.col("grade").cast(pl.Int8)])
