@@ -161,6 +161,15 @@ def reconstruct_epicast_snapshot(events_df, demog_df, day=None, county_level=Fal
     immune = last_events[last_events.disease_state == "recovered"].groupby("tract_fips").size()
     infected = last_events[last_events.disease_state.isin(_ACTIVE_STATES)].groupby("tract_fips").size()
 
+    grid_stats_df = _grid_stats_from_counts(demog_df, immune, infected, county_level)
+    return grid_stats_df, day
+
+
+def _grid_stats_from_counts(demog_df, immune, infected, county_level):
+    """Build the (GEOID10, pop, never_infected, infected, immune) snapshot DataFrame given per-tract
+    immune/infected counts (Series indexed by tract_fips) -- shared by reconstruct_epicast_snapshot
+    and iter_epicast_snapshots so both apply identical never_infected/clipping/aggregation logic.
+    """
     grid_stats_df = demog_df.rename(columns={"fips": "tract_fips", "total": "pop"})[["tract_fips", "pop"]].copy()
     grid_stats_df = grid_stats_df.set_index("tract_fips")
     grid_stats_df["immune"] = immune
@@ -177,7 +186,130 @@ def reconstruct_epicast_snapshot(events_df, demog_df, day=None, county_level=Fal
     grid_stats_df = grid_stats_df[["GEOID10", "pop", "never_infected", "infected", "immune"]]
     if county_level:
         grid_stats_df = aggregate_to_county(grid_stats_df, input_level="tract")
-    return grid_stats_df, day
+    return grid_stats_df
+
+
+def iter_epicast_snapshots(events_df, demog_df, days, county_level=False):
+    """Like reconstruct_epicast_snapshot, but reconstructs a whole sequence of daily snapshots in
+    one pass, reusing state across days instead of restarting from scratch each time.
+
+    reconstruct_epicast_snapshot always re-derives every agent's last known disease_state from
+    timestep 0, so calling it once per day in a loop (as plot_gini_timeseries.py does) redoes all
+    of the earlier days' work again on every later call -- the per-call cost grows with the day
+    being reconstructed, so such a loop is quadratic in the number of days overall. This instead
+    sorts the event log by timestep once, then walks it a single time, only re-deriving the last
+    state for agents whose events fall in the (small) slice between the previous and current
+    cutoff, and maintains running per-tract immune/infected counts incrementally rather than
+    re-aggregating from every event seen so far -- so the whole sequence costs O(total events)
+    once, not O(total events) per requested day.
+
+    `days` may be given in any order and may repeat; each is independently clamped to the last
+    available day exactly as reconstruct_epicast_snapshot does. Yields (day, grid_stats_df) pairs,
+    one per entry of `days`, in the same order as `days` itself.
+    """
+    max_day = (int(events_df.timestep.max()) + 1) // 2
+    resolved = []
+    for requested_day in days:
+        day = requested_day
+        if day > max_day:
+            print(f"WARNING: requested day {day} exceeds the last available day ({max_day}); using {max_day} instead")
+            day = max_day
+        resolved.append(day)
+
+    resolved_cutoffs = [0 if d == 0 else 2 * d - 1 for d in resolved]
+    cutoffs = sorted(set(resolved_cutoffs))
+    day_by_cutoff = {(0 if d == 0 else 2 * d - 1): d for d in resolved}
+
+    sorted_events = events_df.sort_values("timestep", kind="stable")
+    timesteps = sorted_events["timestep"].to_numpy()
+    agent_ids = sorted_events["true_agent_id"].to_numpy()
+    disease_states = sorted_events["disease_state"].to_numpy()
+    tract_fips = sorted_events["tract_fips"].to_numpy()
+    n = len(sorted_events)
+
+    # Per-agent last-known state as of the current cutoff, held as dense arrays indexed directly by
+    # true_agent_id (Epicast assigns these as small dense integers, not sparse/hashed IDs) so that
+    # both looking up an agent's previous state and recording its new one are vectorized numpy
+    # gather/scatter operations over just this chunk's agents, not a Python-level loop -- with a
+    # dict-based version of this same state, those two loops dominated the total run time (their
+    # per-iteration cost is tiny, but there can be millions of iterations in a single chunk during
+    # an outbreak's peak, and the interpreter overhead of a Python loop adds up fast at that scale).
+    n_agents = int(agent_ids.max()) + 1
+    state_tract = np.full(n_agents, -1, dtype=np.int64)  # -1 = agent not seen yet
+    state_category = np.zeros(n_agents, dtype=np.int8)  # meaningful only where state_tract != -1; 1=immune, 2=infected
+    immune_counts = pd.Series(dtype=float)
+    infected_counts = pd.Series(dtype=float)
+
+    snapshots = {}
+    pos = 0
+    next_to_yield = 0
+    for cutoff in cutoffs:
+        end = pos
+        while end < n and timesteps[end] <= cutoff:
+            end += 1
+        if end > pos:
+            # Resolve each agent's last state within just this slice of new events (mirroring the
+            # groupby("true_agent_id")["timestep"].idxmax() in reconstruct_epicast_snapshot, but
+            # over the much smaller slice instead of the whole cumulative event set).
+            chunk_df = pd.DataFrame({
+                "true_agent_id": agent_ids[pos:end],
+                "timestep": timesteps[pos:end],
+                "disease_state": disease_states[pos:end],
+                "tract_fips": tract_fips[pos:end],
+            })
+            chunk_last = chunk_df.loc[chunk_df.groupby("true_agent_id")["timestep"].idxmax()].set_index("true_agent_id")
+
+            target_ids = chunk_last.index.to_numpy()
+            new_tract = chunk_last["tract_fips"].to_numpy()
+            new_category = np.where(
+                chunk_last["disease_state"].to_numpy() == "recovered",
+                1,
+                np.where(chunk_last["disease_state"].isin(_ACTIVE_STATES).to_numpy(), 2, 0),
+            ).astype(np.int8)
+
+            # Gather this chunk's agents' PREVIOUS state (a vectorized numpy gather, not a Python
+            # loop over potentially millions of agents) so its contribution to the running counts
+            # can be undone before the new state below is applied.
+            old_tract = state_tract[target_ids]
+            old_category = state_category[target_ids]
+            has_old = old_tract != -1
+            if has_old.any():
+                old_tract_seen = old_tract[has_old]
+                old_category_seen = old_category[has_old]
+                immune_counts = immune_counts.subtract(
+                    pd.Series(old_tract_seen[old_category_seen == 1]).value_counts(), fill_value=0
+                )
+                infected_counts = infected_counts.subtract(
+                    pd.Series(old_tract_seen[old_category_seen == 2]).value_counts(), fill_value=0
+                )
+
+            immune_counts = immune_counts.add(pd.Series(new_tract[new_category == 1]).value_counts(), fill_value=0)
+            infected_counts = infected_counts.add(
+                pd.Series(new_tract[new_category == 2]).value_counts(), fill_value=0
+            )
+
+            # Record the new state -- a vectorized scatter; target_ids has no duplicates here since
+            # chunk_last already holds exactly one (last-by-timestep) row per agent.
+            state_tract[target_ids] = new_tract
+            state_category[target_ids] = new_category
+
+            pos = end
+
+        day = day_by_cutoff[cutoff]
+        print(f"Reconstructing snapshot at day {day} (timestep <= {cutoff})")
+        snapshots[cutoff] = _grid_stats_from_counts(demog_df, immune_counts, infected_counts, county_level)
+
+        # Yield any requested days that are now ready, in their original request order -- for the
+        # common case of non-decreasing requested days this means each day is handed back right
+        # after its own (incremental) computation, instead of only after the entire sequence of
+        # cutoffs has been processed.
+        while next_to_yield < len(resolved) and resolved_cutoffs[next_to_yield] in snapshots:
+            yield resolved[next_to_yield], snapshots[resolved_cutoffs[next_to_yield]]
+            next_to_yield += 1
+
+    while next_to_yield < len(resolved):
+        yield resolved[next_to_yield], snapshots[resolved_cutoffs[next_to_yield]]
+        next_to_yield += 1
 
 
 def _is_aggregated_file(path):

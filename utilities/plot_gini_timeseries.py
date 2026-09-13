@@ -30,7 +30,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from plot_geo import load_exaepi_grid_stats, _parse_day_from_filename, reconstruct_epicast_snapshot  # noqa: E402
+from plot_geo import load_exaepi_grid_stats, _parse_day_from_filename, iter_epicast_snapshots  # noqa: E402
 from read_epicast_events import read_events_bin  # noqa: E402
 from plos_compbio_style import apply_style, HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN, AXES_LINEWIDTH  # noqa: E402
 
@@ -208,10 +208,8 @@ def main():
         days = args.days if args.days is not None else list(range(0, max_day + 1))
         values = []
         geoid_order, W = None, None
-        for day in days:
-            grid_stats_df, resolved_day = reconstruct_epicast_snapshot(
-                events_df, demog_df, day=day, county_level=args.county_level
-            )
+        snapshots = iter_epicast_snapshots(events_df, demog_df, days, county_level=args.county_level)
+        for resolved_day, grid_stats_df in snapshots:
             if args.metric == "moran":
                 if geoid_order is None:
                     geoid_order, W = _prepare_geo_weights(shp_data, grid_stats_df, geo_unit)
