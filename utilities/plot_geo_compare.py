@@ -42,11 +42,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from plot_geo import (  # noqa: E402
     load_exaepi_grid_stats,
     _parse_day_from_filename,
-    reconstruct_epicast_snapshot,
+    iter_epicast_snapshots,
     expand_aggregated_files,
     compare_day,
 )
 from read_epicast_events import read_events_bin  # noqa: E402
+from geo_agg_utils import aggregate_to_county  # noqa: E402
 from plos_compbio_style import apply_style, HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN  # noqa: E402
 
 
@@ -144,27 +145,48 @@ def main():
     exaepi_files = expand_aggregated_files(args.exaepi_files)
     print(f"Comparing {len(exaepi_files)} days:", ", ".join(os.path.basename(f) for f in exaepi_files))
 
-    rows = []
-    scatter_panels = []
+    day_infos = []
     for csv_path in exaepi_files:
         parsed_day = _parse_day_from_filename(csv_path)
         if parsed_day is None:
             raise SystemExit(f"Could not parse a day number from file name: {csv_path}")
         day = parsed_day + args.exaepi_day_shift
-
-        exaepi_df = load_exaepi_grid_stats(
-            csv_path, tract_level=not args.county_level, county_level=args.county_level
-        )
         epicast_day = day + args.epicast_day_offset
-        epicast_df, resolved_day = reconstruct_epicast_snapshot(
-            events_df, demog_df, day=epicast_day, county_level=args.county_level
-        )
+        day_infos.append((csv_path, parsed_day, day, epicast_day))
+
+    # Reconstruct every requested Epicast day's TRACT-level snapshot in one incremental pass over
+    # the shared event log, instead of the loop below re-deriving each day's whole disease-state
+    # history from scratch (which is what calling reconstruct_epicast_snapshot once per day here
+    # used to do -- see iter_epicast_snapshots for why that's quadratic in the number of days).
+    # Always reconstructed at tract level, since the summary plot's county-level series can be had
+    # far more cheaply below via aggregate_to_county() on this same result, rather than by running a
+    # second full incremental pass at county level.
+    epicast_tract_snapshots = list(
+        iter_epicast_snapshots(events_df, demog_df, [info[3] for info in day_infos], county_level=False)
+    )
+
+    rows = []
+    scatter_panels = []
+    for (csv_path, parsed_day, day, epicast_day), (resolved_day, epicast_tract_df) in zip(
+        day_infos, epicast_tract_snapshots
+    ):
         if resolved_day != epicast_day:
             print(
                 f"WARNING: {csv_path} (ExaEpi day {parsed_day}, shifted to {day}) requested Epicast "
                 f"day {epicast_day} (shifted ExaEpi day {day} + offset {args.epicast_day_offset}), "
                 f"but Epicast clamped it to day {resolved_day}"
             )
+
+        exaepi_tract_df = load_exaepi_grid_stats(csv_path, tract_level=True)
+        exaepi_county_df = load_exaepi_grid_stats(csv_path, county_level=True)
+        epicast_county_df = aggregate_to_county(epicast_tract_df, input_level="tract")
+
+        if args.county_level:
+            exaepi_df, epicast_df = exaepi_county_df, epicast_county_df
+            other_exaepi_df, other_epicast_df = exaepi_tract_df, epicast_tract_df
+        else:
+            exaepi_df, epicast_df = exaepi_tract_df, epicast_tract_df
+            other_exaepi_df, other_epicast_df = exaepi_county_df, epicast_county_df
 
         rho, pval, r, rmse, r_log, rmse_log, n, merged_df = compare_day(exaepi_df, epicast_df)
         if rho is None:
@@ -173,15 +195,8 @@ def main():
 
         # The summary plot always shows Pearson's r at both geographic levels, regardless of
         # --county_level (which only picks the level used for the diagnostics below and the
-        # scatter plot). Reload/reconstruct at whichever level wasn't already loaded above, so
-        # both r_tract and r_county are available.
-        other_county_level = not args.county_level
-        other_exaepi_df = load_exaepi_grid_stats(
-            csv_path, tract_level=not other_county_level, county_level=other_county_level
-        )
-        other_epicast_df, _ = reconstruct_epicast_snapshot(
-            events_df, demog_df, day=epicast_day, county_level=other_county_level
-        )
+        # scatter plot) -- other_exaepi_df/other_epicast_df (the level not selected above) supply
+        # that second series.
         _, _, other_r, _, _, _, other_n, _ = compare_day(other_exaepi_df, other_epicast_df)
         r_tract, n_tract = (r, n) if not args.county_level else (other_r, other_n)
         r_county, n_county = (r, n) if args.county_level else (other_r, other_n)
