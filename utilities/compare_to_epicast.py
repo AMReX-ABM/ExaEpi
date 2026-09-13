@@ -629,8 +629,24 @@ def _smoothed_minmax_band(y_mat, window=_ENVELOPE_SMOOTH_WINDOW):
     Returns (lo, hi), both smoothed, same length as y_mat's columns.
     """
     kernel = np.ones(window) / window
-    lo = np.convolve(y_mat.min(axis=0), kernel, mode="same")
-    hi = np.convolve(y_mat.max(axis=0), kernel, mode="same")
+    pad = window // 2
+
+    def _smooth(y):
+        # Edge-pad before convolving (then keep only the "valid", fully-overlapping positions)
+        # instead of plain np.convolve(y, kernel, mode="same"): "same" mode implicitly zero-pads
+        # past the array's ends, so for the last/first `pad` days the average silently mixes in
+        # phantom zeros instead of real data. That's invisible on a series whose true value is
+        # already near zero out there (an epidemic curve's tail), but for a monotonically
+        # increasing series like cumulative exposed -- genuinely near its plateau maximum at the
+        # tail, not near zero -- it drags the last few smoothed days down toward zero for no
+        # reason (confirmed directly: ca-p01.png's Cumulative Exposed band plunged from ~24.29M to
+        # ~13.47M over the last 4 days purely from this, even though every underlying run's actual
+        # value there was still ~24.29M). Edge-padding holds the boundary value instead of
+        # inventing zeros, so the smoothed boundary tracks the real data.
+        return np.convolve(np.pad(y, pad, mode="edge"), kernel, mode="valid")
+
+    lo = _smooth(y_mat.min(axis=0))
+    hi = _smooth(y_mat.max(axis=0))
     return lo, hi
 
 
