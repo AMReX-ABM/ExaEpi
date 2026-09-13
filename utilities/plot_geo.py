@@ -74,7 +74,7 @@ def load_exaepi_grid_stats(csv_path, tract_level=False, county_level=False):
     grid_stats_df["GEOID10"] = grid_stats_df["GEOID10"].astype("int64")
 
     if county_level:
-        grid_stats_df = aggregate_to_county(grid_stats_df)
+        grid_stats_df = aggregate_to_county(grid_stats_df, input_level="block_group")
     elif tract_level:
         # Drop the last digit (the block group number) to get the 11-digit Census tract GEOID,
         # then sum every block group that shares a tract into one row before merging with a
@@ -176,7 +176,7 @@ def reconstruct_epicast_snapshot(events_df, demog_df, day=None, county_level=Fal
     grid_stats_df["GEOID10"] = grid_stats_df["tract_fips"].astype("int64")
     grid_stats_df = grid_stats_df[["GEOID10", "pop", "never_infected", "infected", "immune"]]
     if county_level:
-        grid_stats_df = aggregate_to_county(grid_stats_df)
+        grid_stats_df = aggregate_to_county(grid_stats_df, input_level="tract")
     return grid_stats_df, day
 
 
