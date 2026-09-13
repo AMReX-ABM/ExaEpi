@@ -81,5 +81,5 @@
   // reconfigured from scratch every time, since a stale CMakeCache.txt from a prior CUDA
   // toolkit version (e.g. after bumping the base image) can cache now-invalid toolchain
   // paths/library versions rather than just failing loudly.
-  "postCreateCommand": "sudo npm install -g @anthropic-ai/claude-code && rm -rf .build/CUDA/Release .build/CUDA/Debug && cmake -S . -B .build/CUDA/Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DAMReX_OMP=ON -DAMReX_GPU_BACKEND=CUDA -DCMAKE_CXX_COMPILER_LAUNCHER=ccache && cmake -S . -B .build/CUDA/Debug -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DAMReX_OMP=ON -DAMReX_GPU_BACKEND=CUDA -DCMAKE_CXX_COMPILER_LAUNCHER=ccache && ln -sf .build/CUDA/Release/compile_commands.json compile_commands.json"
+  "postCreateCommand": "sudo npm install -g @anthropic-ai/claude-code && git config core.hooksPath .githooks && rm -rf .build/CUDA/Release .build/CUDA/Debug && cmake -S . -B .build/CUDA/Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DAMReX_OMP=ON -DAMReX_GPU_BACKEND=CUDA -DCMAKE_CXX_COMPILER_LAUNCHER=ccache && cmake -S . -B .build/CUDA/Debug -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DAMReX_OMP=ON -DAMReX_GPU_BACKEND=CUDA -DCMAKE_CXX_COMPILER_LAUNCHER=ccache && ln -sf .build/CUDA/Release/compile_commands.json compile_commands.json"
 }
