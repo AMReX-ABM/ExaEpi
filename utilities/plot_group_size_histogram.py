@@ -188,7 +188,7 @@ def main():
     if args.field == "community":
         # Two overlaid series -- residential (home) vs daytime (work) population per community
         # -- rather than the single series every other --field produces.
-        series_list = [("Home", home_community_sizes(ds)), ("Work", work_community_sizes(ds))]
+        series_list = [("Nighttime", home_community_sizes(ds)), ("Daytime", work_community_sizes(ds))]
     elif args.field == "neighborhood":
         series_list = [(plural.capitalize(), neighborhood_sizes(ds))]
     else:
@@ -204,7 +204,11 @@ def main():
         sys.exit(f"--logx requires strictly positive {stat_noun}s, but the minimum is {all_sizes.min()}")
 
     fig, ax = plt.subplots(figsize=(HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN), layout="constrained")
-    left_edge = float(all_sizes.min()) if args.logx else 0
+    # Anchor the view at the 0.1th percentile rather than the true minimum, in both log and linear
+    # mode: the smallest handful of communities/groups can be extreme outliers (e.g. a
+    # single-worker block group in an otherwise unpopulated area) that would otherwise stretch the
+    # axis across a long, nearly-empty stretch for very little data.
+    left_edge = float(np.percentile(all_sizes, 0.1))
     colors = ["tab:blue", "tab:red", "tab:green", "tab:orange"]
 
     def print_stats(name, sizes):
@@ -249,26 +253,42 @@ def main():
         overall_min = all_sizes.min()
         data_max = all_sizes.max()
         bin_max = min(data_max, args.xlim) if args.xlim is not None else data_max
-        span = int(bin_max - overall_min)
+        # Bins are sized from bin_min (defaulting to left_edge, the 0.1th-percentile anchor
+        # chosen above, not overall_min) in both log and linear mode -- otherwise the excluded
+        # bottom 0.1% would still stretch the bins across a long, nearly-empty range even though
+        # the view itself doesn't show it (the same reasoning --xlim already applies to bin_max
+        # on the right).
+        bin_min = overall_min
+        span = int(bin_max - left_edge)
         if args.logx:
             # Linear (equal-width) bins would render as ever-narrower, unreadable slivers
             # once the x axis is log-scaled, since most of them get squeezed into the
             # rightmost decade. Log-spaced bins keep them visually even instead.
             max_bins = args.bins if args.bins is not None else 50
-            bins = log_spaced_integer_bins(overall_min, bin_max, max_bins=max_bins)
+            bin_min = left_edge
+            bins = log_spaced_integer_bins(bin_min, bin_max, max_bins=max_bins)
         elif args.bins is not None:
             bins = args.bins
         elif span <= MAX_INTEGER_BINS:
-            bins = np.arange(overall_min - 0.5, bin_max + 1.5, 1.0).tolist()
+            # Round to the nearest integer so bin edges stay half-integer (X.5), keeping every
+            # bin centered on a whole size value the way the un-skipped range already was.
+            bin_min = round(left_edge)
+            bins = np.arange(bin_min - 0.5, bin_max + 1.5, 1.0).tolist()
         else:
-            bins = nice_linear_bins(overall_min, bin_max).tolist()
+            bin_min = left_edge
+            bins = nice_linear_bins(bin_min, bin_max).tolist()
         if not isinstance(bins, int):
-            # nice_linear_bins() (and the integer scheme) anchor bin centers/edges relative to
-            # the data, but nice_linear_bins can still put a bin's left edge below 0 even
-            # though the data's own minimum is well above it. Forcing the view to start exactly
-            # at 0 would then clip that bin in half; starting it at the bin's own left edge
-            # instead always shows the full first bar.
-            left_edge = bins[0]
+            # Check the bins actually produced, not bin_min itself: nice_linear_bins() can (via
+            # its "nice" rounding) undershoot its own first edge below overall_min on its own --
+            # skipping bin_min's whole percentile range in that case -- in which case there's
+            # already a bin covering everything down to the true min and no gap to fill.
+            if bins[0] > overall_min:
+                # The excluded bottom 0.1% still needs a bin of its own, so the histogram/density
+                # normalization reflects ALL the data -- it's just outside the view once
+                # ax.set_xlim(left=...) clips below left_edge, exactly like the catch-all bin
+                # below handles the >bin_max side for --xlim.
+                bins = np.concatenate(([overall_min], bins))
+            bins = np.asarray(bins).tolist()
         if bin_max < data_max and not isinstance(bins, int):
             # nice_linear_bins() (and the integer scheme) can both overshoot bin_max by up to
             # one bin width, which -- for an xlim close enough to the true max -- can already
