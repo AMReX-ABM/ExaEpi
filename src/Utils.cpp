@@ -19,7 +19,6 @@
 using namespace amrex;
 using namespace ExaEpi;
 
-/*! \brief Read in test parameters in #ExaEpi::TestParams from input file */
 void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
                                    const std::string& prefix /*!< ParmParse prefix */) {
     ParmParse pp(prefix);
@@ -86,4 +85,9 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
     }
 
     pp.query("fast", params.fast);
+}
+
+bool ExaEpi::Utils::isWorkday (int i) {
+    // right now we work on days 0-4, rest on 5-6
+    return ((i % 7) < 5);
 }

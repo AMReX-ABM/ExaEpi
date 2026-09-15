@@ -97,8 +97,13 @@ struct ICType {
 /*! \brief Namespace with utility functions */
 namespace Utils {
 
+/*! \brief Read in test parameters in #ExaEpi::TestParams from input file */
 void getTestParams(ExaEpi::TestParams& params, const std::string& prefix);
-}
+
+/*! \brief returns whether day i is a work day */
+bool isWorkday(int i);
+
+} // namespace Utils
 } // namespace ExaEpi
 
 #endif
