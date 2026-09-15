@@ -8,6 +8,7 @@
 #include <string>
 
 #include "AgentDefinitions.H"
+#include "WeatherData.H"
 #include <AMReX_BoxArray.H>
 #include <AMReX_DistributionMapping.H>
 #include <AMReX_Geometry.H>
@@ -148,6 +149,11 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
             auto& soa = ptile.GetStructOfArrays();
             auto num_tiles = numTilesInBox(mfi.tilebox(), true, bin_size);
 
+            auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
+            auto varVec = agents.awd != nullptr ? agents.awd->varVec.data() : nullptr;
+            auto weather_model = agents.m_weather_model;
+            bool a_do_weather = agents.m_do_weather;
+
             int max_group = 0;
             if (bin_idx != -1) {
                 max_group = agents.getMaxGroup(bin_idx);
@@ -182,7 +188,6 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                 auto prob_ptr = soa.GetRealData(RealIdx::nattribs + r0(d) + RealIdxDisease::prob).data();
                 auto lparm = agents.getDiseaseParameters_d(d);
                 auto lparm_h = agents.getDiseaseParameters_h(d);
-                Real scale = 1.0_prt; // TODO this should vary based on cell
                 Real infect = (1.0_rt - lparm_h->vac_eff);
                 Real asymp_relative_inf = lparm_h->asymp_relative_inf;
 
@@ -205,9 +210,14 @@ void interactAgentsImpl (IModel& interaction_model, AgentContainer& agents, int 
                             AMREX_ALWAYS_ASSERT((Long)susceptible_i < np);
                             if (infectious_i != susceptible_i && isSusceptible(susceptible_i, ptd, d) &&
                                 isCandidate(susceptible_i, ptd)) {
-                                ParticleReal prob =
-                                        1.0_prt -
-                                        relative_inf * infect * binaryInteraction(infectious_i, susceptible_i, ptd, lparm, scale);
+                                Real weather_scale = 1.0_prt;
+                                if (a_do_weather && varVec != nullptr && weatherIdxPtr[susceptible_i] >= 0) {
+                                    weatherVars wvar = varVec[weatherIdxPtr[susceptible_i]];
+                                    weather_scale = weather_model(wvar);
+                                }
+                                ParticleReal prob = 1.0_prt - relative_inf * infect *
+                                                                      binaryInteraction(infectious_i, susceptible_i, ptd, lparm,
+                                                                                        weather_scale);
                                 // The atomic operation is needed because we find all the susceptible for each infectious in turn.
                                 // It can be eliminated by switching the order of infectious and susceptible.
                                 Gpu::Atomic::Multiply(&prob_ptr[susceptible_i], prob);

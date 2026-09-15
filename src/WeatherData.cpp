@@ -20,7 +20,7 @@ void WeatherData::readDataFromFile (const std::string& fname) {
         std::istringstream lis(line);
         std::string temp[17];
         int i = 0;
-        while (std::getline(lis, temp[i], ',')) {
+        while (i < 17 && std::getline(lis, temp[i], ',')) {
             i++;
         }
         weatherVars vars;
@@ -138,6 +138,9 @@ bool WeatherData::lookupWeatherVars (int stateFP, int countyFP, date d, int& wee
 }
 
 void WeatherData::extractActiveData (DemographicData& demo, int startWeek, int numSimWeeks) {
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(startWeek + numSimWeeks <= numWeeks,
+                                     "Weather data does not cover the full simulation period: "
+                                     "reduce nsteps or provide a weather file with more data.");
     int numUnitsOnThisProc = 0;
     for (int i = 0; i < demo.Nunit; i++) {
         if (demo.Unit_on_proc[i]) { numUnitsOnThisProc++; }
@@ -156,10 +159,7 @@ void WeatherData::extractActiveData (DemographicData& demo, int startWeek, int n
             }
         }
     }
-
-    activeWeather.unitVec.resize(activeWeather.numUnitsWithDataOnThisProc);
     activeWeather.h_unitVec.resize(activeWeather.numUnitsWithDataOnThisProc);
-    activeWeather.varVec.resize(activeWeather.numUnitsWithDataOnThisProc * numSimWeeks);
     activeWeather.h_varVec.resize(activeWeather.numUnitsWithDataOnThisProc * numSimWeeks);
     for (int week = startWeek; week < startWeek + numSimWeeks; week++) {
         int offset = (week - startWeek) * activeWeather.numUnitsWithDataOnThisProc;
@@ -176,8 +176,7 @@ void WeatherData::extractActiveData (DemographicData& demo, int startWeek, int n
             }
         }
     }
-    Gpu::copy(Gpu::hostToDevice, activeWeather.h_unitVec.begin(), activeWeather.h_unitVec.end(), activeWeather.unitVec.begin());
-    Gpu::copy(Gpu::hostToDevice, activeWeather.h_varVec.begin(), activeWeather.h_varVec.end(), activeWeather.varVec.begin());
+    activeWeather.copyToDevice();
 }
 
 void WeatherData::extractActiveData (UrbanPopData& upop, int startWeek, int numSimWeeks) {
@@ -197,9 +196,7 @@ void WeatherData::extractActiveData (UrbanPopData& upop, int startWeek, int numS
         }
     }
 
-    activeWeather.unitVec.resize(activeWeather.numUnitsWithDataOnThisProc);
     activeWeather.h_unitVec.resize(activeWeather.numUnitsWithDataOnThisProc);
-    activeWeather.varVec.resize(activeWeather.numUnitsWithDataOnThisProc * numSimWeeks);
     activeWeather.h_varVec.resize(activeWeather.numUnitsWithDataOnThisProc * numSimWeeks);
 
     for (int week = startWeek; week < startWeek + numSimWeeks; week++) {
@@ -217,6 +214,5 @@ void WeatherData::extractActiveData (UrbanPopData& upop, int startWeek, int numS
             }
         }
     }
-    Gpu::copy(Gpu::hostToDevice, activeWeather.h_unitVec.begin(), activeWeather.h_unitVec.end(), activeWeather.unitVec.begin());
-    Gpu::copy(Gpu::hostToDevice, activeWeather.h_varVec.begin(), activeWeather.h_varVec.end(), activeWeather.varVec.begin());
+    activeWeather.copyToDevice();
 }

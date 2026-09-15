@@ -101,6 +101,13 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
 
     addAttributes();
 
+    awd = nullptr;
+    {
+        amrex::ParmParse pp("agent");
+        pp.query("do_weather", m_do_weather);
+    }
+    m_weather_model.readInputs("weather_transmission");
+
     amrex::ParmParse pp("agent");
 
     pp.query("shelter_compliance", m_shelter_compliance);

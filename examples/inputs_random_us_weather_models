@@ -1,0 +1,39 @@
+agent.ic_type = "census"
+agent.census_filename = "../../data/CensusData/US.dat"
+agent.workerflow_filename = "../../data/CensusData/US-wf.bin"
+agent.airports_filename="../../data/CensusData/US_airports.dat"
+agent.air_traffic_filename= "../../data/US_CY20AirTraffic.dat"
+
+agent.nsteps = 365
+agent.max_box_size = 16
+agent.plot_int = 40
+agent.random_travel_int = 24
+agent.air_travel_int = -1
+agent.do_weather = 1
+agent.weather_filename = "../../../ExaEpi/data/US_NASA-GDDP-CMIP6_ACCESS-CM2_ssp245_2025-01-01_2050-12-31_weekly_metroAreas.csv"
+#agent.weather_filename = "../../../ExaEpi/data/US_NASA-GDDP-CMIP6_CanESM5_ssp245_2025-01-01_2050-12-31_weekly_metroAreas.csv"
+#agent.weather_filename = "../../../ExaEpi/data/US_NASA-GDDP-CMIP6_CMCC-ESM2_ssp245_2025-01-01_2050-12-31_weekly_metroAreas.csv"
+#agent.weather_filename = "../../../ExaEpi/data/US_NASA-GDDP-CMIP6_CNRM-CM6-1_ssp245_2025-01-01_2050-12-31_weekly_metroAreas.csv"
+#agent.weather_filename = "../../../ExaEpi/data/US_NASA-GDDP-CMIP6_EC-Earth3_ssp245_2025-01-01_2050-12-31_weekly_metroAreas.csv"
+#agent.weather_filename = "../../../ExaEpi/data/US_NASA-GDDP-CMIP6_GFDL-ESM4_ssp245_2025-01-01_2050-12-31_weekly_metroAreas.csv"
+#agent.weather_filename = "../../../ExaEpi/data/US_NASA-GDDP-CMIP6_HadGEM3-GC31-LL_ssp245_2025-01-01_2050-12-31_weekly_metroAreas.csv"
+#agent.weather_filename = "../../../ExaEpi/data/US_NASA-GDDP-CMIP6_MPI-ESM1-2-LR_ssp245_2025-01-01_2050-12-31_weekly_metroAreas.csv"
+#agent.weather_filename = "../../../ExaEpi/data/US_NASA-GDDP-CMIP6_MRI-ESM2-0_ssp245_2025-01-01_2050-12-31_weekly_metroAreas.csv"
+#agent.weather_filename = "../../../ExaEpi/data/US_NASA-GDDP-CMIP6_UKESM1-0-LL_ssp245_2025-01-01_2050-12-31_weekly_metroAreas.csv"
+agent.startdate="2025-1-1"
+
+# weather_transmission.AH_ref = 6.0   # AH (g/m^3) at which the weather scale = 1 (flu-season ref)
+
+agent.aggregated_diag_int = -1
+
+disease.initial_case_type = "random"
+disease.num_initial_cases = 1000
+disease.p_trans = 0.20
+disease.p_asymp = 0.40
+
+disease.incubation_length_alpha = 9.0
+disease.incubation_length_beta = 0.33
+
+particles.use_comms_arena=1
+#agent.fast=1
+#amrex.use_gpu_aware_mpi=1
