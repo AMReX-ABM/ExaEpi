@@ -209,7 +209,10 @@ def main():
     # single-worker block group in an otherwise unpopulated area) that would otherwise stretch the
     # axis across a long, nearly-empty stretch for very little data.
     left_edge = float(np.percentile(all_sizes, 0.1))
-    colors = ["tab:blue", "tab:red", "tab:green", "tab:orange"]
+    # Avoid tab:blue/tab:red here -- every other script in this repo uses that pair specifically
+    # for Epicast/ExaEpi, and reusing it for an unrelated distinction (nighttime vs daytime
+    # population) would misleadingly suggest this is also a simulator comparison.
+    colors = ["tab:purple", "tab:orange", "tab:green", "tab:brown"]
 
     def print_stats(name, sizes):
         # Weighted by size (each group of size s stands in for s members who experience that
