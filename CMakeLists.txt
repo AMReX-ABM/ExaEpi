@@ -77,6 +77,48 @@ if(NOT ${amrex}_POPULATED)
   unset(_amrex_mpi_cmake)
   unset(_amrex_mpi_cmake_contents)
 
+  # Workaround for an AMReX bug in ParticleContainer::Redistribute_impl (introduced by AMReX
+  # PR #5268, 2026-04-21, which merged RedistributeCPU/RedistributeGPU): the per-tile
+  # partition loop is an unconditional `#pragma omp parallel for`. With AMReX_OMP=ON *and* a
+  # GPU backend, every OpenMP thread therefore runs the GPU partition path concurrently and
+  # calls ParticleCopyOp::resize(), which does std::map::operator[] on maps shared by all
+  # threads -- a host-side data race that corrupts the heap and shows up as
+  # "CUDA error 700: an illegal memory access" (or silent run-to-run nondeterminism) at the
+  # next stream sync inside Redistribute(). Guard the pragma with Gpu::notInLaunchRegion(),
+  # as every other OMP pragma in that file already is, so the loop runs serially on GPU and
+  # is unchanged on CPU (where notInLaunchRegion() is always true).
+  set(_amrex_pc_header ${amrex_SOURCE_DIR}/Src/Particle/AMReX_ParticleContainerI.H)
+  if(EXISTS ${_amrex_pc_header})
+    set(_amrex_pc_loop
+        "    for (int pmap_it = 0; pmap_it < static_cast<int>(ptile_ptrs.size()); ++pmap_it)")
+    set(_amrex_pc_old "#pragma omp parallel for\n#endif\n${_amrex_pc_loop}")
+    set(_amrex_pc_new
+        "#pragma omp parallel for if (Gpu::notInLaunchRegion())\n#endif\n${_amrex_pc_loop}")
+    file(READ ${_amrex_pc_header} _amrex_pc_contents)
+    string(FIND "${_amrex_pc_contents}" "${_amrex_pc_new}" _amrex_pc_already_patched)
+    if(_amrex_pc_already_patched EQUAL -1)
+      string(FIND "${_amrex_pc_contents}" "${_amrex_pc_old}" _amrex_pc_found)
+      if(_amrex_pc_found EQUAL -1)
+        message(
+          WARNING
+            "AMReX Redistribute_impl OMP-guard patch: pattern not found in ${_amrex_pc_header}; "
+            "AMReX may have changed or fixed this upstream -- check before trusting GPU+OMP runs.")
+      else()
+        string(REPLACE "${_amrex_pc_old}" "${_amrex_pc_new}" _amrex_pc_contents
+                       "${_amrex_pc_contents}")
+        file(WRITE ${_amrex_pc_header} "${_amrex_pc_contents}")
+        message(STATUS "Patched AMReX Redistribute_impl OMP loop with Gpu::notInLaunchRegion() guard")
+      endif()
+    endif()
+  endif()
+  unset(_amrex_pc_header)
+  unset(_amrex_pc_loop)
+  unset(_amrex_pc_old)
+  unset(_amrex_pc_new)
+  unset(_amrex_pc_contents)
+  unset(_amrex_pc_already_patched)
+  unset(_amrex_pc_found)
+
   list(APPEND CMAKE_MODULE_PATH ${amrex_SOURCE_DIR}/Tools/CMake)
 
   # Load amrex options here so that they are available to the entire project

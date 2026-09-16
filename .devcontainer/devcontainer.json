@@ -12,20 +12,39 @@
     }
   },
 
-  // Pass through all GPUs from the host
-    "runArgs": ["--gpus", "all", "--memory=48g", "--memory-swap=48g"],
+  // Pass through all GPUs from the host.
+  //
+  // The explicit --device entries are deliberately redundant with --gpus all. The legacy
+  // nvidia-container-runtime hook adds the GPU device-cgroup rules behind Docker's back, so
+  // Docker's OCI spec (and hence systemd, when it is the cgroup driver) does not know about
+  // them; the next `systemctl daemon-reload` on the host (e.g. a package upgrade) then
+  // re-applies the device allowlist without the GPUs and every CUDA call fails with
+  // "no CUDA-capable device" / NVML "Unknown Error" / EPERM on /dev/nvidia*, until the
+  // container is restarted. Listing the devices explicitly puts them in the spec, so the
+  // allowlist survives (known nvidia-container-toolkit issue #48). If a device node below is
+  // missing on your host, the container will fail to start -- remove that entry.
+    "runArgs": [
+      "--gpus", "all",
+      "--device=/dev/nvidia0",
+      "--device=/dev/nvidiactl",
+      "--device=/dev/nvidia-uvm",
+      "--device=/dev/nvidia-uvm-tools",
+      "--memory=48g", "--memory-swap=48g"
+    ],
 
   // Mount named volumes so ccache and Claude Code's login/config persist across rebuilds (user home, not /root)
   //
   // The third entry is an optional personal bind mount, opt-in via host env vars so this file
   // stays generic/host-agnostic: set EXAEPI_LOCAL_MOUNT_SRC/EXAEPI_LOCAL_MOUNT_DST in your own
   // shell environment (e.g. ~/.bashrc) before launching VS Code to bind-mount something of your
-  // own into the container. Left unset, it defaults to bind-mounting the workspace folder onto an
-  // unused scratch path, which is a harmless no-op.
+  // own into the container. Left unset, it defaults to bind-mounting /tmp onto an unused scratch
+  // path, which is a harmless no-op. (The default can't be ${localWorkspaceFolder}: the
+  // devcontainer CLI doesn't resolve a variable reference nested inside another variable's
+  // default value, so it would be passed to Docker as a literal, unresolved string.)
   "mounts": [
     "source=exaepi-ccache,target=/home/user/.ccache,type=volume",
     "source=exaepi-claude-config,target=/home/user/.claude,type=volume",
-    "source=${localEnv:EXAEPI_LOCAL_MOUNT_SRC:${localWorkspaceFolder}},target=${localEnv:EXAEPI_LOCAL_MOUNT_DST:/tmp/.exaepi-unused-local-mount},type=bind"
+    "source=${localEnv:EXAEPI_LOCAL_MOUNT_SRC:/tmp},target=${localEnv:EXAEPI_LOCAL_MOUNT_DST:/tmp/.exaepi-unused-local-mount},type=bind"
   ],
 
   // Run VS Code server and all terminal sessions as UID 1000
