@@ -361,6 +361,82 @@ _CONTEXT_TO_SOURCE = {
 }
 
 
+# Suffix used by extract_epicast_data.py for the small per-day summary it writes next to each
+# raw events.bin file, and recognized by compare_to_epicast.py's load_epicast to read that summary
+# directly instead of re-parsing the (often multi-GB) source file.
+EPICAST_SUMMARY_SUFFIX = ".summary.csv"
+
+
+def read_epicast_summary(fname: str) -> pd.DataFrame:
+    """Read an Epicast run.events.bin file and reduce it to the small per-day summary that
+    compare_to_epicast.py's plots actually use -- one row per day with the disease-state/context
+    counts and per-source infection fractions, instead of the full one-row-per-event log (tens to
+    hundreds of millions of rows for a full county/state run).
+
+    Returns
+    -------
+    pd.DataFrame with columns:
+        day, exposed, symptomatic, asymptomatic, presymptomatic, hospitalized, dead, recovered,
+        cumulative_exposed, <source>_frac for each source in SOURCE_CATEGORIES
+    """
+    print(f"Reading binary Epicast file {fname} ...")
+    # full=False: only aggregate_events/aggregate_infections_by_source below ever touch this
+    # events_df, and they only use timestep/context/disease_state -- skipping the other columns
+    # (agent/location identity) roughly halves peak memory for large files (see read_events_bin's
+    # docstring), which matters a lot when many such files are processed at once.
+    events_df, _ = read_events_bin(fname, full=False)
+    print(f"Read {len(events_df):,} events from {fname}")
+
+    agg_df = aggregate_events(events_df)
+    print(f"Aggregated into {len(agg_df)} timesteps")
+
+    # aggregate_events groups by timestep; each row is one timestep.
+    # disease_state columns: exposed, recovered, symptomatic, asymptomatic, presymptomatic
+    # context columns: ctx_removed, ctx_symptomatic, ctx_asymptomatic, ctx_presymptomatic,
+    #                  ctx_icu, ctx_ventilated, ctx_hospitalized, ...
+
+    def _col(name):
+        return agg_df[name] if name in agg_df.columns else pd.Series(0, index=agg_df.index)
+
+    summary_df = pd.DataFrame()
+    summary_df["exposed"] = _col("exposed").values
+    summary_df["symptomatic"] = _col("ctx_symptomatic").values
+    summary_df["asymptomatic"] = _col("ctx_asymptomatic").values
+    summary_df["presymptomatic"] = _col("ctx_presymptomatic").values
+    summary_df["hospitalized"] = (
+        _col("ctx_hospitalized") + _col("ctx_icu") + _col("ctx_ventilated")
+    ).values
+    summary_df["dead"] = _col("ctx_removed").values
+    summary_df["recovered"] = _col("recovered").values
+
+    days = len(summary_df)
+    print(f"Epicast has {days} days")
+
+    summary_df["cumulative_exposed"] = summary_df.exposed.cumsum()
+
+    tot_exposed = summary_df.exposed.sum()
+    tot_symp = float(summary_df.symptomatic.sum())
+    tot_hosp = float(summary_df.hospitalized.sum())
+    frac_symp = tot_symp / tot_exposed if tot_exposed > 0 else float("nan")
+    frac_hosp = tot_hosp / tot_symp if tot_symp > 0 else float("nan")
+    print(f"Epicast total infected/exposed {tot_exposed}")
+    print(f"Epicast total symptomatic {tot_symp} {frac_symp:.2f}")
+    print(f"Epicast total hospitalized {tot_hosp} {frac_hosp:.2f}")
+
+    # Add a "day" column (0-based) for clarity in the CSV
+    summary_df.insert(0, "day", range(days))
+
+    # Empirical share of new infections attributable to each interaction context (see
+    # aggregate_infections_by_source): the realized-count analog of ExaEpi's analytic
+    # E<source>/sum(E<source>) shares, joined in as "<source>_frac" columns.
+    src_df = aggregate_infections_by_source(events_df)
+    frac_cols = [c + "_frac" for c in SOURCE_CATEGORIES]
+    summary_df = summary_df.merge(src_df[["day"] + frac_cols], on="day", how="left")
+    summary_df[frac_cols] = summary_df[frac_cols].fillna(0.0)
+
+    return summary_df
+
+
 def aggregate_infections_by_source(events_df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggregate new-infection ("exposed") events by day and infection-source bucket, giving an

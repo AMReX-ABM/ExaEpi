@@ -17,74 +17,21 @@ from scipy.integrate import solve_ivp
 from scipy.optimize import minimize
 
 sys.path.insert(0, os.path.dirname(__file__))
-from read_epicast_events import (
-    read_events_bin,
-    aggregate_events,
-    aggregate_infections_by_source,
-    SOURCE_CATEGORIES,
-)
+from read_epicast_events import read_epicast_summary, EPICAST_SUMMARY_SUFFIX
 from plos_compbio_style import apply_style, FULL_PAGE_WIDTH_IN, FONT_TICK, AXES_LINEWIDTH
 
 apply_style()
 
 
 def load_epicast(fname):
-    print(f"Reading binary Epicast file {fname} ...")
-    # full=False: only aggregate_events/aggregate_infections_by_source below ever touch this
-    # events_df, and they only use timestep/context/disease_state -- skipping the other columns
-    # (agent/location identity) roughly halves peak memory for large files (see
-    # read_events_bin's docstring), which matters a lot when -e matches many such files at once.
-    events_df, _ = read_events_bin(fname, full=False)
-    print(f"Read {len(events_df):,} events from {fname}")
-
-    agg_df = aggregate_events(events_df)
-    print(f"Aggregated into {len(agg_df)} timesteps")
-
-    # aggregate_events groups by timestep; each row is one timestep.
-    # disease_state columns: exposed, recovered, symptomatic, asymptomatic, presymptomatic
-    # context columns: ctx_removed, ctx_symptomatic, ctx_asymptomatic, ctx_presymptomatic,
-    #                  ctx_icu, ctx_ventilated, ctx_hospitalized, ...
-
-    def _col(name):
-        return agg_df[name] if name in agg_df.columns else pd.Series(0, index=agg_df.index)
-
-    converted_df = pd.DataFrame()
-    converted_df["exposed"] = _col("exposed").values
-    converted_df["symptomatic"] = _col("ctx_symptomatic").values
-    converted_df["asymptomatic"] = _col("ctx_asymptomatic").values
-    converted_df["presymptomatic"] = _col("ctx_presymptomatic").values
-    converted_df["hospitalized"] = (
-        _col("ctx_hospitalized") + _col("ctx_icu") + _col("ctx_ventilated")
-    ).values
-    converted_df["dead"] = _col("ctx_removed").values
-    converted_df["recovered"] = _col("recovered").values
-
-    days = len(converted_df)
-    print(f"Epicast has {days} days")
-
-    converted_df["cumulative_exposed"] = converted_df.exposed.cumsum()
-
-    tot_exposed = converted_df.exposed.sum()
-    tot_symp = float(converted_df.symptomatic.sum())
-    tot_hosp = float(converted_df.hospitalized.sum())
-    frac_symp = tot_symp / tot_exposed if tot_exposed > 0 else float("nan")
-    frac_hosp = tot_hosp / tot_symp if tot_symp > 0 else float("nan")
-    print(f"Epicast total infected/exposed {tot_exposed}")
-    print(f"Epicast total symptomatic {tot_symp} {frac_symp:.2f}")
-    print(f"Epicast total hospitalized {tot_hosp} {frac_hosp:.2f}")
-
-    # Add a "day" column (0-based) for clarity in the CSV
-    converted_df.insert(0, "day", range(days))
-
-    # Empirical share of new infections attributable to each interaction context (see
-    # aggregate_infections_by_source): the realized-count analog of ExaEpi's analytic
-    # E<source>/sum(E<source>) shares, joined in as "<source>_frac" columns.
-    src_df = aggregate_infections_by_source(events_df)
-    frac_cols = [c + "_frac" for c in SOURCE_CATEGORIES]
-    converted_df = converted_df.merge(src_df[["day"] + frac_cols], on="day", how="left")
-    converted_df[frac_cols] = converted_df[frac_cols].fillna(0.0)
-
-    return converted_df
+    if fname.endswith(EPICAST_SUMMARY_SUFFIX):
+        # Pre-extracted by extract_epicast_data.py: already the small per-day summary, so skip
+        # the (often multi-GB, tens-of-seconds) raw events.bin parse entirely.
+        print(f"Reading pre-extracted Epicast summary {fname} ...")
+        df = pd.read_csv(fname)
+        print(f"Epicast has {len(df)} days (from pre-extracted summary)")
+        return df
+    return read_epicast_summary(fname)
 
 
 # Groups ExaEpi's per-phase context_diag columns into the same buckets Epicast's
@@ -1192,7 +1139,11 @@ parser = argparse.ArgumentParser(
 parser.add_argument(
     "--epicast_file", "-e",
     action="append", default=[], metavar="FILE[:LABEL]",
-    help="Epicast binary file or glob pattern, optionally with a label. Can be repeated.",
+    help=(
+        "Epicast binary events file or glob pattern, optionally with a label. Can be repeated. "
+        f"A file ending in '{EPICAST_SUMMARY_SUFFIX}' is read as an already-extracted per-day "
+        "summary (see extract_epicast_data.py) instead of a raw binary file."
+    ),
 )
 parser.add_argument(
     "--exaepi_file", "-x",
