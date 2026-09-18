@@ -25,8 +25,18 @@ from colorama import Fore
 import psutil
 from pandas.api.types import CategoricalDtype
 
+import group_assignment
+
 
 DUMP_INTERMEDIATES = False
+
+# Version of the .bin layout, written into the file header and into the generated
+# UrbanPopAgentStruct.H so ExaEpi can refuse a file it was not built for. Bump it whenever the
+# agent record or the index layout changes.
+#   1: original layout
+#   2: added the group-structure fields (nborhood, hh_cluster, work_nborhood, workgroup,
+#      school_class, school_class_group), which ExaEpi used to draw at init
+BIN_FORMAT_VERSION = 2
 
 # note: missing category indexes are written as -1
 # we could extract these from the dataset, but then they will not be in a suitable order, even with
@@ -299,6 +309,51 @@ def get_args():
         "REQUIRED -- alloc_workers draws each workplace's size from this, and sizing them all at "
         "the industry average instead makes destination populations pile up at multiples of that "
         "average, so a missing file is a hard error rather than a silent fallback.",
+    )
+    # --- group-structure targets ---
+    # These used to be ExaEpi runtime options (agent.nborhood_size and friends in Utils.H). The
+    # groups they size are now built here and stored in the .bin, so they are properties of the
+    # population file rather than of a run; the defaults match the C++ ones they replace.
+    parser.add_argument(
+        "--nborhood_size",
+        default=360,
+        type=int,
+        help="Target residents per neighborhood. Sets how many home neighborhoods a block group "
+        "is split into, and how many work neighborhoods a work block group is split into",
+    )
+    parser.add_argument(
+        "--workgroup_size",
+        default=DEFAULT_WORKGROUP_TARGET,
+        type=int,
+        help="Fallback target work-group size, used for any (state, NAICS) pair missing from "
+        "--workgroup_sizes_file, and as the size of school admin groups",
+    )
+    parser.add_argument(
+        "--school_class_size",
+        default=20,
+        type=int,
+        help="Fallback target students per class, used only for a (school, grade) group that has "
+        "students but no identified teachers",
+    )
+    parser.add_argument(
+        "--school_class_size_min",
+        default=5,
+        type=int,
+        help="Floor on a school group's average class size (bounds its class count from above)",
+    )
+    parser.add_argument(
+        "--school_class_size_max",
+        default=50,
+        type=int,
+        help="Cap on a school group's average class size (bounds its class count from below)",
+    )
+    parser.add_argument(
+        "--college_instructional_fraction",
+        default=0.1,
+        type=float,
+        help="Fraction of a college's employment treated as instructional staff. College teacher "
+        "counts come from total college employment, not a faculty-specific count, so they are "
+        "scaled by this before being used as a homeroom-instructor headcount",
     )
 
     main_args = {}
@@ -2279,6 +2334,10 @@ namespace UrbanPop {{
 
 const size_t NUM_COLS = {len(df.columns)};
 
+/*! Layout version of the .bin this header can read, checked against the file header by
+    readBlockGroupsFile -- see BIN_FORMAT_VERSION in upop_to_exaepi.py. */
+const uint32_t FORMAT_VERSION = {BIN_FORMAT_VERSION};
+
 """
 
     # print out string arrays with category names
@@ -2351,6 +2410,17 @@ static std::vector<string> splitString(const string &s, char delim) {{
         }}
         return true;
     }}\n"""
+
+    # on-disk record size: the fields are written packed, so this is the plain sum of the field
+    # widths, not sizeof(UrbanPopAgent), which the compiler is free to pad
+    hdr += """
+    /*! Packed size of one agent record on disk -- deliberately not sizeof(UrbanPopAgent), which
+        includes alignment padding the file does not have. Checked against the .bin header so a
+        field added or widened here without a FORMAT_VERSION bump still fails loudly. */
+    static constexpr size_t record_size() {
+        return """
+    hdr += " + ".join(f"sizeof({polars_dtype_to_cpp(df[col].dtype)}_t)" for col in df.columns)
+    hdr += ";\n    }\n"
 
     hdr += "\n    bool readBinary(std::ifstream &f) {\n"
     for col in df.columns:
@@ -2482,7 +2552,7 @@ def print_agents(
         # - index_end_offset: uint64 (byte offset where agent data starts)
         header_struct = struct.Struct("<2I 2I Q I Q")
         magic_number = 0x55504F50  # "UPOP" in hex
-        version = 1
+        version = BIN_FORMAT_VERSION
         num_geoids = len(home_geoids) + len(work_only_geoids)
         num_agents = len(df)
         agent_record_size = agent_struct.size
@@ -2656,6 +2726,66 @@ def concat_all(
 
 
 @timer
+@timer
+def assign_groups(df: pl.DataFrame, args) -> pl.DataFrame:
+    """Give every agent its structural group memberships and put them in the .bin.
+
+    Must run after adjust_indexes: household_id and school_id are only in the dense, block-group-
+    local form the groups are keyed on once that has renumbered them, and those are the same ids
+    ExaEpi itself sees.
+
+    See group_assignment.py for what each attribute is and why these are computed here rather than
+    drawn in ExaEpi's C++ init.
+    """
+    params = group_assignment.GroupParams(
+        nborhood_size=args.nborhood_size,
+        workgroup_size=args.workgroup_size,
+        school_class_size=args.school_class_size,
+        school_class_size_min=args.school_class_size_min,
+        school_class_size_max=args.school_class_size_max,
+        college_instructional_fraction=args.college_instructional_fraction,
+    )
+    # its own stream, so the group structure does not shift when unrelated allocation code above
+    # changes how many draws it makes
+    rng = np.random.default_rng(args.rseed)
+
+    printgreen("Assigning group structure")
+    df = group_assignment.assign_home_groups(df, params, rng)
+    df = group_assignment.assign_work_groups(
+        df,
+        params,
+        list(categ_types["pr_naics"].categories),
+        load_workgroup_targets(args.workgroup_sizes_file),
+        load_establishment_size_dists(args.establishment_sizes_file),
+        args.workgroup_size,
+        rng,
+    )
+    df = group_assignment.assign_school_groups(df, params)
+    # largest fields first, as with the select in main
+    return df.select(
+        [
+            "id",
+            "home_geoid",
+            "work_geoid",
+            "school_class_group",
+            "naics",
+            "household_id",
+            "school_id",
+            "nborhood",
+            "work_nborhood",
+            "workgroup",
+            "hh_cluster",
+            "school_class",
+            "age",
+            "sex",
+            "race",
+            "travel",
+            "veh_occ",
+            "grade",
+        ]
+    )
+
+
 def main():
     args = get_args()
     np.random.seed(args.rseed)
@@ -2706,6 +2836,8 @@ def main():
             "grade",
         ]
     )
+    # the group-structure columns are appended by assign_groups below, once household_id and
+    # school_id have been renumbered into the dense form those groups are keyed on
     # Set the location types
     df = df.with_columns(
         [
@@ -2732,6 +2864,7 @@ def main():
             .alias("school_id")
         ]
     )
+    df = assign_groups(df, args)
     print("Fields are:")
     for name, dtype in df.schema.items():
         print(f"  {name:12s}  {dtype}")

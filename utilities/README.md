@@ -115,7 +115,8 @@ rather than being part of any current pipeline.
 
 ## Subdirectories
 
-* `UrbanPop-scripts/` -- generates ExaEpi's UrbanPop input `.bin` files; has its own README.
+* `UrbanPop-scripts/` -- generates ExaEpi's UrbanPop input `.bin` files, including every agent's
+  group structure (neighborhoods, work-groups, school classes); has its own README.
 * `plotMovie/` -- renders a run as an animation, frame per day (`generate_frames.py`,
   `plotCases.py`, `createMov.sh`).
 * `cformat/` -- the pinned `clang-format` binary, style file and Docker image used to format the

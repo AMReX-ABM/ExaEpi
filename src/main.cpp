@@ -126,25 +126,13 @@ void printHelp (const char* prog) {
     desc_line("air traffic flow file");
     line("airports_filename", "required if air_travel_int > 0", "");
     desc_line("airports file");
-    line("workgroup_size_filename", fmt(tp.workgroup_size_filename),
-         "optional per-(state, NAICS-code) work-group target size table; falls back to "
-         "workgroup_size for any (state, NAICS) pair not in the file");
     line("size_scale_enabled", fmt(tp.size_scale_enabled), "enable population-size-based transmission scaling");
-    line("school_class_size", fmt(tp.school_class_size),
-         "fallback target students-per-class for raw groups with no identified teachers");
-    line("school_class_size_min", fmt(tp.school_class_size_min), "floor on average class size (bounds class count from above)");
-    line("school_class_size_max", fmt(tp.school_class_size_max), "cap on average class size (bounds class count from below)");
-    line("college_instructional_fraction", fmt(tp.college_instructional_fraction),
-         "fraction of a college-level raw group's reported teacher/staff headcount assumed to actually be "
-         "instructors, before class-size clamping");
     line("max_box_size", fmt(tp.max_box_size), "box size for domain decomposition");
     line("aggregated_diag_int", fmt(tp.aggregated_diag_int), "interval for aggregated diagnostic output, in steps; <=0 disables");
     line("aggregated_diag_prefix", fmt(tp.aggregated_diag_prefix), "filename prefix for aggregated diagnostic output");
     line("restart", fmt(tp.restart_chkfile), "checkpoint file to restart from");
     line("shelter_start", fmt(tp.shelter_start), "step at which to start sheltering; <=0 disables");
     line("shelter_length", fmt(tp.shelter_length), "number of steps to shelter for");
-    line("nborhood_size", fmt(tp.nborhood_size), "target neighborhood size");
-    line("workgroup_size", fmt(tp.workgroup_size), "target workgroup size");
     line("seed", "unset", "RNG seed");
     line("fast", fmt(tp.fast), "use fast, non-bitwise-reproducible implementations");
     line("context_diag", fmt(tp.context_diag), "attribute infections to interaction contexts in the output file");
@@ -696,16 +684,8 @@ void runAgent () {
         for (int i = start_day; i < params.nsteps; ++i) {
             auto start_time = std::chrono::high_resolution_clock::now();
 
-            // On a fresh start (not a restart), IntIdx::school_class/school_class_group aren't
-            // assigned until pc.assignSchoolClasses() runs below -- and since those are "static"
-            // per-agent fields only ever written to the step==0 plotfile (see IO.cpp), writing
-            // here (before that call) would permanently bake in their pre-assignment (garbage)
-            // values, with no later plotfile ever getting a chance to capture the real ones. So
-            // this first write is deferred to just after assignSchoolClasses() instead (see
-            // below); every other day's write is unaffected. That deferred write also has to
-            // undo/redo this day's morningCommute() around it -- see the comment there for why.
             bool is_fresh_start = (i == start_day && params.restart_chkfile.empty());
-            if ((params.plot_int > 0) && (i % params.plot_int == 0) && !is_fresh_start) {
+            if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
                 ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
                                           params.num_diseases, params.disease_names, cur_time, i, params.verbose);
             }
@@ -868,53 +848,24 @@ void runAgent () {
 
             pc.morningCommute(mask_behavior);
 
-            // Split each (community, school_id, grade) group into fixed-size classes (see
-            // AgentContainer::assignSchoolClasses). Only needs to happen once, on a fresh start:
-            // IntIdx::school_class/school_class_group are persistent, checkpointed attributes, so a
-            // restart must keep whatever classes the original run assigned rather than redrawing them.
-            if (is_fresh_start) {
-                // assignSchoolClasses() requires agents to already be at their work location (see
-                // its doc comment), which is why the morningCommute() above couldn't be deferred
-                // past it. But every plot_int write on every other day captures agents at home
-                // (this day's own eveningCommute hasn't run yet, and the previous day's already
-                // restored them there) -- so writing here, right after morningCommute(), would
-                // record agents at work instead, misattributing initially-infected commuters to
-                // their workplace community/county rather than the seeded one (see
-                // InitializeInfections.cpp). Move agents back home for the deferred write below,
-                // then redo the commute so the interactions that follow still find them at work.
-                pc.assignSchoolClasses(params);
-
-                // Static (run-long-constant) day/night population and workgroup/school/school-class
-                // size distributions -- see ExaEpi::IO::writeStaticAggregatedData. Computed once,
-                // here, on a fresh start only (never on restart -- these never change once assigned,
-                // so a restarted run just keeps relying on whatever files a prior fresh start wrote).
-                // The day-side/group-size pieces must be captured now, while agents are still at
-                // work (assignSchoolClasses() just above establishes that as a valid moment to read
-                // per-community data straight off agents' current position -- see
-                // AgentContainer::generatePopulationBreakdown()'s doc comment); the night-side piece
-                // is captured below, once agents are back home.
-                ExaEpi::IO::PopulationBreakdown day_breakdown;
-                GroupSizeAggregates group_sizes;
-                if (params.aggregated_diag_int > 0) {
-                    day_breakdown = ExaEpi::IO::computePopulationBreakdownCsvData(pc, urbanPopData);
-                    group_sizes = pc.computeGroupSizeDistributions(urbanPopData);
-                }
+            // Static (run-long-constant) day/night population and workgroup/school/school-class
+            // size distributions -- see ExaEpi::IO::writeStaticAggregatedData. Computed once, on a
+            // fresh start only (never on restart -- these never change once assigned, so a
+            // restarted run just keeps relying on whatever files a prior fresh start wrote).
+            // The day-side and group-size pieces have to be read while agents are still at work,
+            // which is why they sit right after the morningCommute() above: workgroup and
+            // school_id are only unique within a work community, so reading them per-tile is only
+            // meaningful once Redistribute() has matched every agent's tile to its work position
+            // (see AgentContainer::generatePopulationBreakdown()'s doc comment). The night-side
+            // piece needs the opposite, so the commute is undone and redone around it.
+            if (is_fresh_start && params.aggregated_diag_int > 0) {
+                auto day_breakdown = ExaEpi::IO::computePopulationBreakdownCsvData(pc, urbanPopData);
+                auto group_sizes = pc.computeGroupSizeDistributions(urbanPopData);
 
                 pc.eveningCommute(mask_behavior);
-
-                // Deferred from above: this is the write that is_fresh_start skipped, now done
-                // after school_class/school_class_group have real values instead of their
-                // pre-assignment defaults, and with agents back at home (see comment above).
-                if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
-                    ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
-                                              params.num_diseases, params.disease_names, cur_time, i, params.verbose);
-                }
-                if (params.aggregated_diag_int > 0) {
-                    auto night_breakdown = ExaEpi::IO::computePopulationBreakdownCsvData(pc, urbanPopData);
-                    ExaEpi::IO::writeStaticAggregatedData(day_breakdown, night_breakdown, group_sizes, urbanPopData,
-                                                          params.aggregated_diag_prefix);
-                }
-
+                auto night_breakdown = ExaEpi::IO::computePopulationBreakdownCsvData(pc, urbanPopData);
+                ExaEpi::IO::writeStaticAggregatedData(day_breakdown, night_breakdown, group_sizes, urbanPopData,
+                                                      params.aggregated_diag_prefix);
                 pc.morningCommute(mask_behavior);
             }
 

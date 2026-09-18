@@ -18,19 +18,14 @@
 
 class AgentContainer;
 
+/*! \brief Per-agent grid coordinates, the one thing initAgents needs that is not already in the
+    agent record itself. The group-structure sizes that used to live here (block group and
+    per-NAICS populations, workplace state FIPS, household count) were only ever inputs to the
+    neighborhood/work-group/household-cluster draws, which now happen in preprocessing -- see
+    UrbanPop-scripts/group_assignment.py. */
 struct AgentExtras {
     amrex::IntVect home_xy;
     amrex::IntVect work_xy;
-    int naics_population;
-    int work_population;
-    int home_population;
-    int work_state_fips;     /*!< 2-digit state FIPS of the agent's workplace (from work_geoid),
-                                  used to index UrbanPopData::workgroup_size_table. Only
-                                  meaningful when naics_population > 0 (i.e. the agent is
-                                  employed); left unset otherwise. */
-    int home_num_households; /*!< number of distinct households in the agent's home block group
-                                  (BlockGroup::num_households), used to size the modulus for
-                                  hh_cluster assignment -- see UrbanPopData::initAgents. */
 };
 
 struct BlockGroup {
@@ -94,14 +89,6 @@ struct UrbanPopData {
     /*! Device copy of fips_community_start, for AgentContainer::setAirTravel's per-agent kernel
         (see AirTravelDemoData::Start_d). */
     amrex::Gpu::DeviceVector<int> fips_community_start_d;
-
-    /*! Real US state/territory FIPS codes top out at 78 (US Virgin Islands); this gives
-        headroom without a remapping table -- workgroup_size_table is indexed directly by
-        raw state FIPS. */
-    static constexpr int MAX_STATE_FIPS = 100;
-    amrex::Vector<int> workgroup_size_table; /*!< flat, size MAX_STATE_FIPS * NAICS_COUNT;
-                                                   see UrbanPop-scripts/compute_workgroup_sizes.py */
-    amrex::Gpu::DeviceVector<int> workgroup_size_table_d;
 
     /*! True daytime headcount per community (index-aligned with block_groups), tallied from every
         agent's effective daytime location (naics==-1 or work-from-home -> home block group;

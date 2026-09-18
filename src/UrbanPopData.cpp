@@ -28,12 +28,10 @@ using namespace amrex;
 using namespace UrbanPop;
 
 using std::ifstream;
-using std::istringstream;
 using std::ostringstream;
 using std::runtime_error;
 using std::string;
 using std::to_string;
-using std::unordered_map;
 using std::unordered_set;
 
 using ParallelDescriptor::MyProc;
@@ -79,24 +77,14 @@ bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, amrex::
         agents_extras[i].work_xy = IntVect(work_block_group.x, work_block_group.y);
         if (agent.naics != -1) {
             num_employed++;
-            agents_extras[i].naics_population = work_block_group.work_populations[agent.naics + 1];
-            AMREX_ASSERT(agents_extras[i].naics_population > 0 && agents_extras[i].naics_population < 100000);
-            // leading 2 digits of the 12-digit GEOID are the state FIPS (consistent with the
-            // 5-digit county FIPS derived from the leading 5 digits in UrbanPopData::init)
-            agents_extras[i].work_state_fips = static_cast<int>(work_block_group.geoid / 10000000000LL);
-            agents_extras[i].work_population = work_block_group.work_populations[0];
-            if (agents_extras[i].work_population <= 0 || agents_extras[i].work_population >= 260000) {
-                Print() << "work pop " << agents_extras[i].work_population << "\n";
-            }
-            AMREX_ASSERT(agents_extras[i].work_population > 0 && agents_extras[i].work_population < 260000);
+            AMREX_ASSERT(work_block_group.work_populations[agent.naics + 1] > 0 &&
+                         work_block_group.work_populations[agent.naics + 1] < 100000);
+            AMREX_ASSERT(work_block_group.work_populations[0] > 0 && work_block_group.work_populations[0] < 260000);
             if (agent.school_id != 0) { num_educators++; }
         } else {
-            agents_extras[i].naics_population = 0;
-            agents_extras[i].work_population = 0;
-            if (agent.naics == -1 && agent.school_id == 0) { AMREX_ASSERT(agent.home_geoid == agent.work_geoid); }
-            if (agent.naics == -1 && agent.school_id != 0) { num_students++; }
+            if (agent.school_id == 0) { AMREX_ASSERT(agent.home_geoid == agent.work_geoid); }
+            if (agent.school_id != 0) { num_students++; }
         }
-        agents_extras[i].home_population = home_population;
         // Print() << "Agent " << i << " home " << agents_extras[i].home_xy << " work " << agents_extras[i].work_xy << "\n";
     }
     num_households = households.size();
@@ -147,9 +135,25 @@ static void readBlockGroupsFile (std::ifstream& urbanpop_file, Vector<BlockGroup
     if (!urbanpop_file) { Abort("Failed to read UrbanPop header"); }
     // Validate magic number
     if (magic_number != 0x55504F50) { Abort("Invalid index file format: magic number mismatch"); }
+    // Verify the format version. v2 added the group-structure fields (nborhood, hh_cluster,
+    // work_nborhood, workgroup, school_class, school_class_group) that ExaEpi used to draw
+    // itself at init and now reads straight from the file -- a v1 file simply does not have
+    // them, so there is nothing to fall back to.
+    if (version != FORMAT_VERSION) {
+        Abort("UrbanPop file format version " + to_string(version) + " but this build requires version " +
+              to_string(FORMAT_VERSION) + " -- regenerate the .bin with UrbanPop-scripts/upop_to_exaepi.py");
+    }
     // Verify NAICS count matches expected
     if (num_naics != NAICS_COUNT) {
         Abort("NAICS count mismatch: file has " + to_string(num_naics) + " but code expects " + to_string(NAICS_COUNT));
+    }
+    // Belt and braces alongside the version check: the version is bumped by hand, the record
+    // size is not, so this catches a field being added, widened or reordered in
+    // UrbanPopAgentStruct.H without the version being bumped to match. Without it the mismatch
+    // shows up as agents silently read at the wrong offsets.
+    if (agent_record_size != UrbanPopAgent::record_size()) {
+        Abort("UrbanPop agent record size mismatch: file has " + to_string(agent_record_size) + " bytes but this build reads " +
+              to_string(UrbanPopAgent::record_size()) + " -- the .bin and UrbanPopAgentStruct.H are out of sync");
     }
 
     if (verbose && ParallelDescriptor::IOProcessor()) {
@@ -176,66 +180,6 @@ static std::pair<int, double> getAllLoadBalance (const long num) {
     ParallelDescriptor::ReduceIntMax(max_num);
     double load_balance = (double)all / (double)NProcs() / max_num;
     return {all, load_balance};
-}
-
-/*! \brief Read a per-(state, NAICS-code) work-group target size table (see
-    utilities/UrbanPop-scripts/compute_workgroup_sizes.py) into a flat, MAX_STATE_FIPS *
-    NAICS_COUNT-length vector, index-aligned with UrbanPop::naics_descriptions. Every entry
-    defaults to default_size before the file is parsed, so any (state, NAICS) combination
-    the file omits (or the whole vector, if fname is empty) silently falls back to the flat,
-    historical behavior. Comment lines (leading '#') are skipped. Aborts if a NAICS code in
-    the file is not found in UrbanPop::naics_descriptions, or a state FIPS is out of range
-    -- catches a stale/mismatched table loudly rather than silently misassigning. */
-static Vector<int> readWorkgroupSizeTable (const std::string& fname, int default_size) {
-    Vector<int> sizes(UrbanPopData::MAX_STATE_FIPS * NAICS_COUNT, default_size);
-    if (fname.empty()) { return sizes; }
-
-    Vector<char> fileCharPtr;
-    ParallelDescriptor::ReadAndBcastFile(fname, fileCharPtr);
-    std::string fileCharPtrString(fileCharPtr.dataPtr());
-    istringstream is(fileCharPtrString, istringstream::in);
-
-    // build a lookup once: naics code string -> index into naics_descriptions
-    unordered_map<string, int> naics_index;
-    for (int i = 0; i < NAICS_COUNT; i++) {
-        naics_index[naics_descriptions[i]] = i;
-    }
-
-    string line;
-    int nrows_declared = -1;
-    int nrows_read = 0;
-    while (std::getline(is, line)) {
-        if (line.empty() || line[0] == '#') { continue; }
-        istringstream lis(line);
-        if (nrows_declared < 0) {
-            lis >> nrows_declared;
-            continue;
-        } // first non-comment line: row count
-        int state_fips;
-        string code;
-        int size;
-        if (!(lis >> state_fips >> code >> size)) { continue; }
-        if (state_fips < 0 || state_fips >= UrbanPopData::MAX_STATE_FIPS) {
-            Abort("workgroup_size_filename '" + fname + "': state FIPS " + to_string(state_fips) +
-                  " is out of range (>= MAX_STATE_FIPS=" + to_string(UrbanPopData::MAX_STATE_FIPS) + ")");
-        }
-        auto it = naics_index.find(code);
-        if (it == naics_index.end()) {
-            Abort("workgroup_size_filename '" + fname + "': unknown NAICS code '" + code +
-                  "' (not in UrbanPop::naics_descriptions -- table may be stale or for a different NAICS encoding)");
-        }
-        if (size < 1) {
-            Abort("workgroup_size_filename '" + fname + "': invalid work-group size " + to_string(size) + " for state " +
-                  to_string(state_fips) + " NAICS " + code + " (must be >= 1)");
-        }
-        sizes[state_fips * NAICS_COUNT + it->second] = size;
-        nrows_read++;
-    }
-    if (ParallelDescriptor::IOProcessor()) {
-        Print() << "Read " << nrows_read << " per-(state, NAICS) work-group sizes from " << fname << " (declared "
-                << nrows_declared << ")\n";
-    }
-    return sizes;
 }
 
 /*! \brief Tally the true daytime headcount per community (see UrbanPopData::day_population's doc
@@ -387,10 +331,6 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
 
     std::ofstream geoid_coords_ofs;
 
-    workgroup_size_table = readWorkgroupSizeTable(params.workgroup_size_filename, params.workgroup_size);
-    copyToDeviceAsync(workgroup_size_table, workgroup_size_table_d);
-    Gpu::streamSynchronize();
-
     day_population = computeDayPopulation(urbanpop_file, block_groups, geoid_to_block_groups);
 
     fillGridMetadataOnHost();
@@ -478,12 +418,6 @@ void UrbanPopData::fillGridMetadataOnHost () {
     Gpu::streamSynchronize();
 }
 
-AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-static int get_max_nborhood (int nborhood_size, int community_size) {
-    int max_nborhood = static_cast<int>(Math::round(static_cast<Real>(community_size) / nborhood_size));
-    return max_nborhood > 0 ? max_nborhood : 1;
-}
-
 void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& params) {
     BL_PROFILE("UrbanPopData::initAgents");
 
@@ -497,20 +431,17 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
     int num_students = 0;
     int num_educators = 0;
     int num_communities = 0;
-    int nborhood_size = params.nborhood_size;
-    int num_nborhoods = 0;
 
-    // rank-local/partial (this rank's tiles only) tallies for the household size, household-
-    // cluster size, and workgroup target size histograms -- merged across ranks below via
-    // ExaEpi::Utils::gatherHistogramCounts once the full loop has finished. household_id (and
-    // therefore household_id/4) is only unique *within* a block group (BlockGroup::readAgents
-    // counts them with a local unordered_set), so the occupant-tally keys below combine it with
-    // the owning block group's geoid to get a globally-unique id -- keying on household_id alone
-    // would silently merge unrelated households from different communities that happen to reuse
-    // the same small local id.
+    // rank-local/partial (this rank's tiles only) tallies for the household size and household-
+    // cluster size histograms -- merged across ranks below via
+    // ExaEpi::Utils::gatherHistogramCounts once the full loop has finished. household_id,
+    // hh_cluster and nborhood are only unique *within* a block group, so the keys below combine
+    // them with the owning block group's geoid to get a globally-unique id -- keying on the raw
+    // id alone would silently merge unrelated groups from different communities that happen to
+    // reuse the same small local id.
     std::unordered_map<int64_t, int> household_occupants;
     std::unordered_map<int64_t, int> cluster_occupants;
-    std::map<Long, Long> workgroup_target_hist;
+    std::unordered_set<int64_t> nborhoods_seen;
 
     if (!urbanpop_file) { Abort("File " + params.urbanpop_filename + " is not open\n"); }
     for (MFIter mfi = pc.MakeMFIter(0); mfi.isValid(); ++mfi) {
@@ -544,33 +475,19 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     num_educators += block_group.num_educators;
                     num_communities++;
 
-                    // household size / cluster size / workgroup target size tallies -- host-side,
-                    // right after this block group's agents are read. hh_cluster grouping uses
-                    // household_id % num_clusters (see the assignment kernel below) rather than
-                    // household_id / 4 -- consecutive household IDs in the UrbanPop data turn out
-                    // to be strongly size-correlated (empirically, lag-1 Pearson r ~= 0.70), so
-                    // dividing into consecutive blocks of 4 systematically clumps same-sized
-                    // (often large) households together; striding by num_clusters spaces grouped
-                    // households far enough apart in the original ordering to break that
-                    // correlation (verified empirically to outperform even a true random shuffle,
-                    // since it guarantees uniform spacing rather than relying on chance).
-                    int num_clusters = std::max(1, (block_group.num_households + 3) / 4);
+                    // household size / cluster size tallies -- host-side, right after this block
+                    // group's agents are read. Both ids come from the file (see
+                    // UrbanPop-scripts/group_assignment.py); this only counts occupants of each.
+                    // household_id and hh_cluster are only unique within a block group, so the
+                    // keys combine them with the owning geoid.
                     for (int i = agents_start_i; i < agents.size(); i++) {
                         auto& agent = agents[i];
-                        agents_extras[i].home_num_households = block_group.num_households;
-                        int64_t hh_key = (block_group.geoid << 16) | (uint16_t)agent.household_id;
-                        household_occupants[hh_key]++;
-                        int64_t cluster_key = (block_group.geoid << 16) | (uint16_t)(agent.household_id % num_clusters);
-                        cluster_occupants[cluster_key]++;
-                        if (agent.naics != -1) {
-                            int state_fips = agents_extras[i].work_state_fips;
-                            int target = workgroup_size_table[state_fips * NAICS_COUNT + agent.naics];
-                            workgroup_target_hist[target]++;
-                        }
+                        household_occupants[(block_group.geoid << 16) | (uint16_t)agent.household_id]++;
+                        cluster_occupants[(block_group.geoid << 16) | (uint16_t)agent.hh_cluster]++;
+                        nborhoods_seen.insert((block_group.geoid << 16) | (uint16_t)agent.nborhood);
                     }
                     //  FIPS is the first 5 digits of the GEOID, which is 12 digits
                     int64_t fips = static_cast<int64_t>(block_group.geoid / 1e7);
-                    num_nborhoods += get_max_nborhood(nborhood_size, block_group.home_population);
                     for (int i = 0; i < FIPS_codes.size(); i++) {
                         if (FIPS_codes[i] == fips) {
                             County_on_proc[i] = 1;
@@ -615,7 +532,8 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
         auto work_nborhood_ptr = soa.GetIntData(IntIdx::work_nborhood).data();
-        auto workgroup_size_table_ptr = workgroup_size_table_d.data();
+        auto school_class_ptr = soa.GetIntData(IntIdx::school_class).data();
+        auto school_class_group_ptr = soa.GetIntData(IntIdx::school_class_group).data();
         soa.GetIntData(IntIdx::withdrawn).assign(0);
         soa.GetIntData(IntIdx::random_travel).assign(-1);
         soa.GetIntData(IntIdx::air_travel).assign(-1);
@@ -644,7 +562,11 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         const auto dxi = geom.InvCellSizeArray();
 #endif
 
-        ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
+        // No RNG here: every structural group an agent belongs to is drawn in preprocessing and
+        // read straight out of the file (see UrbanPop-scripts/group_assignment.py). That is what
+        // makes the initial population identical regardless of MPI rank count, and independent of
+        // agent.seed.
+        ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
             auto& p = aos[i];
             auto& agent = agents_ptr[i];
             // agent ID in amrex must be > 0
@@ -678,91 +600,40 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                 age_group_ptr[i] = AgeGroups::o65;
             }
             family_ptr[i] = agent.household_id;
-            int max_nborhood = get_max_nborhood(nborhood_size, agents_extras_ptr[i].home_population);
-            nborhood_ptr[i] = Random_int(max_nborhood, engine);
-            // strided modulo, not consecutive division -- see the tally loop above for why
-            int num_clusters = amrex::max(1, (agents_extras_ptr[i].home_num_households + 3) / 4);
-            hh_cluster_ptr[i] = agent.household_id % num_clusters;
             school_grade_ptr[i] = agent.grade;
             school_id_ptr[i] = agent.school_id;
             school_closed_ptr[i] = 0;
             naics_ptr[i] = agent.naics;
-            // set up workers
-            if (agent.naics != -1) {
-                if (agent.school_id != 0) {
-                    // Educator: work-based mixing is already modeled via the school_class_group
-                    // assigned in AgentContainer::assignSchoolClasses (see InteractionModSchool.H),
-                    // which covers every school_id>0 agent -- students and educators alike -- in
-                    // properly class-sized buckets. Routing educators through the workgroup/
-                    // work_nborhood channels too on top of that (as raw school_id, unsplit by
-                    // workgroup_size/nborhood_size) double-counts their contacts and, for a large
-                    // school (e.g. a university with thousands of staff), collapses them into one
-                    // giant undifferentiated transmission pool. Treat them like a non-worker for
-                    // these two channels instead. Checked before the work-from-home case below
-                    // (unlike a regular worker, an educator's work_i/work_j must stay at the real
-                    // school's location regardless of commute mode -- assignSchoolClasses keys its
-                    // raw groups off exactly that location, via school_id, which is itself only
-                    // unique within that location; overriding it to home_i/home_j here silently
-                    // reassigns the agent to whatever unrelated school_id happens to be locally
-                    // numbered the same at home, corrupting both that agent's class assignment and
-                    // (from the phantom single-agent groups it creates) the real school's size).
-                    workgroup_ptr[i] = 0;
-                    work_nborhood_ptr[i] = nborhood_ptr[i];
-                } else if (agent.travel == TRAVEL::_wfh) {
-                    // declared work-from-home: no real commute, and no physical collocation with
-                    // real workplace colleagues, so treat like a non-worker for workgroup/
-                    // work_nborhood purposes (naics_population/work_population describe the
-                    // assigned-but-never-visited work_geoid's community, not home, so they're not
-                    // a meaningful size for a group this agent never physically joins). Still
-                    // nominally employed (naics_ptr set above) for other purposes.
-                    workgroup_ptr[i] = 0;
-                    work_nborhood_ptr[i] = nborhood_ptr[i];
-                    work_i_ptr[i] = home_i_ptr[i];
-                    work_j_ptr[i] = home_j_ptr[i];
-                } else {
-                    // the group work population for this agent is for the NAICS category for the agent,
-                    // and the target work-group size is looked up for the agent's workplace state
-                    int state_fips = agents_extras_ptr[i].work_state_fips;
-                    AMREX_ASSERT(state_fips >= 0 && state_fips < UrbanPopData::MAX_STATE_FIPS);
-                    // Split this industry's workers in this community into ceil(population /
-                    // target) groups -- as many as it takes to keep them near the target size.
-                    // Integer ceil-division, not population/target + 1: the two agree except when
-                    // target divides population exactly, and there the +1 form adds a group that
-                    // isn't needed, turning the one case that would land exactly on the target
-                    // (population 60, target 30 -> two groups of 30) into the worst case (three
-                    // groups of 20). Both operands are >= 1 (naics_population is asserted above,
-                    // readWorkgroupSizeTable rejects a target < 1), so this is always >= 1.
-                    int target = workgroup_size_table_ptr[state_fips * NAICS_COUNT + agent.naics];
-                    int max_workgroup = (agents_extras_ptr[i].naics_population + target - 1) / target;
-                    // a workgroup of 0 indicates not working
-                    workgroup_ptr[i] = Random_int(max_workgroup, engine) + 1;
-                    AMREX_ASSERT(workgroup_ptr[i] > 0 && workgroup_ptr[i] < max_workgroup * (NAICS_COUNT + 1));
-                    int max_work_nborhood = get_max_nborhood(nborhood_size, agents_extras_ptr[i].work_population);
-                    work_nborhood_ptr[i] = Random_int(max_work_nborhood, engine);
-                    AMREX_ASSERT(work_nborhood_ptr[i] < 5000);
-                }
-            } else {
-                workgroup_ptr[i] = 0;
-                // everyone interacts in the work nborhood, even thoes that don't work (they interact during the day in their
-                // home neighborhoods, effectively
-                work_nborhood_ptr[i] = nborhood_ptr[i];
+
+            // --- group structure, all straight from the file ---
+            // Whole households share a home neighborhood, every establishment sits in one work
+            // neighborhood and is split into work-groups from there, and every school_id > 0
+            // agent has a class. See UrbanPop-scripts/group_assignment.py for how each is built
+            // and for the exemptions baked into them (educators and declared work-from-home
+            // agents get workgroup 0 and their home neighborhood as their work neighborhood,
+            // like the unemployed -- nobody who is not physically at a workplace joins one).
+            nborhood_ptr[i] = agent.nborhood;
+            hh_cluster_ptr[i] = agent.hh_cluster;
+            workgroup_ptr[i] = agent.workgroup;
+            work_nborhood_ptr[i] = agent.work_nborhood;
+            school_class_ptr[i] = agent.school_class;
+            school_class_group_ptr[i] = agent.school_class_group;
+            AMREX_ASSERT(nborhood_ptr[i] >= 0 && work_nborhood_ptr[i] >= 0 && workgroup_ptr[i] >= 0 && hh_cluster_ptr[i] >= 0);
+            AMREX_ASSERT((agent.school_id != 0) == (school_class_group_ptr[i] >= 0));
+
+            if (agent.naics != -1 && agent.school_id == 0 && agent.travel == TRAVEL::_wfh) {
+                // Declared work-from-home: no real commute, so spend the day at home. Still
+                // nominally employed (naics_ptr is set above) for other purposes. Note this is
+                // checked *after* the educator case, because an educator's work_i/work_j must
+                // stay at the real school's location regardless of commute mode -- school_id is
+                // only unique within a location, so moving an educator home silently reassigns
+                // them to whatever unrelated school happens to be numbered the same there.
+                work_i_ptr[i] = home_i_ptr[i];
+                work_j_ptr[i] = home_j_ptr[i];
             }
 
             trav_i_ptr[i] = home_i_ptr[i];
             trav_j_ptr[i] = home_j_ptr[i];
-        });
-        Gpu::synchronize();
-
-        // now ensure that all members of the same family have the same home nborhood
-        ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
-            // search forwards to find the last member of the family and use that agent's nborhood
-            int nborhood = nborhood_ptr[i];
-            for (int j = i + 1; j < np; j++) {
-                if (home_i_ptr[i] != home_i_ptr[j] || home_j_ptr[i] != home_j_ptr[j]) { break; }
-                if (family_ptr[i] != family_ptr[j]) { break; }
-                nborhood = nborhood_ptr[j];
-            }
-            nborhood_ptr[i] = nborhood;
         });
         Gpu::synchronize();
     }
@@ -781,14 +652,12 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
 
         auto merged_household = ExaEpi::Utils::gatherHistogramCounts(household_size_hist);
         auto merged_cluster = ExaEpi::Utils::gatherHistogramCounts(cluster_size_hist);
-        auto merged_workgroup_target = ExaEpi::Utils::gatherHistogramCounts(workgroup_target_hist);
 
         if (ParallelDescriptor::IOProcessor()) {
             ExaEpi::Utils::printHistogram("Household size", merged_household);
             // cluster sizes range far wider than household sizes (auto-sizing would pick a
             // bucket width of 1 or 2), so use a fixed width of 5 for a more legible histogram
             ExaEpi::Utils::printHistogram("Household-cluster size", merged_cluster, 50, 60, 5);
-            ExaEpi::Utils::printHistogram("Workgroup target size", merged_workgroup_target);
         }
     }
 
@@ -810,6 +679,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
     ParallelDescriptor::ReduceIntSum(num_employed);
     ParallelDescriptor::ReduceIntSum(num_students);
     ParallelDescriptor::ReduceIntSum(num_educators);
+    int num_nborhoods = static_cast<int>(nborhoods_seen.size());
     ParallelDescriptor::ReduceIntSum(num_nborhoods);
 
     Print() << std::fixed << std::setprecision(2) << "Population:  " << all_num_agents << " (balance " << load_balance_agents

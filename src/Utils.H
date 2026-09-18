@@ -41,14 +41,6 @@ struct TestParams {
      */
     std::string urbanpop_filename;
 
-    /*! Optional per-(state, NAICS-code) work-group target size table (see
-        utilities/UrbanPop-scripts/compute_workgroup_sizes.py). File format: first non-comment
-        line is a row count, followed by "<state_fips> <naics_code> <int size>" lines
-        (order-independent, matched by state FIPS and NAICS code string, not position). If empty
-        (the default), every state/NAICS combination falls back to the flat #workgroup_size,
-        exactly as before this feature existed -- fully backward compatible. */
-    std::string workgroup_size_filename;
-
     /*! Population-size-based scale factor (see computeCommunitySizeScale / computeCommunityWorkSizeScale).
         home_population and UrbanPopData::day_population are always available, no side file needed.
         When true, this populates AgentContainer::comm_density_scale (nighttime, keyed on
@@ -76,38 +68,6 @@ struct TestParams {
         left tunable. */
     bool size_scale_enabled = true;
 
-    /*! Split each (community, school_id, grade) group into classes (see
-        AgentContainer::assignSchoolClasses) so school transmission happens within a class
-        rather than across an entire grade at a school -- a grade-at-school group averages
-        ~62 students statewide (NM UrbanPop), with a long tail into the thousands for colleges,
-        far larger than a real classroom. The number of classes is driven primarily by the raw
-        group's actual teacher headcount (one class per teacher, at most, mirroring real
-        classroom staffing -- any teachers beyond that go to a separate non-classroom "admin"
-        bucket), clamped so no class averages fewer than #school_class_size_min or more than
-        #school_class_size_max students. #school_class_size itself is now only the fallback
-        target used when a raw group has students but zero identified teachers. */
-    int school_class_size = 20;     /*!< fallback target students-per-class for raw groups with no identified teachers */
-    int school_class_size_min = 5;  /*!< floor on average class size (bounds class count from above) */
-    int school_class_size_max = 50; /*!< cap on average class size (bounds class count from below) */
-
-    /*! Correction factor applied to the raw teacher headcount for college-level (grade>17,
-        SchoolType::college) raw groups specifically, before it drives class count. College
-        "teacher" counts (utilities/UrbanPop-scripts/get_schools.py) are sourced from HIFLD's
-        TOT_EMP field -- total college employment (faculty, admin, facilities, research staff,
-        everyone), not a faculty-specific count -- unlike K-12, which does have a genuine "Full
-        Time Teachers" field, and unlike the rest of the raw HIFLD college data (checked directly:
-        TOT_EMP is the only employment-related field available, so there's no better source signal
-        to fall back on). Without this correction, that inflated headcount routinely exceeds
-        student_count/school_class_size_min, forcing nearly every over-staffed college raw group
-        to collapse to the identical class count regardless of its actual data -- visible as a
-        single dominant spike in the "School class size" histogram (see
-        ExaEpi::Utils::printHistogram) rather than a distribution that varies by institution.
-        Scaling the headcount down by this fraction *before* the school_class_size_min/max clamp
-        lets each college's derived class size reflect its own reported staffing level again
-        (validated empirically: with fraction=0.1, only 2 of 68 NM college raw groups still hit
-        the clamp, versus the previous approach where effectively all of them did). */
-    amrex::Real college_instructional_fraction = amrex::Real(0.1);
-
     int aggregated_diag_int = -1;                 /*!< interval for writing aggregated diagnostic data
                                                        (see: ExaEpi::IO::writeAggregatedData) */
     std::string aggregated_diag_prefix = "cases"; /*!< filename prefix for diagnostic data, used only if
@@ -117,9 +77,6 @@ struct TestParams {
 
     int shelter_start = -1;
     int shelter_length = 0;
-
-    int nborhood_size = 360;
-    int workgroup_size = 20;
 
     bool fast = false;         /*!< Use the fast implementations for various operations, e.g. binning, at the cost of
                                    exact reproducibility for a given random seed. */

@@ -39,24 +39,19 @@ The following are inputs for the overall simulation:
 * ``agent.disease_names`` (`list of strings`, default ``default00``)
     Names of the diseases; the size of the vector must be the same as ``agent.number_of_diseases``.
     If unspecified, the disease names are set as ``default00``, ``default01``, ``...``.
-* ``agent.nborhood_size`` (`int`, default ``500``)
-    Target size of a neighborhood, for home and work communities.
-* ``agent.workgroup_size`` (`int`, default ``20``)
-    Target size of a workgroup, for work communities. Used as the fallback for any
-    (state, NAICS) combination not covered by ``agent.workgroup_size_filename``.
 * ``agent.urbanpop_filename`` (`string`)
     The path to the ``*.csv`` and ``*.idx`` files containing the UrbanPop data used to set initial conditions. For each input
     there should be two files, one with a ``.csv`` extension, and one with a ``.idx`` extension, both with the same name.
     Do not specify the extension in this parameter.
     Must be provided. Examples of these data files are provided in ``ExaEpi/data/UrbanPop``.
-* ``agent.workgroup_size_filename`` (`string`, default ``""``)
-    Optional path to a per-(state, NAICS-code) work-group target size table (see
-    ``utilities/UrbanPop-scripts/compute_workgroup_sizes.py``). Any (state, NAICS) combination
-    not listed in the file falls back to the flat ``agent.workgroup_size``. Leaving this empty
-    (the default) makes every combination use that flat value, which discards the per-industry
-    variation entirely -- a hospital and a corner shop then get the same target. A prebuilt
-    table covering every state is checked into the repo at
-    ``data/UrbanPop/workgroup_sizes_us.txt``, so this can usually just point at that.
+
+    The file also carries each agent's group structure -- home neighborhood, household cluster,
+    work neighborhood, work-group and school class. These are properties of the synthetic
+    population rather than of a run, so the targets that size them
+    (``nborhood_size``, ``workgroup_size``, ``school_class_size`` and friends) are options of
+    ``utilities/UrbanPop-scripts/upop_to_exaepi.py``, not of ExaEpi. To change them, rebuild the
+    ``.bin``. ExaEpi checks the file's format version on startup and refuses one it was not built
+    for, so an out-of-date ``.bin`` fails immediately rather than producing a plausible-looking run.
 * ``agent.size_scale_enabled`` (`bool`, default ``true``)
     Enables a population-size-based correction that keeps community/neighborhood transmission
     frequency-dependent (depending on local prevalence) rather than density-dependent
@@ -115,16 +110,6 @@ The following are inputs for the overall simulation:
     Compliance rate for agents withdrawing on day 1 when they have symptoms, per age group.
 * ``agent.symptomatic_withdraw_compliance_day_2`` (`list of float`, default: ``0.9 0.8 0.7 0.7 0.7 0.7``)
     Compliance rate for agents withdrawing on day 2 (or later) when they have symptoms, per age group.
-* ``agent.school_class_size`` (`integer`, default ``15``)
-    Fallback target students-per-class, for a (community, school, grade) group with students
-    but no identified teachers in the underlying data.
-* ``agent.school_class_size_min`` (`integer`, default ``5``)
-    Floor on average class size (bounds the derived class count from above).
-* ``agent.school_class_size_max`` (`integer`, default ``50``)
-    Cap on average class size (bounds the derived class count from below).
-* ``agent.college_instructional_fraction`` (`float`, default ``0.1``)
-    Correction factor applied to a college-level group's reported teacher/staff headcount
-    (sourced from total employment, not a faculty-specific count) before it drives class count.
 * ``agent.max_box_size`` (`integer`, default ``16``)
     This option sets the maximum box size used for MPI domain decomposition.
 * ``diag.output_filename`` (`string`, default ``output.dat`` for a single disease,

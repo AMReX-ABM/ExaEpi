@@ -16,7 +16,11 @@ using float32_t = amrex::ParticleReal;
 
 namespace UrbanPop {
 
-const size_t NUM_COLS = 12;
+const size_t NUM_COLS = 18;
+
+/*! Layout version of the .bin this header can read, checked against the file header by
+    readBlockGroupsFile -- see BIN_FORMAT_VERSION in upop_to_exaepi.py. */
+const uint32_t FORMAT_VERSION = 2;
 
 const int NAICS_COUNT = 251;
 static string naics_descriptions[NAICS_COUNT] =
@@ -364,9 +368,15 @@ struct UrbanPopAgent {
     int64_t id;
     int64_t home_geoid;
     int64_t work_geoid;
+    int32_t school_class_group;
     int16_t naics;
     int16_t household_id;
     int16_t school_id;
+    int16_t nborhood;
+    int16_t work_nborhood;
+    int16_t workgroup;
+    int16_t hh_cluster;
+    int16_t school_class;
     int8_t age;
     int8_t sex;
     int8_t race;
@@ -390,15 +400,21 @@ struct UrbanPopAgent {
             id = stol(tokens[0]);
             home_geoid = stol(tokens[1]);
             work_geoid = stol(tokens[2]);
-            naics = stoi(tokens[3]);
-            household_id = stoi(tokens[4]);
-            school_id = stoi(tokens[5]);
-            age = stoi(tokens[6]);
-            sex = stoi(tokens[7]);
-            race = stoi(tokens[8]);
-            travel = stoi(tokens[9]);
-            veh_occ = stoi(tokens[10]);
-            grade = stoi(tokens[11]);
+            school_class_group = stoi(tokens[3]);
+            naics = stoi(tokens[4]);
+            household_id = stoi(tokens[5]);
+            school_id = stoi(tokens[6]);
+            nborhood = stoi(tokens[7]);
+            work_nborhood = stoi(tokens[8]);
+            workgroup = stoi(tokens[9]);
+            hh_cluster = stoi(tokens[10]);
+            school_class = stoi(tokens[11]);
+            age = stoi(tokens[12]);
+            sex = stoi(tokens[13]);
+            race = stoi(tokens[14]);
+            travel = stoi(tokens[15]);
+            veh_occ = stoi(tokens[16]);
+            grade = stoi(tokens[17]);
 
         } catch (const std::exception& ex) {
             std::ostringstream os;
@@ -409,13 +425,28 @@ struct UrbanPopAgent {
         return true;
     }
 
+    /*! Packed size of one agent record on disk -- deliberately not sizeof(UrbanPopAgent), which
+        includes alignment padding the file does not have. Checked against the .bin header so a
+        field added or widened here without a FORMAT_VERSION bump still fails loudly. */
+    static constexpr size_t record_size () {
+        return sizeof(int64_t) + sizeof(int64_t) + sizeof(int64_t) + sizeof(int32_t) + sizeof(int16_t) + sizeof(int16_t) +
+               sizeof(int16_t) + sizeof(int16_t) + sizeof(int16_t) + sizeof(int16_t) + sizeof(int16_t) + sizeof(int16_t) +
+               sizeof(int8_t) + sizeof(int8_t) + sizeof(int8_t) + sizeof(int8_t) + sizeof(int8_t) + sizeof(int8_t);
+    }
+
     bool readBinary (std::ifstream& f) {
         if (!f.read(reinterpret_cast<char*>(&id), sizeof(int64_t))) { return false; }
         if (!f.read(reinterpret_cast<char*>(&home_geoid), sizeof(int64_t))) { return false; }
         if (!f.read(reinterpret_cast<char*>(&work_geoid), sizeof(int64_t))) { return false; }
+        if (!f.read(reinterpret_cast<char*>(&school_class_group), sizeof(int32_t))) { return false; }
         if (!f.read(reinterpret_cast<char*>(&naics), sizeof(int16_t))) { return false; }
         if (!f.read(reinterpret_cast<char*>(&household_id), sizeof(int16_t))) { return false; }
         if (!f.read(reinterpret_cast<char*>(&school_id), sizeof(int16_t))) { return false; }
+        if (!f.read(reinterpret_cast<char*>(&nborhood), sizeof(int16_t))) { return false; }
+        if (!f.read(reinterpret_cast<char*>(&work_nborhood), sizeof(int16_t))) { return false; }
+        if (!f.read(reinterpret_cast<char*>(&workgroup), sizeof(int16_t))) { return false; }
+        if (!f.read(reinterpret_cast<char*>(&hh_cluster), sizeof(int16_t))) { return false; }
+        if (!f.read(reinterpret_cast<char*>(&school_class), sizeof(int16_t))) { return false; }
         if (!f.read(reinterpret_cast<char*>(&age), sizeof(int8_t))) { return false; }
         if (!f.read(reinterpret_cast<char*>(&sex), sizeof(int8_t))) { return false; }
         if (!f.read(reinterpret_cast<char*>(&race), sizeof(int8_t))) { return false; }
@@ -430,9 +461,15 @@ struct UrbanPopAgent {
         os << agent.id << ",";
         os << agent.home_geoid << ",";
         os << agent.work_geoid << ",";
+        os << agent.school_class_group << ",";
         os << agent.naics << (agent.naics != -1 ? ":" + naics_descriptions[agent.naics] : "") << ",";
         os << agent.household_id << ",";
         os << agent.school_id << ",";
+        os << agent.nborhood << ",";
+        os << agent.work_nborhood << ",";
+        os << agent.workgroup << ",";
+        os << agent.hh_cluster << ",";
+        os << agent.school_class << ",";
         os << (int)agent.age << ",";
         os << (int)agent.sex << (agent.sex != -1 ? ":" + sex_descriptions[agent.sex] : "") << ",";
         os << (int)agent.race << (agent.race != -1 ? ":" + race_descriptions[agent.race] : "") << ",";

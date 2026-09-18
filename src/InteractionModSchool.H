@@ -3,7 +3,7 @@
  *
  * Transmission happens within a school_class_group -- a compact ID for an agent's actual
  * (community, school_id, grade, class) mixing bucket, assigned once by
- * AgentContainer::assignSchoolClasses (see IntIdx::school_class_group / TestParams::school_class_size)
+ * UrbanPop-scripts/group_assignment.py (see IntIdx::school_class_group)
  * -- rather than across an entire grade at a school. A school_class_group may be a real
  * classroom (IntIdx::school_class >= 0) or one of a raw group's non-classroom "admin" groups
  * (IntIdx::school_class <= -2, i.e. -2, -3, -4, ..., holding excess teachers beyond
@@ -145,7 +145,7 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                                         // and not xmit_school_scale'd -- this models the same "co-workers
                                         // sharing a room" contact InteractionModWork.H already represents for
                                         // every other industry, just physically located at a school instead
-                                        // of a regular workplace; see AgentContainer::assignSchoolClasses).
+                                        // of a regular workplace; see UrbanPop-scripts/group_assignment.py).
                                         // Different admin groups are still isolated from each other by
                                         // school_class_group (the actual transmission bucket, checked via
                                         // `pos` above) -- this check only decides which xmit value to use.

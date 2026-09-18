@@ -108,8 +108,8 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
         component 0 = everyone, 1 = workers (naics != -1), 2 = students (naics == -1 &&
         school_id != 0). Uses each agent's own current physical position (via ParticleToMesh), so
         the result reflects home population if called while agents are at home, or work/school
-        population if called right after moveAgentsToWork() -- see main.cpp's
-        assignSchoolClasses() call site, which relies on the same guarantee: moveAgentsToWork()'s
+        population if called right after moveAgentsToWork() -- see main.cpp's static-aggregated-data
+        block, which relies on the same guarantee: moveAgentsToWork()'s
         Redistribute() ensures every agent's tile matches its current (work) position, so a
         per-tile community lookup (e.g. UrbanPopData::community_mf) is valid there exactly as it
         is for the resting (home) state generateCellData() already assumes. */
@@ -130,7 +130,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
         school_class_group attributes. NOT const: calls getMaxGroup(), which mutates a cached
         MPI-reduced value the first time each attribute is queried. Must be called once, while
         agents are at their work location (see main.cpp's call site, immediately after
-        assignSchoolClasses()) -- workgroup/school_id are only unique within a work community, so
+        morningCommute()) -- workgroup/school_id are only unique within a work community, so
         this relies on the same current-position-is-work-cell guarantee generatePopulationBreakdown()
         documents above. Reduces to the IOProcessor only (not all ranks), since only the
         IOProcessor writes the resulting output files. */
@@ -139,8 +139,6 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     void moveAgentsToWork();
 
     void moveAgentsToHome();
-
-    void assignSchoolClasses(const ExaEpi::TestParams& params);
 
     void setTileSize (IntVect newTileSize) { tile_size = newTileSize; }
 

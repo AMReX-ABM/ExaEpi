@@ -39,7 +39,7 @@ disease-specific field below is repeated once per disease, prefixed with the dis
 
     - ``school_closed``: 0 if the agent's school is open, 1 if closed.
 
-    - ``school_class``: 0-based class index within the agent's (community, school_id, grade) group, or a value <= -2 for a teacher assigned to that group's non-classroom "admin" pool -- see ``AgentContainer::assignSchoolClasses``.
+    - ``school_class``: 0-based class index within the agent's (community, school_id, grade) group, or a value <= -2 for a teacher assigned to that group's non-classroom "admin" pool -- see ``utilities/UrbanPop-scripts/group_assignment.py``.
 
     - ``school_class_group``: Compact ID for the agent's actual (community, school_id, grade, school_class) mixing bucket, or -1 for agents not enrolled in school.
 

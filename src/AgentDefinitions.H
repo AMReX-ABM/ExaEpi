@@ -59,10 +59,10 @@ struct IntIdx {
                                  sentinel value per admin group in the raw group (consumed by
                                  InteractionModSchool.H to identify teacher-teacher contact, in
                                  addition to being diagnostic) -- see
-                                 AgentContainer::assignSchoolClasses / school_class_group below */
+                                 UrbanPop-scripts/group_assignment.py / school_class_group below */
         school_class_group, /*!< compact, densely-packed ID for this agent's actual (community,
                                  school_id, grade, school_class) mixing bucket -- see
-                                 AgentContainer::assignSchoolClasses / InteractionModSchool.H. -1 for
+                                 UrbanPop-scripts/group_assignment.py / InteractionModSchool.H. -1 for
                                  agents not enrolled (school_id == 0) */
         naics,              /*!< industry NAICS code for business employed at */
         workgroup,          /*!< workgroup ID */

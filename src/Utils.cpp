@@ -46,7 +46,6 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
     if (params.weather_int > 0) { pp.get("weather_filename", params.weather_filename); }
 
     pp.get("urbanpop_filename", params.urbanpop_filename);
-    pp.query("workgroup_size_filename", params.workgroup_size_filename);
 
     pp.query("size_scale_enabled", params.size_scale_enabled);
 
@@ -54,11 +53,6 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
         pp.get("air_traffic_filename", params.air_traffic_filename);
         pp.get("airports_filename", params.airports_filename);
     }
-
-    pp.query("school_class_size", params.school_class_size);
-    pp.query("school_class_size_min", params.school_class_size_min);
-    pp.query("school_class_size_max", params.school_class_size_max);
-    pp.query("college_instructional_fraction", params.college_instructional_fraction);
 
     pp.query("max_box_size", params.max_box_size);
 
@@ -69,9 +63,6 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
 
     pp.query("shelter_start", params.shelter_start);
     pp.query("shelter_length", params.shelter_length);
-
-    pp.query("nborhood_size", params.nborhood_size);
-    pp.query("workgroup_size", params.workgroup_size);
 
     Long seed = 0;
     bool reset_seed = pp.query("seed", seed);
