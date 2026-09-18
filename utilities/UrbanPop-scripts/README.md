@@ -10,11 +10,13 @@ implementation of the same name, since its output format is the one `src/UrbanPo
 actually reads). Run with `-h` to see the options:
 
 ```
-usage: upop_to_exaepi.py [-h] [-c FILE] [--output OUTPUT]
-                         [--upop_files UPOP_FILES [UPOP_FILES ...]]
-                         [--lodes_files LODES_FILES [LODES_FILES ...]]
-                         [--schools_file SCHOOLS_FILE]
+usage: upop_to_exaepi.py [-h] [-c FILE] [--output OUTPUT] --upop_files
+                         UPOP_FILES [UPOP_FILES ...] --lodes_files LODES_FILES
+                         [LODES_FILES ...] --schools_file SCHOOLS_FILE
                          [--rseed RSEED]
+                         [--county_adjacency_file COUNTY_ADJACENCY_FILE]
+                         [--workgroup_sizes_file WORKGROUP_SIZES_FILE]
+                         [--establishment_sizes_file ESTABLISHMENT_SIZES_FILE]
 
 options:
   -h, --help            show this help message and exit
@@ -25,11 +27,31 @@ options:
   --upop_files UPOP_FILES [UPOP_FILES ...], -f UPOP_FILES [UPOP_FILES ...]
                         UrbanPop feather files
   --lodes_files LODES_FILES [LODES_FILES ...], -l LODES_FILES [LODES_FILES ...]
-                        LODES7 origin-destination (OD) files in CSV format.
+                        LODES7 origin-destination (OD) files in CSV format
   --schools_file SCHOOLS_FILE, -s SCHOOLS_FILE
-                        File containing schools data in CSV format.
+                        File containing schools data in CSV format
   --rseed RSEED, -r RSEED
                         Random seed
+  --county_adjacency_file COUNTY_ADJACENCY_FILE
+                        CSV of geoid,neighbor_geoid county-adjacency pairs
+                        (see compute_county_adjacency.py). Used to bound
+                        university students to their home county plus its
+                        neighbors when their home county has no university
+  --workgroup_sizes_file WORKGROUP_SIZES_FILE
+                        Per-(state, NAICS) target workgroup size table (see
+                        compute_workgroup_sizes.py). REQUIRED -- it caps how
+                        strongly alloc_workers' NAICS-concentration bonus can
+                        pull worker destinations away from real LODES flow
+                        proportions, and falling back to one flat target for
+                        every industry would do that silently.
+  --establishment_sizes_file ESTABLISHMENT_SIZES_FILE
+                        Per-(state, NAICS) establishment-size distribution
+                        (see compute_workgroup_sizes.py). REQUIRED --
+                        alloc_workers draws each workplace's size from this,
+                        and sizing them all at the industry average instead
+                        makes destination populations pile up at multiples of
+                        that average, so a missing file is a hard error rather
+                        than a silent fallback.
 ```
 
 When using the config file option, specify configurations as section `main`, as shown in this
@@ -37,12 +59,18 @@ example file for New Mexico:
 
 ```
 [main]
-upop_files=nm_urbanpop.feather
-lodes_files=../LODES7/nm_od_main_2019.csv
+upop_files=base/35_NM/*.feather
+lodes_files=../LODES7/nm_od_main_JT00_2019.csv.gz
 schools_file=../EducationData/schools_with_geoids.csv
-output=upop_nm_gen
+county_adjacency_file=county_adjacency.csv
+output=urbanpop_nm
 rseed=29
 ```
+
+This is `data/UrbanPop/nm.cfg`, which ships with the repo alongside `ca.cfg`; both are meant to be
+run from `data/UrbanPop/`, since their paths are relative to it. Neither sets the two size-table
+options described below, even though both are required -- set those only to point at a pair other
+than the repo's own.
 
 Any options specified on the command line after the config file will override settings in the config
 file.
@@ -51,9 +79,10 @@ Worker, student, and teacher flows are generated from the LODES flows input and 
 (the LODES and schools files are required).
 
 It also requires the two per-(state, NAICS) size tables written by `compute_workgroup_sizes.py`
-(see below), which are used to decide how many workplaces each destination has and how big each one
-is. Both default to the copies in `data/UrbanPop/`, so normally neither needs to be given; a missing
-or mismatched pair is a hard error rather than a silent fallback.
+(see below), which decide how many workplaces each destination has and how big each one is. Both
+default to the copies in `data/UrbanPop/`, resolved from the script's own location rather than the
+working directory, so they are found wherever the run starts and normally neither needs to be
+given. A missing or mismatched pair is a hard error rather than a silent fallback.
 
 `upop_to_exaepi.py` will generate a single binary output file, `<output>.bin`, containing both the
 per-agent data and the block-group index (used for reading in parallel) in one combined format --
