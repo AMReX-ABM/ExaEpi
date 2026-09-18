@@ -41,13 +41,12 @@ Run `./agent` with no arguments (or `./agent --help`) to print the full list of 
 parameters and their current defaults; `examples/inputs.defaults` lists the same information
 as a ready-to-edit inputs file.
 
-Each example points at an UrbanPop data file under `data/UrbanPop/`; the large ones are
-committed gzip'd (`*.bin.gz`) to keep the repository small, so gunzip the one you need first,
-e.g. `gunzip -k data/UrbanPop/urbanpop_nm.bin.gz`.
+Each example points at an UrbanPop data file under `data/UrbanPop/`. These are committed via
+git-lfs and are read directly -- they are compressed internally (each block group's agents are
+an independently-deflated frame), so there is nothing to unpack first.
 
 For example:
     cd build/bin
-    gunzip -k ../../data/UrbanPop/urbanpop_nm.bin.gz
     ./agent ../../examples/inputs.nm
 
 On Aurora at ALCF, if compiled with SYCL be sure to add "agent.fast=1" at the end of the command line to speed up the case initialization

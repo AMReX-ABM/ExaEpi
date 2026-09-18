@@ -20,7 +20,7 @@ const size_t NUM_COLS = 18;
 
 /*! Layout version of the .bin this header can read, checked against the file header by
     readBlockGroupsFile -- see BIN_FORMAT_VERSION in upop_to_exaepi.py. */
-const uint32_t FORMAT_VERSION = 2;
+const uint32_t FORMAT_VERSION = 3;
 
 const int NAICS_COUNT = 251;
 static string naics_descriptions[NAICS_COUNT] =
@@ -434,28 +434,6 @@ struct UrbanPopAgent {
                sizeof(int8_t) + sizeof(int8_t) + sizeof(int8_t) + sizeof(int8_t) + sizeof(int8_t) + sizeof(int8_t);
     }
 
-    bool readBinary (std::ifstream& f) {
-        if (!f.read(reinterpret_cast<char*>(&id), sizeof(int64_t))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&home_geoid), sizeof(int64_t))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&work_geoid), sizeof(int64_t))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&school_class_group), sizeof(int32_t))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&naics), sizeof(int16_t))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&household_id), sizeof(int16_t))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&school_id), sizeof(int16_t))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&nborhood), sizeof(int16_t))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&work_nborhood), sizeof(int16_t))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&workgroup), sizeof(int16_t))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&hh_cluster), sizeof(int16_t))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&school_class), sizeof(int16_t))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&age), sizeof(int8_t))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&sex), sizeof(int8_t))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&race), sizeof(int8_t))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&travel), sizeof(int8_t))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&veh_occ), sizeof(int8_t))) { return false; }
-        if (!f.read(reinterpret_cast<char*>(&grade), sizeof(int8_t))) { return false; }
-        return true;
-    }
-
     friend std::ostream& operator<<(std::ostream& os, const UrbanPopAgent& agent) {
         os << std::fixed << std::setprecision(6);
         os << agent.id << ",";
@@ -479,5 +457,93 @@ struct UrbanPopAgent {
 
         return os;
     }
+};
+
+/*! \brief Column pointers into one decompressed block-group frame.
+
+    A v3 frame holds one block group's agents column by column -- every id, then every
+    home_geoid, and so on -- rather than record by record. That is the same record_size() bytes
+    per agent as the old interleaved layout, but grouping like-typed, similarly-valued fields
+    together is what takes the file from ~4x to ~5.3x under deflate.
+
+    Columns are read in place out of the decompression buffer rather than copied out, so the
+    buffer must outlive the AgentFrame. Every column lands naturally aligned provided the buffer
+    itself is 8-byte aligned (as std::vector<char>'s storage is), since each column's byte offset
+    into the frame is its element size times a whole number of agents. */
+class AgentFrame {
+  public:
+    AgentFrame (const char* buf, int num_agents) : m_num_agents(num_agents) {
+        const char* p = buf;
+        m_id = takeColumn<int64_t>(p, num_agents);
+        m_home_geoid = takeColumn<int64_t>(p, num_agents);
+        m_work_geoid = takeColumn<int64_t>(p, num_agents);
+        m_school_class_group = takeColumn<int32_t>(p, num_agents);
+        m_naics = takeColumn<int16_t>(p, num_agents);
+        m_household_id = takeColumn<int16_t>(p, num_agents);
+        m_school_id = takeColumn<int16_t>(p, num_agents);
+        m_nborhood = takeColumn<int16_t>(p, num_agents);
+        m_work_nborhood = takeColumn<int16_t>(p, num_agents);
+        m_workgroup = takeColumn<int16_t>(p, num_agents);
+        m_hh_cluster = takeColumn<int16_t>(p, num_agents);
+        m_school_class = takeColumn<int16_t>(p, num_agents);
+        m_age = takeColumn<int8_t>(p, num_agents);
+        m_sex = takeColumn<int8_t>(p, num_agents);
+        m_race = takeColumn<int8_t>(p, num_agents);
+        m_travel = takeColumn<int8_t>(p, num_agents);
+        m_veh_occ = takeColumn<int8_t>(p, num_agents);
+        m_grade = takeColumn<int8_t>(p, num_agents);
+    }
+
+    int size () const { return m_num_agents; }
+
+    void get (int i, UrbanPopAgent& agent) const {
+        agent.id = m_id[i];
+        agent.home_geoid = m_home_geoid[i];
+        agent.work_geoid = m_work_geoid[i];
+        agent.school_class_group = m_school_class_group[i];
+        agent.naics = m_naics[i];
+        agent.household_id = m_household_id[i];
+        agent.school_id = m_school_id[i];
+        agent.nborhood = m_nborhood[i];
+        agent.work_nborhood = m_work_nborhood[i];
+        agent.workgroup = m_workgroup[i];
+        agent.hh_cluster = m_hh_cluster[i];
+        agent.school_class = m_school_class[i];
+        agent.age = m_age[i];
+        agent.sex = m_sex[i];
+        agent.race = m_race[i];
+        agent.travel = m_travel[i];
+        agent.veh_occ = m_veh_occ[i];
+        agent.grade = m_grade[i];
+    }
+
+  private:
+    /*! Point at the next column of n values and advance p past it. */
+    template <typename T>
+    static const T* takeColumn (const char*& p, int n) {
+        const T* col = reinterpret_cast<const T*>(p);
+        p += sizeof(T) * static_cast<size_t>(n);
+        return col;
+    }
+
+    int m_num_agents;
+    const int64_t* m_id;
+    const int64_t* m_home_geoid;
+    const int64_t* m_work_geoid;
+    const int32_t* m_school_class_group;
+    const int16_t* m_naics;
+    const int16_t* m_household_id;
+    const int16_t* m_school_id;
+    const int16_t* m_nborhood;
+    const int16_t* m_work_nborhood;
+    const int16_t* m_workgroup;
+    const int16_t* m_hh_cluster;
+    const int16_t* m_school_class;
+    const int8_t* m_age;
+    const int8_t* m_sex;
+    const int8_t* m_race;
+    const int8_t* m_travel;
+    const int8_t* m_veh_occ;
+    const int8_t* m_grade;
 };
 } // namespace UrbanPop

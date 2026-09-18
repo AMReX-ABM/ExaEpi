@@ -14,6 +14,7 @@ import os
 import struct
 import sys
 import time
+import zlib
 from collections import defaultdict
 import polars as pl
 import numpy as np
@@ -36,7 +37,22 @@ DUMP_INTERMEDIATES = False
 #   1: original layout
 #   2: added the group-structure fields (nborhood, hh_cluster, work_nborhood, workgroup,
 #      school_class, school_class_group), which ExaEpi used to draw at init
-BIN_FORMAT_VERSION = 2
+#   3: agents are stored as one independently-compressed frame per home GEOID, laid out column
+#      by column inside the frame; the index entry carries the frame's compressed size and the
+#      header carries a codec field
+BIN_FORMAT_VERSION = 3
+
+# Codec for the per-GEOID agent frames, written into the file header. The field exists so a
+# future codec can be added without another format version bump; ExaEpi implements both of these.
+CODEC_NONE = 0
+CODEC_DEFLATE = 1
+# deflate level for the agent frames. Level 9 was measured to buy only ~1.4% over this (on
+# California, 371.9 vs 377.2 MB of agent data) for ~8x the compression time (260s vs 33s), which is
+# not worth slowing every regeneration down for. Decompression speed -- the only part ExaEpi pays,
+# ~670 MB/s/core -- is the same at any level. The level is not recorded in the file (the header
+# stores only the codec, and any level inflates identically), so it can be changed at will without
+# a format bump, and files written at different levels interoperate.
+COMPRESS_LEVEL = 6
 
 # note: missing category indexes are written as -1
 # we could extract these from the dataset, but then they will not be in a suitable order, even with
@@ -2422,13 +2438,6 @@ static std::vector<string> splitString(const string &s, char delim) {{
     hdr += " + ".join(f"sizeof({polars_dtype_to_cpp(df[col].dtype)}_t)" for col in df.columns)
     hdr += ";\n    }\n"
 
-    hdr += "\n    bool readBinary(std::ifstream &f) {\n"
-    for col in df.columns:
-        dtype = df[col].dtype
-        cpp_type = polars_dtype_to_cpp(dtype)
-        hdr += f"        if (!f.read(reinterpret_cast<char*>(&{col}), sizeof({cpp_type}_t))) return false;\n"
-    hdr += "        return true;\n    }\n"
-
     hdr += f"""
     friend std::ostream& operator<<(std::ostream& os, const UrbanPopAgent& agent) {{
         os << std::fixed << std::setprecision(6);\n"""
@@ -2453,6 +2462,57 @@ static std::vector<string> splitString(const string &s, char delim) {{
         return os;
     }
 };
+"""
+
+    # Reader for one decompressed block-group frame. Replaces the old per-field ifstream reads:
+    # a v3 frame is inflated into a buffer in one go, then walked here.
+    hdr += """
+/*! \\brief Column pointers into one decompressed block-group frame.
+
+    A v3 frame holds one block group's agents column by column -- every id, then every
+    home_geoid, and so on -- rather than record by record. That is the same record_size() bytes
+    per agent as the old interleaved layout, but grouping like-typed, similarly-valued fields
+    together is what takes the file from ~4x to ~5.3x under deflate.
+
+    Columns are read in place out of the decompression buffer rather than copied out, so the
+    buffer must outlive the AgentFrame. Every column lands naturally aligned provided the buffer
+    itself is 8-byte aligned (as std::vector<char>'s storage is), since each column's byte offset
+    into the frame is its element size times a whole number of agents. */
+class AgentFrame {
+  public:
+    AgentFrame(const char *buf, int num_agents) : m_num_agents(num_agents) {
+        const char *p = buf;
+"""
+    for col in df.columns:
+        cpp_type = polars_dtype_to_cpp(df[col].dtype)
+        hdr += f"        m_{col} = takeColumn<{cpp_type}_t>(p, num_agents);\n"
+
+    hdr += """    }
+
+    int size() const { return m_num_agents; }
+
+    void get(int i, UrbanPopAgent &agent) const {
+"""
+    for col in df.columns:
+        hdr += f"        agent.{col} = m_{col}[i];\n"
+
+    hdr += """    }
+
+  private:
+    /*! Point at the next column of n values and advance p past it. */
+    template <typename T> static const T *takeColumn(const char *&p, int n) {
+        const T *col = reinterpret_cast<const T *>(p);
+        p += sizeof(T) * static_cast<size_t>(n);
+        return col;
+    }
+
+    int m_num_agents;
+"""
+    for col in df.columns:
+        cpp_type = polars_dtype_to_cpp(df[col].dtype)
+        hdr += f"    const {cpp_type}_t *m_{col};\n"
+
+    hdr += """};
 } // namespace UrbanPop
 """
 
@@ -2516,7 +2576,10 @@ def print_agents(
     # Prepare binary formats
     num_naics = len(naics_types)
     # Index entry format
-    index_struct = struct.Struct(f"<QQI I {num_naics}I")  # geoid, foff, h_pop, w_pop, naics_counts
+    # geoid, frame_offset, frame_nbytes, h_pop, w_pop, naics_counts. frame_nbytes is the
+    # *compressed* size of the GEOID's agent frame; its inflated size is always
+    # h_pop * agent_record_size, so it is not stored separately.
+    index_struct = struct.Struct(f"<QQ III {num_naics}I")
     # Agent entry format (based on df columns)
     agent_fields = df.columns
     agent_format = ""
@@ -2530,6 +2593,18 @@ def print_agents(
         pl.Int8: "b",
         pl.UInt8: "B",
     }
+    # numpy dtype per column, for building a frame's columns without going through struct.pack
+    np_dtype_codes = {
+        pl.Int64: "<i8",
+        pl.UInt64: "<u8",
+        pl.Int32: "<i4",
+        pl.UInt32: "<u4",
+        pl.Int16: "<i2",
+        pl.UInt16: "<u2",
+        pl.Int8: "<i1",
+        pl.UInt8: "<u1",
+    }
+    agent_np_dtypes = []
     for col in agent_fields:
         dtype = df[col].dtype
         dtype_code = dtype_codes.get(dtype)
@@ -2537,7 +2612,10 @@ def print_agents(
             raise_err(f"Unsupported dtype {dtype} for column {col}")
         else:
             agent_format += dtype_code
+            agent_np_dtypes.append(np_dtype_codes[dtype])
 
+    # only used for its .size: the authoritative packed bytes-per-agent, which is what a frame
+    # inflates to per agent and what ExaEpi checks its own record_size() against
     agent_struct = struct.Struct(f"<{agent_format}")
     # Write to single binary file
     with open(out_fname + ".bin", mode="wb") as f:
@@ -2549,10 +2627,12 @@ def print_agents(
         # - num_geoids: uint32 (total including work-only)
         # - num_agents: uint64
         # - agent_record_size: uint32
+        # - codec: uint32 (CODEC_* -- how each GEOID's agent frame is compressed)
         # - index_end_offset: uint64 (byte offset where agent data starts)
-        header_struct = struct.Struct("<2I 2I Q I Q")
+        header_struct = struct.Struct("<2I 2I Q I I Q")
         magic_number = 0x55504F50  # "UPOP" in hex
         version = BIN_FORMAT_VERSION
+        codec = CODEC_DEFLATE
         num_geoids = len(home_geoids) + len(work_only_geoids)
         num_agents = len(df)
         agent_record_size = agent_struct.size
@@ -2571,11 +2651,12 @@ def print_agents(
                         f"For work-only geoid {geoid}, work pops != NAICS types, "
                         f"{len(work_pops)} != {num_naics}"
                     )
-                # Pack: geoid, foff=0, h_pop=0, w_pop, naics_counts
-                f.write(index_struct.pack(geoid, 0, 0, tot_work_pop, *work_pops))
+                # Pack: geoid, frame_offset=0, frame_nbytes=0, h_pop=0, w_pop, naics_counts
+                f.write(index_struct.pack(geoid, 0, 0, 0, tot_work_pop, *work_pops))
         # Write home GEOIDs with file offsets
         home_pops = []
         foffsets = []
+        frame_nbytes = []
         ticker = ProgressTicker(f"Writing {len(home_geoids)} indexes: ", len(home_geoids))
         for i, geoid in enumerate(home_geoids):
             ticker.update(i)
@@ -2585,8 +2666,9 @@ def print_agents(
             # Get home population for this geoid
             h_pop = len(df.filter(pl.col("home_geoid") == geoid))
             home_pops.append(h_pop)
-            # File offset will be calculated after index is complete
+            # File offset and compressed frame size are filled in after the frames are written
             foffsets.append(0)  # Placeholder
+            frame_nbytes.append(0)  # Placeholder
             # Validation check
             if len(work_pops) != num_naics:
                 print(f"len work_pops {len(work_pops)} != len naics_types {num_naics}")
@@ -2599,15 +2681,20 @@ def print_agents(
                     f"For geoid {geoid}, work pops != NAICS types, "
                     f"{len(work_pops)} != {num_naics}"
                 )
-            # Pack: geoid, foff (placeholder), h_pop, w_pop, naics_counts
-            f.write(index_struct.pack(geoid_int, 0, h_pop, tot_work_pop, *work_pops))
+            # Pack: geoid, frame_offset + frame_nbytes (placeholders), h_pop, w_pop, naics_counts
+            f.write(index_struct.pack(geoid_int, 0, 0, h_pop, tot_work_pop, *work_pops))
         ticker.finish()
         # Record where index ends and agent data begins
         index_end_offset = f.tell()
         # ========== WRITE AGENT DATA ==========
-        # Group by home_geoid
+        # Each home GEOID's agents become one independently-compressed frame. Independent frames
+        # are what keep the file seekable despite being compressed: ExaEpi inflates only the block
+        # groups a rank's tiles own, exactly as it used to seek straight to them. Within a frame
+        # the agents are stored column by column (every id, then every home_geoid, ...) rather
+        # than record by record, which is worth ~25% on top of compressing at all.
         grouped = list(df.group_by("home_geoid", maintain_order=True))
         current_offset = index_end_offset
+        raw_total = 0
         ticker = ProgressTicker(
             f"Writing {len(df)} agents in {len(grouped)} GEOIDs: ", len(grouped)
         )
@@ -2617,16 +2704,26 @@ def print_agents(
             # Find index in home_geoids list
             try:
                 geoid_idx = home_geoids.index(geoid)
-                foffsets[geoid_idx] = current_offset
             except ValueError:
                 warn(f"GEOID {geoid} not found in home_geoids list")
                 continue
-            # Convert to numpy array for faster iteration
-            data_array = subset_df.to_numpy()
-            # Write each agent record
-            for row in data_array:
-                f.write(agent_struct.pack(*row))
-                current_offset += agent_record_size
+            frame = b"".join(
+                subset_df[col].to_numpy().astype(np_dtype, copy=False).tobytes()
+                for col, np_dtype in zip(agent_fields, agent_np_dtypes)
+            )
+            # ExaEpi sizes its inflate buffer as h_pop * agent_record_size rather than storing the
+            # inflated size, so that identity has to hold exactly
+            if len(frame) != len(subset_df) * agent_record_size:
+                raise_err(
+                    f"For geoid {geoid}, frame is {len(frame)} bytes, expected "
+                    f"{len(subset_df)} * {agent_record_size}"
+                )
+            blob = zlib.compress(frame, COMPRESS_LEVEL) if codec == CODEC_DEFLATE else frame
+            f.write(blob)
+            foffsets[geoid_idx] = current_offset
+            frame_nbytes[geoid_idx] = len(blob)
+            current_offset += len(blob)
+            raw_total += len(frame)
         ticker.finish()
         agent_data_end = f.tell()
         # ========== UPDATE HEADER WITH FINAL VALUES ==========
@@ -2639,26 +2736,37 @@ def print_agents(
                 num_geoids,
                 num_agents,
                 agent_record_size,
+                codec,
                 index_end_offset,
             )
         )
-        # ========== UPDATE INDEX WITH FILE OFFSETS ==========
+        # ========== UPDATE INDEX WITH FRAME OFFSETS AND SIZES ==========
         # Seek to start of home geoid entries (after work-only geoids)
         index_offset = header_struct.size + len(work_only_geoids) * index_struct.size
-        for i, (geoid, foff, h_pop) in enumerate(zip(home_geoids, foffsets, home_pops)):
+        for i, (geoid, foff, nbytes, h_pop) in enumerate(
+            zip(home_geoids, foffsets, frame_nbytes, home_pops)
+        ):
             geoid_int = int(geoid)
             work_pops = work_pops_dict.get(geoid_int, [0] * num_naics)
             tot_work_pop = sum(work_pops)
             # Seek to this entry's position in index
             f.seek(index_offset + i * index_struct.size)
-            # Write updated entry with correct file offset
-            f.write(index_struct.pack(geoid_int, foff, h_pop, tot_work_pop, *work_pops))
+            # Write updated entry with correct frame offset and compressed size
+            f.write(
+                index_struct.pack(geoid_int, foff, nbytes, h_pop, tot_work_pop, *work_pops)
+            )
         # Seek to end
         f.seek(agent_data_end)
         file_size = f.tell()
+        agents_nbytes = file_size - index_end_offset
         print(f"Wrote agents to binary file:")
         print(f"  Index: {format_bytes(index_end_offset)} ({num_geoids} geoids)")
-        print(f"  Agents: {format_bytes(file_size - index_end_offset)} ({num_agents} agents)")
+        print(f"  Agents: {format_bytes(agents_nbytes)} ({num_agents} agents)")
+        if codec == CODEC_DEFLATE and agents_nbytes > 0:
+            print(
+                f"    deflated from {format_bytes(raw_total)} "
+                f"({raw_total / agents_nbytes:.2f}x) in {len(grouped)} frames"
+            )
         print(f"  Total: {format_bytes(file_size)}")
 
 

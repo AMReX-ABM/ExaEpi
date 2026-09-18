@@ -7,6 +7,7 @@
 #include <iostream>
 #include <map>
 #include <string>
+#include <vector>
 
 #include <AMReX_GpuContainers.H>
 #include <AMReX_Vector.H>
@@ -28,9 +29,25 @@ struct AgentExtras {
     amrex::IntVect work_xy;
 };
 
+/*! Codec used for the per-block-group agent frames, from the .bin header. The field exists in the
+    format so a future codec can be added without another version bump -- see CODEC_* in
+    UrbanPop-scripts/upop_to_exaepi.py. */
+enum UrbanPopCodec : uint32_t { CODEC_NONE = 0, CODEC_DEFLATE = 1 };
+
+/*! \brief Scratch buffers for inflating one block-group frame at a time.
+
+    Owned by the caller and reused across block groups so the per-tile loops don't reallocate for
+    every frame. `raw` is a std::vector so its storage is 8-byte aligned, which is what lets
+    UrbanPop::AgentFrame point its columns straight into it. */
+struct FrameScratch {
+    std::vector<char> compressed;
+    std::vector<char> raw;
+};
+
 struct BlockGroup {
     int64_t geoid;
-    size_t file_offset;
+    size_t frame_offset;   /*!< byte offset of this block group's compressed agent frame */
+    uint32_t frame_nbytes; /*!< compressed size of that frame; it inflates to home_population * record_size() */
     int block_i;
     int x = -1;
     int y = -1;
@@ -42,8 +59,10 @@ struct BlockGroup {
     int num_educators = 0;
 
     bool read(std::istream& f);
-    bool readAgents(std::ifstream& f, amrex::Vector<UrbanPop::UrbanPopAgent>& agents, amrex::Vector<AgentExtras>& agents_extras,
-                    const std::map<int64_t, int>& geoid_to_block_groups, const amrex::Vector<BlockGroup>& block_groups);
+    /*! Inflate this block group's frame into `scratch` and append its agents to `agents`. */
+    bool readAgents(std::ifstream& f, uint32_t codec, FrameScratch& scratch, amrex::Vector<UrbanPop::UrbanPopAgent>& agents,
+                    amrex::Vector<AgentExtras>& agents_extras, const std::map<int64_t, int>& geoid_to_block_groups,
+                    const amrex::Vector<BlockGroup>& block_groups);
 };
 
 /*! \brief Compute a per-community population-size scale factor that converts the community/
@@ -122,4 +141,5 @@ struct UrbanPopData {
     std::map<int64_t, int> geoid_to_block_groups;
     std::map<amrex::IntVect, int> xy_to_block_groups;
     std::ifstream urbanpop_file;
+    uint32_t codec = CODEC_DEFLATE; /*!< how urbanpop_file's agent frames are compressed */
 };

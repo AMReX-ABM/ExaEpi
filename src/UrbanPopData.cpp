@@ -10,6 +10,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include <zlib.h>
+
 #include <AMReX.H>
 #include <AMReX_Arena.H>
 #include <AMReX_BLProfiler.H>
@@ -44,10 +46,46 @@ void copyToDeviceAsync (const Vector<T>& h_vec, Gpu::DeviceVector<T>& d_vec) {
     Gpu::copyAsync(Gpu::hostToDevice, h_vec.begin(), h_vec.end(), d_vec.begin());
 }
 
-bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, amrex::Vector<AgentExtras>& agents_extras,
-                             const std::map<int64_t, int>& geoid_to_block_groups, const Vector<BlockGroup>& block_groups) {
+/*! \brief Read one block group's agent frame and inflate it into `scratch.raw`.
+
+    Each block group's agents are stored as an independently-compressed frame (see the v3 notes in
+    UrbanPop-scripts/upop_to_exaepi.py), which is what keeps a compressed file seekable: a rank
+    inflates exactly the block groups its tiles own and never touches the rest, just as it used to
+    seek straight to them. The inflated size is not stored in the index because it is always
+    home_population * record_size(), and requiring zlib to produce exactly that many bytes doubles
+    as a corruption check. */
+static void readFrame (ifstream& f, const BlockGroup& block_group, uint32_t codec, FrameScratch& scratch) {
+    BL_PROFILE("readFrame");
+    const uLongf raw_nbytes = (uLongf)block_group.home_population * UrbanPopAgent::record_size();
+    scratch.raw.resize(raw_nbytes);
+    f.seekg(block_group.frame_offset);
+    if (codec == CODEC_NONE) {
+        if (!f.read(scratch.raw.data(), raw_nbytes)) {
+            Abort("File is corrupted: end of file reading frame for geoid " + to_string(block_group.geoid) + "\n");
+        }
+        return;
+    }
+    scratch.compressed.resize(block_group.frame_nbytes);
+    if (!f.read(scratch.compressed.data(), block_group.frame_nbytes)) {
+        Abort("File is corrupted: end of file reading frame for geoid " + to_string(block_group.geoid) + "\n");
+    }
+    uLongf out_nbytes = raw_nbytes;
+    int rc = uncompress(reinterpret_cast<Bytef*>(scratch.raw.data()), &out_nbytes,
+                        reinterpret_cast<const Bytef*>(scratch.compressed.data()), block_group.frame_nbytes);
+    if (rc != Z_OK) {
+        Abort("File is corrupted: zlib error " + to_string(rc) + " inflating frame for geoid " + to_string(block_group.geoid) +
+              "\n");
+    }
+    if (out_nbytes != raw_nbytes) {
+        Abort("File is corrupted: frame for geoid " + to_string(block_group.geoid) + " inflated to " + to_string(out_nbytes) +
+              " bytes, expected " + to_string(raw_nbytes) + "\n");
+    }
+}
+
+bool BlockGroup::readAgents (ifstream& f, uint32_t codec, FrameScratch& scratch, Vector<UrbanPopAgent>& agents,
+                             amrex::Vector<AgentExtras>& agents_extras, const std::map<int64_t, int>& geoid_to_block_groups,
+                             const Vector<BlockGroup>& block_groups) {
     BL_PROFILE("BlockGroup::readAgents");
-    string buf;
     num_households = 0;
     num_employed = 0;
     num_students = 0;
@@ -57,17 +95,15 @@ bool BlockGroup::readAgents (ifstream& f, Vector<UrbanPopAgent>& agents, amrex::
     agents_extras.resize(start_i + home_population);
     // used for counting up the number of unique households
     unordered_set<int> households;
-    f.seekg(file_offset);
+    readFrame(f, *this, codec, scratch);
+    const UrbanPop::AgentFrame frame(scratch.raw.data(), home_population);
     for (int i = start_i; i < agents.size(); i++) {
         auto& agent = agents[i];
-        if (!agent.readBinary(f)) {
-            Abort("File is corrupted: end of file before read for offset " + to_string(file_offset) + " geoid " +
-                  to_string(geoid) + "\n");
-        }
-        if (agent.id == -1) { Abort("File is corrupted: couldn't read agent p_id at offset " + to_string(file_offset) + "\n"); }
+        frame.get(i - start_i, agent);
+        if (agent.id == -1) { Abort("File is corrupted: couldn't read agent p_id at offset " + to_string(frame_offset) + "\n"); }
         if (agent.home_geoid != geoid) {
             Abort("File is corrupted: wrong geoid, read " + to_string(agent.home_geoid) + " expected " + to_string(geoid) +
-                  " file offset " + to_string(file_offset) + " home pop " + to_string(home_population) + "\n");
+                  " frame offset " + to_string(frame_offset) + " home pop " + to_string(home_population) + "\n");
         }
         households.insert(agent.household_id);
         agents_extras[i].home_xy = IntVect(x, y);
@@ -96,12 +132,14 @@ bool BlockGroup::read (std::istream& f) {
     BL_PROFILE("BlockGroup::read");
     // Read binary format:
     // - geoid: uint64 (8 bytes)
-    // - foff: uint64 (8 bytes)
+    // - frame_offset: uint64 (8 bytes)
+    // - frame_nbytes: uint32 (4 bytes) -- compressed size of the agent frame
     // - h_pop: uint32 (4 bytes)
     // - w_pop: uint32 (4 bytes)
     // - naics counts: uint32 * NAICS_COUNT (4 bytes each)
     if (!f.read(reinterpret_cast<char*>(&geoid), sizeof(uint64_t))) { return false; }
-    if (!f.read(reinterpret_cast<char*>(&file_offset), sizeof(uint64_t))) { return false; }
+    if (!f.read(reinterpret_cast<char*>(&frame_offset), sizeof(uint64_t))) { return false; }
+    if (!f.read(reinterpret_cast<char*>(&frame_nbytes), sizeof(uint32_t))) { return false; }
     if (!f.read(reinterpret_cast<char*>(&home_population), sizeof(uint32_t))) { return false; }
     uint32_t total_work_pop;
     if (!f.read(reinterpret_cast<char*>(&total_work_pop), sizeof(uint32_t))) { return false; }
@@ -119,7 +157,8 @@ bool BlockGroup::read (std::istream& f) {
     return true;
 }
 
-static void readBlockGroupsFile (std::ifstream& urbanpop_file, Vector<BlockGroup>& block_groups, const bool verbose) {
+static void readBlockGroupsFile (std::ifstream& urbanpop_file, Vector<BlockGroup>& block_groups, uint32_t& codec,
+                                 const bool verbose) {
     BL_PROFILE("readBlockGroupsFile");
     // Each process opens the file separately
     // Read file header
@@ -131,6 +170,7 @@ static void readBlockGroupsFile (std::ifstream& urbanpop_file, Vector<BlockGroup
     urbanpop_file.read(reinterpret_cast<char*>(&num_geoids), sizeof(uint32_t));
     urbanpop_file.read(reinterpret_cast<char*>(&num_agents), sizeof(uint64_t));
     urbanpop_file.read(reinterpret_cast<char*>(&agent_record_size), sizeof(uint32_t));
+    urbanpop_file.read(reinterpret_cast<char*>(&codec), sizeof(uint32_t));
     urbanpop_file.read(reinterpret_cast<char*>(&index_end_offset), sizeof(uint64_t));
     if (!urbanpop_file) { Abort("Failed to read UrbanPop header"); }
     // Validate magic number
@@ -142,6 +182,11 @@ static void readBlockGroupsFile (std::ifstream& urbanpop_file, Vector<BlockGroup
     if (version != FORMAT_VERSION) {
         Abort("UrbanPop file format version " + to_string(version) + " but this build requires version " +
               to_string(FORMAT_VERSION) + " -- regenerate the .bin with UrbanPop-scripts/upop_to_exaepi.py");
+    }
+    // The format carries a codec field so a future codec doesn't need another version bump; this
+    // build implements deflate and uncompressed only.
+    if (codec != CODEC_NONE && codec != CODEC_DEFLATE) {
+        Abort("UrbanPop file uses codec " + to_string(codec) + ", which this build cannot decompress");
     }
     // Verify NAICS count matches expected
     if (num_naics != NAICS_COUNT) {
@@ -162,6 +207,7 @@ static void readBlockGroupsFile (std::ifstream& urbanpop_file, Vector<BlockGroup
         Print() << "  GEOIDs: " << num_geoids << "\n";
         Print() << "  Agents: " << num_agents << "\n";
         Print() << "  Agent record size: " << agent_record_size << " bytes\n";
+        Print() << "  Agent frames: " << (codec == CODEC_DEFLATE ? "deflate" : "uncompressed") << "\n";
     }
     block_groups.reserve(num_geoids);
     // Read each block group entry
@@ -188,17 +234,19 @@ static std::pair<int, double> getAllLoadBalance (const long num) {
     that only runs on a fresh start and would leave day_population empty on a restarted run. Pure
     host-side counting (no particle/GPU work), so the redundant per-rank scan is cheap relative to
     the one-time cost of reading the file at all. */
-static Vector<Real> computeDayPopulation (ifstream& f, const Vector<BlockGroup>& block_groups,
+static Vector<Real> computeDayPopulation (ifstream& f, uint32_t codec, const Vector<BlockGroup>& block_groups,
                                           const std::map<int64_t, int>& geoid_to_block_groups) {
     BL_PROFILE("computeDayPopulation");
     Vector<Real> day_population(block_groups.size(), 0.0_rt);
     UrbanPopAgent agent;
+    FrameScratch scratch;
     for (int bi = 0; bi < (int)block_groups.size(); ++bi) {
         const auto& block_group = block_groups[bi];
         if (block_group.home_population == 0) { continue; }
-        f.seekg(block_group.file_offset);
+        readFrame(f, block_group, codec, scratch);
+        const UrbanPop::AgentFrame frame(scratch.raw.data(), block_group.home_population);
         for (int i = 0; i < block_group.home_population; ++i) {
-            if (!agent.readBinary(f)) { Abort("File is corrupted while computing day population"); }
+            frame.get(i, agent);
             // non-workers and work-from-home agents stay at their home block group during the
             // day; everyone else (including school employees/students, whose work_geoid is the
             // school's block group) physically goes to their work block group -- mirrors the
@@ -225,7 +273,7 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
     if (!urbanpop_file) { Abort("Failed to open file: " + fname); }
 
     // every rank reads all the block groups from the index file
-    readBlockGroupsFile(urbanpop_file, block_groups, params.verbose);
+    readBlockGroupsFile(urbanpop_file, block_groups, codec, params.verbose);
     // now sort block groups by geoid to make all FIPS units consecutively grouped
     std::sort(block_groups.begin(), block_groups.end(), [] (const BlockGroup& bg1, const BlockGroup& bg2) {
         return bg1.geoid < bg2.geoid;
@@ -331,7 +379,7 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
 
     std::ofstream geoid_coords_ofs;
 
-    day_population = computeDayPopulation(urbanpop_file, block_groups, geoid_to_block_groups);
+    day_population = computeDayPopulation(urbanpop_file, codec, block_groups, geoid_to_block_groups);
 
     fillGridMetadataOnHost();
 
@@ -444,6 +492,9 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
     std::unordered_set<int64_t> nborhoods_seen;
 
     if (!urbanpop_file) { Abort("File " + params.urbanpop_filename + " is not open\n"); }
+    // hoisted out of the loop so the inflate buffers are reused across every block group this
+    // rank reads instead of being reallocated per tile (this loop is not OpenMP-parallel)
+    FrameScratch scratch;
     for (MFIter mfi = pc.MakeMFIter(0); mfi.isValid(); ++mfi) {
         Vector<UrbanPopAgent> agents;
         Vector<AgentExtras> agents_extras;
@@ -468,7 +519,8 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     home_population += block_group.home_population;
                     work_population += block_group.work_populations[0];
                     int agents_start_i = agents.size();
-                    block_group.readAgents(urbanpop_file, agents, agents_extras, geoid_to_block_groups, block_groups);
+                    block_group.readAgents(urbanpop_file, codec, scratch, agents, agents_extras, geoid_to_block_groups,
+                                           block_groups);
                     num_households += block_group.num_households;
                     num_employed += block_group.num_employed;
                     num_students += block_group.num_students;
@@ -537,6 +589,13 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         soa.GetIntData(IntIdx::withdrawn).assign(0);
         soa.GetIntData(IntIdx::random_travel).assign(-1);
         soa.GetIntData(IntIdx::air_travel).assign(-1);
+        // -1 is the "no weather unit for this agent" sentinel that
+        // AgentContainer::initializeWeatherIndex_UrbanPop assigns for a community whose FIPS is not
+        // in the active weather set. That function is the only thing that ever writes this field,
+        // and it only runs when agent.weather_filename is given -- so without this, a run with no
+        // weather file leaves weatherLookup as whatever was in the heap, which
+        // AgentContainer::advanceWeatherIndex then increments weekly and every plot file dumps.
+        soa.GetIntData(IntIdx::weatherLookup).assign(-1);
 
         int i_RT = IntIdx::nattribs;
         int r_RT = RealIdx::nattribs;

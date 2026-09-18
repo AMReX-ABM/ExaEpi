@@ -24,9 +24,6 @@ mkdir $tmp_dir
 
 set -e
 
-# unzip required zipped data files
-gunzip -kf data/UrbanPop/urbanpop_nm.bin.gz
-
 cd $tests_dir
 # create run directories and run tests
 for i in inputs*; do

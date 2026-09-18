@@ -45,9 +45,10 @@ The following are inputs for the overall simulation:
     Names of the diseases; the size of the vector must be the same as ``agent.number_of_diseases``.
     If unspecified, the disease names are set as ``default00``, ``default01``, ``...``.
 * ``agent.urbanpop_filename`` (`string`)
-    The path to the ``*.csv`` and ``*.idx`` files containing the UrbanPop data used to set initial conditions. For each input
-    there should be two files, one with a ``.csv`` extension, and one with a ``.idx`` extension, both with the same name.
-    Do not specify the extension in this parameter.
+    The path to the ``*.bin`` file containing the UrbanPop data used to set initial conditions, including the ``.bin``
+    extension. A single file holds a header, an index of every block group, and the agents themselves; the agents of each
+    block group form an independently-compressed frame, so the file is read directly, with no unpacking step, and each rank
+    inflates only the block groups it owns. Generate one with ``utilities/UrbanPop-scripts/upop_to_exaepi.py``.
     Must be provided. Examples of these data files are provided in ``ExaEpi/data/UrbanPop``.
 
     The file also carries each agent's group structure -- home neighborhood, household cluster,
