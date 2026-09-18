@@ -31,29 +31,19 @@ agent.weather_int = -1
 agent.startdate = ""
 # The UrbanPop data file. Do not include the extension -- there must be two files alongside
 # it, with extensions .csv and .idx. No default; always required.
+# This file also carries each agent's group structure (home neighborhood, household cluster,
+# work neighborhood, work-group, school class), so the targets that size those groups are
+# options of utilities/UrbanPop-scripts/upop_to_exaepi.py rather than settings here --
+# changing one means rebuilding the .bin.
 # agent.urbanpop_filename =
 # Air traffic flow file. No default; must be set if agent.air_travel_int > 0.
 # agent.air_traffic_filename =
 # Airports file (which counties each airport serves). No default; must be set if
 # agent.air_travel_int > 0.
 # agent.airports_filename =
-# Optional per-(state, NAICS-code) work-group target size table (see
-# utilities/UrbanPop-scripts/compute_workgroup_sizes.py). Falls back to agent.workgroup_size
-# for any (state, NAICS) pair not in the file. Empty disables it entirely.
-agent.workgroup_size_filename = ""
 # Enable population-size-based transmission scaling (keeps community/neighborhood
 # transmission frequency-dependent rather than density-dependent).
 agent.size_scale_enabled = true
-# Fallback target students-per-class, for raw (community, school, grade) groups with no
-# identified teachers.
-agent.school_class_size = 20
-# Floor on average class size (bounds class count from above).
-agent.school_class_size_min = 5
-# Cap on average class size (bounds class count from below).
-agent.school_class_size_max = 50
-# Correction factor applied to a college-level raw group's reported teacher/staff headcount
-# (which is a total-employment figure, not faculty-specific) before it drives class count.
-agent.college_instructional_fraction = 0.1
 # Maximum box size used for MPI domain decomposition.
 agent.max_box_size = 16
 # Interval for writing aggregated diagnostic data, in steps; <=0 disables.
@@ -66,10 +56,6 @@ agent.restart = ""
 agent.shelter_start = -1
 # Number of steps shelter-in-place lasts.
 agent.shelter_length = 0
-# Target neighborhood size (number of agents).
-agent.nborhood_size = 360
-# Target workgroup size (number of agents).
-agent.workgroup_size = 20
 # RNG seed. No default -- if unset, AMReX's own default seeding is used.
 # agent.seed =
 # Use faster, non-bitwise-reproducible implementations (e.g. binning).

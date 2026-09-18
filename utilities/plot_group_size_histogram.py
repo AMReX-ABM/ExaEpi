@@ -84,12 +84,12 @@ def neighborhood_sizes(ds):
 def nborhoods_per_community(ds):
     """Number of distinct neighborhood IDs among the agents living in each community.
 
-    Each community is a single block group, which ExaEpi gives
-    get_max_nborhood(nborhood_size, home_population) == round(home_population /
-    nborhood_size) neighborhoods, drawing each agent's ID uniformly over that range
-    (UrbanPopData.cpp). Counting distinct IDs therefore recovers that allocation exactly
-    so long as every neighborhood drew at least one agent -- which at realistic
-    nborhood_size values it reliably does, since a neighborhood is hundreds of agents.
+    Each community is a single block group, which is split into
+    round(home_population / nborhood_size) neighborhoods when the UrbanPop .bin is built,
+    with whole households dealt across them (UrbanPop-scripts/group_assignment.py).
+    Counting distinct IDs therefore recovers that allocation exactly so long as every
+    neighborhood got at least one household -- which at realistic nborhood_size values it
+    reliably does, since a neighborhood is hundreds of agents.
     """
     df = _home_nborhood_df(ds)
     return df.groupby(["home_i", "home_j"])["nborhood"].nunique().to_numpy()

@@ -37,7 +37,7 @@ DEFAULT_CBP_URL = "https://www2.census.gov/programs-surveys/cbp/datasets/2019/cb
 DEFAULT_CBP_CACHE = REPO_ROOT / "data" / "UrbanPop" / "cbp19st_derived.csv"
 DEFAULT_NAICS_HEADER = REPO_ROOT / "src" / "UrbanPopAgentStruct.H"
 DEFAULT_OUT = REPO_ROOT / "data" / "UrbanPop" / "workgroup_sizes_us.txt"
-DEFAULT_SIZE = 20  # matches Utils.H's workgroup_size default; used when CBP has no
+DEFAULT_SIZE = 20  # matches upop_to_exaepi.py's --workgroup_size default; used when CBP has no
                     # coverage at all for a (state, NAICS) combination (e.g. NAICS 92x
                     # Public Administration, which CBP excludes everywhere)
 DEFAULT_CAP = 86    # workplace-contact-pattern-study cap (see epicast.pdf refs [27],[28])
@@ -273,9 +273,9 @@ def write_table(rows, out_path, default_size, cap, stamp):
         f.write("# columns: state_fips  naics_code  workgroup_size\n")
         f.write("# NOTE: rows that used the fallback default (no CBP coverage at any NAICS\n")
         f.write("# level for that state, e.g. most of NAICS 92x Public Administration) bake\n")
-        f.write("# that default in at generation time -- overriding agent.workgroup_size at\n")
-        f.write("# runtime will NOT change these rows, only (state, NAICS) pairs absent from\n")
-        f.write("# this file entirely inherit the live runtime value.\n")
+        f.write("# that default in at generation time -- passing a different --workgroup_size\n")
+        f.write("# to upop_to_exaepi.py will NOT change these rows; only (state, NAICS) pairs\n")
+        f.write("# absent from this file entirely pick up that value.\n")
         f.write(f"{STAMP_PREFIX}{stamp}\n")
         f.write(f"{len(rows)}\n")
         for fipstate, code, size in rows:

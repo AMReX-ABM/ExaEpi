@@ -8,9 +8,9 @@
  * (AgentContainer::comm_density_scale / comm_density_scale_work, see
  * computeCommunitySizeScale). That correction targets community-level
  * headcount variance, which is substantial (CV ~0.6 in NM UrbanPop data); neighborhood
- * sizes, by contrast, are kept close to the nborhood_size target regardless of their
- * parent community's size (UrbanPopData.cpp's get_max_nborhood adds more neighborhoods
- * to bigger communities rather than growing each one), so their actual measured
+ * sizes, by contrast, are kept close to their target regardless of their parent
+ * community's size (UrbanPop-scripts/group_assignment.py gives a bigger community more
+ * neighborhoods rather than bigger ones), so their actual measured
  * population is nearly constant (CV ~0.16 in NM UrbanPop data) and essentially
  * uncorrelated with community size (Pearson r ~ -0.07). Applying the community-keyed
  * correction here would scale xmit_hood by a covariate (community population) that has

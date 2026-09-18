@@ -283,6 +283,32 @@ void overrideAmrexDefaults () {
     pp2.queryAdd("do_tiling", do_tiling);
 }
 
+/*! \brief Print every input the run never read, regardless of verbosity.
+
+    An option nothing reads -- a typo, or one that has since moved or been removed -- otherwise
+    does nothing at all and says nothing about it, so an inputs file can quietly fail to have the
+    effect it was edited for. AMReX tracks this, but the two calls that report it
+    (ParmParse::QueryUnusedInputs, and its own report at amrex::Finalize()) are both gated behind
+    ParmParse verbosity, which overrideAmrexDefaults ties to agent.verbose -- so turning the run's
+    output down would take this warning with it. That is backwards: the quieter the run, the less
+    likely anyone is to notice the option had no effect. ParmParse::getUnusedInputs is ungated, so
+    use that and print unconditionally.
+
+    Called after runAgent() has returned, since an input only counts as used once something has
+    actually queried it, and the disease/interaction parameters are read well into setup. Skipped
+    when ParmParse verbosity is on, purely to avoid piling onto the report AMReX is about to print
+    anyway -- the warning still appears in both cases, which is the point. */
+static void reportUnusedInputs () {
+    if (amrex::ParmParse::Verbose()) { return; }
+    auto unused = amrex::ParmParse::getUnusedInputs();
+    if (unused.empty() || !amrex::ParallelDescriptor::IOProcessor()) { return; }
+    amrex::Print() << "\nWARNING: these inputs were never read, so they had no effect:\n";
+    for (const auto& entry : unused) {
+        amrex::Print() << "  " << entry << "\n";
+    }
+    amrex::Print() << "Check for a misspelling, or an option that has moved or been removed.\n";
+}
+
 /*! \brief Main function: initializes AMReX, calls runAgent(), finalizes AMReX */
 int main (int argc, /*!< Number of command line arguments */
           char* argv[] /*!< Command line arguments */) {
@@ -327,6 +353,8 @@ int main (int argc, /*!< Number of command line arguments */
     Print() << "ExaEpi version " << EXAEPI_VERSION << " (built on " << __DATE__ << ")\n";
 
     runAgent();
+
+    reportUnusedInputs();
 
     amrex::Finalize();
 

@@ -32,6 +32,11 @@ Example `inputs` files can be found at `ExaEpi/examples/`. The file `inputs.defa
 every recognized setting, set to its default value where one exists. Below, we document the
 runtime parameters that can be set in the inputs file.
 
+At the end of every run, ExaEpi lists any inputs nothing read -- a misspelling, or an option
+that has moved or been removed -- since such an option otherwise has no effect and says nothing
+about it. This is reported regardless of ``agent.verbose``, so turning the run's output down does
+not take the warning with it.
+
 The following are inputs for the overall simulation:
 
 * ``agent.number_of_diseases`` (`integer`, default ``1``)

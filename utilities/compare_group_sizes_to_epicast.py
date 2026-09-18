@@ -23,7 +23,7 @@ agents' work_i/work_j/naics/workgroup/school_id/school_class_group attributes:
     school_class_group >= 0 (enrolled in a real classroom, not the -1 sentinel for
     unenrolled agents), grouped by school_class_group alone -- that field is already a
     globally unique, densely-packed ID for one (community, school_id, grade, class)
-    mixing bucket (see AgentContainer::assignSchoolClasses / InteractionModSchool.H).
+    mixing bucket (see UrbanPop-scripts/group_assignment.py / InteractionModSchool.H).
     Restricting to naics == -1 excludes each class's own homeroom teacher and any
     non-classroom "admin" pools of surplus teachers (which contain no naics == -1
     agents at all), matching the student headcount ExaEpi's own
