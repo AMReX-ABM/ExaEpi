@@ -724,9 +724,16 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     // and the target work-group size is looked up for the agent's workplace state
                     int state_fips = agents_extras_ptr[i].work_state_fips;
                     AMREX_ASSERT(state_fips >= 0 && state_fips < UrbanPopData::MAX_STATE_FIPS);
-                    int max_workgroup = agents_extras_ptr[i].naics_population /
-                                                workgroup_size_table_ptr[state_fips * NAICS_COUNT + agent.naics] +
-                                        1;
+                    // Split this industry's workers in this community into ceil(population /
+                    // target) groups -- as many as it takes to keep them near the target size.
+                    // Integer ceil-division, not population/target + 1: the two agree except when
+                    // target divides population exactly, and there the +1 form adds a group that
+                    // isn't needed, turning the one case that would land exactly on the target
+                    // (population 60, target 30 -> two groups of 30) into the worst case (three
+                    // groups of 20). Both operands are >= 1 (naics_population is asserted above,
+                    // readWorkgroupSizeTable rejects a target < 1), so this is always >= 1.
+                    int target = workgroup_size_table_ptr[state_fips * NAICS_COUNT + agent.naics];
+                    int max_workgroup = (agents_extras_ptr[i].naics_population + target - 1) / target;
                     // a workgroup of 0 indicates not working
                     workgroup_ptr[i] = Random_int(max_workgroup, engine) + 1;
                     AMREX_ASSERT(workgroup_ptr[i] > 0 && workgroup_ptr[i] < max_workgroup * (NAICS_COUNT + 1));
