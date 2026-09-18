@@ -87,15 +87,6 @@ Epicast `run.events.bin` files, which are otherwise tens to hundreds of millions
 Library (not a command) for reading an Epicast `run.events.bin` into a pandas DataFrame. Used by the
 comparison scripts above.
 
-## Generating ExaEpi input side files
-
-### `gen_density_file.py`
-
-Generates the optional density side file ExaEpi reads at runtime (see `src/DensityData.H`), which
-scales `xmit_comm`/`xmit_hood` by local population density. Derived from the Census TIGER/Line
-block-group land areas. Despite writing into `data/UrbanPop/`, this is not part of the UrbanPop
-`.bin` pipeline -- ExaEpi consumes it directly.
-
 ## Shared modules
 
 These are imported by the scripts above rather than run on their own.
@@ -118,6 +109,12 @@ the same line as the function name.
 These predate the current workflow and nothing else references them; they are kept for reference
 rather than being part of any current pipeline.
 
+* `gen_density_file.py` -- generated the GEOID/land-area side file the old density-based
+  transmission scaling read. That mechanism was removed in 356f737 ("Remove unused density-based
+  transmission scaling") in favour of the population-size scaling ExaEpi computes internally
+  (`agent.size_scale_enabled`), so nothing reads its output any more. Its own docstring still
+  points at `src/DensityData.H`, which no longer exists. The generated
+  `data/UrbanPop/density_nm.txt` is likewise unused.
 * `seirhd_metapop.py` -- a standalone metapopulation (multi-patch) SEIRHD model.
 * `parseSafeGraph.py`, `travel_model_scripts.py`, `hdf5_process.py` -- earlier mobility-data
   exploration, from before the LODES-based travel model.
