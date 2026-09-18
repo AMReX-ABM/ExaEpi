@@ -53,7 +53,10 @@ The following are inputs for the overall simulation:
     Optional path to a per-(state, NAICS-code) work-group target size table (see
     ``utilities/UrbanPop-scripts/compute_workgroup_sizes.py``). Any (state, NAICS) combination
     not listed in the file falls back to the flat ``agent.workgroup_size``. Leaving this empty
-    (the default) makes every combination use that flat value.
+    (the default) makes every combination use that flat value, which discards the per-industry
+    variation entirely -- a hospital and a corner shop then get the same target. A prebuilt
+    table covering every state is checked into the repo at
+    ``data/UrbanPop/workgroup_sizes_us.txt``, so this can usually just point at that.
 * ``agent.size_scale_enabled`` (`bool`, default ``true``)
     Enables a population-size-based correction that keeps community/neighborhood transmission
     frequency-dependent (depending on local prevalence) rather than density-dependent

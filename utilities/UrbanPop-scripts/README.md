@@ -50,6 +50,11 @@ file.
 Worker, student, and teacher flows are generated from the LODES flows input and the schools input
 (the LODES and schools files are required).
 
+It also requires the two per-(state, NAICS) size tables written by `compute_workgroup_sizes.py`
+(see below), which are used to decide how many workplaces each destination has and how big each one
+is. Both default to the copies in `data/UrbanPop/`, so normally neither needs to be given; a missing
+or mismatched pair is a hard error rather than a silent fallback.
+
 `upop_to_exaepi.py` will generate a single binary output file, `<output>.bin`, containing both the
 per-agent data and the block-group index (used for reading in parallel) in one combined format --
 this is the only file `src/UrbanPopData.cpp` opens at runtime.
@@ -73,6 +78,56 @@ census_bg_files=../US_Census_BlockGroups/*.shp
 
 This will generate schools for all of the US, but the file can be used for any single state without
 any issues.
+
+### `compute_workgroup_sizes.py`
+
+Derives two per-(state, NAICS-code) tables from the 2019 Census County Business Patterns (CBP)
+survey, both written into `data/UrbanPop/`:
+
+| File | What it holds | Read by |
+| --- | --- | --- |
+| `workgroup_sizes_us.txt` | one *target work-group size* per (state, NAICS): CBP's `employment / establishments`, capped at 86 | ExaEpi at runtime (`agent.workgroup_size_filename`), and `upop_to_exaepi.py` |
+| `establishment_sizes_us.txt` | the establishment-size *distribution* behind that average: CBP's nine employment-size bands, each as (establishments, employees) | `upop_to_exaepi.py` |
+
+The difference between the two matters, because an average is a poor summary of a heavily
+right-skewed quantity. California hospitals (NAICS 622) average 1110 employees, but that average
+covers 27 establishments with under 5 people alongside 186 with over 1000. The two tables are used
+at different stages and for different things:
+
+* `upop_to_exaepi.py` draws each workplace's size from the **distribution** when deciding which
+  destination a worker commutes to. Sizing every workplace at the average instead made each
+  destination's demand for an industry an exact integer multiple of that average, so the resulting
+  per-(block group, NAICS) populations piled up at 1x, 2x, 3x ... it -- spikes that carried through
+  into the work-group sizes the C++ builds from those populations.
+* ExaEpi itself uses the **average** at runtime, to decide how many work-groups to split a
+  community's workers for an industry into. It never reads the distribution.
+
+Usage:
+
+```
+# one-time (or when refreshing from the Census): download CBP and rebuild the derived cache
+python compute_workgroup_sizes.py --refresh-cbp-cache
+
+# normal use: read the cache already checked into the repo and rewrite both tables
+python compute_workgroup_sizes.py
+```
+
+Both tables cover every state CBP publishes, so one pair is correct for any UrbanPop `.bin`,
+including a multi-state or national build -- there is no need to regenerate them per state. They
+change only when the CBP release, the NAICS code list in `src/UrbanPopAgentStruct.H`, or the
+size/cap parameters change, so in practice this is run rarely. The script is deliberately
+stdlib-only and takes seconds, unlike the main conversion pipeline.
+
+Both tables are **required** by `upop_to_exaepi.py`, which fails rather than falling back to a flat
+default -- a silent fallback produces a plausible-looking `.bin` that is only discovered to be wrong
+when someone plots the group sizes. They also carry a matching `# generation-stamp:` header, hashed
+from the inputs that produced them, and `upop_to_exaepi.py` refuses to run on a mismatched pair (a
+stale one alongside a freshly generated one). Regenerating from unchanged inputs reproduces
+byte-identical files, so these checked-in tables stay out of the diff unless something really
+changed.
+
+The cap of 86 on the target size follows the Epicast 2.0 paper, which limits work-group size "based
+on studies of workplace contact patterns"; see `related/epicast.pdf`.
 
 ### `check_nt_dt.py`
 
@@ -163,7 +218,7 @@ plot_geo.py -p plt00000 -s ../US_2010_Census_BlockGroups/tl_2010_35_bg10.shp -e 
 
 ## Data sources
 
-The two required sources of data are for schools and worker flows.
+The required sources of data are for schools, worker flows, and business establishment sizes.
 
 ### Education data
 
@@ -187,6 +242,17 @@ These are the main flows within the state. Then there are also files of the form
 `nm_od_aux_JT0?_2019.csv.gz`
 
 These are for flows to/from the state to other states.
+
+### County Business Patterns (CBP) data
+
+Establishment counts and sizes per (state, NAICS code), used by `compute_workgroup_sizes.py` to
+build the two size tables above. The 2019 state-level file is at:
+
+`https://www2.census.gov/programs-surveys/cbp/datasets/2019/cbp19st.zip`
+
+No API key is needed, and `compute_workgroup_sizes.py --refresh-cbp-cache` downloads and filters it
+for you. The filtered result (`data/UrbanPop/cbp19st_derived.csv`) is checked into the repo, so the
+download is only needed when refreshing from a newer Census release.
 
 ### Census data
 
