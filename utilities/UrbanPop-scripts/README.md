@@ -1,5 +1,8 @@
-The scripts in this directory are for processing UrbanPop files into a format that is usable by
-ExaEpi, and for checking and visualizing results.
+The scripts in this directory generate ExaEpi's UrbanPop input `.bin` files: the main converter,
+the scripts producing the tables and files it requires, and a check on its output.
+
+Scripts for analyzing, comparing and plotting ExaEpi *runs* live one level up in `utilities/`, and
+are documented by that directory's README.
 
 ## Scripts
 
@@ -250,31 +253,6 @@ generated data (0.881, 0.787). It also produces plots of all these results, with
 in the output.
 
 Two ploting scripts are also provided.
-
-### `plot_timeseries.py`
-
-This plots the number of infected, hospitalized and dead over time for a run of ExaEpi. It requires
-the output file from an ExaEpi run as input (the one specified by the `diag.output_filename` option
-to ExaEpi). Note this script lives in `utilities/`, not in this directory.
-
-### `plot_geo.py`
-
-This plots a map of infections, coloring each census tract (or county, with `--county_level`)
-according to the number of infections there. Also in `utilities/` rather than this directory.
-
-Its input is the per-day aggregated diagnostic files an ExaEpi run writes when
-`agent.aggregated_diag_int` is set (e.g. `cases00050`) -- not plot files -- passed with
-`--exaepi_files`, along with the day(s) to plot. It also needs shape files for the census tract (or
-county) geometry and for state boundaries. To plot day 50 of a New Mexico run (census state code
-35):
-
-```
-plot_geo.py -g cases00050 -d 50 -s tl_2010_35_tract10.shp -e gz_2010_us_040_00_500k.shp -o geo-nm.png
-```
-
-Passing several days to `-d` gives one column per day. Adding `--events_file` overlays an Epicast
-run as a second row, with each column labeled by that day's log-scale Pearson r and RMSLE.
-
 
 ## Data sources
 
