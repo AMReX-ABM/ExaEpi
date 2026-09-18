@@ -45,7 +45,7 @@ from read_epicast_events import read_events_bin  # noqa: E402
 from plos_compbio_style import (  # noqa: E402
     apply_style,
     FONT_TICK,
-    FONT_LABEL,
+    FONT_TITLE,
     AXES_LINEWIDTH,
     FULL_PAGE_WIDTH_IN,
 )
@@ -629,13 +629,18 @@ def main():
     # Bounds are the union across every panel's data (every row), so the whole grid shares one
     # consistent geographic extent instead of each panel framing itself differently.
     all_geo_dfs = [df for pair in panels for df in pair[:2] if df is not None]
-    all_lon = pd.concat([df.INTPTLON10.astype("float") for df in all_geo_dfs])
-    all_lat = pd.concat([df.INTPTLAT10.astype("float") for df in all_geo_dfs])
-    xmin = max(float(args.coord_bounds[0]), float(all_lon.min()) - 0.5)
-    xmax = min(float(args.coord_bounds[1]), float(all_lon.max()) + 0.5)
+    # Bounds come from the polygons' own geometry, NOT from the INTPTLON10/INTPTLAT10 columns:
+    # those are each polygon's internal point (roughly its centroid), which sits an arbitrary
+    # distance inside its own edge. At county level the huge desert counties' centroids are so far
+    # from the state line that even a generous pad still cropped California's whole eastern edge
+    # off the plot; tract centroids happened to land close enough to the edge to hide the bug.
+    bounds = np.array([df.total_bounds for df in all_geo_dfs])  # minx, miny, maxx, maxy per panel
+    pad = 0.1
+    xmin = max(float(args.coord_bounds[0]), bounds[:, 0].min() - pad)
+    xmax = min(float(args.coord_bounds[1]), bounds[:, 2].max() + pad)
     xrange = xmax - xmin
-    ymin = max(float(args.coord_bounds[2]), float(all_lat.min()) - 0.5)
-    ymax = min(float(args.coord_bounds[3]), float(all_lat.max()) + 0.5)
+    ymin = max(float(args.coord_bounds[2]), bounds[:, 1].min() - pad)
+    ymax = min(float(args.coord_bounds[3]), bounds[:, 3].max() + pad)
     yrange = ymax - ymin
 
     n = len(panels)
@@ -654,15 +659,21 @@ def main():
     # (they'd stay letterboxed to the right aspect ratio, just smaller, with dead space around
     # them) -- exactly the "too small" problem being fixed here.
     max_title_lines = max((label[0] + "\n" + (label[1] or "")).count("\n") + 1 for _, _, label in panels)
-    title_pt = FONT_TICK * 1.4 * max_title_lines + 6  # +6pt is matplotlib's own default title pad
+    # FONT_TITLE because that's what the titles below are drawn at -- set_title() inherits it from
+    # apply_style()'s axes.titlesize rather than naming it, so this is the one place it's spelled out.
+    title_pt = FONT_TITLE * 1.4 * max_title_lines + 6  # +6pt is matplotlib's own default title pad
     fig_y = map_height + title_pt / 72
 
     print(f"Plot dimensions: lng/lat {xmin}, {xmax}, {ymin}, {ymax}, figure size: {fig_x}, {fig_y}")
 
     fig, axes = plt.subplots(num_rows, n, figsize=(fig_x, fig_y), squeeze=False, layout="constrained")
     # Shrink constrained_layout's own default padding to a small margin -- its defaults leave more
-    # breathing room than wanted here, at the direct expense of the maps' own size.
-    fig.get_layout_engine().set(w_pad=0.02, h_pad=0.02, wspace=0.01, hspace=0.01)
+    # breathing room than wanted here, at the direct expense of the maps' own size. wspace/hspace
+    # are kept just above 0 rather than exactly 0: constrained_layout's solver doesn't handle
+    # aspect-locked axes (geopandas plots are equal-aspect) cleanly at exactly zero spacing, and can
+    # let an axes overflow past its cell -- clipping a map at the figure edge -- instead of shrinking
+    # it to fit.
+    fig.get_layout_engine().set(w_pad=0.01, h_pad=0.01, wspace=0.002, hspace=0.002)
 
     norm = mp.colors.LogNorm(vmin=1.0, vmax=max_count)
     for j, (exaepi_geo_df, epicast_geo_df, label) in enumerate(panels):
@@ -676,14 +687,14 @@ def main():
             ax.set_xlim([xmin, xmax])
             ax.set_ylim([ymin, ymax])
             if j == 0:
-                ax.set_ylabel(row_name, fontsize=FONT_LABEL)
+                ax.set_ylabel(row_name)
         day_str, stats_str = label
         # A single multi-line title (matplotlib spaces embedded newlines correctly on its own)
         # rather than a separately-positioned second text object -- that manual positioning was
         # tuned for a much larger font scale and stopped fitting once these panels shrank to their
         # PLOS print size.
         title = f"{day_str}\n{stats_str}" if stats_str else day_str
-        axes[0][j].set_title(title, fontsize=FONT_TICK, linespacing=1.4)
+        axes[0][j].set_title(title, linespacing=1.4)
 
     # A single colorbar spanning every row, rather than one per panel -- built from an explicit
     # ScalarMappable (since legend=False above) and handed every axes in the grid so matplotlib

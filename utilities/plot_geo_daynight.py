@@ -46,6 +46,7 @@ from plos_compbio_style import (  # noqa: E402
     FULL_PAGE_WIDTH_IN,
     AXES_LINEWIDTH,
     FONT_TICK,
+    FONT_TITLE,
 )
 
 # Which pair of load_exaepi_day_night_population's columns each --population choice selects --
@@ -246,13 +247,16 @@ def main():
     # Bounds are the union across every panel, so a two-panel figure shares one consistent
     # geographic extent instead of each panel framing itself differently (see plot_geo.py's
     # identical multi-panel bounds handling).
-    all_lon = pd.concat([geo_df.INTPTLON10.astype("float") for geo_df, _ in panels])
-    all_lat = pd.concat([geo_df.INTPTLAT10.astype("float") for geo_df, _ in panels])
-    xmin = max(float(args.coord_bounds[0]), float(all_lon.min()) - 0.5)
-    xmax = min(float(args.coord_bounds[1]), float(all_lon.max()) + 0.5)
+    # Bounds come from the polygons' own geometry, not the INTPTLON10/INTPTLAT10 internal points --
+    # see plot_geo.py for why (a centroid sits an arbitrary distance inside its own polygon's edge,
+    # which crops the map's edges outright at county granularity).
+    bounds = np.array([geo_df.total_bounds for geo_df, _ in panels])  # minx, miny, maxx, maxy
+    pad = 0.1
+    xmin = max(float(args.coord_bounds[0]), bounds[:, 0].min() - pad)
+    xmax = min(float(args.coord_bounds[1]), bounds[:, 2].max() + pad)
     xrange = xmax - xmin
-    ymin = max(float(args.coord_bounds[2]), float(all_lat.min()) - 0.5)
-    ymax = min(float(args.coord_bounds[3]), float(all_lat.max()) + 0.5)
+    ymin = max(float(args.coord_bounds[2]), bounds[:, 1].min() - pad)
+    ymax = min(float(args.coord_bounds[3]), bounds[:, 3].max() + pad)
     yrange = ymax - ymin
 
     # Diverging colormap bounded by the 99th percentile of |diff| by default -- taken over the
@@ -316,7 +320,9 @@ def main():
         # space it's given, so there's no leftover for the layout engine to insert.
         n = len(panels)
         fig_x = FULL_PAGE_WIDTH_IN
-        top_margin_in = (FONT_TICK * 1.3 + 4) / 72  # one panel-title line + its pad
+        # FONT_TITLE because that's what set_title() draws at, inherited from apply_style()'s
+        # axes.titlesize rather than named at the call site below.
+        top_margin_in = (FONT_TITLE * 1.3 + 4) / 72  # one panel-title line + its pad
         # The colorbar's own bottom-most tick label is vertically CENTERED on its tick, so roughly
         # half that label's text height would sit below y=0 (off the bottom of the figure) if the
         # colorbar's axis started flush at the bottom edge like the maps do (which have no tick
@@ -327,7 +333,7 @@ def main():
         cbar_w_in = 0.12
         cbar_gap_in = 0.08
         cbar_label_w_in = 0.65  # room for the colorbar's own tick labels (e.g. "-10000")
-        panel_gap_in = 0.06
+        panel_gap_in = -1.5
         panel_w_in = (fig_x - cbar_w_in - cbar_gap_in - cbar_label_w_in - (n - 1) * panel_gap_in) / n
         map_h_in = panel_w_in * yrange / xrange
         fig_y = top_margin_in + map_h_in + bottom_margin_in
@@ -340,7 +346,7 @@ def main():
             left_in = i * (panel_w_in + panel_gap_in)
             ax = fig.add_axes((left_in / fig_x, bottom, panel_w_in / fig_x, height))
             _plot_panel(ax, states, geo_df, norm, legend=False)
-            ax.set_title(label, fontsize=FONT_TICK, pad=3)
+            ax.set_title(label, pad=3)
             ax.set_xlim([xmin, xmax])
             ax.set_ylim([ymin, ymax])
 
