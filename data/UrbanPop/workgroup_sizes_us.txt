@@ -6,6 +6,7 @@
 # that default in at generation time -- overriding agent.workgroup_size at
 # runtime will NOT change these rows, only (state, NAICS) pairs absent from
 # this file entirely inherit the live runtime value.
+# generation-stamp: 996f80203acafa0f
 12801
 1 111 8
 1 112 8

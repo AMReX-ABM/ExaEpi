@@ -6,6 +6,7 @@
 # distribution rather than assuming every workplace is the industry average.
 # Rows with no usable CBP band data anywhere up the NAICS hierarchy are omitted.
 # columns: state_fips  naics_code  n<5 e<5 n5_9 e5_9 n10_19 e10_19 n20_49 e20_49 n50_99 e50_99 n100_249 e100_249 n250_499 e250_499 n500_999 e500_999 n1000 e1000
+# generation-stamp: 996f80203acafa0f
 11908
 1 111 429 789 200 1356 110 1403 43 1274 8 520 5 810 0 0 0 0 0 0
 1 112 429 789 200 1356 110 1403 43 1274 8 520 5 810 0 0 0 0 0 0

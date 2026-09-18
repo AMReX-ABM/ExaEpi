@@ -794,6 +794,40 @@ def load_workgroup_targets(fname: str) -> dict[tuple[int, str], int]:
     return targets
 
 
+GENERATION_STAMP_PREFIX = "# generation-stamp: "
+
+
+def check_size_tables_match(workgroup_file: str, establishment_file: str) -> None:
+    """Both size tables must come from the same compute_workgroup_sizes.py run.
+
+    They are written as a pair from one CBP cache and one NAICS code list, and alloc_workers
+    uses them together -- the workgroup table sets how many establishment slots a destination
+    gets, the establishment table sizes each of those slots. A stale one alongside a fresh one
+    still parses, still runs, and quietly produces a .bin whose worker allocation is keyed to
+    two different vintages of the source data. The generation stamp is a hash of the inputs
+    that produced them, so a mismatch is detectable; refuse rather than guess which is right.
+    """
+    stamps = {}
+    for label, fname in (("workgroup", workgroup_file), ("establishment", establishment_file)):
+        stamp = None
+        with open(fname) as f:
+            for line in f:
+                if not line.startswith("#"):
+                    break  # the stamp lives in the header block, before the row count
+                if line.startswith(GENERATION_STAMP_PREFIX):
+                    stamp = line[len(GENERATION_STAMP_PREFIX):].strip()
+                    break
+        if stamp is None:
+            raise_err(f"{label} sizes file '{fname}' has no generation stamp -- it predates the "
+                      "stamping added to compute_workgroup_sizes.py; regenerate both tables with "
+                      "that script so they can be checked against each other")
+        stamps[label] = stamp
+    if stamps["workgroup"] != stamps["establishment"]:
+        raise_err(f"size tables are from different compute_workgroup_sizes.py runs: "
+                  f"'{workgroup_file}' has stamp {stamps['workgroup']} but "
+                  f"'{establishment_file}' has {stamps['establishment']}. Regenerate both.")
+
+
 def load_establishment_size_dists(fname: str) -> dict[tuple[int, str], tuple[np.ndarray, np.ndarray]]:
     """Loads the per-(state_fips, NAICS) establishment-size distribution written by
     compute_workgroup_sizes.py, as {(state, naics): (sizes, probs)} ready to sample.
@@ -908,6 +942,7 @@ def alloc_workers(
     n_naics = len(naics_categs)
     workgroup_targets = load_workgroup_targets(workgroup_sizes_file)
     est_size_dists = load_establishment_size_dists(establishment_sizes_file)
+    check_size_tables_match(workgroup_sizes_file, establishment_sizes_file)
 
     def target_for(state_fips: int, naics_idx: int) -> int:
         if not (0 <= naics_idx < n_naics):
