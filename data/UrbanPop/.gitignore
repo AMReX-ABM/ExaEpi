@@ -3,3 +3,7 @@ UrbanPop_nt_dt_flows
 generated_nt_dt_flows
 base
 *.cfg
+# the two state configs the repo ships are tracked (nm.cfg predates this rule, so it stays
+# tracked regardless; ca.cfg needs the explicit re-include, plus one in ../.gitignore)
+!nm.cfg
+!ca.cfg

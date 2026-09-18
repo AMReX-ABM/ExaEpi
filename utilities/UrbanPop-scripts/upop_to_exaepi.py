@@ -286,10 +286,19 @@ def get_args():
     )
     parser.add_argument(
         "--workgroup_sizes_file",
-        default="workgroup_sizes_us.txt",
+        default=DEFAULT_WORKGROUP_SIZES_FILE,
         help="Per-(state, NAICS) target workgroup size table (see compute_workgroup_sizes.py). "
-        "Used only to cap how strongly alloc_workers' NAICS-concentration bonus can pull worker "
-        "destinations away from real LODES flow proportions -- see alloc_workers.",
+        "REQUIRED -- it caps how strongly alloc_workers' NAICS-concentration bonus can pull worker "
+        "destinations away from real LODES flow proportions, and falling back to one flat target "
+        "for every industry would do that silently.",
+    )
+    parser.add_argument(
+        "--establishment_sizes_file",
+        default=DEFAULT_ESTABLISHMENT_SIZES_FILE,
+        help="Per-(state, NAICS) establishment-size distribution (see compute_workgroup_sizes.py). "
+        "REQUIRED -- alloc_workers draws each workplace's size from this, and sizing them all at "
+        "the industry average instead makes destination populations pile up at multiples of that "
+        "average, so a missing file is a hard error rather than a silent fallback.",
     )
 
     main_args = {}
@@ -747,17 +756,28 @@ def load_county_adjacency(fname: str) -> dict[str, set[str]]:
 
 DEFAULT_WORKGROUP_TARGET = 20  # matches Utils.H's workgroup_size default
 
+# Both tables are national (every state in one file) and generated into the repo by
+# compute_workgroup_sizes.py, so default to those copies rather than to a bare relative name --
+# a relative default silently resolves against whatever directory the run happens to start in.
+_REPO_DATA = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "UrbanPop"
+)
+DEFAULT_WORKGROUP_SIZES_FILE = os.path.join(_REPO_DATA, "workgroup_sizes_us.txt")
+DEFAULT_ESTABLISHMENT_SIZES_FILE = os.path.join(_REPO_DATA, "establishment_sizes_us.txt")
+
 
 def load_workgroup_targets(fname: str) -> dict[tuple[int, str], int]:
     """Loads the per-(state_fips, NAICS code) target workgroup size table written by
-    compute_workgroup_sizes.py. Returns {} (all targets then fall back to
-    DEFAULT_WORKGROUP_TARGET) if fname is empty or doesn't exist -- this table only bounds
-    alloc_workers' NAICS-concentration bonus, it isn't required for correctness."""
+    compute_workgroup_sizes.py.
+
+    Required: falling back to a flat DEFAULT_WORKGROUP_TARGET for every NAICS code collapses the
+    industry variation this table exists to provide, and does it silently -- the run still
+    produces a plausible-looking .bin. Fail loudly instead.
+    """
     if not fname or not os.path.exists(fname):
-        warn(f"workgroup sizes file '{fname}' not found -- NAICS-concentration bonus in "
-             f"alloc_workers will be capped at the flat default of {DEFAULT_WORKGROUP_TARGET} "
-             "for every NAICS code")
-        return {}
+        raise_err(f"workgroup sizes file '{fname}' not found -- generate it with "
+                  "utilities/UrbanPop-scripts/compute_workgroup_sizes.py, or pass "
+                  "--workgroup_sizes_file")
     targets = {}
     with open(fname) as f:
         for line in f:
@@ -768,12 +788,67 @@ def load_workgroup_targets(fname: str) -> dict[tuple[int, str], int]:
                 continue
             state, naics, size = parts
             targets[(int(state), naics)] = int(size)
+    if not targets:
+        raise_err(f"workgroup sizes file '{fname}' has no usable rows -- regenerate it with "
+                  "compute_workgroup_sizes.py")
     return targets
+
+
+def load_establishment_size_dists(fname: str) -> dict[tuple[int, str], tuple[np.ndarray, np.ndarray]]:
+    """Loads the per-(state_fips, NAICS) establishment-size distribution written by
+    compute_workgroup_sizes.py, as {(state, naics): (sizes, probs)} ready to sample.
+
+    Each CBP band contributes n establishments holding e employees, so the band's mean size is
+    e/n. Sizes are drawn log-uniformly across the band and then rescaled so the band's own mean
+    lands exactly on e/n -- that keeps both the establishment count and the total employment
+    faithful to CBP while giving a continuous spread rather than one spike per band. The
+    open-ended 1000+ band gets an upper bound from its own mean.
+
+    Required, not optional: without it alloc_workers would silently fall back to sizing every
+    workplace at its industry's average, which is what makes destination populations pile up at
+    multiples of that average -- a wrong-but-plausible .bin that looks fine until someone plots
+    the work-group sizes. Fail loudly instead.
+    """
+    if not fname or not os.path.exists(fname):
+        raise_err(f"establishment sizes file '{fname}' not found -- generate it with "
+                  "utilities/UrbanPop-scripts/compute_workgroup_sizes.py (it is written next to "
+                  "workgroup_sizes_us.txt), or pass --establishment_sizes_file")
+    bounds = [(1, 4), (5, 9), (10, 19), (20, 49), (50, 99), (100, 249), (250, 499), (500, 999), (1000, None)]
+    rng = np.random.default_rng(0)  # shape of the within-band spread only; not the slot draws
+    dists = {}
+    with open(fname) as f:
+        for line in f:
+            if line.startswith("#"):
+                continue
+            parts = line.split()
+            if len(parts) != 2 + 2 * len(bounds):
+                continue
+            state, naics = parts[0], parts[1]
+            nums = [int(v) for v in parts[2:]]
+            sizes, weights = [], []
+            for (lo, hi), n, e in zip(bounds, nums[0::2], nums[1::2]):
+                if n <= 0 or e <= 0:
+                    continue
+                mean = e / n
+                hi_eff = hi if hi is not None else max(lo + 1, int(mean * 4))
+                draw = np.exp(rng.uniform(np.log(lo), np.log(hi_eff + 1), size=256))
+                draw *= mean / draw.mean()
+                sizes.append(np.clip(np.rint(draw), 1, None))
+                weights.append(np.full(len(draw), n / len(draw)))
+            if sizes:
+                s = np.concatenate(sizes)
+                w = np.concatenate(weights)
+                dists[(int(state), naics)] = (s, w / w.sum())
+    if not dists:
+        raise_err(f"establishment sizes file '{fname}' has no usable rows -- regenerate it with "
+                  "compute_workgroup_sizes.py --refresh-cbp-cache")
+    return dists
 
 
 @timer
 def alloc_workers(
-    lodes_df: pl.DataFrame, workers_df: pl.DataFrame, workgroup_sizes_file: str = ""
+    lodes_df: pl.DataFrame, workers_df: pl.DataFrame, workgroup_sizes_file: str = "",
+    establishment_sizes_file: str = "",
 ) -> pl.DataFrame:
     """Destination-driven worker allocation.
 
@@ -799,6 +874,13 @@ def alloc_workers(
          synthetic population living at those homes actually has. This makes small destinations
          randomly specialize in whichever few NAICS codes their real commute-shed supports,
          instead of uniformly diluting.
+      2b. Each slot's SIZE is then drawn from that (state, NAICS)'s real CBP establishment-size
+         distribution (see load_establishment_size_dists), not fixed at the industry average.
+         Fixing it made a destination's demand for an industry an exact integer multiple of that
+         average, so (destination, NAICS) populations piled up at 1x, 2x, 3x ... the average --
+         spikes that propagate straight through to the work-group sizes the C++ builds from
+         these populations. Drawing also lets one destination host a single genuinely large
+         workplace rather than several average-sized ones.
       3. Implied per-(destination, NAICS) demand is then rescaled so each NAICS's total across
          all destinations matches its true statewide worker count exactly (workers can be
          relocated, not invented or dropped).
@@ -825,6 +907,7 @@ def alloc_workers(
     naics_categs = list(categ_types["pr_naics"].categories)
     n_naics = len(naics_categs)
     workgroup_targets = load_workgroup_targets(workgroup_sizes_file)
+    est_size_dists = load_establishment_size_dists(establishment_sizes_file)
 
     def target_for(state_fips: int, naics_idx: int) -> int:
         if not (0 <= naics_idx < n_naics):
@@ -891,13 +974,27 @@ def alloc_workers(
         draws = np.random.choice(n_naics, size=n_slots[d], p=w / total_w)
         slot_naics_count[d] = np.bincount(draws, minlength=n_naics)
 
-    # --- implied demand, using each destination's own state for the target-size lookup ---
+    # --- implied demand, using each destination's own state for the size lookup ---
     dest_state_fips = np.array([int(g[:2]) for g in dest_geoids])
     target_by_state = {
         s: np.array([target_for(s, ni) for ni in range(n_naics)]) for s in np.unique(dest_state_fips)
     }
     target_size_matrix = np.stack([target_by_state[s] for s in dest_state_fips])
-    implied_demand = slot_naics_count * target_size_matrix
+
+    # A slot is one workplace, so draw its size rather than fixing it at the industry average --
+    # see step 2b above for why. A (state, NAICS) with no row at all still falls back to the
+    # average: CBP has no coverage for some industries anywhere (public administration, most
+    # obviously), so those genuinely have no distribution to draw from.
+    implied_demand = np.zeros((n_dest, n_naics), dtype=np.float64)
+    for d in range(n_dest):
+        for ni in np.flatnonzero(slot_naics_count[d]):
+            k = slot_naics_count[d, ni]
+            dist = est_size_dists.get((int(dest_state_fips[d]), naics_categs[ni]))
+            if dist is None:
+                implied_demand[d, ni] = k * target_size_matrix[d, ni]
+            else:
+                sizes, probs = dist
+                implied_demand[d, ni] = np.random.choice(sizes, size=k, p=probs).sum()
 
     # --- rescale so each NAICS's total demand matches its true statewide worker count exactly
     # (workers can only be relocated among destinations, never invented or dropped), then round
@@ -1582,6 +1679,7 @@ def generate_nt_dt(
     seed: int,
     county_adjacency: dict[str, set[str]],
     workgroup_sizes_file: str = "",
+    establishment_sizes_file: str = "",
 ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     # randomly allocate some young agents to childcare
     upop_df = set_childcare(upop_df, seed)
@@ -1620,7 +1718,7 @@ def generate_nt_dt(
             pl.lit(-1, dtype=pl.Int16).alias("naics"),
         ]
     )
-    workers_nt_dt_df = alloc_workers(lodes_df, workers_df, workgroup_sizes_file)
+    workers_nt_dt_df = alloc_workers(lodes_df, workers_df, workgroup_sizes_file, establishment_sizes_file)
     if num_unique_ids != (len(workers_nt_dt_df) + len(students_df) + len(unemp_df)):
         raise_err(f"Incorrect number of unique IDS after worker allocation")
     students_nt_dt_df = alloc_students(schools_df, students_df, county_adjacency)
@@ -2534,7 +2632,8 @@ def main():
     schools_df = schools_df.filter(pl.col("geoid").is_in(upop_df["home_geoid"].unique().to_list()))
     county_adjacency = load_county_adjacency(args.county_adjacency_file)
     workers_df, students_df, schools_df, unemp_df = generate_nt_dt(
-        schools_df, upop_df, lodes_df, args.rseed, county_adjacency, args.workgroup_sizes_file
+        schools_df, upop_df, lodes_df, args.rseed, county_adjacency, args.workgroup_sizes_file,
+        args.establishment_sizes_file
     )
     check_flows_correlation(workers_df, lodes_df)
     # workers_df.write_ipc("workers_df.feather")

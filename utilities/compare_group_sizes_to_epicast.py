@@ -128,8 +128,57 @@ def nice_linear_bins(vmin, vmax, target_bins=50):
     return np.arange(first_center - width / 2, vmax + width, width)
 
 
+def load_cbp_establishment_sizes(fname, state_fips, rng_seed=0):
+    """Real establishment sizes for one state, straight from the CBP derived cache
+    (data/UrbanPop/cbp19st_derived.csv, written by compute_workgroup_sizes.py).
+
+    Returns (sizes, est_counts): each entry is a representative establishment size and how many
+    real establishments it stands for, so weighting by size * est_counts gives the same
+    worker-weighted density as the model series. Each CBP employment-size band holds n
+    establishments totalling e employees, so sizes are spread log-uniformly across the band and
+    rescaled to that band's own mean e/n -- preserving both the establishment count and the
+    employment CBP reports.
+
+    Only 2-digit NAICS sectors are summed. CBP reports every level of the NAICS hierarchy as its
+    own row (11, 111, 1111, ...), so adding up all of them would count the same establishment
+    once per level; the 2-digit sectors partition the state's establishments exactly once.
+
+    NOTE this is the WORKPLACE tier, not the work-group tier: a work-group is a co-worker team
+    inside an establishment (Epicast 2.0 sec. 2.4.2), so a 2451-person hospital is one CBP
+    establishment but many work-groups. It belongs on this plot as a reference for what real
+    workplaces look like, not as a target the work-group distribution should match.
+    """
+    import csv
+
+    bands = [("<5", 1, 4), ("5_9", 5, 9), ("10_19", 10, 19), ("20_49", 20, 49), ("50_99", 50, 99),
+             ("100_249", 100, 249), ("250_499", 250, 499), ("500_999", 500, 999), ("1000", 1000, None)]
+    rng = np.random.default_rng(rng_seed)
+    sizes, counts = [], []
+    with open(fname) as f:
+        reader = csv.DictReader(f)
+        if "n<5" not in (reader.fieldnames or []):
+            sys.exit(f"{fname} has no establishment-size-band columns -- regenerate it with "
+                     "compute_workgroup_sizes.py --refresh-cbp-cache")
+        for row in reader:
+            if int(row["fipstate"]) != state_fips or len(row["naics"]) != 2:
+                continue
+            for name, lo, hi in bands:
+                n, e = int(row["n" + name] or 0), int(row["e" + name] or 0)
+                if n <= 0 or e <= 0:
+                    continue
+                mean = e / n
+                hi_eff = hi if hi is not None else max(lo + 1, int(mean * 4))
+                draw = np.exp(rng.uniform(np.log(lo), np.log(hi_eff + 1), size=64))
+                draw *= mean / draw.mean()
+                sizes.append(np.clip(np.rint(draw), 1, None))
+                counts.append(np.full(len(draw), n / len(draw)))
+    if not sizes:
+        sys.exit(f"No CBP rows for state FIPS {state_fips} in {fname}")
+    return np.concatenate(sizes), np.concatenate(counts)
+
+
 def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, weight_noun="member",
-                     logx=False, logy=False, max_integer_bins=200, xlim=None):
+                     logx=False, logy=False, max_integer_bins=200, xlim=None, cbp=None):
     epicast_sizes = np.asarray(epicast_sizes)
     exaepi_sizes = np.asarray(exaepi_sizes)
     overall_min = min(epicast_sizes.min(), exaepi_sizes.min())
@@ -139,20 +188,24 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, weight_
         sys.exit(f"--logx requires strictly positive sizes, but {title} has a minimum of "
                  f"{min(epicast_sizes.min(), exaepi_sizes.min())}")
 
-    def print_stats(name, sizes):
+    def print_stats(name, sizes, counts=None):
         # Weighted by size (each group of size s stands in for s members who experience that
         # group size) rather than one point per group -- a plain per-group histogram makes the
         # many small groups look dominant even when most members are actually in a big one, so
         # both the plot and its summary stats are weighted throughout by weight_noun. Printed
         # rather than shown in the legend -- this figure is only ~3.1in wide in the paper, with no
         # room for it at PLOS's 8-12pt font floor, and the legend should just name the series.
-        weighted_mean = np.average(sizes, weights=sizes)
-        sorted_sizes = np.sort(sizes)
-        cum_members = np.cumsum(sorted_sizes)
+        # counts lets one entry stand for many real groups (the CBP bands are stored that way);
+        # without it every entry is one group, which is how both model series are stored.
+        n_groups = len(sizes) if counts is None else counts.sum()
+        member_w = sizes if counts is None else sizes * counts
+        weighted_mean = np.average(sizes, weights=member_w)
+        order = np.argsort(sizes)
+        sorted_sizes, cum_members = sizes[order], np.cumsum(member_w[order])
         weighted_median = sorted_sizes[np.searchsorted(cum_members, cum_members[-1] / 2)]
         print(
-            f"{title} -- {name}: n={len(sizes):,}, mean={weighted_mean:.1f}, "
-            f"median={weighted_median:.1f}, max={sizes.max():,}"
+            f"{title} -- {name}: n={n_groups:,.0f}, mean={weighted_mean:.1f}, "
+            f"median={weighted_median:.1f}, max={sizes.max():,.0f}"
         )
 
     if cdf:
@@ -171,6 +224,11 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, weight_
             # distinct color instead of the later-drawn line fully hiding the other
             ax.step(sorted_sizes, cumulative_frac, where="post", color=color, linewidth=1,
                     alpha=0.7, label=label)
+        if cbp is not None:
+            order = np.argsort(cbp[0])
+            s, w = cbp[0][order], (cbp[0] * cbp[1])[order]
+            ax.step(s, np.cumsum(w) / w.sum(), where="post", color="black", linewidth=1,
+                    label="CBP establishments")
         ax.set_ylabel(f"Cumulative fraction of {weight_noun}s")
     else:
         # Shared, density-normalized bins (the two models produce very different group counts,
@@ -212,10 +270,21 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, weight_
             bins = np.append(bins[bins < combined_max], combined_max)
         print_stats("Epicast", epicast_sizes)
         print_stats("ExaEpi", exaepi_sizes)
+        if cbp is not None:
+            print_stats("CBP establishments", cbp[0], cbp[1])
         ax.hist(epicast_sizes, bins=bins, weights=epicast_sizes, density=True, color="blue",
                 alpha=0.5, label="Epicast")
         ax.hist(exaepi_sizes, bins=bins, weights=exaepi_sizes, density=True, color="red",
                 alpha=0.5, label="ExaEpi")
+        if cbp is not None:
+            # Outline rather than a third filled patch -- this is a reference curve for what real
+            # workplaces look like, not a third model, and two translucent fills are already
+            # overlapping here. Establishments larger than the last bin fall outside `bins` and
+            # so are dropped by numpy.histogram, which renormalizes this curve over the plotted
+            # range; that is the intended comparison (the models' own groups are capped far
+            # below CBP's tail) but it does mean the curve is conditional on that range.
+            ax.hist(cbp[0], bins=bins, weights=cbp[0] * cbp[1], density=True, histtype="step",
+                    color="black", linewidth=1, label="CBP establishments")
         ax.set_ylabel(f"Density ({weight_noun}-weighted)")
 
     if logx:
@@ -281,8 +350,23 @@ def main():
     parser.add_argument(
         "--output", "-o", default="group_size_comparison.png", help="Output image file",
     )
+    parser.add_argument(
+        "--cbp_state", type=int, default=None, metavar="FIPS",
+        help="Overlay the real CBP establishment-size distribution for this state FIPS (6 = CA, "
+        "35 = NM) on the workgroup panel. This is the WORKPLACE tier, not the workgroup tier -- "
+        "a workgroup is a co-worker team inside an establishment -- so it is a reference for what "
+        "real workplaces look like, not a target the workgroup sizes should match.",
+    )
+    parser.add_argument(
+        "--cbp_sizes_file",
+        default=os.path.join(REPO_ROOT, "data", "UrbanPop", "cbp19st_derived.csv"),
+        help="CBP derived cache with establishment-size bands (see compute_workgroup_sizes.py)",
+    )
     args = parser.parse_args()
     cdf = not args.histogram
+    cbp = None
+    if args.cbp_state is not None:
+        cbp = load_cbp_establishment_sizes(args.cbp_sizes_file, args.cbp_state)
 
     epicast_files = {
         "workgroup": args.epicast_workgroup,
@@ -303,7 +387,7 @@ def main():
         exaepi_data = exaepi_sizes(args.prefix, group_name)
         plot_comparison(ax, epicast_data, exaepi_data, info["xlabel"], info["title"], cdf,
                          weight_noun=info["weight_noun"], logx=args.logx, logy=args.logy,
-                         xlim=args.xlim)
+                         xlim=args.xlim, cbp=cbp if group_name == "workgroup" else None)
 
     plt.savefig(args.output, dpi=300)
     print(f"{'CDF' if cdf else 'Histogram'} comparison saved to {args.output}")
