@@ -2726,7 +2726,6 @@ def concat_all(
 
 
 @timer
-@timer
 def assign_groups(df: pl.DataFrame, args) -> pl.DataFrame:
     """Give every agent its structural group memberships and put them in the .bin.
 
@@ -2786,6 +2785,7 @@ def assign_groups(df: pl.DataFrame, args) -> pl.DataFrame:
     )
 
 
+@timer
 def main():
     args = get_args()
     np.random.seed(args.rseed)
