@@ -14,6 +14,19 @@
 
 namespace ExaEpi {
 
+/*! \brief Verbosity levels for TestParams::verbose (the "agent.verbose" input).
+
+    Each level is cumulative -- a level prints everything the levels below it print. Gates are
+    written as ">= Verbosity::<level>" so that an input file asking for a higher level than
+    anything here uses still gets everything. */
+namespace Verbosity {
+constexpr int quiet = 0;      /*!< only the output every run produces */
+constexpr int detail = 1;     /*!< per-hub/per-FIPS detail while initializing infections, the
+                                   school/age-group count tables, a message each time a plotfile
+                                   is written, and the per-day infection/death update */
+constexpr int histograms = 2; /*!< the above, plus all histograms (see ExaEpi::Utils::printHistogram) */
+} // namespace Verbosity
+
 /*! \brief Structure with various simulation parameters; these are read in
     for the input file provided in the command line.
 */
@@ -78,22 +91,29 @@ struct TestParams {
     int shelter_start = -1;
     int shelter_length = 0;
 
-    bool fast = false;         /*!< Use the fast implementations for various operations, e.g. binning, at the cost of
-                                   exact reproducibility for a given random seed. */
+    bool fast = false;              /*!< Use the fast implementations for various operations, e.g. binning, at the cost of
+                                        exact reproducibility for a given random seed. */
 
-    bool context_diag = false; /*!< If true, attribute infections to interaction contexts via snapshotProbs /
-                                    sumContextInfections and write per-context columns to the output file. */
+    bool context_diag = false;      /*!< If true, attribute infections to interaction contexts via snapshotProbs /
+                                         sumContextInfections and write per-context columns to the output file. */
 
-    bool verbose = false;      /*!< If true, print additional detail to the output trace: all histograms
-                                    (see ExaEpi::Utils::printHistogram), per-hub/per-FIPS detail while
-                                    initializing infections, a message each time a plotfile is written, and
-                                    the per-day infection/death update. */
+    int verbose = Verbosity::quiet; /*!< How much additional detail to print to the output trace; see
+                                         #ExaEpi::Verbosity for what each level adds. */
 };
 
 /*! \brief Namespace with utility functions */
 namespace Utils {
 
 void getTestParams(ExaEpi::TestParams& params, const std::string& prefix);
+
+/*! \brief Read "<prefix>.verbose" as a verbosity level (see #ExaEpi::Verbosity), returning
+    #ExaEpi::Verbosity::quiet if it isn't set.
+
+    Shared by ExaEpi::Utils::getTestParams and main.cpp's overrideAmrexDefaults, which needs the
+    level before the rest of the parameters are read. "verbose" was a plain bool before it grew
+    levels, so "true"/"false" are still accepted (as level 1 and 0); anything that is neither a
+    bool nor a non-negative integer aborts rather than being silently taken as 0. */
+int queryVerbose(const std::string& prefix);
 
 /*! \brief Print an ASCII text histogram to the output trace (IOProcessor-only; a no-op on
     every other rank).

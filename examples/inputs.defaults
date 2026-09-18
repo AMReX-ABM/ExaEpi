@@ -62,6 +62,10 @@ agent.shelter_length = 0
 agent.fast = false
 # Attribute infections to interaction contexts and write per-context columns to the output file.
 agent.context_diag = false
+# How much additional detail to print: 0 quiet; 1 adds initial-infection detail, the school and
+# age-group counts, plotfile-write messages and the per-day infection/death update; 2 adds all
+# histograms. Each level includes the ones below it.
+agent.verbose = 0
 # Shelter-in-place compliance rate (probability an agent actually shelters).
 agent.shelter_compliance = 0.95
 # Symptomatic-withdrawal compliance rate on the 1st/2nd/3rd+ day of symptoms, by age group

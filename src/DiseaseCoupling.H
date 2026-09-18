@@ -5,6 +5,7 @@
 #define DISEASE_COUPLING_H
 
 #include "AgentDefinitions.H"
+#include "Utils.H"
 #include <AMReX_GpuContainers.H>
 #include <AMReX_REAL.H>
 #include <AMReX_Vector.H>
@@ -66,7 +67,7 @@ struct DiseaseCouplingParm {
     }
 
     /*! Read inputs from file */
-    inline void ReadInputs (const std::string& a_prefix /*!< prefix */, const bool verbose = false) {
+    inline void ReadInputs (const std::string& a_prefix /*!< prefix */, const int verbose = ExaEpi::Verbosity::quiet) {
         ParmParse pp(a_prefix);
         {
             auto key_str = "coimmunity_matrix";
@@ -83,7 +84,7 @@ struct DiseaseCouplingParm {
             }
         }
 
-        if (verbose) {
+        if (verbose >= ExaEpi::Verbosity::detail) {
             Print() << "Co-immunity matrix:\n";
             for (int i = 0; i < m_n; i++) {
                 Print() << "    ";

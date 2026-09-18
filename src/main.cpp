@@ -136,9 +136,9 @@ void printHelp (const char* prog) {
     line("seed", "unset", "RNG seed");
     line("fast", fmt(tp.fast), "use fast, non-bitwise-reproducible implementations");
     line("context_diag", fmt(tp.context_diag), "attribute infections to interaction contexts in the output file");
-    line("verbose", fmt(tp.verbose),
-         "print additional detail: all histograms, initial-infection detail, plotfile-write messages, "
-         "and the per-day infection/death update");
+    line("verbose", fmt(tp.verbose), "verbosity level: 0 quiet; 1 adds initial-infection detail, the");
+    desc_line("school/age-group counts, plotfile-write messages and the per-day");
+    desc_line("infection/death update; 2 adds all histograms");
     line("shelter_compliance", fmt(AgentContainer::default_shelter_compliance), "shelter-in-place compliance rate");
     line("symptomatic_withdraw_compliance_day_0", fmtArr(AgentContainer::default_symptomatic_withdraw_compliance_day_0), "");
     line("symptomatic_withdraw_compliance_day_1", fmtArr(AgentContainer::default_symptomatic_withdraw_compliance_day_1), "");
@@ -270,10 +270,9 @@ void overrideAmrexDefaults () {
     // callback, before AMReX reads its own "amrex.verbose"/"amrex.v"), so agent.verbose is already
     // available to query here even though ExaEpi::Utils::getTestParams() itself runs later.
     if (!pp.contains("verbose") && !pp.contains("v")) {
-        amrex::ParmParse pp_agent("agent");
-        bool agent_verbose = false;
-        pp_agent.query("verbose", agent_verbose);
-        int amrex_verbose = agent_verbose ? 1 : 0;
+        // AMReX's verbosity is on/off, not levelled like agent.verbose, so any level above quiet
+        // maps to 1
+        int amrex_verbose = (ExaEpi::Utils::queryVerbose("agent") > ExaEpi::Verbosity::quiet) ? 1 : 0;
         pp.add("verbose", amrex_verbose);
     }
 
@@ -546,7 +545,7 @@ void runAgent () {
                 }
             }
 
-            if (params.verbose) {
+            if (params.verbose >= Verbosity::detail) {
                 pc.printStudentTeacherCounts();
                 pc.printAgeGroupCounts();
             }
@@ -938,7 +937,7 @@ void runAgent () {
 
             std::chrono::duration<double> elapsed_time = std::chrono::high_resolution_clock::now() - start_time;
 
-            if (params.verbose) {
+            if (params.verbose >= Verbosity::detail) {
                 Print() << "[Day " << cur_time << " " << std::fixed << std::setprecision(1) << elapsed_time.count()
                         << "s] infected: ";
                 for (int d = 0; d < params.num_diseases; d++) {
@@ -997,7 +996,7 @@ void runAgent () {
         print_age_breakdown(indent + "    ", cumulative_deaths_by_age[d]);
     };
 
-    if (params.verbose) { amrex::Print() << "\n \n"; }
+    if (params.verbose >= Verbosity::detail) { amrex::Print() << "\n \n"; }
     if (params.num_diseases == 1) {
         print_disease_summary(0, "");
     } else {
@@ -1006,7 +1005,7 @@ void runAgent () {
             print_disease_summary(d, "    ");
         }
     }
-    if (params.verbose) { amrex::Print() << "\n \n"; }
+    if (params.verbose >= Verbosity::detail) { amrex::Print() << "\n \n"; }
 
     if (params.plot_int > 0) {
         ExaEpi::IO::writePlotFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,

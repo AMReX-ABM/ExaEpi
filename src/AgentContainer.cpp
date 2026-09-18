@@ -90,7 +90,7 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
                                 const int& a_num_diseases,                       /*!< Number of diseases */
                                 const std::vector<std::string>& a_disease_names, /*!< names of the diseases */
                                 const bool fast,                                 /*!< faster but non-deterministic computation*/
-                                const bool verbose /*!< print additional detail to the output trace */)
+                                const int verbose /*!< verbosity level (see ExaEpi::Verbosity) */)
     : amrex::ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs>(a_geom, a_dmap, a_ba),
       comm_density_scale(a_ba, a_dmap, 1, 0), comm_density_scale_work(a_ba, a_dmap, 1, 0), m_mod_nborhood_day(true),
       m_mod_nborhood_night(false), m_mod_comm_day(true), m_mod_comm_night(false) {

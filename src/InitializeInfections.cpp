@@ -320,7 +320,7 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
                               const Vector<int>& FIPS_codes,
                               const Vector<int>& unit_community_start, /*!< Start community number for each unit */
                               const Vector<float>& community_cum_prob, /*!< Cumulative population distribution per unit */
-                              iMultiFab& comm_mf, const bool fast_bin, const bool verbose) {
+                              iMultiFab& comm_mf, const bool fast_bin, const int verbose) {
     BL_PROFILE("setInitialCasesFromFile");
 
     BinMap bin_map;
@@ -340,7 +340,7 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
             }
             // int unit = FIPS_code_to_i[FIPS];
             if (units.size() > 0) {
-                if (verbose) {
+                if (verbose >= ExaEpi::Verbosity::detail) {
                     Print() << "    Attempting to infect: " << cases.Size_hubs[ihub] << " people in FIPS " << FIPS << "... ";
                 }
                 int u = 0;
@@ -354,7 +354,9 @@ void setInitialCasesFromFile (AgentContainer& pc,                      /*!< Agen
                     i += nSuccesses;
                     u = (u + 1) % units.size(); // sometimes we infect fewer than ntry, but switch to next unit anyway
                 }
-                if (verbose) { Print() << "infected " << i << " (total " << ninf << ") after processing. \n"; }
+                if (verbose >= ExaEpi::Verbosity::detail) {
+                    Print() << "infected " << i << " (total " << ninf << ") after processing. \n";
+                }
             }
         }
     }
@@ -368,7 +370,7 @@ void setInitialCasesRandom (AgentContainer& pc,                      /*!< Agent 
                             const Vector<int>& FIPS_codes,           /*!< FIPS code for each unit */
                             const Vector<int>& unit_community_start, /*!< Start community number for each unit */
                             const Vector<float>& community_cum_prob, /*!< Cumulative population distribution per unit */
-                            iMultiFab& comm_mf, const bool fast_bin, const bool verbose) {
+                            iMultiFab& comm_mf, const bool fast_bin, const int verbose) {
     BL_PROFILE("setInitialCasesRandom");
 
     BinMap bin_map;
@@ -398,7 +400,7 @@ void setInitialCasesRandom (AgentContainer& pc,                      /*!< Agent 
         for (auto& [fips, count] : fips_infection_counts) {
             ofs << fips << " " << count << " " << count << "\n";
         }
-        if (verbose) {
+        if (verbose >= ExaEpi::Verbosity::detail) {
             Print() << "Wrote random initial case locations to " << out_filename
                     << " (use with disease.initial_case_type = file)\n";
         }

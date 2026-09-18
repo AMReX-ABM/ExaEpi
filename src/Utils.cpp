@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <exception>
 #include <iomanip>
 #include <string>
 
@@ -107,7 +108,28 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
 
     pp.query("fast", params.fast);
     pp.query("context_diag", params.context_diag);
-    pp.query("verbose", params.verbose);
+    params.verbose = queryVerbose(prefix);
+}
+
+int ExaEpi::Utils::queryVerbose (const std::string& prefix) {
+    ParmParse pp(prefix);
+    std::string str;
+    if (!pp.query("verbose", str)) { return Verbosity::quiet; }
+
+    // the spellings ParmParse itself accepts for a bool, from back when this was one
+    if (str == "true" || str == "t" || str == "T" || str == "TRUE") { return Verbosity::detail; }
+    if (str == "false" || str == "f" || str == "F" || str == "FALSE") { return Verbosity::quiet; }
+
+    try {
+        size_t end = 0;
+        int level = std::stoi(str, &end);
+        // stoi stops at the first character it can't use, so "1x" would otherwise come back as 1
+        if (end == str.size() && level >= 0) { return level; }
+    } catch (const std::exception&) {}
+
+    Abort(prefix + ".verbose must be a verbosity level: a non-negative integer (0 = quiet, 1 = detail, " +
+          "2 = detail plus histograms) or true/false, but is \"" + str + "\"");
+    return Verbosity::quiet;
 }
 
 void ExaEpi::Utils::printHistogram (const std::string& label, const std::map<Long, Long>& value_counts, int max_distinct_buckets,

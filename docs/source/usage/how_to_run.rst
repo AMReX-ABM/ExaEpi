@@ -103,6 +103,15 @@ The following are inputs for the overall simulation:
 * ``agent.context_diag`` (`bool`, default ``false``)
     If true, attribute infections to interaction contexts (work, school, household, ...) and
     write per-context columns to the output file.
+* ``agent.verbose`` (`integer`, default ``0``)
+    How much additional detail to print to the output trace. Each level includes everything the
+    levels below it print: ``0`` only the output every run produces; ``1`` adds per-hub/per-FIPS
+    detail while initializing infections, the school and age-group count tables, a message each
+    time a plotfile is written, and the per-day infection/death update; ``2`` adds all histograms
+    (community home/work population, workers per (community, NAICS), household size and
+    household-cluster size). ``true`` and ``false`` are still accepted, meaning levels 1 and 0.
+    Any level above ``0`` also turns on AMReX's own verbosity, unless ``amrex.verbose`` /
+    ``amrex.v`` is set explicitly.
 * ``agent.shelter_start`` (`integer`, default ``-1``)
     Day on which to start shelter-in-place. Disabled when set to -1.
 * ``agent.shelter_length`` (`integer`, default ``0``)
