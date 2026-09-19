@@ -6,10 +6,11 @@
 #define DISEASE_PARM_H_
 
 #include <AMReX_GpuMemory.H>
+#include <AMReX_ParmParse.H>
 #include <AMReX_REAL.H>
 #include <AMReX_Random.H>
 
-#include "AgentDefinitions.H"
+#include "AgentEnums.H"
 
 using amrex::ParticleReal;
 using amrex::Real;
@@ -38,6 +39,8 @@ struct DiseaseParm {
     int initial_case_type = CaseTypes::rnd;
     /*! Number of initial cases (in case of random initialization) */
     int num_initial_cases = 0;
+    /*! Fraction of agents initially immune (0.0 to 1.0) */
+    Real initial_immunity_fraction = Real(0.0);
     /*! Name of disease. This is a char array because this whole structure is memcpy'd to the device */
     char disease_name[50];
     /*! Initial cases filename (CaseData::initFromFile):

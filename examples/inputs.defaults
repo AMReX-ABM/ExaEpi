@@ -79,6 +79,15 @@ disease.initial_case_type = random
 disease.num_initial_cases = 0
 # no default, must be set for each disease when disease_[disease name].num_initial_cases = random for multiple diseases
 # disease.num_initial_cases_[disease name] = 0
+# The fraction of agents (0.0 to 1.0) that are initially immune for each disease.
+# This sets agents as immune at initialization. Each initially immune agent is placed at a random
+# point in their immunity period. The immunity period duration is sampled from a Gamma distribution
+# using the immune_length_alpha and immune_length_beta parameters, and the agent's remaining immunity
+# is set to a uniform random value between 0 and that duration.
+# This feature works for both Census and UrbanPop initialization types.
+disease.initial_immunity_fraction = 0.0
+# For multiple diseases, use disease-specific parameters:
+# disease_[disease name].initial_immunity_fraction = 0.0
 
 # Probability of transmission given contact.
 disease.p_trans = 0.2

@@ -5,6 +5,7 @@
 #ifndef _AGENT_DEF_H_
 #define _AGENT_DEF_H_
 
+#include "AgentEnums.H"
 #include <AMReX_Particles.H>
 
 namespace ExaEpi {
@@ -16,73 +17,6 @@ const int max_num_diseases = 10;
 struct RealIdx {
     enum {
         nattribs = 0 /*!< number of real-type attribute*/
-    };
-};
-
-/*! \brief Disease-specific Real-type Runtime-SoA attributes of agent */
-struct RealIdxDisease {
-    enum {
-        /* Disease counter starts after infection. */
-        treatment_timer = 0, /*!< Timer since hospital admission */
-        disease_counter,     /*!< Counter since start of infection */
-        prob,                /*!< Probability of infection */
-        latent_period,       /*!< Time until infectious, which could be before symptoms appear */
-        infectious_period,   /*!< Length of time infectious */
-        incubation_period,   /*!< Time until symptoms appear */
-        hospital_delay,      /*!< Delay after symptom onset until hospital treatment is sought */
-        hospital_random,     /*!< Random number that decides hospitaliation */
-        nattribs             /*!< number of real-type attribute*/
-    };
-};
-
-/*! \brief Integer-type SoA attributes of agent */
-struct IntIdx {
-    enum {
-        age_group = 0, /*!< Age group (under 5, 5-17, 18-29, 30-64, 65+) */
-        family,        /*!< Family ID */
-        home_i,        /*!< home location index */
-        home_j /*!< home location index */,
-        work_i /*!< work location index */,
-        work_j /*!< work location index */,
-        hosp_i /*!< hosp location index */,
-        hosp_j /*!< hosp location index */,
-        trav_i /*!< air travel location index */,
-        trav_j /*!< air travel location index */,
-        nborhood,      /*!< home neighborhood ID */
-        hh_cluster,    /*!< household cluster ID */
-        school_grade,  /*!< school grade, including universities */
-        school_id,     /*!< ID for a given school */
-        school_closed, /*!< 0 for open, 1 for closed */
-        naics,         /*!< industry NAICS code for business employed at */
-        workgroup,     /*!< workgroup ID */
-        work_nborhood, /*!< work neighborhood ID */
-        withdrawn,     /*!< quarantine status */
-        random_travel, /*!< on long distance travel? */
-        air_travel,    /*!< on long distance travel by Air? */
-        weatherLookup, /*!< index for current weather variables, incremented weekly */
-        nattribs       /*!< number of integer-type attribute */
-    };
-};
-
-/*! \brief Disease-specific Integer-type Runtime-SoA attributes of agent */
-struct IntIdxDisease {
-    enum {
-        status = 0,  /*!< Disease status (#Status) */
-        symptomatic, /*!< currently symptomatic? 0: no, but will be, 1: yes, 2: no, and will remain so until recovered */
-        nattribs     /*!< number of integer-type attribute */
-    };
-};
-
-/*! \brief School Type  */
-struct SchoolType {
-    enum {
-        none, /*!< Not in school */
-        college,
-        high,
-        middle,
-        elem,
-        daycare,
-        total
     };
 };
 
@@ -98,63 +32,6 @@ struct SchoolCensusIDType {
         total
     };
 };
-
-/*! \brief Age Group */
-struct AgeGroups {
-    enum {
-        u5 = 0,  /*!< Under 5 */
-        a5to17,  /*!< 5-17 */
-        a18to29, /*!< 18-29 */
-        a30to49, /*!< 30-49 */
-        a50to64,
-        o65,     /*!< over 65 */
-        total    /*!< number of age groups */
-    };
-};
-
-/*! \brief Disease status */
-struct Status {
-    enum {
-        never = 0,   /*!< never infected */
-        infected,    /*!< infected */
-        immune,      /*!< no longer infected, immune. lasts 6 months. */
-        susceptible, /*!< no longer infected, no longer immnune */
-        dead         /*!< passed away */
-    };
-};
-
-/*! \brief Disease statistics */
-struct DiseaseStats {
-    enum {
-        hospitalization = 0, /*!< number of current hospitalizations */
-        ICU,                 /*!< number of current ICU cases */
-        ventilator,          /*!< number of current ventilator cases */
-        death,               /*!< number of deaths */
-        new_cases            /*!< number of new infections each day */
-    };
-};
-
-/*! \brief Compute index offsets for runtime int-type disease attributes */
-AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-int i0 (const int a_d /*!< Disease index */) {
-    return a_d * IntIdxDisease::nattribs;
-}
-
-/*! \brief Compute index offsets for runtime real-type disease attributes */
-AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-int r0 (const int a_d /*!< Disease index */) {
-    return a_d * RealIdxDisease::nattribs;
-}
-
-/*! \brief Disease symptom status */
-struct SymptomStatus {
-    enum {
-        presymptomatic = 0, /*!< asymptomatic but will develop symptoms */
-        symptomatic,        /*!< Infectious and symptomatic */
-        asymptomatic        /*!< asymptomatic and will remain so */
-    };
-};
-
 struct OutputStatus {
     enum {
         /* Total number of agents in each category are written to summary table each step */
@@ -344,10 +221,14 @@ bool isNewlyHospitalized (const int a_idx,      /*!< Agent index */
     return disease_counter == incb_period + hospital_delay;
 }
 
+// Include DiseaseParm after basic definitions to avoid circular dependency
+#include "DiseaseParm.H"
+
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 void setAgentData (PTDType& ptd, int ip, int i, int j, const amrex::GpuArray<amrex::Real, 2>& dx, amrex::Long id, int cpu,
-                   int age_group, int family, int nborhood, int n_disease) {
+                   int age_group, int family, int nborhood, int n_disease, const DiseaseParm** disease_parms,
+                   const amrex::RandomEngine& engine) {
     using namespace amrex::literals;
 
     ptd[ip].pos(0) = static_cast<amrex::ParticleReal>((i + 0.5_rt) * dx[0]);
@@ -356,9 +237,22 @@ void setAgentData (PTDType& ptd, int ip, int i, int j, const amrex::GpuArray<amr
     ptd[ip].cpu() = cpu;
 
     for (int d = 0; d < n_disease; d++) {
-        ptd.m_runtime_idata[i0(d) + IntIdxDisease::status][ip] = 0;
+        // Check if agent should be initially immune for this disease
+        if (disease_parms[d]->initial_immunity_fraction > 0.0_prt &&
+            amrex::Random(engine) < disease_parms[d]->initial_immunity_fraction) {
+            ptd.m_runtime_idata[i0(d) + IntIdxDisease::status][ip] = Status::immune;
+            // Set immune counter to random point in immunity period
+            // Sample full immune duration, then pick random point within it
+            amrex::ParticleReal full_immune_duration =
+                    static_cast<amrex::ParticleReal>(amrex::RandomGamma(disease_parms[d]->immune_length_alpha,
+                                                                        disease_parms[d]->immune_length_beta, engine)) +
+                    static_cast<amrex::ParticleReal>(disease_parms[d]->immune_length_loc);
+            ptd.m_runtime_rdata[r0(d) + RealIdxDisease::disease_counter][ip] = amrex::Random(engine) * full_immune_duration;
+        } else {
+            ptd.m_runtime_idata[i0(d) + IntIdxDisease::status][ip] = Status::never;
+            ptd.m_runtime_rdata[r0(d) + RealIdxDisease::disease_counter][ip] = 0.0_prt;
+        }
         ptd.m_runtime_rdata[r0(d) + RealIdxDisease::treatment_timer][ip] = 0.0_prt;
-        ptd.m_runtime_rdata[r0(d) + RealIdxDisease::disease_counter][ip] = 0.0_prt;
         ptd.m_runtime_rdata[r0(d) + RealIdxDisease::prob][ip] = 0.0_prt;
         ptd.m_runtime_rdata[r0(d) + RealIdxDisease::latent_period][ip] = 0.0_prt;
         ptd.m_runtime_rdata[r0(d) + RealIdxDisease::infectious_period][ip] = 0.0_prt;

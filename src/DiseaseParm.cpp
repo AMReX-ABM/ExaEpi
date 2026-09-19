@@ -29,6 +29,8 @@ void DiseaseParm::readInputs (const std::string& a_pp_str /*!< Parmparse string 
         amrex::Abort("initial case type not recognized");
     }
 
+    pp.query("initial_immunity_fraction", initial_immunity_fraction);
+
     queryArray(pp, "xmit_comm", xmit_comm, AgeGroups::total);
     queryArray(pp, "xmit_hood", xmit_hood, AgeGroups::total);
     queryArray(pp, "xmit_hh_adult", xmit_hh_adult, AgeGroups::total);
