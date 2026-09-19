@@ -1079,6 +1079,35 @@ int AgentContainer::getMaxGroup (const int group_idx) {
     return max_attribute_values[group_idx];
 }
 
+/*! \brief Gather each rank's realized-group-size list onto the IO processor (the only rank that
+    writes output files). No merge-by-key is needed: each community's cell belongs to exactly one
+    rank, so every rank's local list is already disjoint from every other rank's -- a
+    concatenation, not a same-key reduction. Returns an empty vector on every non-IO rank.
+*/
+namespace {
+std::vector<Long> gatherSizesToIOProc (const std::vector<Long>& local_sizes) {
+    const int root = ParallelDescriptor::IOProcessorNumber();
+    const int nprocs = ParallelDescriptor::NProcs();
+    const int local_n = (int)local_sizes.size();
+    std::vector<int> counts = ParallelDescriptor::Gather(local_n, root);
+
+    std::vector<Long> all_sizes;
+    std::vector<int> recv_counts, displs;
+    if (ParallelDescriptor::IOProcessor()) {
+        recv_counts = counts;
+        displs.resize(nprocs);
+        int total = 0;
+        for (int i = 0; i < nprocs; ++i) {
+            displs[i] = total;
+            total += recv_counts[i];
+        }
+        all_sizes.resize(total);
+    }
+    ParallelDescriptor::Gatherv(local_sizes.data(), local_n, all_sizes.data(), recv_counts, displs, root);
+    return all_sizes;
+}
+} // namespace
+
 /*! \brief Compute the realized group-size distributions for workgroups, schools, and school
     classes -- see the doc comment on the declaration in AgentContainer.H for the timing
     requirement (agents must be at their work location). Workgroup/school tallies are done one
@@ -1197,40 +1226,93 @@ GroupSizeAggregates AgentContainer::computeGroupSizeDistributions (const UrbanPo
     Gpu::copy(Gpu::deviceToHost, scg_d.begin(), scg_d.end(), scg_h.begin());
     ParallelDescriptor::ReduceIntSum(scg_h.data(), (int)scg_h.size(), ParallelDescriptor::IOProcessorNumber());
 
-    // Gather each rank's realized-group-size lists onto the IO processor (the only rank that
-    // writes output files). No merge-by-key is needed: each community's cell belongs to exactly
-    // one rank, so every rank's local list is already disjoint from every other rank's -- a
-    // concatenation, not a same-key reduction.
-    auto gather_to_io_proc = [] (std::vector<Long>& local_sizes) {
-        const int root = ParallelDescriptor::IOProcessorNumber();
-        const int nprocs = ParallelDescriptor::NProcs();
-        const int local_n = (int)local_sizes.size();
-        std::vector<int> counts = ParallelDescriptor::Gather(local_n, root);
-
-        std::vector<Long> all_sizes;
-        std::vector<int> recv_counts, displs;
-        if (ParallelDescriptor::IOProcessor()) {
-            recv_counts = counts;
-            displs.resize(nprocs);
-            int total = 0;
-            for (int i = 0; i < nprocs; ++i) {
-                displs[i] = total;
-                total += recv_counts[i];
-            }
-            all_sizes.resize(total);
-        }
-        ParallelDescriptor::Gatherv(local_sizes.data(), local_n, all_sizes.data(), recv_counts, displs, root);
-        return all_sizes;
-    };
-
     GroupSizeAggregates result;
-    result.workgroup_sizes = gather_to_io_proc(local_result.workgroup_sizes);
-    result.school_sizes = gather_to_io_proc(local_result.school_sizes);
+    result.workgroup_sizes = gatherSizesToIOProc(local_result.workgroup_sizes);
+    result.school_sizes = gatherSizesToIOProc(local_result.school_sizes);
     if (ParallelDescriptor::IOProcessor()) {
         for (int scg = 0; scg < max_school_class_group; ++scg) {
             if (scg_h[scg] > 0) { result.school_class_sizes.push_back((Long)scg_h[scg]); }
         }
     }
+    return result;
+}
+
+/*! \brief Compute the realized neighborhood distributions -- see the doc comment on the
+    declaration in AgentContainer.H for the timing requirement (agents must be at home). Tallied
+    one grid tile at a time with GetCommunityIndex, exactly like computeGroupSizeDistributions()
+    above and for the same reason: nborhood IDs are only unique within a community, so a scratch
+    array is sized by the communities in the CURRENT tile rather than by every community in the
+    run.
+*/
+NborhoodSizeAggregates AgentContainer::computeNborhoodSizeDistributions (const UrbanPopData& urbanpopData) {
+    BL_PROFILE("AgentContainer::computeNborhoodSizeDistributions");
+
+    // getMaxGroup performs an MPI collective on first use -- must be called once, single-threaded,
+    // here, never from inside an omp-parallel region (same warning as computeGroupSizeDistributions).
+    int max_nborhood = getMaxGroup(IntIdx::nborhood) + 1;
+
+    const int lev = 0;
+
+    NborhoodSizeAggregates local_result;
+    std::vector<Real> nb_h;
+    for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
+        auto& ptile = ParticlesAt(lev, mfi);
+        const auto np = ptile.GetArrayOfStructs().numParticles();
+        if (np == 0) { continue; }
+
+        // const_cast: GetCommunityIndex::init only reads comm_arr -- see computeGroupSizeDistributions.
+        auto& community_mf_nc = const_cast<iMultiFab&>(urbanpopData.community_mf);
+        GetCommunityIndex<PTDType> getCommunityIndex;
+        getCommunityIndex.init(Geom(lev), mfi.tilebox(), community_mf_nc[mfi].array());
+        const int n_local_comm = getCommunityIndex.max();
+        if (n_local_comm == 0) { continue; }
+        auto plo = getCommunityIndex.plo;
+        auto dxi = getCommunityIndex.dxi;
+        auto domain = getCommunityIndex.domain;
+        auto valid_box = getCommunityIndex.valid_box;
+        auto bin_size = getCommunityIndex.bin_size;
+        auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
+
+        const auto& ptd = ptile.getParticleTileData();
+        auto& soa = ptile.GetStructOfArrays();
+        auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
+
+        // Constructed fresh (zero-filled) each tile rather than resized/reused -- see
+        // computeGroupSizeDistributions for why reuse would accumulate stale counts.
+        Gpu::DeviceVector<Real> nb_d((size_t)n_local_comm * max_nborhood, 0.0_rt);
+        auto* nb_ptr = nb_d.dataPtr();
+
+        amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
+            Box tbx;
+            auto iv = getParticleCell(ptd, ip, plo, dxi, domain);
+            auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
+            int local_comm = d_ptr[tidx];
+            Gpu::Atomic::AddNoRet(&nb_ptr[(long)local_comm * max_nborhood + nborhood_ptr[ip]], 1.0_rt);
+        });
+
+        nb_h.resize(nb_d.size());
+        Gpu::copy(Gpu::deviceToHost, nb_d.begin(), nb_d.end(), nb_h.begin());
+
+        // Walked one community at a time (rather than as one flat pass over nb_h) so that each
+        // community's nonempty-neighborhood count can be tallied alongside the sizes themselves.
+        for (int c = 0; c < n_local_comm; ++c) {
+            Long n_nborhoods = 0;
+            for (int n = 0; n < max_nborhood; ++n) {
+                Real v = nb_h[(size_t)c * max_nborhood + n];
+                if (v > 0) {
+                    local_result.nborhood_sizes.push_back((Long)v);
+                    ++n_nborhoods;
+                }
+            }
+            // A community with no agents in this tile contributes no neighborhoods at all, and
+            // would otherwise show up as a spurious zero-neighborhood community.
+            if (n_nborhoods > 0) { local_result.nborhoods_per_community.push_back(n_nborhoods); }
+        }
+    }
+
+    NborhoodSizeAggregates result;
+    result.nborhood_sizes = gatherSizesToIOProc(local_result.nborhood_sizes);
+    result.nborhoods_per_community = gatherSizesToIOProc(local_result.nborhoods_per_community);
     return result;
 }
 

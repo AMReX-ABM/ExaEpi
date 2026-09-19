@@ -39,6 +39,16 @@ struct GroupSizeAggregates {
     std::vector<amrex::Long> workgroup_sizes, school_sizes, school_class_sizes;
 };
 
+/*! \brief Realized neighborhood distributions -- one entry per nonempty neighborhood in
+    nborhood_sizes (that neighborhood's agent count) and one per populated community in
+    nborhoods_per_community (how many nonempty neighborhoods it has). Separate from
+    GroupSizeAggregates because neighborhoods have to be counted with agents at home, not at work
+    -- see AgentContainer::computeNborhoodSizeDistributions(). Populated (non-empty) on the
+    IOProcessor only. */
+struct NborhoodSizeAggregates {
+    std::vector<amrex::Long> nborhood_sizes, nborhoods_per_community;
+};
+
 /*! \brief Derived class from ParticleContainer that defines agents and their functions */
 class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, IntIdx::nattribs> {
 
@@ -135,6 +145,14 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
         documents above. Reduces to the IOProcessor only (not all ranks), since only the
         IOProcessor writes the resulting output files. */
     GroupSizeAggregates computeGroupSizeDistributions(const UrbanPopData& urbanpopData);
+
+    /*! \brief Compute the realized neighborhood distributions (see NborhoodSizeAggregates) from
+        agents' nborhood attribute. NOT const, for the same getMaxGroup() reason as
+        computeGroupSizeDistributions() above. Must be called once, while agents are at HOME (see
+        main.cpp's call site, between eveningCommute() and morningCommute()) -- the opposite of
+        computeGroupSizeDistributions()'s requirement, because nborhood is a home neighborhood and
+        its IDs are only unique within a home community. Reduces to the IOProcessor only. */
+    NborhoodSizeAggregates computeNborhoodSizeDistributions(const UrbanPopData& urbanpopData);
 
     void moveAgentsToWork();
 

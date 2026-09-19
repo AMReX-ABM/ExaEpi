@@ -1,22 +1,25 @@
 #!/usr/bin/env python
 
 """Plot a histogram of ExaEpi community/neighborhood sizes, or of neighborhoods per
-community, from a run's plotfile.
+community, from the static aggregated diagnostics a run writes.
 
-Community size is plotted as two overlaid series: agents grouped by home (home_i, home_j)
--- the residential/nighttime population per community -- and by work (work_i, work_j) --
-the daytime population (every agent has a work_i/work_j: a real job/school site for
-workers/students, or straight to home_i/home_j for everyone else).
+Community size is plotted as two overlaid series: the residential/nighttime population per
+community, and the daytime population (every agent has a work location: a real job/school
+site for workers/students, or straight back home for everyone else, so the daytime count is
+a true headcount, not just employed workers).
 
 Neighborhood size is the number of agents in a given (community, neighborhood) pair --
-neighborhood IDs are only unique within a community, so agents are grouped by the
-(home_i, home_j, nborhood) triple.
+neighborhood IDs are only unique within a community, so both are needed to identify one.
 
-Neighborhoods per community is the number of distinct neighborhood IDs among the agents
-living in each community.
+Neighborhoods per community is the number of nonempty neighborhoods in each community. Each
+community is a single block group, split into round(home_population / nborhood_size)
+neighborhoods when the UrbanPop .bin is built, with whole households dealt across them
+(UrbanPop-scripts/group_assignment.py).
 
-All three read per-agent fields (home_i/j, work_i/j, nborhood) that are only written to
-the first plotfile of a run (typically plt00000), so this script requires that file.
+All of this comes from the <prefix>_day_night_population.csv and <prefix>_nborhood_sizes.txt
+/ _nborhoods_per_community.txt files ExaEpi itself writes when --aggregated_diag_int is
+enabled (see ExaEpi::IO::writeStaticAggregatedData in src/IO.cpp) -- the same small text
+files the other comparison scripts read, not a multi-gigabyte plotfile.
 """
 
 import argparse
@@ -27,72 +30,38 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
-import yt
-import yt.frontends.amrex.api  # noqa: F401  (registers the AMReX frontend's IO handlers)
-from yt.frontends.amrex.data_structures import AMReXDataset
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from plos_compbio_style import apply_style, HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN  # noqa: E402
 
 
-def _agent_df(ds, *fields):
-    """Per-agent particle fields, as a DataFrame. These (home_i/j, work_i/j, nborhood, ...) are
-    static per-agent attributes only written to the first plotfile of a run (e.g. plt00000)."""
-    ptype = "agents"
-    particle_fields = {f[1] for f in ds.field_list if f[0] == ptype}
-    required = {f"particle_{f}" for f in fields}
-    missing = required - particle_fields
-    if missing:
+def _read_file(path, read):
+    if not os.path.exists(path):
         sys.exit(
-            f"Plotfile is missing per-agent field(s) {sorted(missing)}; these are only written "
-            "to the first plotfile of a run (e.g. plt00000)."
+            f"No such file: {path} -- the static aggregated diagnostics are only written when "
+            "ExaEpi runs with agent.aggregated_diag_int enabled, and only on a fresh start "
+            "(never on restart)."
         )
-    ad = ds.all_data()
-    return pd.DataFrame(
-        {f: np.rint(np.asarray(ad[(ptype, f"particle_{f}")])).astype(int) for f in fields}
-    )
+    return read(path)
 
 
-def home_community_sizes(ds):
-    """Residential (nighttime) population per community -- agents grouped by home (home_i,
-    home_j). Community size straight from the "comm"/"total" mesh fields would be equivalent and
-    doesn't require plt00000, but computing it the same way as work_community_sizes (per-agent
-    fields) keeps the two directly comparable -- both counts then come from exactly the same
-    agent set and grouping logic, just on a different pair of columns."""
-    df = _agent_df(ds, "home_i", "home_j")
-    return df.groupby(["home_i", "home_j"]).size().to_numpy()
+def community_sizes(prefix):
+    """Nighttime and daytime population per community, from <prefix>_day_night_population.csv.
 
-
-def work_community_sizes(ds):
-    """Daytime population per community -- agents grouped by work (work_i, work_j). Every agent
-    has a work_i/work_j (UrbanPopData.cpp sets it to a real job/school site for workers/students,
-    or straight to home_i/home_j for everyone else -- work-from-home, unemployed, retired, etc.),
-    so this is the true daytime headcount, not just employed workers."""
-    df = _agent_df(ds, "work_i", "work_j")
-    return df.groupby(["work_i", "work_j"]).size().to_numpy()
-
-
-def _home_nborhood_df(ds):
-    return _agent_df(ds, "home_i", "home_j", "nborhood")
-
-
-def neighborhood_sizes(ds):
-    df = _home_nborhood_df(ds)
-    return df.groupby(["home_i", "home_j", "nborhood"]).size().to_numpy()
-
-
-def nborhoods_per_community(ds):
-    """Number of distinct neighborhood IDs among the agents living in each community.
-
-    Each community is a single block group, which is split into
-    round(home_population / nborhood_size) neighborhoods when the UrbanPop .bin is built,
-    with whole households dealt across them (UrbanPop-scripts/group_assignment.py).
-    Counting distinct IDs therefore recovers that allocation exactly so long as every
-    neighborhood got at least one household -- which at realistic nborhood_size values it
-    reliably does, since a neighborhood is hundreds of agents.
+    Communities with no agents at all are dropped: they are not communities in any meaningful
+    sense here, and a zero would break --logx.
     """
-    df = _home_nborhood_df(ds)
-    return df.groupby(["home_i", "home_j"])["nborhood"].nunique().to_numpy()
+    df = _read_file(f"{prefix}_day_night_population.csv", pd.read_csv)
+    return [
+        ("Nighttime", df.night_total[df.night_total > 0].to_numpy()),
+        ("Daytime", df.day_total[df.day_total > 0].to_numpy()),
+    ]
+
+
+def counts_from_txt(prefix, suffix):
+    """One integer per line -- the same plain format as the workgroup/class/school size files
+    compare_group_sizes_to_epicast.py reads, and as Epicast's own reference files."""
+    return _read_file(f"{prefix}_{suffix}.txt", lambda p: np.loadtxt(p, dtype=int))
 
 
 # Widest data span that still gets one histogram bin per integer by default. Beyond this the
@@ -150,7 +119,12 @@ FIELD_INFO = {
 def main():
     apply_style()
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--plot_dir", "-p", required=True, help="ExaEpi plotfile directory, e.g. plt00000")
+    parser.add_argument(
+        "--prefix", "-p", required=True,
+        help="ExaEpi's --aggregated_diag_prefix (e.g. 'cases'), matching the run's "
+        "<prefix>_day_night_population.csv / _nborhood_sizes.txt / _nborhoods_per_community.txt "
+        "files -- see ExaEpi::IO::writeStaticAggregatedData in src/IO.cpp",
+    )
     parser.add_argument(
         "--field",
         "-f",
@@ -179,20 +153,15 @@ def main():
     plural, xlabel, stat_noun, basename = FIELD_INFO[args.field]
     output = args.output or f"{basename}_{'cdf' if args.cdf else 'histogram'}.png"
 
-    print(f"Reading ExaEpi plotfile {args.plot_dir}")
-    # yt.load() auto-detects ExaEpi's plotfiles as the plain BoxlibDataset, which does not look
-    # for the "agents" particle subdirectory -- that auto-detection only happens in the
-    # AMReXDataset subclass, so it is instantiated directly here.
-    ds = AMReXDataset(args.plot_dir)
-
+    print(f"Reading ExaEpi aggregated diagnostics {args.prefix}_*")
     if args.field == "community":
-        # Two overlaid series -- residential (home) vs daytime (work) population per community
-        # -- rather than the single series every other --field produces.
-        series_list = [("Nighttime", home_community_sizes(ds)), ("Daytime", work_community_sizes(ds))]
+        # Two overlaid series -- residential (nighttime) vs daytime population per community --
+        # rather than the single series every other --field produces.
+        series_list = community_sizes(args.prefix)
     elif args.field == "neighborhood":
-        series_list = [(plural.capitalize(), neighborhood_sizes(ds))]
+        series_list = [(plural.capitalize(), counts_from_txt(args.prefix, "nborhood_sizes"))]
     else:
-        series_list = [(plural.capitalize(), nborhoods_per_community(ds))]
+        series_list = [(plural.capitalize(), counts_from_txt(args.prefix, "nborhoods_per_community"))]
 
     for name, sizes in series_list:
         found_what = f"{name.lower()} {plural}" if args.field == "community" else plural

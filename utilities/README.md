@@ -49,8 +49,10 @@ Moran's I.
 
 ### `plot_group_size_histogram.py`
 
-Histogram of ExaEpi community or neighborhood sizes, or of neighborhoods per community, read from a
-run's first plot file (`plt00000`, which is where the static per-agent attributes are written).
+Histogram of ExaEpi community or neighborhood sizes, or of neighborhoods per community, read from
+the static aggregated diagnostics a run writes when `agent.aggregated_diag_int` is set
+(`<prefix>_day_night_population.csv`, `<prefix>_nborhood_sizes.txt`,
+`<prefix>_nborhoods_per_community.txt`) -- passed with `--prefix`, not a plot file.
 
 ### `plot_community_size_vs_density.py`
 

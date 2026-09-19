@@ -875,23 +875,27 @@ void runAgent () {
 
             pc.morningCommute(mask_behavior);
 
-            // Static (run-long-constant) day/night population and workgroup/school/school-class
-            // size distributions -- see ExaEpi::IO::writeStaticAggregatedData. Computed once, on a
-            // fresh start only (never on restart -- these never change once assigned, so a
-            // restarted run just keeps relying on whatever files a prior fresh start wrote).
+            // Static (run-long-constant) day/night population and
+            // workgroup/school/school-class/neighborhood size distributions -- see
+            // ExaEpi::IO::writeStaticAggregatedData. Computed once, on a fresh start only (never on
+            // restart -- these never change once assigned, so a restarted run just keeps relying on
+            // whatever files a prior fresh start wrote).
             // The day-side and group-size pieces have to be read while agents are still at work,
             // which is why they sit right after the morningCommute() above: workgroup and
             // school_id are only unique within a work community, so reading them per-tile is only
             // meaningful once Redistribute() has matched every agent's tile to its work position
             // (see AgentContainer::generatePopulationBreakdown()'s doc comment). The night-side
-            // piece needs the opposite, so the commute is undone and redone around it.
+            // pieces (night population, and neighborhood sizes -- nborhood is a HOME neighborhood,
+            // unique only within a home community) need the opposite, so the commute is undone and
+            // redone around them.
             if (is_fresh_start && params.aggregated_diag_int > 0) {
                 auto day_breakdown = ExaEpi::IO::computePopulationBreakdownCsvData(pc, urbanPopData);
                 auto group_sizes = pc.computeGroupSizeDistributions(urbanPopData);
 
                 pc.eveningCommute(mask_behavior);
                 auto night_breakdown = ExaEpi::IO::computePopulationBreakdownCsvData(pc, urbanPopData);
-                ExaEpi::IO::writeStaticAggregatedData(day_breakdown, night_breakdown, group_sizes, urbanPopData,
+                auto nborhood_sizes = pc.computeNborhoodSizeDistributions(urbanPopData);
+                ExaEpi::IO::writeStaticAggregatedData(day_breakdown, night_breakdown, group_sizes, nborhood_sizes, urbanPopData,
                                                       params.aggregated_diag_prefix);
                 pc.morningCommute(mask_behavior);
             }

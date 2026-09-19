@@ -503,7 +503,8 @@ PopulationBreakdown computePopulationBreakdownCsvData (const AgentContainer& pc,
     to begin with -- see computePopulationBreakdownCsvData / AgentContainer::computeGroupSizeDistributions).
 */
 void writeStaticAggregatedData (const PopulationBreakdown& day, const PopulationBreakdown& night,
-                                const GroupSizeAggregates& groups, const UrbanPopData& urbanpopData, const std::string& prefix) {
+                                const GroupSizeAggregates& groups, const NborhoodSizeAggregates& nborhoods,
+                                const UrbanPopData& urbanpopData, const std::string& prefix) {
     if (!ParallelDescriptor::IOProcessor()) { return; }
 
     const long n_comm = urbanpopData.block_groups.size();
@@ -516,15 +517,17 @@ void writeStaticAggregatedData (const PopulationBreakdown& day, const Population
         }
     }
 
-    auto write_sizes = [&] (const std::string& suffix, const std::vector<amrex::Long>& sizes) {
-        std::ofstream ofs{prefix + "_" + suffix + "_sizes.txt", std::ofstream::out};
-        for (auto s : sizes) {
-            ofs << s << "\n";
+    auto write_counts = [&] (const std::string& suffix, const std::vector<amrex::Long>& counts) {
+        std::ofstream ofs{prefix + "_" + suffix + ".txt", std::ofstream::out};
+        for (auto c : counts) {
+            ofs << c << "\n";
         }
     };
-    write_sizes("workgroup", groups.workgroup_sizes);
-    write_sizes("class", groups.school_class_sizes);
-    write_sizes("school", groups.school_sizes);
+    write_counts("workgroup_sizes", groups.workgroup_sizes);
+    write_counts("class_sizes", groups.school_class_sizes);
+    write_counts("school_sizes", groups.school_sizes);
+    write_counts("nborhood_sizes", nborhoods.nborhood_sizes);
+    write_counts("nborhoods_per_community", nborhoods.nborhoods_per_community);
 }
 
 } // namespace IO
