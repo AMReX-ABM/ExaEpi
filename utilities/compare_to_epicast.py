@@ -718,7 +718,7 @@ def _format_shift(shift):
 _SHIFT_LABEL_OFFSET_PT = -15
 
 
-def _mark_day_zero(ax, x, label, color, sublabel=None):
+def _mark_day_zero(ax, x, label, color, sublabel=None, label_top=0.98):
     """Draw a vertical marker + label at x-position `x`, marking where some curve's own day 0
     lands after a shift is applied, so a shifted curve's origin stays visible instead of implicit.
 
@@ -726,13 +726,17 @@ def _mark_day_zero(ax, x, label, color, sublabel=None):
     _SHIFT_LABEL_OFFSET_PT) -- the marker shows *where* the curve was moved to, the sublabel
     says by *how much*, which otherwise has to be read off the axis by eye.
 
+    `label_top` is the axes-fraction height the (rotated, top-aligned) label hangs down from;
+    lower it on a panel whose top strip is spoken for, e.g. the legend headroom the stacked-source
+    panels reserve (see _STACK_LEGEND_HEADROOM), where the default runs the text behind the legend.
+
     Call this after the axes' x-limits are set: a marker for a negative shift lands left of the
     plotted range, where the vertical line is clipped away, and the sublabel is suppressed to
     match rather than left floating under the axis annotating a line that isn't drawn.
     """
     ax.axvline(x, color=color, linestyle=":", linewidth=1, zorder=0, alpha=0.7)
     ax.annotate(
-        label, xy=(x, 0.98), xycoords=("data", "axes fraction"),
+        label, xy=(x, label_top), xycoords=("data", "axes fraction"),
         rotation=90, va="top", ha="right", fontsize=FONT_TICK, color=color, alpha=0.8,
     )
     xlo, xhi = ax.get_xlim()
@@ -934,6 +938,184 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
                 ax.text(0.98, 0.95 - row * 0.09, text,
                         transform=ax.transAxes, ha="right", va="top", fontsize=FONT_TICK, color="red")
                 row += 1
+
+
+# Bottom-to-top stacking order for the "Source Stack ..." panels, and one color per source.
+# "other" (Epicast's ctx_customer/ctx_bar_social bucket -- see _CONTEXT_TO_SOURCE) has no ExaEpi
+# counterpart in _EXAEPI_SOURCE_MAPPING, so it simply doesn't appear on the ExaEpi panel.
+# The colors reuse _CONTEXT_COLS' per-context hues where the buckets correspond, so a source keeps
+# the same color it has on the Context panel.
+_SOURCE_STACK_ORDER = ["household", "cluster", "neighborhood_community", "work", "school", "other"]
+# Shorter than _SOURCE_LABELS: these go in a multi-column legend inside a half-page-wide panel, and
+# the full names ("Neighborhood+Comm") make it wider than the panel itself at PLOS's 8pt legend font.
+_SOURCE_STACK_LABELS = {
+    "household":              "Household",
+    "cluster":                "Cluster",
+    "neighborhood_community": "Nbhd+Comm",
+    "work":                   "Work",
+    "school":                 "School",
+    "other":                  "Other",
+}
+_SOURCE_STACK_COLORS = {
+    "household":              "tab:red",
+    "cluster":                "tab:brown",
+    "neighborhood_community": "tab:green",
+    "work":                   "tab:blue",
+    "school":                 "tab:orange",
+    "other":                  "tab:gray",
+}
+
+# One panel per model: a stacked composition is a single model's breakdown, so unlike the
+# "Source: ..." line panels the two models can't share one axes.
+SOURCE_STACK_PLOT_NAMES = ["Source Stack (Epicast)", "Source Stack (ExaEpi)"]
+
+# Blank fraction of the axes left above the bars for the legend (see plot_source_stack): enough for
+# the two rows of three entries the six sources need at FONT_LEGEND, in a panel of this figure's
+# per-panel height.
+_STACK_LEGEND_HEADROOM = 0.38
+_SOURCE_STACK_TO_MODEL = {
+    "Source Stack (Epicast)": "epicast",
+    "Source Stack (ExaEpi)":  "exaepi",
+}
+
+
+def _daily_source_composition(entry, xlimit, window=1):
+    """Each day's infections split into per-source fractions that sum to 1 -- i.e. the mix of
+    contexts driving transmission on that day, independent of how large that day's outbreak is.
+
+    This is a different normalization from the one the "Source: ..." line panels use: there each
+    source is divided by the run's grand total across all days (see _add_exaepi_source_fractions /
+    aggregate_infections_by_source), so the curves keep the shape of the raw daily counts. Here
+    each day is divided by its OWN total instead, which is what makes the bars all reach 1 and
+    turns the panel into a picture of composition over time rather than of magnitude.
+
+    Both models' "<source>_frac" columns share one run-wide divisor, so that constant cancels in
+    the per-day ratio and the two models' compositions are directly comparable even though their
+    underlying quantities aren't (Epicast's are realized event counts, ExaEpi's are analytic
+    expected infections).
+
+    For a wildcard group matching several files, the sources are pooled across files before the
+    per-day ratio is taken, rather than picking one representative file as the line panels do
+    (_get_group_y/_medoid_index): a composition is a ratio, and pooling numerators and denominators
+    across replicates averages out the day-to-day sampling noise that a single run's ratio has --
+    which matters most exactly where each run's own counts are smallest (the start and the tail).
+    Because every file's fracs are normalized by that file's own run-wide total, pooling weights
+    each file equally regardless of its absolute outbreak size.
+
+    `window`, if > 1, first applies a centered `window`-day moving average to each source's series
+    (edge-padded, as in _smoothed_band) before ratioing, so the early/late days -- where a handful
+    of infections can make the mix jump between 0 and 100% from one day to the next -- read as a
+    trend rather than as noise. The ratio is taken after smoothing, so the bars still sum to 1.
+
+    Days with no infections at all get all-zero fractions (an empty column in the plot), since
+    there's no mix to report.
+
+    Returns (keys, frac) where keys are the sources actually present and nonzero, in stacking
+    order, and frac is a (len(keys) x n_days) array -- or None if this group has no source columns
+    at all (i.e. an ExaEpi run without context_diag=true).
+    """
+    dfs = entry["dfs"]
+    keys = [k for k in _SOURCE_STACK_ORDER if (k + "_frac") in dfs[0].columns]
+    if not keys:
+        return None
+
+    n = min(min(len(df) for df in dfs), xlimit)
+    totals = np.zeros((len(keys), n))
+    for df in dfs:
+        for i, key in enumerate(keys):
+            totals[i] += df[key + "_frac"].values[:n]
+
+    if window > 1:
+        w = min(window, n)
+        kernel = np.ones(w) / w
+        pad = w // 2
+        totals = np.vstack([
+            np.convolve(np.pad(row, pad, mode="edge"), kernel, mode="valid")[:n] for row in totals
+        ])
+
+    day_total = totals.sum(axis=0)
+    frac = np.where(day_total > 0, totals / np.where(day_total > 0, day_total, 1.0), 0.0)
+
+    nonzero = [i for i in range(len(keys)) if frac[i].max() > 0]
+    return [keys[i] for i in nonzero], frac[nonzero]
+
+
+def plot_source_stack(ax, epicast_data, exaepi_data, model, title):
+    """Stacked bar chart of each interaction context's share of that day's new infections, for one
+    model (see _daily_source_composition). Every bar reaches 1; what changes over time is how it's
+    subdivided, so the panel shows when transmission shifts between e.g. school/work and household.
+
+    Only the first -e (model="epicast") or first -x (model="exaepi") group is shown, matching
+    plot_single_source, and it's drawn at that group's own shift so it lines up day-for-day with
+    the other panels.
+    """
+    ax.set_title(title)
+    ax.set_xlabel("Days")
+    ax.set_ylabel("Fraction of day's infections")
+    ax.set_xlim([0, args.xlimit])
+    # The bars fill 0..1, so a legend drawn inside the axes covers real data wherever it goes
+    # (unlike the line panels, where there's usually empty space). Extend the y-axis past 1 to
+    # leave an empty strip along the top for the legend to sit in, and keep the ticks at 0..1 so
+    # the extra room doesn't read as part of the scale.
+    ax.set_ylim([0, 1 + _STACK_LEGEND_HEADROOM])
+    ax.set_yticks(np.arange(0, 1.01, 0.2))
+
+    if model == "epicast":
+        data, day_col, shift = epicast_data, "day", epicast_shift
+    else:
+        data, day_col, shift = exaepi_data, "Day", (shift_by_group[0] if shift_by_group else 0.0)
+
+    print(title)
+
+    composition = _daily_source_composition(data[0], args.xlimit, args.stack_window) if data else None
+    if composition is None:
+        # No -e/-x input for this model, or an ExaEpi run without context_diag=true: say so on the
+        # panel rather than leaving a blank axes that looks like a plotting bug.
+        ax.text(0.5, 0.5, "no per-source data", transform=ax.transAxes,
+                ha="center", va="center", fontsize=FONT_TICK, color="gray")
+        print("  No per-source data")
+        return
+
+    entry = data[0]
+    keys, frac = composition
+    n = frac.shape[1]
+    x = (entry["dfs"][0][day_col].values[:n] + shift)
+
+    bottom = np.zeros(n)
+    for key, y in zip(keys, frac):
+        ax.bar(x, y, bottom=bottom, width=1.0, linewidth=0, color=_SOURCE_STACK_COLORS[key],
+               label=_SOURCE_STACK_LABELS[key], zorder=2)
+        bottom += y
+        # The run-wide share of each source, i.e. what its slice would be if the whole run were a
+        # single bar -- the one number the per-day picture doesn't show directly.
+        overall = float(np.mean([df[key + "_frac"].values[:n].sum() for df in entry["dfs"]]))
+        print(f"  {_SOURCE_STACK_LABELS[key]:20s} run-wide share: {overall:.3f}")
+
+    # Same day-0 marker the other panels draw, but with its label held below the legend strip
+    # (_mark_exaepi_start isn't used here for exactly that reason -- it has no label_top).
+    if shift:
+        mark_label, mark_color = (("ExaEpi day 0", "red") if model == "exaepi"
+                                  else ("Epicast day 0", "blue"))
+        _mark_day_zero(ax, shift, mark_label, mark_color, _format_shift(shift),
+                       label_top=1.0 / (1.0 + _STACK_LEGEND_HEADROOM) - 0.02)
+
+    # Same major+minor grid as every other panel here, with two differences forced by the bars:
+    # it's drawn over them (set_axisbelow(False)) and in white rather than the default gray, since
+    # under a solid stack it would be invisible and a gray line on saturated fills reads as dirt.
+    # Without it the y-value of a boundary between two sources can't be read off the panel at all.
+    ax.set_axisbelow(False)
+    ax.grid(True, which="major", color="white", alpha=0.6, linewidth=AXES_LINEWIDTH)
+    ax.grid(True, which="minor", color="white", alpha=0.2, linewidth=AXES_LINEWIDTH)
+    ax.minorticks_on()
+
+    # fontsize comes from rcParams (FONT_LEGEND), as on every other panel; only the geometry is set
+    # here, tightened so six entries fit three-to-a-row inside a half-page-wide panel.
+    # Anchored so the box's bottom edge sits just above data y=1, i.e. entirely inside the blank
+    # strip _STACK_LEGEND_HEADROOM reserved: an opaque legend merely placed "upper center" hangs
+    # down over the top of the stack and hides whichever source is thin up there (School, here).
+    ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0 / (1.0 + _STACK_LEGEND_HEADROOM)),
+              ncols=3, framealpha=1.0, borderaxespad=0.0, borderpad=0.3,
+              handlelength=1.0, handletextpad=0.4, columnspacing=0.8)
 
 
 def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results=None):
@@ -1310,15 +1492,22 @@ for _name, _typ, _default, _help in _SEIR_PARAM_ARGS:
     for _i in range(1, MAX_SEIR_CURVES + 1):
         parser.add_argument(f"--{_name}{_i}", type=_typ, default=None, help=argparse.SUPPRESS)
 parser.add_argument(
+    "--stack_window", type=int, default=1, metavar="DAYS",
+    help="Smooth the 'Source Stack ...' panels with a centered moving average of this many days "
+         "before taking each day's per-source shares. Only affects those panels. Use it when the "
+         "start/tail of the run, where a handful of infections can swing the mix between 0 and "
+         "100%% from one day to the next, drowns out the trend (default: 1, i.e. no smoothing)",
+)
+parser.add_argument(
     "--plots", "-p",
     nargs="+", metavar="PLOT", default=None,
     help=(
         "Which plots to show, in the order given. Rendered in 2-column layout. "
         "Valid names (case-insensitive): Exposed, Symptomatic, Presymptomatic, "
         "Asymptomatic, Hospitalized, Dead, Recovered, 'Cumulative Exposed', Context, "
-        + ", ".join(f"'{n}'" for n in SOURCE_PLOT_NAMES) + ". "
+        + ", ".join(f"'{n}'" for n in SOURCE_PLOT_NAMES + SOURCE_STACK_PLOT_NAMES) + ". "
         "'Source Fractions' is a legacy alias that expands to all of the per-context "
-        "'Source: ...' plots. "
+        "'Source: ...' plots, and 'Source Stack' expands to both 'Source Stack (...)' plots. "
         "Default: all 8 (or Exposed/Recovered/Cumulative Exposed when --seir/--fit is used)."
     ),
 )
@@ -1355,9 +1544,11 @@ def _resolve_seir_params(idx):
 ALL_PLOTS = [
     "Exposed", "Symptomatic", "Presymptomatic", "Asymptomatic",
     "Hospitalized", "Dead", "Recovered", "Cumulative Exposed", "Context", *SOURCE_PLOT_NAMES,
+    *SOURCE_STACK_PLOT_NAMES,
 ]
 _plot_map: dict[str, str | list[str]] = {p.lower(): p for p in ALL_PLOTS}
 _plot_map["source fractions"] = SOURCE_PLOT_NAMES  # legacy alias: expands to all context plots
+_plot_map["source stack"] = SOURCE_STACK_PLOT_NAMES  # both models' stacked-composition panels
 
 if args.plots is not None:
     resolved = []
@@ -1601,7 +1792,9 @@ elif args.seir or fit_results:
     else:
         selected_plots = ["Exposed", "Cumulative Exposed", "Recovered"]
 else:
-    selected_plots = [p for p in ALL_PLOTS if p != "Context" and p not in SOURCE_PLOT_NAMES]
+    selected_plots = [p for p in ALL_PLOTS
+                      if p != "Context" and p not in SOURCE_PLOT_NAMES
+                      and p not in SOURCE_STACK_PLOT_NAMES]
 
 n = len(selected_plots)
 ncols = 1 if n == 1 else 2
@@ -1631,6 +1824,9 @@ for i, plot_name in enumerate(selected_plots):
     elif plot_name in _SOURCE_PLOT_TO_KEY:
         plot_single_source(axes[i], epicast_data, exaepi_data, _SOURCE_PLOT_TO_KEY[plot_name], plot_name,
                             source_ylimit)
+    elif plot_name in _SOURCE_STACK_TO_MODEL:
+        plot_source_stack(axes[i], epicast_data, exaepi_data, _SOURCE_STACK_TO_MODEL[plot_name],
+                           plot_name)
     else:
         plot_series(axes[i], epicast_data, exaepi_data, plot_name,
                     seir_dfs=seir_dfs, fit_results=fit_results)
