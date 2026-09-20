@@ -547,17 +547,37 @@ def _peak_day(y, smooth_window=5):
 
 _ENVELOPE_SMOOTH_WINDOW = 9
 
+# Central percentage of runs a wildcard group's shaded band covers; 100 is the pointwise
+# min/max. Overridden by --band (see _smoothed_band).
+_DEFAULT_BAND_COVERAGE = 100.0
 
-def _smoothed_minmax_band(y_mat, window=_ENVELOPE_SMOOTH_WINDOW):
-    """Pointwise min/max across the rows in y_mat (files x days), lightly smoothed (a
-    `window`-day moving average) to remove the day-to-day jaggedness inherent in taking an
-    extreme statistic over few samples: at any single day the max is whichever one run happens to
-    be highest *that day*, and which run "wins" can flip from day to day as different runs pass
-    through their own rise/peak/fall, producing a spurious multi-humped trace even though every
-    run is a clean single-peaked curve (confirmed against the emerge-paper CA replicate runs,
+
+def _smoothed_band(y_mat, coverage=_DEFAULT_BAND_COVERAGE, window=_ENVELOPE_SMOOTH_WINDOW):
+    """Pointwise central-`coverage`-percent interval across the rows in y_mat (files x days),
+    lightly smoothed (a `window`-day moving average).
+
+    `coverage` is the percentage of runs the band is meant to contain: the edges are the
+    (100-coverage)/2 and (100+coverage)/2 percentiles, so the default 100 is exactly the
+    pointwise min/max and e.g. 90 is the 5th-95th percentile. Taking a percentile rather than
+    always the extremes matters once the spread is skewed, because a min/max edge is by
+    construction owned by a single run at every day. On the emerge-paper CA p01 replicates a
+    single late run held the entire upper edge over the whole falling limb, with the 95th
+    percentile well below it (how far below depends on the run set), so the band showed that
+    one run's timing as the model's extent. Below 100 the band shows where the bulk of the runs
+    are and the medoid line sits centered in it; at 100 it shows worst-case extent. Percentile
+    edges are interpolated between runs, so they are not in general any single run's curve
+    (unlike min/max, which always is).
+
+    The smoothing removes the day-to-day jaggedness inherent in taking an extreme statistic over
+    few samples: at any single day the max is whichever one run happens to be highest *that day*,
+    and which run "wins" can flip from day to day as different runs pass through their own
+    rise/peak/fall, producing a spurious multi-humped trace even though every run is a clean
+    single-peaked curve (confirmed against the emerge-paper CA replicate runs,
     output_ca_epicast_p01-c35-r*.dat: the raw pointwise max had 5 local extrema in a 70-day window
     spanning the peak; a 9-day moving average brings that down to 1, while changing the peak
-    height by under 1% and every far-field value by only a few percent).
+    height by under 1% and every far-field value by only a few percent). Interior percentiles are
+    smoother to begin with, but they get the same treatment so that the only thing --band changes
+    is which statistic is drawn.
 
     Two approaches that were tried and rejected in favor of this one (see git history):
     - Shifting/aligning each run's curve to a common peak day before taking mean +/- std: this
@@ -592,8 +612,9 @@ def _smoothed_minmax_band(y_mat, window=_ENVELOPE_SMOOTH_WINDOW):
         # inventing zeros, so the smoothed boundary tracks the real data.
         return np.convolve(np.pad(y, pad, mode="edge"), kernel, mode="valid")
 
-    lo = _smooth(y_mat.min(axis=0))
-    hi = _smooth(y_mat.max(axis=0))
+    lo_pct = (100.0 - coverage) / 2.0
+    lo = _smooth(np.percentile(y_mat, lo_pct, axis=0))
+    hi = _smooth(np.percentile(y_mat, 100.0 - lo_pct, axis=0))
     return lo, hi
 
 
@@ -681,15 +702,47 @@ def _auto_xlimit(epicast_data, exaepi_data, shift_by_group, epicast_shift=0.0, m
     return max(1, int(np.ceil(min(extents))) + margin)
 
 
-def _mark_day_zero(ax, x, label, color):
+def _format_shift(shift):
+    """A shift in days as a signed label, e.g. '+12 d', '-5 d', '+3.5 d'. The sign is always
+    shown: it carries the --shift convention (positive delays the curve), which an unsigned
+    number would leave ambiguous.
+    """
+    s = float(shift)
+    num = f"{s:+.0f}" if float(s).is_integer() else f"{s:+.1f}"
+    return f"{num} d"
+
+
+# Points below the axes bottom at which the shift value is annotated: far enough down to clear
+# the tick labels, but still inside the band constrained_layout already reserves for the x-label,
+# so the text isn't clipped at the figure edge (it is not itself part of the layout).
+_SHIFT_LABEL_OFFSET_PT = -15
+
+
+def _mark_day_zero(ax, x, label, color, sublabel=None):
     """Draw a vertical marker + label at x-position `x`, marking where some curve's own day 0
     lands after a shift is applied, so a shifted curve's origin stays visible instead of implicit.
+
+    `sublabel`, if given, is written below the x-axis at the same x (see
+    _SHIFT_LABEL_OFFSET_PT) -- the marker shows *where* the curve was moved to, the sublabel
+    says by *how much*, which otherwise has to be read off the axis by eye.
+
+    Call this after the axes' x-limits are set: a marker for a negative shift lands left of the
+    plotted range, where the vertical line is clipped away, and the sublabel is suppressed to
+    match rather than left floating under the axis annotating a line that isn't drawn.
     """
     ax.axvline(x, color=color, linestyle=":", linewidth=1, zorder=0, alpha=0.7)
     ax.annotate(
         label, xy=(x, 0.98), xycoords=("data", "axes fraction"),
         rotation=90, va="top", ha="right", fontsize=FONT_TICK, color=color, alpha=0.8,
     )
+    xlo, xhi = ax.get_xlim()
+    if sublabel is not None and xlo <= x <= xhi:
+        ax.annotate(
+            sublabel, xy=(x, 0), xycoords=("data", "axes fraction"),
+            xytext=(0, _SHIFT_LABEL_OFFSET_PT), textcoords="offset points",
+            ha="center", va="top", fontsize=FONT_TICK, color=color, alpha=0.8,
+            annotation_clip=False,
+        )
 
 
 def _mark_exaepi_start(ax, shifts, colors=None):
@@ -704,7 +757,7 @@ def _mark_exaepi_start(ax, shifts, colors=None):
             continue  # groups sharing a shift don't need a duplicate line/label
         seen.add(shift)
         if shift:
-            _mark_day_zero(ax, shift, "ExaEpi day 0", color)
+            _mark_day_zero(ax, shift, "ExaEpi day 0", color, _format_shift(shift))
 
 
 _CONTEXT_COLS = {
@@ -793,8 +846,8 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
     attribution. ExaEpi's curve (dashed) is the analytic E<source>/(run-wide total E) share from
     its context_diag columns, grouped so neighborhood/community day+night match Epicast's single
     merged context (see _EXAEPI_SOURCE_MAPPING). Only the first -e and first -x group are shown
-    (as the medoid curve, with a smoothed min/max shaded band, if a wildcard group matches
-    multiple files -- see _smoothed_minmax_band).
+    (as the medoid curve, with a smoothed shaded band over the central --band percent of the
+    files, if a wildcard group matches multiple files -- see _smoothed_band).
 
     ylimit sets the shared y-axis peak across all "Source: ..." subplots in this run (see
     _source_frac_max) so they're visually comparable rather than each auto-scaling to its own
@@ -832,9 +885,10 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
                 peak_days = [_peak_day(row) for row in y_mat]
                 print(f"  Peak-day range (Epicast, {col}): "
                       f"[{min(peak_days)}, {max(peak_days)}]  std={np.std(peak_days):.1f}d")
-                band_lo, band_hi = _smoothed_minmax_band(y_mat)
-                ax.fill_between(x[: y_mat.shape[1]], band_lo, band_hi,
-                                alpha=0.25, color="blue", zorder=1, label="_nolegend_")
+                if args.band > 0:
+                    band_lo, band_hi = _smoothed_band(y_mat, args.band)
+                    ax.fill_between(x[: y_mat.shape[1]], band_lo, band_hi,
+                                    alpha=0.25, color="blue", zorder=1, label="_nolegend_")
             ax.plot(x[: len(y)], y, color="blue", linewidth=1, linestyle="-", label="Epicast")
             auc = float(np.sum(y))
             print(f"  Epicast AUC: {auc:.3f}")
@@ -860,9 +914,10 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
                 peak_days = [_peak_day(row) for row in y_mat]
                 print(f"  Peak-day range (ExaEpi, {col}): "
                       f"[{min(peak_days)}, {max(peak_days)}]  std={np.std(peak_days):.1f}d")
-                band_lo, band_hi = _smoothed_minmax_band(y_mat)
-                ax.fill_between(x[: y_mat.shape[1]], band_lo, band_hi,
-                                alpha=0.25, color="red", zorder=1, label="_nolegend_")
+                if args.band > 0:
+                    band_lo, band_hi = _smoothed_band(y_mat, args.band)
+                    ax.fill_between(x[: y_mat.shape[1]], band_lo, band_hi,
+                                    alpha=0.25, color="red", zorder=1, label="_nolegend_")
             ax.plot(x[: len(y)], y, color="red", linewidth=1, linestyle="-", label="ExaEpi")
             auc = float(np.sum(y))
             gof_str = ""
@@ -887,8 +942,8 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
     Both epicast_data and exaepi_data are lists of group dicts:
         {'label': str|None, 'is_wildcard': bool, 'dfs': [df, ...], 'fnames': [str, ...]}
     A wildcard group with N>1 files is rendered as its medoid file's curve with a
-    semi-transparent band showing the smoothed per-day min/max across files
-    (see _smoothed_minmax_band).
+    semi-transparent band showing the smoothed per-day spread across files -- by default their
+    min/max, or the central --band percent of them (see _smoothed_band).
 
     Args:
         label: the data series to plot (e.g., 'exposed', 'symptomatic')
@@ -957,9 +1012,10 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
             n        = y_mat.shape[1]
             x_vals = (entry["dfs"][0][x_col].values[:n] + x_shift) if x_col else np.arange(n)
 
-            band_lo, band_hi = _smoothed_minmax_band(y_mat)
-            ax.fill_between(x_vals, band_lo, band_hi, alpha=0.25, color=color, zorder=1,
-                            label="_nolegend_")
+            if args.band > 0:
+                band_lo, band_hi = _smoothed_band(y_mat, args.band)
+                ax.fill_between(x_vals, band_lo, band_hi, alpha=0.25, color=color, zorder=1,
+                                label="_nolegend_")
             ax.plot(x_vals, y_medoid, label=plot_label, color=color, linewidth=1, zorder=2)
             auc = float(np.sum(y_medoid))
             y_for_gof = _shift_array(y_medoid, x_shift, args.xlimit)
@@ -1014,7 +1070,8 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
     if epicast_shift:
         # The auto shift came out negative and got swapped onto Epicast (see --shift "auto"), so
         # ExaEpi sits unshifted at day 0 and the interesting origin to call out is Epicast's.
-        _mark_day_zero(ax, epicast_shift, "Epicast day 0", epicast_colors[0])
+        _mark_day_zero(ax, epicast_shift, "Epicast day 0", epicast_colors[0],
+                       _format_shift(epicast_shift))
     elif exaepi_data:
         _mark_exaepi_start(ax, shift_by_group, [exaepi_colors[i % len(exaepi_colors)] for i in range(len(exaepi_data))])
 
@@ -1133,7 +1190,7 @@ parser = argparse.ArgumentParser(
         "Both -e and -x can be repeated and accept glob patterns, "
         "e.g.: -e 'runs/*.bin:Epicast' -x 'runs/*.csv:ExaEpi'. "
         "When a pattern matches multiple files, the medoid file's curve is plotted with a "
-        "semi-transparent smoothed min/max band in the same color as the line."
+        "semi-transparent smoothed spread band (min/max, or --band) in the same color as the line."
     ),
 )
 parser.add_argument(
@@ -1151,8 +1208,24 @@ parser.add_argument(
     help=(
         "ExaEpi csv file or glob pattern, optionally with a label. Can be repeated. "
         "Multiple matched files are shown as the medoid file's curve with a smoothed "
-        "min/max band."
+        "spread band (min/max, or --band)."
     ),
+)
+def _band_type(value):
+    pct = float(value)
+    if not 0.0 <= pct <= 100.0:
+        raise argparse.ArgumentTypeError(f"--band must be between 0 and 100, got {value}")
+    return pct
+
+
+parser.add_argument(
+    "--band", type=_band_type, default=_DEFAULT_BAND_COVERAGE, metavar="PCT",
+    help="Percentage of runs the shaded band around each multi-file group's medoid curve "
+         "covers, as a central percentile interval: 90 draws the 5th-95th percentile, 50 the "
+         "quartiles, 0 no band at all. The default, 100, is the pointwise min/max, which shows "
+         "worst-case extent but has each edge owned by a single run at every day -- use a value "
+         "below 100 when the spread is skewed and you want the band to show where the bulk of "
+         "the runs are instead (default: 100)",
 )
 def _xlimit_type(value):
     if isinstance(value, str) and value.strip().lower() == "auto":
