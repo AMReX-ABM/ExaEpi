@@ -16,6 +16,13 @@ to an Epicast snapshot (reconstructed from the events log) and/or a matching Exa
 (looked up by the day parsed from its name) -- there's no single natural sequence of "days" shared
 by both data sources the way there is for ExaEpi's own per-day files alone.
 
+If the two runs' start dates aren't aligned (e.g. one simulator was seeded a few days later in
+epidemic progression than the other), pass --exaepi_day_shift to re-time ExaEpi's per-day files, so
+that each --day is a day on the aligned timeline both rows of a column share. Comparing a column at
+day D to Epicast's own day D+k instead is --epicast_day_offset, a diagnostic that leaves the
+reported day alone. Both carry the same meaning and sign convention as in plot_geo_compare.py and
+plot_gini_timeseries.py, so one shift value can be passed to all three.
+
 Epicast's finest geographic unit is the Census tract, not the block group ExaEpi communities use --
 so ExaEpi is aggregated up to the tract by default (or further to the county, with
 --county_level), and a tract (or county) shapefile is required via --shape_files, not a block group
@@ -45,6 +52,7 @@ from read_epicast_events import read_events_bin  # noqa: E402
 from plos_compbio_style import (  # noqa: E402
     apply_style,
     FONT_TICK,
+    FONT_LABEL,
     FONT_TITLE,
     AXES_LINEWIDTH,
     FULL_PAGE_WIDTH_IN,
@@ -439,6 +447,60 @@ def compare_day(exaepi_df, epicast_df):
     return rho, pval, r, rmse, r_log, rmse_log, len(df), df
 
 
+def _build_norm(args, values):
+    """Build the color normalization for the choropleths from --norm/--vmin/--vmax/--gamma, given
+    every value that will be colored (across all panels and both rows, so one scale fits them all).
+
+    Returns (norm, scale_desc) where scale_desc is a short string for the colorbar label.
+
+    Which norm to use is a real editorial choice rather than a detail worth hiding, because the
+    three answer different questions about the same data:
+
+    - log (the default, and what this script has always used) spans orders of magnitude, so the
+      early panels -- when only a handful of communities have any infection at all -- stay
+      visible. Its cost is that it compresses the decline: on a 1-to-30000 scale the statewide
+      55x drop from the CA p01 peak to day 200 moves the median county's color only from 0.96 to
+      0.67 of the way up the ramp, so a nearly-finished epidemic still reads as red.
+    - linear does the opposite: the tail correctly fades to near-white, but the early panels go
+      blank, because a few hundred cases really is nothing next to a peak in the millions.
+    - power (gamma ~0.3-0.4) sits between the two, and is the usable compromise when the figure
+      has to show the epidemic rising AND falling.
+
+    vmin only affects log (linear/power start at 0). For counts it stays at 1 -- one case being
+    the smallest meaningful nonzero value -- and for --rate it defaults to the smallest nonzero
+    rate present, there being no natural floor.
+    """
+    finite = values[np.isfinite(values)]
+    positive = finite[finite > 0]
+    data_max = float(finite.max()) if len(finite) else 1.0
+
+    if args.vmax is None:
+        # Counts keep the long-standing 30000 default; a rate has no comparable convention, and
+        # its scale depends entirely on the geographic unit, so it is fitted to the data.
+        vmax = data_max if args.rate else 30000.0
+    else:
+        vmax = data_max if args.vmax == "auto" else float(args.vmax)
+
+    if args.norm == "log":
+        if args.vmin is None:
+            vmin = (float(positive.min()) if len(positive) else 1e-6) if args.rate else 1.0
+        else:
+            vmin = float(positive.min()) if args.vmin == "auto" else float(args.vmin)
+        if vmin <= 0:
+            raise SystemExit(f"--vmin must be > 0 for a log scale, got {vmin}")
+        if vmax <= vmin:
+            raise SystemExit(f"--vmax ({vmax}) must exceed --vmin ({vmin})")
+        return mp.colors.LogNorm(vmin=vmin, vmax=vmax), f"{vmin:g}-{vmax:g}"
+
+    vmin = 0.0 if args.vmin is None or args.vmin == "auto" else float(args.vmin)
+    if vmax <= vmin:
+        raise SystemExit(f"--vmax ({vmax}) must exceed --vmin ({vmin})")
+    if args.norm == "power":
+        return (mp.colors.PowerNorm(gamma=args.gamma, vmin=vmin, vmax=vmax),
+                f"gamma={args.gamma:g}, {vmin:g}-{vmax:g}")
+    return mp.colors.Normalize(vmin=vmin, vmax=vmax), f"{vmin:g}-{vmax:g}"
+
+
 def main():
     apply_style()
 
@@ -473,7 +535,93 @@ def main():
         default=[None],
         help="One or more 0-based days to plot, one column each (default: the last day available). "
         "Each day is used to reconstruct the Epicast snapshot and/or look up the matching ExaEpi "
-        "CSV file (by the day parsed from its filename), whichever apply.",
+        "CSV file (by the day parsed from its filename), whichever apply. With "
+        "--exaepi_day_shift, these are days on the aligned timeline rather than raw ExaEpi file "
+        "days.",
+    )
+    parser.add_argument(
+        "--exaepi_day_shift",
+        type=int,
+        default=0,
+        help="Shift the ExaEpi day parsed from each file by this many days before matching it "
+        "against a --day (e.g. 5 treats a cases00020 file as day 25, so --day 25 plots it "
+        "alongside Epicast's day 25). Use this to correct for a real start-date misalignment "
+        "between the two runs (e.g. one simulator seeded a few days later than the other). --day "
+        "and the day reported in each column's title are then both on the shifted timeline.",
+    )
+    parser.add_argument(
+        "--epicast_day_offset",
+        type=int,
+        default=0,
+        help="Shift the Epicast day used for comparison by this many days relative to the "
+        "(possibly already --exaepi_day_shift-ed) day being plotted (e.g. 20 plots ExaEpi day D "
+        "against Epicast day D+20). Diagnostic option for checking that the comparison metrics "
+        "are actually sensitive to a temporal misalignment between the two runs, rather than e.g. "
+        "being dominated by shared population geography -- unlike --exaepi_day_shift, this does "
+        "not change the day reported in the output.",
+    )
+    def _scale_bound_type(value):
+        if isinstance(value, str) and value.strip().lower() == "auto":
+            return "auto"
+        try:
+            return float(value)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"expected a number or 'auto', got {value!r}")
+
+    parser.add_argument(
+        "--norm",
+        choices=("log", "linear", "power"),
+        default="log",
+        help="How infected counts map to color. 'log' (default) keeps the early, near-empty "
+        "panels visible but compresses the epidemic's decline, so a panel where prevalence has "
+        "fallen 50-fold still reads as red. 'linear' shows the decline faithfully but leaves the "
+        "early panels blank. 'power' (with --gamma) is the compromise. See _build_norm.",
+    )
+    parser.add_argument(
+        "--gamma",
+        type=float,
+        default=0.35,
+        help="Exponent for --norm power: 1 is linear, smaller lifts low values toward the top of "
+        "the color ramp. 0.3-0.4 keeps both the early spread and the decline legible in one "
+        "figure (default: 0.35). Ignored by the other norms.",
+    )
+    parser.add_argument(
+        "--vmin",
+        type=_scale_bound_type,
+        default=None,
+        help="Low end of the color scale, or 'auto' for the smallest nonzero value in the data. "
+        "Only meaningful for --norm log, which cannot start at 0; linear and power always start "
+        "there. Default: 1 case, or the smallest nonzero rate under --rate.",
+    )
+    parser.add_argument(
+        "--vmax",
+        type=_scale_bound_type,
+        default=None,
+        help="High end of the color scale, or 'auto' to fit it to the largest value in the data. "
+        "Default: 30000 cases (or 'auto' under --rate). Anything above vmax is clipped to the "
+        "darkest color, which at county level silently flattens the peak panels -- 25 of "
+        "California's 58 counties exceed the 30000 default at the p01 peak, the largest by 39x -- "
+        "so 'auto' is worth passing whenever peak and tail are meant to be compared.",
+    )
+    parser.add_argument(
+        "--rate",
+        action="store_true",
+        default=False,
+        help="Color by prevalence rate (infected/population) instead of raw infected count, so "
+        "that a small county with a large share of its people infected reads as hard-hit as a "
+        "city with more cases but a smaller share. Without it the color largely tracks where the "
+        "population is.",
+    )
+    parser.add_argument(
+        "--panel_overlap",
+        type=float,
+        default=0.2,
+        help="Overlap adjacent day columns by this fraction of a panel's width (0 = no overlap, "
+        "the columns merely touching). A choropleth panel is as wide as the whole lon/lat "
+        "bounding box, so for a diagonal state like California most of each panel is empty either "
+        "side of the data and neighbours can tuck into that dead space, giving every map more of "
+        "the page. Reduce it for a state that fills its bounding box more squarely, where the "
+        "same overlap would start hiding real geography (default: 0.2).",
     )
     parser.add_argument(
         "--shape_files",
@@ -545,6 +693,12 @@ def main():
         exaepi_files = expand_aggregated_files(args.exaepi_files)
         day_to_file = {_parse_day_from_filename(f): f for f in exaepi_files}
         print(f"Found {len(day_to_file)} ExaEpi days:", sorted(day_to_file))
+        if args.exaepi_day_shift:
+            # Printed as a range rather than the full shifted list: this is here to say which
+            # --day values are now reachable, and the list above already shows the raw days.
+            print(f"  --exaepi_day_shift {args.exaepi_day_shift:+d} -> these are days "
+                  f"{min(day_to_file) + args.exaepi_day_shift} to "
+                  f"{max(day_to_file) + args.exaepi_day_shift} on the aligned timeline")
 
     shp_dfs = []
     state_codes = []
@@ -567,7 +721,6 @@ def main():
 
     states = gp.read_file(args.states_file)
     states = states[states.STATE.isin(state_codes)]
-    max_count = 30000
 
     # rows_spec fixes the row order (Epicast above ExaEpi when both are present) and which data
     # source feeds each row; only one row is used when only one data source was given.
@@ -582,25 +735,41 @@ def main():
     # panels holds one (exaepi_geo_df_or_None, epicast_geo_df_or_None, label) tuple per column.
     panels = []
     for day in args.day:
+        # `day` is a day on the aligned timeline (see --exaepi_day_shift): it is what the column
+        # is labeled with, what Epicast is reconstructed at (plus --epicast_day_offset), and what
+        # the ExaEpi file is looked up by (minus the shift). With both options left at 0 all three
+        # are the same number, which is the unshifted behavior.
         epicast_df = None
         if args.events_file:
-            epicast_df, resolved_day = reconstruct_epicast_snapshot(
-                events_df, demog_df, day=day, county_level=args.county_level
+            epicast_day = None if day is None else day + args.epicast_day_offset
+            epicast_df, resolved_epicast_day = reconstruct_epicast_snapshot(
+                events_df, demog_df, day=epicast_day, county_level=args.county_level
             )
-            if day is not None and resolved_day != day:
-                print(f"WARNING: requested day {day}, but Epicast clamped it to day {resolved_day}")
+            if epicast_day is not None and resolved_epicast_day != epicast_day:
+                print(f"WARNING: requested Epicast day {epicast_day}, but it was clamped to day "
+                      f"{resolved_epicast_day}")
+            # Back the offset out again so the column stays labeled with -- and ExaEpi stays
+            # looked up by -- the aligned day, which is what --epicast_day_offset deliberately
+            # does not move. Clamping still propagates, so both rows follow Epicast's last day.
+            resolved_day = resolved_epicast_day - args.epicast_day_offset
         else:
-            resolved_day = day if day is not None else max(day_to_file)
+            resolved_day = day if day is not None else max(day_to_file) + args.exaepi_day_shift
 
         exaepi_df = None
         if args.exaepi_files:
-            if resolved_day not in day_to_file:
+            exaepi_file_day = resolved_day - args.exaepi_day_shift
+            if exaepi_file_day not in day_to_file:
                 available = ", ".join(str(d) for d in sorted(day_to_file))
-                raise SystemExit(
-                    f"No ExaEpi data found for day {resolved_day} among --exaepi_files. Available "
-                    f"days: {available}"
+                shifted = (
+                    f" (day {resolved_day} shifted back by {args.exaepi_day_shift})"
+                    if args.exaepi_day_shift
+                    else ""
                 )
-            csv_path = day_to_file[resolved_day]
+                raise SystemExit(
+                    f"No ExaEpi data found for file day {exaepi_file_day}{shifted} among "
+                    f"--exaepi_files. Available days: {available}"
+                )
+            csv_path = day_to_file[exaepi_file_day]
             exaepi_df = load_exaepi_grid_stats(csv_path, tract_level=tract_level, county_level=args.county_level)
 
         if both:
@@ -611,7 +780,13 @@ def main():
                 stats_str = f"log r={r_log:.2f}\nRMSLE={rmse_log:.2f}"
         else:
             stats_str = None
-        label = (f"Day {resolved_day}", stats_str)
+        # One day title per row rather than one per column: under --exaepi_day_shift the two rows
+        # of a column are at different days in their own runs' numbering (that being the whole
+        # point of the shift), so a single shared column title could only be right for one of them.
+        day_titles = {
+            "epicast": f"Day {resolved_day + args.epicast_day_offset}",
+            "exaepi": f"Day {resolved_day - args.exaepi_day_shift}",
+        }
 
         exaepi_geo_df = pd.merge(shp_data, exaepi_df, on=["GEOID10"], how="inner") if exaepi_df is not None else None
         epicast_geo_df = (
@@ -624,11 +799,23 @@ def main():
                     f"Census {geo_unit.upper()} shapefile (e.g. {example}) covering the same state "
                     f"as the data."
                 )
-        panels.append((exaepi_geo_df, epicast_geo_df, label))
+        panels.append((exaepi_geo_df, epicast_geo_df, day_titles, stats_str))
 
     # Bounds are the union across every panel's data (every row), so the whole grid shares one
     # consistent geographic extent instead of each panel framing itself differently.
     all_geo_dfs = [df for pair in panels for df in pair[:2] if df is not None]
+    # The column actually colored. "infected" is PREVALENCE -- agents currently infected, not
+    # cumulative-ever -- for both sources (see reconstruct_epicast_snapshot's _ACTIVE_STATES), so
+    # it rises and falls with the epidemic curve. --rate divides it by each unit's population, so
+    # a small county with a large share infected reads as hard-hit as a city with more cases but a
+    # smaller share; without it the color is dominated by where the people are.
+    color_col = "rate" if args.rate else "infected"
+    for df in all_geo_dfs:
+        # np.where rather than a plain divide: an unpopulated unit (none in the ExaEpi CA data,
+        # but Epicast's rates come from the events file's own demographics) would otherwise give
+        # inf/NaN, which geopandas draws as a missing-data hole rather than as the zero it is.
+        df[color_col] = (np.where(df["pop"] > 0, df["infected"] / df["pop"].where(df["pop"] > 0, 1), 0.0)
+                         if args.rate else df["infected"])
     # Bounds come from the polygons' own geometry, NOT from the INTPTLON10/INTPTLAT10 columns:
     # those are each polygon's internal point (roughly its centroid), which sits an arbitrary
     # distance inside its own edge. At county level the huge desert counties' centroids are so far
@@ -648,60 +835,98 @@ def main():
     # Total figure width is fixed at the paper's full-page width regardless of how many day
     # columns there are -- each column just gets narrower as more days are added, rather than the
     # whole figure growing past the page (see paper_style.py).
-    panel_width = FULL_PAGE_WIDTH_IN / n
     fig_x = FULL_PAGE_WIDTH_IN
-    map_height = num_rows * panel_width * yrange / xrange
 
-    # The title (1-3 lines, depending on whether stats are shown) sits in a margin ABOVE the map
-    # grid, not inside it -- so map_height above is exactly the maps' own height only if that
-    # margin is added on top of it. Without this, the fixed total figure height would force
-    # constrained_layout to steal room from the maps themselves to fit the title, shrinking them
-    # (they'd stay letterboxed to the right aspect ratio, just smaller, with dead space around
-    # them) -- exactly the "too small" problem being fixed here.
-    max_title_lines = max((label[0] + "\n" + (label[1] or "")).count("\n") + 1 for _, _, label in panels)
-    # FONT_TITLE because that's what the titles below are drawn at -- set_title() inherits it from
-    # apply_style()'s axes.titlesize rather than naming it, so this is the one place it's spelled out.
-    title_pt = FONT_TITLE * 1.4 * max_title_lines + 6  # +6pt is matplotlib's own default title pad
-    fig_y = map_height + title_pt / 72
+    # Axes are placed by hand (fig.add_axes with explicit rects) rather than via plt.subplots +
+    # constrained_layout, for the same reason plot_geo_daynight.py does it that way: geopandas'
+    # choropleths are aspect-locked, and constrained_layout reserves title space by shrinking the
+    # grid CELL rather than the aspect-locked box inside it, so the box ends up smaller than its
+    # cell and the leftover reads as a gap above every map that no title pad can close. Explicit
+    # rects also make --panel_overlap possible at all: a layout engine has no notion of cells that
+    # deliberately overlap.
+    #
+    # FONT_TITLE/FONT_LABEL/FONT_TICK are spelled out here because set_title/set_ylabel inherit
+    # them from apply_style()'s rcParams rather than naming them at the call site; the 1.3-1.4
+    # factors are line height over point size.
+    row_title_in = (FONT_TITLE * 1.3 + 4) / 72   # one day-title line + its pad, above EACH row
+    stats_lines = max((s.count("\n") + 1) for *_, s in panels if s) if both else 0
+    stats_in = (FONT_TICK * 1.4 * stats_lines + 4) / 72 if stats_lines else 0.0
+    # The colorbar's bottom-most tick label is vertically CENTERED on its tick, so about half of
+    # it would fall off the bottom of the figure if the colorbar started flush at y=0 the way the
+    # maps do (they have no tick labels, so flush is fine for them). The stats band already
+    # provides that clearance when there is one; reserve it explicitly when there isn't.
+    bottom_in = max(stats_in, FONT_TICK / 2 / 72)
+    row_label_in = (FONT_LABEL * 1.4) / 72  # left margin for the "Epicast"/"ExaEpi" row labels
+    cbar_w_in = 0.12
+    cbar_gap_in = 0.08
+    # room for the colorbar's own tick labels (e.g. "10^4") plus its rotated axis label
+    cbar_label_w_in = 0.65 + (FONT_TICK * 1.6) / 72
+
+    # Columns overlap by a fraction of their own width, so n panels span n - (n-1)*overlap widths.
+    # California is a diagonal sliver inside a nearly square lon/lat box, so most of each panel is
+    # empty on the left and right; overlapping lets neighbours tuck into that dead space instead of
+    # every column paying for it. A rounder state (New Mexico) has far less slack -- see
+    # --panel_overlap.
+    span = n - (n - 1) * args.panel_overlap
+    panel_w_in = (fig_x - row_label_in - cbar_w_in - cbar_gap_in - cbar_label_w_in) / span
+    panel_gap_in = -args.panel_overlap * panel_w_in
+    map_h_in = panel_w_in * yrange / xrange
+    fig_y = num_rows * (row_title_in + map_h_in) + bottom_in
 
     print(f"Plot dimensions: lng/lat {xmin}, {xmax}, {ymin}, {ymax}, figure size: {fig_x}, {fig_y}")
 
-    fig, axes = plt.subplots(num_rows, n, figsize=(fig_x, fig_y), squeeze=False, layout="constrained")
-    # Shrink constrained_layout's own default padding to a small margin -- its defaults leave more
-    # breathing room than wanted here, at the direct expense of the maps' own size. wspace/hspace
-    # are kept just above 0 rather than exactly 0: constrained_layout's solver doesn't handle
-    # aspect-locked axes (geopandas plots are equal-aspect) cleanly at exactly zero spacing, and can
-    # let an axes overflow past its cell -- clipping a map at the figure edge -- instead of shrinking
-    # it to fit.
-    fig.get_layout_engine().set(w_pad=0.01, h_pad=0.01, wspace=0.002, hspace=0.002)
+    fig = plt.figure(figsize=(fig_x, fig_y))
+    # One scale across every panel and both rows, so columns are comparable to each other and the
+    # two simulators are comparable within a column.
+    norm, scale_desc = _build_norm(args, np.concatenate([df[color_col].values for df in all_geo_dfs]))
+    print(f"Color scale: {color_col} ({args.norm}, {scale_desc})")
 
-    norm = mp.colors.LogNorm(vmin=1.0, vmax=max_count)
-    for j, (exaepi_geo_df, epicast_geo_df, label) in enumerate(panels):
-        for row, (row_name, which) in enumerate(rows_spec):
+    def _col_left_in(j):
+        return row_label_in + j * (panel_w_in + panel_gap_in)
+
+    for row, (row_name, which) in enumerate(rows_spec):
+        # Rows stack from the top, each preceded by its own band of day titles.
+        map_bottom_in = fig_y - (row + 1) * (row_title_in + map_h_in)
+        for j, (exaepi_geo_df, epicast_geo_df, day_titles, _) in enumerate(panels):
             geo_df = epicast_geo_df if which == "epicast" else exaepi_geo_df
-            ax = axes[row][j]
+            ax = fig.add_axes((_col_left_in(j) / fig_x, map_bottom_in / fig_y,
+                               panel_w_in / fig_x, map_h_in / fig_y))
             states.boundary.plot(ax=ax, lw=AXES_LINEWIDTH, color="black")
-            geo_df.plot(ax=ax, column="infected", cmap="OrRd", legend=False, norm=norm)  # type: ignore
+            geo_df.plot(ax=ax, column=color_col, cmap="OrRd", legend=False, norm=norm)  # type: ignore
             ax.tick_params(left=False, bottom=False, labelbottom=False, labelleft=False)
+            # Also what lets the columns overlap without the later one painting a white rectangle
+            # over its neighbour: set_frame_on(False) suppresses the axes' background patch, not
+            # just its spines.
             ax.set_frame_on(False)
             ax.set_xlim([xmin, xmax])
             ax.set_ylim([ymin, ymax])
+            ax.set_title(day_titles[which], pad=3)
             if j == 0:
                 ax.set_ylabel(row_name)
-        day_str, stats_str = label
-        # A single multi-line title (matplotlib spaces embedded newlines correctly on its own)
-        # rather than a separately-positioned second text object -- that manual positioning was
-        # tuned for a much larger font scale and stopped fitting once these panels shrank to their
-        # PLOS print size.
-        title = f"{day_str}\n{stats_str}" if stats_str else day_str
-        axes[0][j].set_title(title, linespacing=1.4)
+
+    # The r/RMSLE for a column describes the two rows TOGETHER, so it belongs to the column rather
+    # than to either map: it goes once at the foot of the figure, under both, in the smaller tick
+    # font so it reads as an annotation rather than competing with the day titles.
+    if stats_in:
+        for j, (*_, stats_str) in enumerate(panels):
+            if not stats_str:
+                continue
+            fig.text((_col_left_in(j) + panel_w_in / 2) / fig_x, 2 / 72 / fig_y, stats_str,
+                     ha="center", va="bottom", fontsize=FONT_TICK, linespacing=1.4)
 
     # A single colorbar spanning every row, rather than one per panel -- built from an explicit
-    # ScalarMappable (since legend=False above) and handed every axes in the grid so matplotlib
-    # sizes/positions it to span the full height instead of attaching to just one panel.
+    # ScalarMappable (since legend=False above) and placed to span from the bottom row's floor to
+    # the top row's ceiling.
+    cbar_left_in = _col_left_in(n - 1) + panel_w_in + cbar_gap_in
+    cbar_h_in = (fig_y - row_title_in) - bottom_in
+    cax = fig.add_axes((cbar_left_in / fig_x, bottom_in / fig_y,
+                        cbar_w_in / fig_x, cbar_h_in / fig_y))
     sm = mp.cm.ScalarMappable(norm=norm, cmap="OrRd")
-    cbar = fig.colorbar(sm, ax=axes.ravel().tolist(), fraction=0.02, pad=0.02)
+    cbar = fig.colorbar(sm, cax=cax)
     cbar.ax.tick_params(labelsize=FONT_TICK)
+    # Naming what the color means on the figure itself: "infected" here is prevalence, not a
+    # cumulative total, and whether it is a count or a rate is now a command-line choice.
+    cbar.set_label("Infected (fraction of pop.)" if args.rate else "Infected", fontsize=FONT_TICK)
 
     print("Plotting results to", args.output)
     plt.savefig(args.output)
