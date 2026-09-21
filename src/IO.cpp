@@ -504,7 +504,8 @@ PopulationBreakdown computePopulationBreakdownCsvData (const AgentContainer& pc,
 */
 void writeStaticAggregatedData (const PopulationBreakdown& day, const PopulationBreakdown& night,
                                 const GroupSizeAggregates& groups, const NborhoodSizeAggregates& nborhoods,
-                                const UrbanPopData& urbanpopData, const std::string& prefix) {
+                                const NborhoodSizeAggregates& day_nborhoods, const UrbanPopData& urbanpopData,
+                                const std::string& prefix) {
     if (!ParallelDescriptor::IOProcessor()) { return; }
 
     const long n_comm = urbanpopData.block_groups.size();
@@ -528,6 +529,8 @@ void writeStaticAggregatedData (const PopulationBreakdown& day, const Population
     write_counts("school_sizes", groups.school_sizes);
     write_counts("nborhood_sizes", nborhoods.nborhood_sizes);
     write_counts("nborhoods_per_community", nborhoods.nborhoods_per_community);
+    write_counts("work_nborhood_sizes", day_nborhoods.nborhood_sizes);
+    write_counts("work_nborhoods_per_community", day_nborhoods.nborhoods_per_community);
 }
 
 } // namespace IO

@@ -1238,18 +1238,18 @@ GroupSizeAggregates AgentContainer::computeGroupSizeDistributions (const UrbanPo
 }
 
 /*! \brief Compute the realized neighborhood distributions -- see the doc comment on the
-    declaration in AgentContainer.H for the timing requirement (agents must be at home). Tallied
-    one grid tile at a time with GetCommunityIndex, exactly like computeGroupSizeDistributions()
-    above and for the same reason: nborhood IDs are only unique within a community, so a scratch
-    array is sized by the communities in the CURRENT tile rather than by every community in the
-    run.
+    declaration in AgentContainer.H for which attribute to pass and the position agents must be in
+    for it. Tallied one grid tile at a time with GetCommunityIndex, exactly like
+    computeGroupSizeDistributions() above and for the same reason: neighborhood IDs are only unique
+    within a community, so a scratch array is sized by the communities in the CURRENT tile rather
+    than by every community in the run.
 */
-NborhoodSizeAggregates AgentContainer::computeNborhoodSizeDistributions (const UrbanPopData& urbanpopData) {
+NborhoodSizeAggregates AgentContainer::computeNborhoodSizeDistributions (const UrbanPopData& urbanpopData, int nborhood_attr) {
     BL_PROFILE("AgentContainer::computeNborhoodSizeDistributions");
 
     // getMaxGroup performs an MPI collective on first use -- must be called once, single-threaded,
     // here, never from inside an omp-parallel region (same warning as computeGroupSizeDistributions).
-    int max_nborhood = getMaxGroup(IntIdx::nborhood) + 1;
+    int max_nborhood = getMaxGroup(nborhood_attr) + 1;
 
     const int lev = 0;
 
@@ -1275,7 +1275,7 @@ NborhoodSizeAggregates AgentContainer::computeNborhoodSizeDistributions (const U
 
         const auto& ptd = ptile.getParticleTileData();
         auto& soa = ptile.GetStructOfArrays();
-        auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
+        auto nborhood_ptr = soa.GetIntData(nborhood_attr).data();
 
         // Constructed fresh (zero-filled) each tile rather than resized/reused -- see
         // computeGroupSizeDistributions for why reuse would accumulate stale counts.

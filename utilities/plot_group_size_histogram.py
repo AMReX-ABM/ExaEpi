@@ -8,8 +8,10 @@ community, and the daytime population (every agent has a work location: a real j
 site for workers/students, or straight back home for everyone else, so the daytime count is
 a true headcount, not just employed workers).
 
-Neighborhood size is the number of agents in a given (community, neighborhood) pair --
-neighborhood IDs are only unique within a community, so both are needed to identify one.
+Neighborhood size is likewise two series: the nighttime (home) neighborhoods, and the daytime
+ones -- wherever an agent actually spends the day, which for a commuter, a student or a teacher
+is not where they live. Both are the number of agents in a given (community, neighborhood) pair;
+neighborhood IDs are only unique within a community, so both parts are needed to identify one.
 
 Neighborhoods per community is the number of nonempty neighborhoods in each community. Each
 community is a single block group, split into round(home_population / nborhood_size)
@@ -17,7 +19,8 @@ neighborhoods when the UrbanPop .bin is built, with whole households dealt acros
 (UrbanPop-scripts/group_assignment.py).
 
 All of this comes from the <prefix>_day_night_population.csv and <prefix>_nborhood_sizes.txt
-/ _nborhoods_per_community.txt files ExaEpi itself writes when --aggregated_diag_int is
+/ _work_nborhood_sizes.txt / _nborhoods_per_community.txt files ExaEpi itself writes when
+--aggregated_diag_int is
 enabled (see ExaEpi::IO::writeStaticAggregatedData in src/IO.cpp) -- the same small text
 files the other comparison scripts read, not a multi-gigabyte plotfile.
 """
@@ -56,6 +59,24 @@ def community_sizes(prefix):
         ("Nighttime", df.night_total[df.night_total > 0].to_numpy()),
         ("Daytime", df.day_total[df.day_total > 0].to_numpy()),
     ]
+
+
+def neighborhood_sizes(prefix):
+    """Nighttime and daytime neighborhood sizes, from <prefix>_nborhood_sizes.txt and
+    <prefix>_work_nborhood_sizes.txt.
+
+    The daytime file is optional: runs from before ExaEpi wrote it have only the home side, and a
+    nighttime-only plot is more useful than refusing to draw anything.
+    """
+    series = [("Nighttime", counts_from_txt(prefix, "nborhood_sizes"))]
+    if os.path.exists(f"{prefix}_work_nborhood_sizes.txt"):
+        series.append(("Daytime", counts_from_txt(prefix, "work_nborhood_sizes")))
+    else:
+        print(
+            f"No {prefix}_work_nborhood_sizes.txt -- plotting the nighttime distribution only. "
+            "Runs from before daytime neighborhood sizes were written have only the home side."
+        )
+    return series
 
 
 def counts_from_txt(prefix, suffix):
@@ -122,7 +143,8 @@ def main():
     parser.add_argument(
         "--prefix", "-p", required=True,
         help="ExaEpi's --aggregated_diag_prefix (e.g. 'cases'), matching the run's "
-        "<prefix>_day_night_population.csv / _nborhood_sizes.txt / _nborhoods_per_community.txt "
+        "<prefix>_day_night_population.csv / _nborhood_sizes.txt / _work_nborhood_sizes.txt / "
+        "_nborhoods_per_community.txt "
         "files -- see ExaEpi::IO::writeStaticAggregatedData in src/IO.cpp",
     )
     parser.add_argument(
@@ -159,12 +181,13 @@ def main():
         # rather than the single series every other --field produces.
         series_list = community_sizes(args.prefix)
     elif args.field == "neighborhood":
-        series_list = [(plural.capitalize(), counts_from_txt(args.prefix, "nborhood_sizes"))]
+        series_list = neighborhood_sizes(args.prefix)
     else:
         series_list = [(plural.capitalize(), counts_from_txt(args.prefix, "nborhoods_per_community"))]
 
     for name, sizes in series_list:
-        found_what = f"{name.lower()} {plural}" if args.field == "community" else plural
+        # Name the series in the count line only when there is more than one to tell apart.
+        found_what = f"{name.lower()} {plural}" if len(series_list) > 1 else plural
         print(f"Found {len(sizes)} {found_what}")
         print(pd.Series(sizes, name=stat_noun).describe())
 

@@ -41,10 +41,11 @@ struct GroupSizeAggregates {
 
 /*! \brief Realized neighborhood distributions -- one entry per nonempty neighborhood in
     nborhood_sizes (that neighborhood's agent count) and one per populated community in
-    nborhoods_per_community (how many nonempty neighborhoods it has). Separate from
-    GroupSizeAggregates because neighborhoods have to be counted with agents at home, not at work
-    -- see AgentContainer::computeNborhoodSizeDistributions(). Populated (non-empty) on the
-    IOProcessor only. */
+    nborhoods_per_community (how many nonempty neighborhoods it has). Describes either the night
+    (home) or the day (wherever the day is spent) neighborhoods, depending on which attribute it
+    was computed from. Separate from GroupSizeAggregates because each has to be counted with
+    agents in the matching position -- see AgentContainer::computeNborhoodSizeDistributions().
+    Populated (non-empty) on the IOProcessor only. */
 struct NborhoodSizeAggregates {
     std::vector<amrex::Long> nborhood_sizes, nborhoods_per_community;
 };
@@ -147,12 +148,20 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     GroupSizeAggregates computeGroupSizeDistributions(const UrbanPopData& urbanpopData);
 
     /*! \brief Compute the realized neighborhood distributions (see NborhoodSizeAggregates) from
-        agents' nborhood attribute. NOT const, for the same getMaxGroup() reason as
-        computeGroupSizeDistributions() above. Must be called once, while agents are at HOME (see
-        main.cpp's call site, between eveningCommute() and morningCommute()) -- the opposite of
-        computeGroupSizeDistributions()'s requirement, because nborhood is a home neighborhood and
-        its IDs are only unique within a home community. Reduces to the IOProcessor only. */
-    NborhoodSizeAggregates computeNborhoodSizeDistributions(const UrbanPopData& urbanpopData);
+        `nborhood_attr`, which selects the night or the day neighborhood exactly as
+        InteractionModNborhood.H's two instances do: IntIdx::nborhood for the home neighborhood,
+        IntIdx::work_nborhood for the one the agent spends the day in.
+
+        Agents must be in the position matching the attribute -- at HOME for nborhood (between
+        eveningCommute() and morningCommute()), at WORK for work_nborhood -- because a neighborhood
+        ID is only unique within the community it is read in, so counting it from the wrong
+        position silently merges unrelated neighborhoods. See main.cpp's two call sites, one on
+        each side of the commute.
+
+        NOT const, for the same getMaxGroup() reason as computeGroupSizeDistributions() above.
+        Reduces to the IOProcessor only. */
+    NborhoodSizeAggregates computeNborhoodSizeDistributions(const UrbanPopData& urbanpopData,
+                                                            int nborhood_attr = IntIdx::nborhood);
 
     void moveAgentsToWork();
 

@@ -52,12 +52,17 @@ PopulationBreakdown computePopulationBreakdownCsvData(const AgentContainer& pc, 
 /*! \brief Write the static (run-long-constant), once-per-run aggregated diagnostics: a
     <prefix>_day_night_population.csv (GEOID,night_total,night_workers,night_students,day_total,
     day_workers,day_students, one row per community) and <prefix>_workgroup_sizes.txt /
-    _class_sizes.txt / _school_sizes.txt / _nborhood_sizes.txt / _nborhoods_per_community.txt
-    (plain text, one integer per line, matching Epicast's own reference-file format).
+    _class_sizes.txt / _school_sizes.txt / _nborhood_sizes.txt / _nborhoods_per_community.txt /
+    _work_nborhood_sizes.txt / _work_nborhoods_per_community.txt (plain text, one integer per line,
+    matching Epicast's own reference-file format).
+
+    `nborhoods` and `day_nborhoods` are the night (home) and day neighborhood distributions; the
+    _work_-prefixed files are the day ones, named for the work_nborhood attribute they come from.
     IOProcessor only. */
 void writeStaticAggregatedData(const PopulationBreakdown& day, const PopulationBreakdown& night,
                                const GroupSizeAggregates& groups, const NborhoodSizeAggregates& nborhoods,
-                               const UrbanPopData& urbanpopData, const std::string& prefix);
+                               const NborhoodSizeAggregates& day_nborhoods, const UrbanPopData& urbanpopData,
+                               const std::string& prefix);
 } // namespace IO
 } // namespace ExaEpi
 
