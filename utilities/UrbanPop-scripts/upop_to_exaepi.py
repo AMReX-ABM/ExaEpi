@@ -329,13 +329,15 @@ def get_args():
     # --- group-structure targets ---
     # These used to be ExaEpi runtime options (agent.nborhood_size and friends in Utils.H). The
     # groups they size are now built here and stored in the .bin, so they are properties of the
-    # population file rather than of a run; the defaults match the C++ ones they replace.
+    # population file rather than of a run; the defaults match the C++ ones they replace, except
+    # nborhood_size -- see GroupParams in group_assignment.py for why it is Epicast's 500.
     parser.add_argument(
         "--nborhood_size",
-        default=360,
+        default=500,
         type=int,
-        help="Target residents per neighborhood. Sets how many home neighborhoods a block group "
-        "is split into, and how many work neighborhoods a work block group is split into",
+        help="Target members per neighborhood, by night and by day alike. Sets how many home "
+        "neighborhoods a block group's residents are split into, and the size the daytime "
+        "neighborhoods are packed to wherever the day is spent",
     )
     parser.add_argument(
         "--workgroup_size",
@@ -2868,6 +2870,9 @@ def assign_groups(df: pl.DataFrame, args) -> pl.DataFrame:
         rng,
     )
     df = group_assignment.assign_school_groups(df, params)
+    # Last of the three: it keeps each work-group and class group intact inside one daytime
+    # neighborhood, so it needs both of them already assigned.
+    df = group_assignment.assign_day_neighborhoods(df, params, rng)
     # largest fields first, as with the select in main
     return df.select(
         [

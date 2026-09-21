@@ -10,11 +10,12 @@ determines its own population structure. Concretely that buys:
     rank-local atomic counter, so the same population came out differently on a different number
     of MPI ranks. Reading the values from the file cannot.
 
-  * Coherent work tiers. workgroup and work_nborhood were independent uniform draws, so a
-    worker's team and the workplace containing it were unrelated. Here they come from one pass:
-    establishments are drawn from the real CBP establishment-size distribution, each establishment
-    lands in one work neighborhood, and each is then split into teams. That is the two-tier
-    structure (work-groups bundled into workplaces) the model is supposed to have.
+  * Work-groups sized like real workplaces. workgroup used to be a uniform draw over a count
+    derived from block-group employment, so team sizes carried no information about the workplaces
+    they sit in. Here establishments are drawn from the real CBP establishment-size distribution
+    and then split into teams, so a five-person employer contributes a team of five rather than a
+    fragment of a notional twenty-person one. The establishment is a device for that sizing, not a
+    group anything mixes in -- ExaEpi has no workplace context, and none is written to the .bin.
 
   * Households intact by construction. The C++ drew a neighborhood per *agent* and then ran a
     second GPU kernel that forced each family onto its last member's draw by scanning forward --
@@ -43,10 +44,28 @@ NO_SCHOOL_CLASS_GROUP = -1
 
 @dataclass
 class GroupParams:
-    """Targets that used to live in ExaEpi's TestParams (Utils.H). Defaults match the C++ ones
-    they replace, so a .bin built without overrides reproduces the old targets."""
+    """Targets that used to live in ExaEpi's TestParams (Utils.H). The defaults match the C++ ones
+    they replace, except nborhood_size -- see below."""
 
-    nborhood_size: int = 360
+    # Epicast's own neighborhood size, and not a free parameter as long as xmit_hood is Epicast's
+    # too. The neighborhood interaction model is density-dependent by design -- it multiplies a
+    # susceptible's escape probability once per infectious neighbor, with no size correction (see
+    # InteractionModNborhood.H, which explains why it deliberately skips the one the community
+    # model uses) -- so one infectious agent's expected neighborhood infections are xmit_hood *
+    # (size - 1). Size is therefore a multiplier on this venue's contribution to R0, and xmit_hood
+    # only means what Epicast measured it to mean at Epicast's size. The community model is the
+    # opposite case: computeCommunitySizeScale divides its force of infection by community
+    # population, making it frequency-dependent, so community size genuinely is free.
+    #
+    # This used to be 360, chosen so that a median block group (~1500 residents) split into 4
+    # neighborhoods, matching the 4 that Epicast divides each of its fixed 2000-agent communities
+    # into. But the count is not what the model reads -- nothing anywhere consumes "neighborhoods
+    # per community", only the (community, neighborhood) grouping and hence its size -- and the
+    # ratio that copying the count preserves has no mechanical meaning either, since the community
+    # is frequency-dependent. Copying the count while inheriting xmit_hood ran this venue at
+    # 359/499 = 0.72 of Epicast's, which a calibrated xmit_comm_scale would then quietly absorb
+    # into the community.
+    nborhood_size: int = 500
     workgroup_size: int = 20
     school_class_size: int = 20
     school_class_size_min: int = 5
@@ -220,7 +239,7 @@ def assign_work_groups(
     default_target: int,
     rng: np.random.Generator,
 ) -> pl.DataFrame:
-    """Add `workgroup` and `work_nborhood`, assigned together from one establishment draw.
+    """Add `workgroup`.
 
     Only agents who physically go to a workplace get a real work-group: employed (naics != -1),
     not an educator (school_id == 0) and not declared work-from-home. The two exclusions are
@@ -234,44 +253,26 @@ def assign_work_groups(
       * Work-from-home agents have an assigned work_geoid they never actually visit, so its
         population is not a meaningful size for a group they never physically join.
 
-    Both get workgroup 0 ("not working" to the work interaction model) and their home neighborhood
-    as their work neighborhood, as do the unemployed -- everyone who is not at a workplace mixes
-    in their home neighborhood during the day.
+    Both get workgroup 0 ("not working" to the work interaction model), as do the unemployed.
 
-    The number of work neighborhoods a block group is split into is deliberately still taken from
-    its whole employed population -- every agent whose assigned work_geoid is this block group,
-    educators and work-from-home included -- rather than from the commuters who actually show up.
-    Counting only the latter is arguably more correct, but work_nborhood shares an id space per
-    community with the home neighborhoods of everyone who stays home during the day, so shrinking
-    the count packs workers into ids that more residents also occupy. Measured on NM that lifted
-    daytime neighborhood transmission by 39% on its own. That is a separate modelling question
-    from work-group formation, so it is left alone here: what changes is only *which* work
-    neighborhood a worker lands in, now the same one as the rest of their establishment.
+    The establishments drawn here are not themselves a transmission context and do not survive
+    into the .bin: nothing in ExaEpi groups agents by workplace. What they determine is how many
+    teams a given body of workers is split into, and how big those teams are -- a five-worker
+    establishment yields one team of five, not a fragment of a twenty-person one -- which is why
+    they are drawn from the real CBP size distribution rather than assumed.
     """
     n = len(df)
     naics = df["naics"].to_numpy()
     school_id = df["school_id"].to_numpy()
     travel = df["travel"].to_numpy()
     work_geoid = df["work_geoid"].to_numpy()
-    nborhood = df["nborhood"].to_numpy().astype(np.int64)
 
-    # default: not at a workplace -- no work-group, and daytime mixing in the home neighborhood
+    # default: not at a workplace -- no work-group
     workgroup = np.zeros(n, dtype=np.int64)
-    work_nborhood = nborhood.copy()
-
-    # how many work neighborhoods each work block group is split into, over its whole employed
-    # population (see the docstring for why not just the commuters who show up)
-    employed_geoid, employed_count = np.unique(work_geoid[naics != -1], return_counts=True)
-    geoid_n_work_nborhoods = dict(
-        zip(employed_geoid.tolist(), np.maximum(1, _round_half_up(employed_count / params.nborhood_size)).astype(np.int64))
-    )
 
     eligible = np.flatnonzero((naics != -1) & (school_id == 0) & (travel != TRAVEL_WFH))
     if len(eligible) == 0:
-        return df.with_columns(
-            pl.Series("workgroup", workgroup, dtype=pl.Int16),
-            pl.Series("work_nborhood", work_nborhood, dtype=pl.Int16),
-        )
+        return df.with_columns(pl.Series("workgroup", workgroup, dtype=pl.Int16))
 
     # Shuffle before grouping, then rely on lexsort being stable: workers end up in a random
     # order within each (work block group, NAICS) run, so slicing them into establishments below
@@ -304,7 +305,6 @@ def assign_work_groups(
     grp_ends = np.append(grp_starts[1:], n_elig)
 
     out_workgroup = np.empty(n_elig, dtype=np.int64)
-    out_work_nborhood = np.empty(n_elig, dtype=np.int64)
 
     n_establishments = 0
     for g in range(len(grp_starts)):
@@ -320,11 +320,6 @@ def assign_work_groups(
         est_start = np.cumsum(est_sizes) - est_sizes
         pos_in_est = np.arange(pop) - est_start[est_of_worker]
 
-        # every establishment sits in exactly one work neighborhood -- that is what makes a
-        # work-group and the workplace containing it consistent with each other
-        max_wn = geoid_n_work_nborhoods[int(s_geoid[lo])]
-        out_work_nborhood[lo:hi] = rng.integers(0, max_wn, size=len(est_sizes))[est_of_worker]
-
         # split each establishment into teams at the industry's target size, balanced to within
         # one worker of each other; team ids are numbered densely across the whole (block group,
         # NAICS) group because that is the key the work interaction model indexes on
@@ -335,7 +330,6 @@ def assign_work_groups(
         out_workgroup[lo:hi] = team_base[est_of_worker] + (pos_in_est % n_teams[est_of_worker]) + 1
 
     workgroup[sidx] = out_workgroup
-    work_nborhood[sidx] = out_work_nborhood
 
     if sampler.missing_keys:
         print(
@@ -346,11 +340,248 @@ def assign_work_groups(
     print(f"  {len(eligible)} workers in {n_establishments} establishments")
 
     _check_fits_int16("workgroup", workgroup)
-    _check_fits_int16("work_nborhood", work_nborhood)
-    return df.with_columns(
-        pl.Series("workgroup", workgroup, dtype=pl.Int16),
-        pl.Series("work_nborhood", work_nborhood, dtype=pl.Int16),
+    return df.with_columns(pl.Series("workgroup", workgroup, dtype=pl.Int16))
+
+
+# --------------------------------------------------------------------------------------------
+# daytime neighborhood
+# --------------------------------------------------------------------------------------------
+
+
+def _dense_ids(offset: int, *cols: np.ndarray):
+    """Dense ids `offset, offset+1, ...` for the distinct rows of the given columns, as
+    (ids, count).
+
+    Columns are folded in one at a time, re-densifying at every step, rather than packed into one
+    integer by shifting each by a fixed width. Packing needs a width per column that is wider than
+    that column's real range, and getting one of those widths wrong does not fail -- it silently
+    merges rows that differ only in the overflowed column, which here would mean two groups in
+    different block groups quietly becoming one. Folding needs no such assumption: after each step
+    the running id is already dense, so it is bounded by the row count no matter what the columns
+    contain.
+    """
+    ids = np.zeros(len(cols[0]), dtype=np.int64)
+    n = 1
+    for col in cols:
+        col = np.asarray(col, dtype=np.int64)
+        _, ids = np.unique(ids * (int(col.max()) + 1 if len(col) else 1) + col, return_inverse=True)
+        ids = ids.astype(np.int64)
+        n = int(ids.max()) + 1 if len(ids) else 0
+    return ids + offset, n
+
+
+def _pack_atoms_into_bins(atom_geo, atom_size, capacity, rng):
+    """Fill atoms into bins of `capacity` members, bin ids numbered from 0 within each block
+    group. An atom is a group that must not be split across bins, and is never split here; one
+    bigger than `capacity` on its own gets a bin to itself.
+
+    The remaining atoms are shuffled and then cut on an evenly spaced grid of running totals, each
+    atom going to the bin its own MIDPOINT falls in. Cutting on the midpoint rather than on the
+    atom's leading edge is what keeps bin sizes centered on the target: a leading-edge cut can
+    only ever overshoot (the atom that straddles a boundary always lands in the lower bin), so
+    every bin comes out at the spacing plus part of one atom, whereas the midpoint rule sends a
+    straddling atom whichever way it leans and leaves the error symmetric -- spacing +/- half an
+    atom instead of spacing + a whole one.
+
+    The grid is spaced at total/round(total/capacity) within each block group, not at `capacity`
+    flat. Both give bins of about `capacity`, but a flat grid divides a block group into a whole
+    number of full bins plus whatever is left over, so every block group ends up with one
+    undersized remainder bin (averaging around half the target). Dividing the total into
+    round(total/capacity) even parts spreads that shortfall across all of them instead, which is
+    also exactly how assign_home_groups splits a block group's residents at night, so day and
+    night neighborhoods come out of the same rule.
+
+    A grid is used rather than a true bin-packing heuristic (first-fit-decreasing and friends)
+    because the error is already small at these sizes -- atoms are mostly work-groups and
+    households, an order of magnitude below capacity -- and because the grid is a handful of
+    vectorized numpy operations over every atom in the country at once. First-fit needs a
+    per-atom search over open bins, which at tens of millions of atoms is not something to run in
+    a Python loop.
+
+    Shuffling first matters: the input arrives grouped by industry and by household, so cutting it
+    in place would fill each bin from a single industry (and put neighbors in the same bin purely
+    because their household ids are adjacent), which is exactly the structure a neighborhood is
+    not supposed to have.
+    """
+    n = len(atom_size)
+    if n == 0:
+        return np.zeros(0, dtype=np.int64)
+
+    oversized = atom_size > capacity
+    # Sort by block group; within one, oversized atoms first (they take the leading bins), then
+    # the rest in random order.
+    order = np.lexsort((rng.random(n), ~oversized, atom_geo))
+    geo_s = atom_geo[order]
+    size_s = atom_size[order]
+    over_s = oversized[order]
+
+    is_run_start = np.empty(n, dtype=bool)
+    is_run_start[0] = True
+    is_run_start[1:] = geo_s[1:] != geo_s[:-1]
+    run_start = np.flatnonzero(is_run_start)
+    run_id = np.cumsum(is_run_start) - 1
+    pos_in_run = np.arange(n) - run_start[run_id]
+
+    n_over = np.bincount(run_id, weights=over_s, minlength=len(run_start)).astype(np.int64)
+
+    # Running total within the block group, counting only the atoms being packed onto the grid
+    # (an oversized atom has its own bin and must not push the others' totals along).
+    packed_size = np.where(over_s, 0, size_s)
+    excl_prefix = np.cumsum(packed_size) - packed_size
+    run_base = np.zeros(len(run_start), dtype=excl_prefix.dtype)
+    run_base[1:] = excl_prefix[run_start[1:]]
+    midpoint = (excl_prefix - run_base[run_id]) + packed_size / 2.0
+
+    packed_total = np.bincount(run_id, weights=packed_size, minlength=len(run_start))
+    n_bins = np.maximum(1, _round_half_up(packed_total / capacity)).astype(np.int64)
+    spacing = np.where(packed_total > 0, packed_total / n_bins, 1.0)
+    # Clamped: the very last atom's midpoint can round up to n_bins itself when its half-size
+    # pushes it past the final edge.
+    on_grid = np.minimum(np.floor(midpoint / spacing[run_id]).astype(np.int64), n_bins[run_id] - 1)
+
+    bin_s = np.where(over_s, pos_in_run, n_over[run_id] + on_grid)     # oversized: one bin each
+
+    # bin_s is nondecreasing within a run by construction, so renumbering it densely is just
+    # counting the distinct values seen so far -- no second sort. Dense ids matter because the
+    # C++ sizes its per-community neighborhood array from the largest id in use (getMaxGroup in
+    # InteractionModNborhood.H), so a gap would cost memory in every community.
+    is_new_bin = np.empty(n, dtype=bool)
+    is_new_bin[0] = True
+    is_new_bin[1:] = (run_id[1:] != run_id[:-1]) | (bin_s[1:] != bin_s[:-1])
+    dense = np.cumsum(is_new_bin) - 1
+    dense -= dense[run_start][run_id]
+
+    out = np.empty(n, dtype=np.int64)
+    out[order] = dense
+    return out
+
+
+def assign_day_neighborhoods(df: pl.DataFrame, params: GroupParams, rng: np.random.Generator) -> pl.DataFrame:
+    """Add `work_nborhood`: the neighborhood an agent mixes in during the DAY, at wherever it is
+    they spend it.
+
+    Sized to the same nborhood_size target as the home neighborhood (assign_home_groups), so a
+    neighborhood means the same thing by day as by night. That is not what falls out of the
+    daytime population on its own: a block group's daytime headcount is its commuters, its
+    students and their teachers, and whichever of its own residents stayed home, and none of those
+    are related to the count of home neighborhoods it was divided into. Splitting daytime
+    population on a home-derived count leaves neighborhood sizes ranging over orders of magnitude
+    -- an employment centre draws in far more people by day than live there, a bedroom block group
+    far fewer -- and since a neighborhood's force of infection scales with how many infectious
+    people are in it, that spread is not a neutral bookkeeping detail: it makes daytime
+    neighborhood transmission concentrate in the largest daytime neighborhoods, which are
+    precisely the ones an epidemic reaches first.
+
+    Three kinds of group are kept whole, because being in one already means spending the day
+    together:
+
+      * a school -- every student and educator at it, in one neighborhood
+      * a work-group -- the whole team, in one neighborhood
+      * a household of people who stayed home, matching how assign_home_groups deals whole
+        households into home neighborhoods
+
+    A school with more members than nborhood_size cannot be both intact and within the target --
+    a university has tens of thousands -- so it goes in by class group instead (school_class_group:
+    a classroom, or one of the pools of excess teachers, and what InteractionModSchool.H actually
+    mixes within). Its classes each stay whole and land in a neighborhood of the ordinary size;
+    what is given up is only that the campus as a whole is no longer one neighborhood, which at
+    that size it could never have been without abandoning the target entirely. Keeping it intact
+    instead would leave the average agent in a daytime neighborhood several times the target,
+    concentrated exactly on the school-age population -- the opposite of what sizing them is for.
+
+    That leaves one case where the target genuinely cannot be met: a single class group (or
+    work-group, if one were ever configured above the target) bigger than a whole neighborhood.
+    Those are reported at the end.
+
+    The ids are a fresh dense space per block group, unrelated to `nborhood`. They used to be the
+    home neighborhood's own ids -- agents who stayed home kept theirs, and workers drew from a
+    range sized by the employed population -- which quietly merged unrelated groups whenever the
+    numbers collided, and made the count of daytime neighborhoods a function of the wrong
+    population. Day and night are separate attributes on the agent (`work_nborhood` vs
+    `nborhood`, read by InteractionModNborhood.H's day and night instances), so they have no
+    reason to share a numbering.
+    """
+    capacity = params.nborhood_size
+    n = len(df)
+    school_id = df["school_id"].to_numpy()
+    naics = df["naics"].to_numpy()
+    home_geoid = df["home_geoid"].to_numpy()
+    work_geoid = df["work_geoid"].to_numpy()
+    household_id = df["household_id"].to_numpy().astype(np.int64)
+    workgroup = df["workgroup"].to_numpy()
+    school_class_group = df["school_class_group"].to_numpy()
+
+    at_school = school_id != 0
+    at_work = workgroup > 0  # workgroup 0 is assign_work_groups' "not at a workplace"
+    stay_home = ~at_school & ~at_work
+
+    # Where the day is actually spent. Everyone commutes to work_geoid (AgentContainer.cpp's
+    # moveAgentsToWork), including students and educators, whose work_geoid is their school's
+    # block group -- except the work-from-home and the unemployed, whom UrbanPopData.cpp keeps at
+    # home_geoid. (For the unemployed the two are equal anyway; it is asserted on load.)
+    day_geoid = np.where(stay_home, home_geoid, work_geoid)
+    geo_idx, n_geo = _dense_ids(0, day_geoid)
+
+    # A school too big for a neighborhood goes in class group by class group instead of whole.
+    school_of, n_schools = _dense_ids(0, geo_idx[at_school], school_id[at_school])
+    big_school = np.bincount(school_of, minlength=n_schools) > capacity
+    by_class = np.zeros(n, dtype=bool)
+    by_class[at_school] = big_school[school_of]
+    whole_school = at_school & ~by_class
+
+    # One id per atom, numbered so that no two kinds share one. Each is keyed exactly the way the
+    # interaction model that owns it indexes one -- (community, workgroup, naics) for a work-group
+    # (InteractionModWork.H), school_class_group for a class (InteractionModSchool.H, where it is
+    # already a globally dense id) -- so an atom is one whole transmission group, never part of one.
+    atom = np.full(n, -1, dtype=np.int64)
+    n_atoms = 0
+    atom[at_work], k = _dense_ids(n_atoms, geo_idx[at_work], naics[at_work], workgroup[at_work])
+    n_atoms += k
+    atom[whole_school], k = _dense_ids(n_atoms, geo_idx[whole_school], school_id[whole_school])
+    n_atoms += k
+    atom[by_class], k = _dense_ids(n_atoms, school_class_group[by_class])
+    n_atoms += k
+    atom[stay_home], k = _dense_ids(n_atoms, geo_idx[stay_home], household_id[stay_home])
+    n_atoms += k
+
+    atom_size = np.bincount(atom, minlength=n_atoms)
+    atom_geo = np.zeros(n_atoms, dtype=geo_idx.dtype)
+    atom_geo[atom] = geo_idx  # every member of an atom shares its block group, so any wins
+
+    atom_bin = _pack_atoms_into_bins(atom_geo, atom_size, capacity, rng)
+    work_nborhood = atom_bin[atom]
+
+    # Per-neighborhood headcounts, and which neighborhoods are a single group too big to fit.
+    # Those are the only ones that miss the target for a structural reason -- every other
+    # neighborhood is the target give or take part of one group, in both directions, so simply
+    # counting the ones above `capacity` would report roughly half of them as exceptions.
+    key = geo_idx.astype(np.int64) * (work_nborhood.max() + 1) + work_nborhood
+    sizes = np.bincount(key)
+    indivisible = np.bincount(
+        atom_geo.astype(np.int64) * (work_nborhood.max() + 1) + atom_bin,
+        weights=atom_size > capacity,
+        minlength=len(sizes),
+    )[: len(sizes)]
+    nonempty = sizes > 0
+    sizes, indivisible = sizes[nonempty], indivisible[nonempty] > 0
+    ordinary = sizes[~indivisible]
+    print(
+        f"  {n_atoms} daytime groups packed into {len(sizes)} neighborhoods across {n_geo} block "
+        f"groups: mean {ordinary.mean():.1f}, 5th-95th pct {np.percentile(ordinary, 5):.0f}-"
+        f"{np.percentile(ordinary, 95):.0f} (target {capacity})"
     )
+    n_big_school = int(big_school.sum())
+    if n_big_school:
+        print(f"  {n_big_school} schools larger than {capacity} went in by class group")
+    if indivisible.any():
+        over = sizes[indivisible]
+        print(
+            f"  {indivisible.sum()} ({100 * indivisible.sum() / len(sizes):.2f}%) hold one group too "
+            f"big to fit: median {np.median(over):.0f}, max {over.max()}"
+        )
+
+    _check_fits_int16("work_nborhood", work_nborhood)
+    return df.with_columns(pl.Series("work_nborhood", work_nborhood, dtype=pl.Int16))
 
 
 # --------------------------------------------------------------------------------------------

@@ -29,7 +29,7 @@ using namespace ExaEpi;
     AMReX does already list options nothing read, but only under amrex.verbose=1, which is not on
     by default -- so on a default run an input file carried over from before the move runs to
     completion having quietly disregarded the very knob it was edited to change, e.g.
-    agent.nborhood_size = 999 producing the default 360-person neighborhoods with no indication
+    agent.nborhood_size = 999 producing the default 500-person neighborhoods with no indication
     anything was wrong. Worth its own check rather than leaning on that: this is on by default,
     and the useful part is not "unused" but which stage now owns the option. These size groups
     that are baked into the .bin, so the only way to act on them is to rebuild it. */
