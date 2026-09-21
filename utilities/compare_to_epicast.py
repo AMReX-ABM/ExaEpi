@@ -48,6 +48,17 @@ _EXAEPI_SOURCE_MAPPING = {
     "school":                 ["ESchool"],
 }
 
+# The two halves of the "neighborhood_community" bucket, added as EXTRA columns alongside it
+# rather than in place of it: anything compared against Epicast has to keep using the merged
+# bucket (Epicast has no separate neighborhood and community contexts to compare against), so only
+# the stacked-composition panel -- which shows one model at a time and has nothing to match --
+# splits it. Day and night are still summed together within each half, since the merged bucket
+# they add up to is the one Epicast's single context corresponds to.
+_EXAEPI_SOURCE_SPLIT = {
+    "neighborhood": ["ENbhD", "ENbhN"],
+    "community":    ["ECommD", "ECommN"],
+}
+
 
 def _add_exaepi_source_fractions(df):
     """Add "<source>_frac" columns to df: each source bucket's expected-infection contribution
@@ -55,12 +66,15 @@ def _add_exaepi_source_fractions(df):
     day's own total) -- see the matching normalization in aggregate_infections_by_source, which
     this must match for the two models' curves to be comparable. No-op (columns simply absent
     downstream) if the run wasn't started with context_diag=true.
+
+    The _EXAEPI_SOURCE_SPLIT sub-buckets are normalized by that same grand total, so they stay
+    directly comparable with (and add up to) the merged bucket they came from.
     """
     needed_cols = [c for cols in _EXAEPI_SOURCE_MAPPING.values() for c in cols]
     if not all(c in df.columns for c in needed_cols):
         return df
     grand_total = df[needed_cols].to_numpy().sum()
-    for source, cols in _EXAEPI_SOURCE_MAPPING.items():
+    for source, cols in {**_EXAEPI_SOURCE_MAPPING, **_EXAEPI_SOURCE_SPLIT}.items():
         bucket_sum = df[cols].sum(axis=1)
         df[source + "_frac"] = (bucket_sum / grand_total) if grand_total > 0 else 0.0
     return df
@@ -946,12 +960,23 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
 # The colors reuse _CONTEXT_COLS' per-context hues where the buckets correspond, so a source keeps
 # the same color it has on the Context panel.
 _SOURCE_STACK_ORDER = ["household", "cluster", "neighborhood_community", "work", "school", "other"]
+
+# Sources that are drawn as two adjacent sub-bands where the model reports both halves, and as one
+# band where it doesn't. ExaEpi has separate neighborhood and community contexts
+# (_EXAEPI_SOURCE_SPLIT); Epicast records a single merged one, so its panel keeps the single band.
+# The children take the parent's slot in _SOURCE_STACK_ORDER, in the order listed here, which keeps
+# the stack running outward from the household and keeps the pair contiguous -- so the two shades
+# together still occupy the band that reads as Epicast's one green.
+_SOURCE_STACK_SPLIT = {"neighborhood_community": ("neighborhood", "community")}
+
 # Shorter than _SOURCE_LABELS: these go in a multi-column legend inside a half-page-wide panel, and
 # the full names ("Neighborhood+Comm") make it wider than the panel itself at PLOS's 8pt legend font.
 _SOURCE_STACK_LABELS = {
     "household":              "Household",
     "cluster":                "Cluster",
     "neighborhood_community": "Nbhd+Comm",
+    "neighborhood":           "Nbhd",
+    "community":              "Comm",
     "work":                   "Work",
     "school":                 "School",
     "other":                  "Other",
@@ -960,6 +985,10 @@ _SOURCE_STACK_COLORS = {
     "household":              "tab:red",
     "cluster":                "tab:brown",
     "neighborhood_community": "tab:green",
+    # Two shades either side of tab:green (#2ca02c), from the same ColorBrewer Greens ramp, so a
+    # split panel's pair still reads as "the green band" against an unsplit panel's single one.
+    "neighborhood":           "#1b7837",
+    "community":              "#7bc87c",
     "work":                   "tab:blue",
     "school":                 "tab:orange",
     "other":                  "tab:gray",
@@ -1010,12 +1039,25 @@ def _daily_source_composition(entry, xlimit, window=1):
     Days with no infections at all get all-zero fractions (an empty column in the plot), since
     there's no mix to report.
 
+    A source listed in _SOURCE_STACK_SPLIT is drawn as its two sub-bands where this group's files
+    report both of them, and as the single merged band where they don't -- so the same panel code
+    gives ExaEpi separate neighborhood and community bands and Epicast, which only has the merged
+    context, one.
+
     Returns (keys, frac) where keys are the sources actually present and nonzero, in stacking
     order, and frac is a (len(keys) x n_days) array -- or None if this group has no source columns
     at all (i.e. an ExaEpi run without context_diag=true).
     """
     dfs = entry["dfs"]
-    keys = [k for k in _SOURCE_STACK_ORDER if (k + "_frac") in dfs[0].columns]
+    cols = dfs[0].columns
+
+    keys = []
+    for key in _SOURCE_STACK_ORDER:
+        parts = _SOURCE_STACK_SPLIT.get(key)
+        if parts and all((p + "_frac") in cols for p in parts):
+            keys.extend(parts)
+        elif (key + "_frac") in cols:
+            keys.append(key)
     if not keys:
         return None
 
