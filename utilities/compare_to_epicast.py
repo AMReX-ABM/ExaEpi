@@ -906,6 +906,7 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
         if col in df0.columns:
             x = (df0["day"] + epicast_shift).values[: args.xlimit]
             y = _get_group_y(entry, col, args.xlimit)
+            band_drawn = False
             if entry["is_wildcard"] and len(entry["dfs"]) > 1:
                 y_mat = _align_arrays(entry["dfs"], col, args.xlimit)
                 medoid_idx = _medoid_index(y_mat)
@@ -915,9 +916,13 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
                       f"[{min(peak_days)}, {max(peak_days)}]  std={np.std(peak_days):.1f}d")
                 if args.band > 0:
                     band_lo, band_hi = _smoothed_band(y_mat, args.band)
-                    ax.fill_between(x[: y_mat.shape[1]], band_lo, band_hi,
-                                    alpha=0.25, color="blue", zorder=1, label="_nolegend_")
-            ax.plot(x[: len(y)], y, color="blue", linewidth=1, linestyle="-", label="Epicast")
+                    ax.fill_between(x[: y_mat.shape[1]], band_lo, band_hi, alpha=0.25, color="blue",
+                                    zorder=1, label="Epicast" if args.band_only else "_nolegend_")
+                    band_drawn = True
+            # See _plot_group in plot_series: --band_only leaves the band to speak for the group,
+            # but only where there is one, so a group is never silently left off the plot.
+            if not (args.band_only and band_drawn):
+                ax.plot(x[: len(y)], y, color="blue", linewidth=1, linestyle="-", label="Epicast")
             auc = float(np.sum(y))
             print(f"  Epicast AUC: {auc:.3f}")
             if legend_label is not None:
@@ -935,6 +940,7 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
         if col in df0.columns:
             x = (df0["Day"] + shift).values[: args.xlimit]
             y = _get_group_y(entry, col, args.xlimit)
+            band_drawn = False
             if entry["is_wildcard"] and len(entry["dfs"]) > 1:
                 y_mat = _align_arrays(entry["dfs"], col, args.xlimit)
                 medoid_idx = _medoid_index(y_mat)
@@ -944,9 +950,13 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
                       f"[{min(peak_days)}, {max(peak_days)}]  std={np.std(peak_days):.1f}d")
                 if args.band > 0:
                     band_lo, band_hi = _smoothed_band(y_mat, args.band)
-                    ax.fill_between(x[: y_mat.shape[1]], band_lo, band_hi,
-                                    alpha=0.25, color="red", zorder=1, label="_nolegend_")
-            ax.plot(x[: len(y)], y, color="red", linewidth=1, linestyle="-", label="ExaEpi")
+                    ax.fill_between(x[: y_mat.shape[1]], band_lo, band_hi, alpha=0.25, color="red",
+                                    zorder=1, label="ExaEpi" if args.band_only else "_nolegend_")
+                    band_drawn = True
+            # See _plot_group in plot_series: --band_only leaves the band to speak for the group,
+            # but only where there is one, so a group is never silently left off the plot.
+            if not (args.band_only and band_drawn):
+                ax.plot(x[: len(y)], y, color="red", linewidth=1, linestyle="-", label="ExaEpi")
             auc = float(np.sum(y))
             gof_str = ""
             if reference_y is not None:
@@ -1249,11 +1259,16 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
             n        = y_mat.shape[1]
             x_vals = (entry["dfs"][0][x_col].values[:n] + x_shift) if x_col else np.arange(n)
 
+            band_drawn = False
             if args.band > 0:
                 band_lo, band_hi = _smoothed_band(y_mat, args.band)
                 ax.fill_between(x_vals, band_lo, band_hi, alpha=0.25, color=color, zorder=1,
-                                label="_nolegend_")
-            ax.plot(x_vals, y_medoid, label=plot_label, color=color, linewidth=1, zorder=2)
+                                label=plot_label if args.band_only else "_nolegend_")
+                band_drawn = True
+            # --band_only leaves the band to speak for the group; with no band to draw (--band 0)
+            # the line goes in regardless, so a group is never silently left off the plot.
+            if not (args.band_only and band_drawn):
+                ax.plot(x_vals, y_medoid, label=plot_label, color=color, linewidth=1, zorder=2)
             auc = float(np.sum(y_medoid))
             y_for_gof = _shift_array(y_medoid, x_shift, args.xlimit)
         else:
@@ -1478,6 +1493,16 @@ def _band_type(value):
 
 
 parser.add_argument(
+    "--band_only", action="store_true", default=False,
+    help="For a -e/-x pattern matching several files, draw only the spread band, leaving out the "
+         "medoid line normally drawn through it. The band alone shows where the runs are without "
+         "asserting that any one of them is the group's answer, which is the honest picture when "
+         "the point being made is about the spread rather than about a representative run. The "
+         "medoid is still what the printed AUC, goodness-of-fit and attack rate are computed "
+         "from, and a group matching a single file is still drawn as its own line -- it has no "
+         "band to stand in for it.",
+)
+parser.add_argument(
     "--band", type=_band_type, default=_DEFAULT_BAND_COVERAGE, metavar="PCT",
     help="Percentage of runs the shaded band around each multi-file group's medoid curve "
          "covers, as a central percentile interval: 90 draws the 5th-95th percentile, 50 the "
@@ -1649,6 +1674,12 @@ if args.plots is not None:
 
 if not args.epicast_file and not args.exaepi_file:
     parser.error("At least one -e/--epicast_file or -x/--exaepi_file must be specified.")
+
+if args.band_only and args.band == 0:
+    # Not an error: the two options are individually meaningful and the combination has an
+    # obvious reading (draw neither), it is just not one worth producing an empty panel for.
+    print("Note: --band_only with --band 0 would leave nothing to draw, so the medoid lines are "
+          "kept. Raise --band to get bands instead of lines.")
 
 
 def _load_and_capture(load_fn, fname):
