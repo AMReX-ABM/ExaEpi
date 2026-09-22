@@ -129,11 +129,18 @@ def nice_linear_bins(vmin, vmax, target_bins=50):
 
 # Per --field presentation: what one sample is (used for the count line in the stats box and
 # the "Found N ..." message), the x-axis label, the noun for the quantity being summarized,
-# and the default output basename.
+# the default output basename, and Epicast's own value for the quantity (None where it has none
+# to mark).
+#
+# Epicast has no distribution to overlay here: it builds communities of exactly 2000 agents and
+# splits each into exactly 4 neighborhoods of 500, so every community and every neighborhood is
+# the same size and the whole distribution is one point. Hence a line rather than a histogram --
+# it is what ExaEpi's spread is a spread *around*, since ExaEpi takes its communities from real
+# block groups and packs neighborhoods to a target instead (UrbanPop-scripts/group_assignment.py).
 FIELD_INFO = {
-    "community": ("communities", "Community size (number of agents)", "size", "community_sizes"),
-    "neighborhood": ("neighborhoods", "Neighborhood size (number of agents)", "size", "neighborhood_sizes"),
-    "nborhoods_per_community": ("communities", "Neighborhoods per community", "count", "nborhoods_per_community"),
+    "community": ("communities", "Community size (number of agents)", "size", "community_sizes", 2000),
+    "neighborhood": ("neighborhoods", "Neighborhood size (number of agents)", "size", "neighborhood_sizes", 500),
+    "nborhoods_per_community": ("communities", "Neighborhoods per community", "count", "nborhoods_per_community", None),
 }
 
 
@@ -172,7 +179,7 @@ def main():
     )
     args = parser.parse_args()
 
-    plural, xlabel, stat_noun, basename = FIELD_INFO[args.field]
+    plural, xlabel, stat_noun, basename, epicast_size = FIELD_INFO[args.field]
     output = args.output or f"{basename}_{'cdf' if args.cdf else 'histogram'}.png"
 
     print(f"Reading ExaEpi aggregated diagnostics {args.prefix}_*")
@@ -201,9 +208,10 @@ def main():
     # single-worker block group in an otherwise unpopulated area) that would otherwise stretch the
     # axis across a long, nearly-empty stretch for very little data.
     left_edge = float(np.percentile(all_sizes, 0.1))
-    # Avoid tab:blue/tab:red here -- every other script in this repo uses that pair specifically
-    # for Epicast/ExaEpi, and reusing it for an unrelated distinction (nighttime vs daytime
-    # population) would misleadingly suggest this is also a simulator comparison.
+    # Avoid tab:blue/tab:red for the series -- every other script in this repo uses that pair
+    # specifically for Epicast/ExaEpi, and reusing it for an unrelated distinction (nighttime vs
+    # daytime population) would misleadingly suggest those two series are the two simulators. The
+    # Epicast reference line below is the one thing here that IS Epicast, so it takes the blue.
     colors = ["tab:purple", "tab:orange", "tab:green", "tab:brown"]
 
     def print_stats(name, sizes):
@@ -302,6 +310,14 @@ def main():
     # margin (which otherwise leaves a visible gap before 0, or goes negative once xlim pulls
     # the right edge in far enough that the margin becomes a large fraction of the range).
     # right=None (the default, when --xlim isn't given) leaves the right edge autoscaled.
+    if epicast_size is not None:
+        # Drawn after the x-limits are anchored below would be too late for autoscale, but before
+        # them is fine: set_xlim overrides whatever this adds to the data range. zorder above the
+        # bars so it stays visible where it crosses the distribution, which is the whole point.
+        ax.axvline(epicast_size, color="tab:blue", linestyle="--", linewidth=1.2, zorder=5,
+                   label="Epicast")
+        print(f"Epicast {stat_noun}: {epicast_size} (fixed)")
+
     ax.set_xlim(left=left_edge, right=args.xlim)
     if not args.logx:
         # Default tick count/spacing can pack 5-6 digit values (e.g. community size, up to the
@@ -313,7 +329,7 @@ def main():
     ax.set_xlabel(xlabel)
     #ax.set_title(f"Histogram of ExaEpi {args.field} sizes")
     ax.grid(True, alpha=0.3, linewidth=0.5)
-    if len(series_list) > 1:
+    if len(series_list) > 1 or epicast_size is not None:
         ax.legend()
 
     plt.savefig(output, dpi=300)
