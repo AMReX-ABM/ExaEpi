@@ -580,7 +580,7 @@ _DEFAULT_BAND_COVERAGE = 100.0
 # they overlap, ringing every band in a darker outline that reads as a plotted boundary rather than
 # as the edge of a shaded region -- particularly misleading here, where the band's edges are
 # percentiles across runs and not any run's own curve.
-_BAND_ALPHA = 0.18
+_BAND_ALPHA = 0.12
 
 
 def _draw_spread_bands(ax, x, y_mat, color, label=None):
