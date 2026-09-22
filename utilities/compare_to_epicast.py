@@ -572,7 +572,7 @@ def _peak_day(y, smooth_window=5):
 _ENVELOPE_SMOOTH_WINDOW = 9
 
 # Central percentage of runs a wildcard group's shaded band covers; 100 is the pointwise
-# min/max. Overridden by --band (see _smoothed_band).
+# min/max. Overridden by --band, which takes any number of coverages (see _draw_spread_bands).
 _DEFAULT_BAND_COVERAGE = 100.0
 
 # Fill opacity for a spread band. Drawn with no edge at all, not merely a matching one: passing
@@ -581,6 +581,29 @@ _DEFAULT_BAND_COVERAGE = 100.0
 # as the edge of a shaded region -- particularly misleading here, where the band's edges are
 # percentiles across runs and not any run's own curve.
 _BAND_ALPHA = 0.18
+
+
+def _draw_spread_bands(ax, x, y_mat, color, label=None):
+    """Shade each --band coverage for one group, and say whether anything was drawn.
+
+    Several coverages nest into a fan: the widest is laid down first and the narrower ones over
+    it, so the alpha of the overlap does the work and the core -- where the runs actually are --
+    comes out darker than the extremes without a single boundary being drawn anywhere. That reads
+    as a density, which one band on its own cannot: a min/max band in particular is an extent, and
+    on the CA replicates half the runs sit inside a fifth of its width while 5 runs of 30 account
+    for every edge of it. `--band 50 90` is the useful pairing -- the bulk, and how far the tails
+    reach.
+
+    Only the first fill carries `label`, so a group is one legend entry rather than one per band.
+    """
+    drawn = False
+    for i, coverage in enumerate(args.band):
+        band_lo, band_hi = _smoothed_band(y_mat, coverage)
+        ax.fill_between(x[: y_mat.shape[1]], band_lo, band_hi, alpha=_BAND_ALPHA, facecolor=color,
+                        edgecolor="none", zorder=1,
+                        label=label if (i == 0 and label is not None) else "_nolegend_")
+        drawn = True
+    return drawn
 
 
 def _smoothed_band(y_mat, coverage=_DEFAULT_BAND_COVERAGE, window=_ENVELOPE_SMOOTH_WINDOW):
@@ -921,12 +944,8 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
                 peak_days = [_peak_day(row) for row in y_mat]
                 print(f"  Peak-day range (Epicast, {col}): "
                       f"[{min(peak_days)}, {max(peak_days)}]  std={np.std(peak_days):.1f}d")
-                if args.band > 0:
-                    band_lo, band_hi = _smoothed_band(y_mat, args.band)
-                    ax.fill_between(x[: y_mat.shape[1]], band_lo, band_hi, alpha=_BAND_ALPHA,
-                                    facecolor="blue", edgecolor="none", zorder=1,
-                                    label="Epicast" if args.band_only else "_nolegend_")
-                    band_drawn = True
+                band_drawn = _draw_spread_bands(
+                    ax, x, y_mat, "blue", "Epicast" if args.band_only else None)
             # See _plot_group in plot_series: --band_only leaves the band to speak for the group,
             # but only where there is one, so a group is never silently left off the plot.
             if not (args.band_only and band_drawn):
@@ -956,12 +975,8 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
                 peak_days = [_peak_day(row) for row in y_mat]
                 print(f"  Peak-day range (ExaEpi, {col}): "
                       f"[{min(peak_days)}, {max(peak_days)}]  std={np.std(peak_days):.1f}d")
-                if args.band > 0:
-                    band_lo, band_hi = _smoothed_band(y_mat, args.band)
-                    ax.fill_between(x[: y_mat.shape[1]], band_lo, band_hi, alpha=_BAND_ALPHA,
-                                    facecolor="red", edgecolor="none", zorder=1,
-                                    label="ExaEpi" if args.band_only else "_nolegend_")
-                    band_drawn = True
+                band_drawn = _draw_spread_bands(
+                    ax, x, y_mat, "red", "ExaEpi" if args.band_only else None)
             # See _plot_group in plot_series: --band_only leaves the band to speak for the group,
             # but only where there is one, so a group is never silently left off the plot.
             if not (args.band_only and band_drawn):
@@ -1268,13 +1283,8 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
             n        = y_mat.shape[1]
             x_vals = (entry["dfs"][0][x_col].values[:n] + x_shift) if x_col else np.arange(n)
 
-            band_drawn = False
-            if args.band > 0:
-                band_lo, band_hi = _smoothed_band(y_mat, args.band)
-                ax.fill_between(x_vals, band_lo, band_hi, alpha=_BAND_ALPHA, facecolor=color,
-                                edgecolor="none", zorder=1,
-                                label=plot_label if args.band_only else "_nolegend_")
-                band_drawn = True
+            band_drawn = _draw_spread_bands(
+                ax, x_vals, y_mat, color, plot_label if args.band_only else None)
             # --band_only leaves the band to speak for the group; with no band to draw (--band 0)
             # the line goes in regardless, so a group is never silently left off the plot.
             if not (args.band_only and band_drawn):
@@ -1513,13 +1523,13 @@ parser.add_argument(
          "band to stand in for it.",
 )
 parser.add_argument(
-    "--band", type=_band_type, default=_DEFAULT_BAND_COVERAGE, metavar="PCT",
-    help="Percentage of runs the shaded band around each multi-file group's medoid curve "
-         "covers, as a central percentile interval: 90 draws the 5th-95th percentile, 50 the "
-         "quartiles, 0 no band at all. The default, 100, is the pointwise min/max, which shows "
-         "worst-case extent but has each edge owned by a single run at every day -- use a value "
-         "below 100 when the spread is skewed and you want the band to show where the bulk of "
-         "the runs are instead (default: 100)",
+    "--band", type=_band_type, nargs="+", default=[_DEFAULT_BAND_COVERAGE], metavar="PCT",
+    help="Percentage of runs each shaded band around a multi-file group covers, as a central "
+         "percentile interval: 90 draws the 5th-95th percentile, 50 the quartiles, 0 no band at "
+         "all. The default, 100, is the pointwise min/max, which shows worst-case extent but has "
+         "each edge owned by a single run at every day. Give several to nest them into a fan, "
+         "widest behind narrowest -- '--band 50 90' shows where the bulk of the runs are and how "
+         "far the tails reach at once, which one band cannot (default: 100)",
 )
 def _xlimit_type(value):
     if isinstance(value, str) and value.strip().lower() == "auto":
@@ -1685,7 +1695,11 @@ if args.plots is not None:
 if not args.epicast_file and not args.exaepi_file:
     parser.error("At least one -e/--epicast_file or -x/--exaepi_file must be specified.")
 
-if args.band_only and args.band == 0:
+# Widest first so the narrower ones are drawn over them (see _draw_spread_bands), and a 0
+# ("no band") among several is just nothing to draw rather than a contradiction.
+args.band = sorted({b for b in args.band if b > 0}, reverse=True)
+
+if args.band_only and not args.band:
     # Not an error: the two options are individually meaningful and the combination has an
     # obvious reading (draw neither), it is just not one worth producing an empty panel for.
     print("Note: --band_only with --band 0 would leave nothing to draw, so the medoid lines are "
