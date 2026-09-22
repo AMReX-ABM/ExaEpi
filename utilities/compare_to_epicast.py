@@ -66,6 +66,30 @@ def _add_exaepi_source_fractions(df):
     return df
 
 
+# The compartments an agent is in exactly one of, so their sum is the run's total population.
+# ICU and V are deliberately absent: both are subsets of the hospitalized columns (H/NI, H/I) --
+# main.cpp fills them from a separate reduction -- so counting them would overstate the population
+# (by 190,384 on the CA run this was checked against).
+_EXAEPI_COMPARTMENTS = ["Su", "PS/PI", "S/PI/NH", "S/PI/H", "PS/I", "S/I/NH", "S/I/H",
+                        "A/PI", "A/I", "H/NI", "H/I", "R", "D"]
+
+
+def _exaepi_population(df):
+    """Total agents in an ExaEpi run, for turning a cumulative count into an attack rate.
+
+    Read off row 0 rather than summed some other way, and no agent ever enters or leaves, so this
+    is exactly constant over a run (verified on CA: 39,247,867 on every one of 250 days).
+
+    Epicast's per-day summary carries no population, so the same figure is used for both models.
+    That is not an approximation here: the demographics block in an Epicast events.bin totals
+    39,247,867 for CA as well -- the two models are handed the same population -- but --population
+    overrides it for a dataset where they are not.
+    """
+    if not all(c in df.columns for c in _EXAEPI_COMPARTMENTS):
+        return None
+    return float(df[_EXAEPI_COMPARTMENTS].iloc[0].sum())
+
+
 def load_exaepi(fname):
     df = pd.read_csv(fname, sep="\\s+")
     print(f"Read {len(df)} lines from the ExaEpi file {fname}")
@@ -1319,18 +1343,36 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
     # Annotate per-series summary values in the upper-right corner (or lower-right for the
     # cumulative curve, since it rises into the upper-right area)
     if col_name == "cumulative_exposed":
-        # Collect (label, max_val, color) in the same top-to-bottom order used by the other
-        # plots' AUC block below (fit_results, then Epicast, then ExaEpi, then manual SEIRHD).
-        # Unlabelled entries are still printed (with a "(unlabelled)" fallback) but skip the
-        # on-plot text, matching the other plots' behavior.
+        # Collect (label, text, color) in the same top-to-bottom order used by the other plots'
+        # AUC block below (fit_results, then Epicast, then ExaEpi, then manual SEIRHD). Unlabelled
+        # entries are still printed (with a "(unlabelled)" fallback) but skip the on-plot text,
+        # matching the other plots' behavior.
         text_entries = []
+
+        def summary(max_val, pop):
+            """What this curve's final cumulative count says, as the share of the population it
+            reached, as (on-plot text, console text). A count on its own means nothing without the
+            population behind it, and the two models' counts are not even on the same axis as a
+            SEIRHD curve's, which is run at whatever --N it was given. Falls back to the raw count
+            where there is no population to divide by (see --population).
+
+            The console keeps the count alongside the rate; the panel does not, since it is a
+            summary line on an already-busy plot and the curve itself shows the count."""
+            if not pop:
+                text = f"Max {max_val:,.0f}"
+                return text, text
+            rate = f"attack rate {100.0 * max_val / pop:.1f}%"
+            return rate, f"{rate} ({max_val:,.0f})"
 
         if fit_results and seir_col is not None:
             for (fit_series_lbl, _c, _b, _s, _g, _h, _gh, _d, _sd, fdf) in fit_results:
                 max_val = float(fdf[seir_col].values[: args.xlimit].max())
                 lbl_str = f"SEIRHD fit ({fit_series_lbl})" if fit_series_lbl else "SEIRHD fit"
-                print(f"  Max {lbl_str}: {max_val:,.0f}")
-                text_entries.append((lbl_str, max_val, "green"))
+                # A fit runs at the population it was fitted with (fit_seir holds N fixed at
+                # --N), not at the data's own.
+                text, logged = summary(max_val, float(args.N))
+                print(f"  {lbl_str}: {logged}")
+                text_entries.append((lbl_str, text, "green"))
         for i, entry in enumerate(epicast_data):
             legend_label = entry["label"]
             color = epicast_colors[i % len(epicast_colors)]
@@ -1340,9 +1382,10 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
             else:
                 max_val = float(entry["dfs"][0][col_name][: args.xlimit].max())
             lbl_str = legend_label if legend_label is not None else "(unlabelled)"
-            print(f"  Max {lbl_str}: {max_val:,.0f}")
+            text, logged = summary(max_val, population)
+            print(f"  {lbl_str}: {logged}")
             if legend_label is not None:
-                text_entries.append((legend_label, max_val, color))
+                text_entries.append((legend_label, text, color))
         for i, entry in enumerate(exaepi_data):
             legend_label = entry["label"]
             color = exaepi_colors[i % len(exaepi_colors)]
@@ -1352,22 +1395,25 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
             else:
                 max_val = float(entry["dfs"][0][exaepi_col][: args.xlimit].max())
             lbl_str = legend_label if legend_label is not None else "(unlabelled)"
-            print(f"  Max {lbl_str}: {max_val:,.0f}")
+            text, logged = summary(max_val, population)
+            print(f"  {lbl_str}: {logged}")
             if legend_label is not None:
-                text_entries.append((legend_label, max_val, color))
+                text_entries.append((legend_label, text, color))
         if seir_dfs and seir_col is not None:
             multi = len(seir_dfs) > 1
             for i, (idx, p, seir_df) in enumerate(seir_dfs):
                 max_val = float(seir_df[seir_col].values[: args.xlimit].max())
                 short_lbl = f"SEIRHD {idx}" if multi else "SEIRHD"
-                print(f"  Max {short_lbl}: {max_val:,.0f}")
-                text_entries.append((short_lbl, max_val, seir_colors[i % len(seir_colors)]))
+                # Each curve is run at its own --N (see _resolve_seir_params).
+                text, logged = summary(max_val, float(p["N"]))
+                print(f"  {short_lbl}: {logged}")
+                text_entries.append((short_lbl, text, seir_colors[i % len(seir_colors)]))
 
         # This block anchors text to the bottom (va="bottom") and grows upward, so the first
         # entry placed ends up at the bottom -- draw in reverse to keep the on-plot top-to-bottom
         # reading order matching the other plots' top-anchored (va="top") AUC block above.
-        for row, (lbl_str, max_val, color) in enumerate(reversed(text_entries)):
-            ax.text(0.98, 0.03 + row * 0.09, f"Max {lbl_str}: {max_val:,.0f}",
+        for row, (lbl_str, text, color) in enumerate(reversed(text_entries)):
+            ax.text(0.98, 0.03 + row * 0.09, f"{lbl_str} {text}",
                     transform=ax.transAxes, ha="right", va="bottom", fontsize=FONT_TICK, color=color)
     else:
         row = 0
@@ -1472,6 +1518,14 @@ parser.add_argument(
 )
 parser.add_argument(
     "--output", "-o", required=True, help="Output file name for the plot (e.g., comparison.png)"
+)
+parser.add_argument(
+    "--population", type=float, default=None, metavar="N",
+    help="Total population, used to report the Cumulative Exposed panel's attack rate. Taken from "
+         "the first -x input's own compartment counts when not given, which is exact for ExaEpi "
+         "and, for every dataset checked, for the Epicast run beside it too; pass this where the "
+         "two models were given different populations, or where there is no -x input to read one "
+         "from (the panel falls back to reporting the cumulative count itself).",
 )
 parser.add_argument(
     "--show_auc", action="store_true", default=False,
@@ -1748,6 +1802,12 @@ if args.shift == "auto":
     args.shift = shift_by_group[0] if shift_by_group else 0.0
 else:
     shift_by_group = [args.shift] * len(exaepi_data)
+
+# Population behind the Cumulative Exposed panel's attack rate. SEIRHD curves carry their own N
+# (--N), so they are converted with that instead, not with this.
+population = args.population
+if population is None and exaepi_data:
+    population = _exaepi_population(exaepi_data[0]["dfs"][0])
 
 if args.xlimit == "auto":
     args.xlimit = _auto_xlimit(epicast_data, exaepi_data, shift_by_group, epicast_shift)
