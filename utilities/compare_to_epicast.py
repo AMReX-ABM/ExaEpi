@@ -14,11 +14,11 @@ import numpy as np
 import argparse
 import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
-from scipy.optimize import minimize
 
 sys.path.insert(0, os.path.dirname(__file__))
 from read_epicast_events import read_epicast_summary, EPICAST_SUMMARY_SUFFIX
 from plos_compbio_style import apply_style, FULL_PAGE_WIDTH_IN, FONT_TICK, AXES_LINEWIDTH
+import seirhd_params
 
 apply_style()
 
@@ -136,121 +136,36 @@ def load_exaepi(fname):
     return df
 
 
-def run_seir(beta, sigma, gamma, h, gamma_h, mu, N, seed, days):
-    """Run a SEIRHD model and return a DataFrame with daily new counts.
-
-    Compartments:
-        S  – Susceptible
-        E  – Exposed (latent, not yet infectious)
-        I  – Infectious (community)
-        H  – Hospitalised
-        R  – Recovered
-        D  – Dead (only from H)
-
-    Flow:
-        S → E  (rate β·I/N)
-        E → I  (rate σ)
-        I → H  (rate h  – hospitalisation)
-        I → R  (rate γ  – direct community recovery)
-        H → R  (rate γ_h – hospital recovery)
-        H → D  (rate μ  – death only from hospital)
-
-    Parameters
-    ----------
-    beta    : transmission rate (per day)
-    sigma   : E→I progression rate  (1/sigma = mean latent period)
-    gamma   : I→R direct recovery rate
-    h       : I→H hospitalisation rate
-    gamma_h : H→R hospital recovery rate
-    mu      : H→D death rate  (HFR = mu / (gamma_h + mu))
-    N       : total population
-    seed    : initial number of infectious individuals
-    days    : number of days to simulate
-    """
-
-    def seirhd_odes(t, y):
-        S, E, I, H, R, D = y
-        inf  = beta * S * I / N
-        dS   = -inf
-        dE   =  inf - sigma * E
-        dI   =  sigma * E - (gamma + h) * I
-        dH   =  h * I - (gamma_h + mu) * H
-        dR   =  gamma * I + gamma_h * H
-        dD   =  mu * H
-        return [dS, dE, dI, dH, dR, dD]
-
-    y0 = [float(N - seed), 0.0, float(seed), 0.0, 0.0, 0.0]
-
-    t_eval = np.arange(0, days + 1, 1, dtype=float)
-    sol = solve_ivp(seirhd_odes, [0, days], y0, t_eval=t_eval, method="RK45", max_step=0.1)
-
-    S = sol.y[0]
-    H = sol.y[3]
-    R = sol.y[4]
-    D = sol.y[5]
-
-    new_exposed      = np.maximum(0, -np.diff(S))
-    new_hospitalized = np.maximum(0,  np.diff(H + R + D)) - new_exposed  # flux into H
-    # simpler: new hospitalized = h * I  integrated per day
-    new_hospitalized = np.maximum(0, np.diff(H) + np.maximum(0, np.diff(R + D)))
-    # most direct: use the H inflow = diff in cumulative (S drop - direct recoveries)
-    # Just track H compartment entries via finite differences of D+R+H
-    new_hospitalized = np.maximum(0, np.diff(sol.y[3] + sol.y[4] + sol.y[5])
-                                   - np.maximum(0, -np.diff(sol.y[0]))
-                                   + np.maximum(0, -np.diff(sol.y[0])))
-    # Cleanest: new_hosp = h*I averaged per interval; use midpoint of sol
-    I_mid = 0.5 * (sol.y[2][:-1] + sol.y[2][1:])
-    new_hospitalized = np.maximum(0, h * I_mid)
-
-    new_recovered = np.maximum(0, np.diff(R))
-    new_dead      = np.maximum(0, np.diff(D))
-
-    df = pd.DataFrame()
-    df["day"]                = np.arange(days)
-    df["exposed"]            = new_exposed
-    df["symptomatic"]        = new_exposed
-    df["presymptomatic"]     = new_exposed
-    df["asymptomatic"]       = np.zeros(days)
-    df["hospitalized"]       = new_hospitalized
-    df["dead"]               = new_dead
-    df["recovered"]          = new_recovered
-    df["cumulative_exposed"] = new_exposed.cumsum()
-
-    r0  = beta / (gamma + h)
-    hfr = mu / (gamma_h + mu)
-    ifr = (h / (gamma + h)) * hfr
-    print(f"SEIRHD  exposed={new_exposed.sum():.0f}  hosp={new_hospitalized.sum():.0f}  dead={new_dead.sum():.0f}")
-    print(f"SEIRHD  R0={r0:.2f}  hosp_rate={h/(gamma+h):.4f}  HFR={hfr:.4f}  IFR={ifr:.4f}")
-
-    return df
-
-
 def run_seirhd_erlang(beta, sigma, gamma, h, gamma_h, mu, N, seed, days, kE=3, kI=4, kD=1):
-    """Run a SEIRHD model with Erlang (gamma-distributed) latent/infectious stages.
+    """Run a SEIRHD model with Erlang (gamma-distributed) compartment sojourn times.
 
-    Same compartments and flows as run_seir, except E and I are each split into
-    kE / kI sequential exponential sub-stages so that the *total* time spent in
-    E is Gamma(shape=kE, scale=1/(kE*sigma)) distributed (mean 1/sigma), and the
-    total time spent in I is Gamma(shape=kI, scale=1/(kI*(gamma+h))) distributed
-    (mean 1/(gamma+h)) — instead of the CV=1 exponential assumed by run_seir.
-    beta, sigma, gamma, h, gamma_h, mu keep the same meaning as in run_seir
-    (mean rates); kE, kI and kD set the shape (CV = 1/sqrt(k)) of the respective
-    sojourn-time distributions and default to the values ExaEpi's
-    latent_length_alpha / infectious_length_alpha round to.
+    Compartments are S -> E -> I -> {R, H} and H -> {R, D}, with
 
-    H is generalized the same way E and I are: instead of one exponential
-    stage with two competing exits, it becomes a chain of kD sequential
-    exponential sub-stages (total rate kD*(gamma_h+mu), so the *total* time
-    from hospitalization to R-or-D is Gamma(shape=kD, scale=1/(kD*(gamma_h+
-    mu))) distributed, mean 1/(gamma_h+mu) -- unchanged from run_seir/kD=1).
-    The recovery/death split (frac_hr/frac_hd, same fractions as run_seir)
-    happens only at the chain's last stage, so both outcomes still share one
-    dwell-time distribution, just reshaped by kD -- matching ExaEpi's own
-    model, which draws a single hospital-stay length per agent (checkHospitalization
-    in DiseaseParm.H) independent of whether that agent goes on to recover or
-    die. kD=1 reproduces run_seir/the old single-H-stage model exactly; kD>1
-    gives the shared stay a mode away from zero and a lower-variance
-    (CV=1/sqrt(kD)) shape instead of run_seir's CV=1 exponential.
+        beta     S -> E   transmission rate
+        sigma    E -> I   1/sigma        = mean latent period
+        gamma    I -> R   1/(gamma + h)  = mean infectious period
+        h        I -> H   h/(gamma + h)  = P(hospitalised | infected)
+        gamma_h  H -> R   1/(gamma_h+mu) = mean hospital stay
+        mu       H -> D   mu/(gamma_h+mu)= P(dead | hospitalised)
+
+    A plain one-compartment stage gives its sojourn time an exponential
+    distribution -- CV = 1, mode at zero -- which is a poor match for a
+    latent or infectious period. So each of E, I and H is instead a chain of
+    k sequential exponential sub-stages run at k times the rate, making the
+    *total* time through the chain Gamma(shape=k, scale=1/(k*rate)): the same
+    mean, but CV = 1/sqrt(k). kE, kI and kD choose those shapes, and kD=1
+    leaves H as the single exponential stage.
+
+    The I chain's two exits compete only at its last sub-stage, and likewise
+    the recovery/death split (frac_hr/frac_hd) happens only at the end of the
+    H chain, so both hospital outcomes share one dwell-time distribution --
+    matching ExaEpi, which draws a single hospital-stay length per agent
+    (checkHospitalization in DiseaseParm.H) regardless of whether that agent
+    goes on to recover or die.
+
+    See seirhd_params.py, which derives every one of these from an ExaEpi
+    .ini -- the rates from each compartment's mean dwell time and the shapes
+    from its CV.
     """
 
     rate_E = kE * sigma
@@ -336,107 +251,6 @@ def run_seirhd_erlang(beta, sigma, gamma, h, gamma_h, mu, N, seed, days, kE=3, k
           f"E_CV={1/np.sqrt(kE):.3f}  I_CV={1/np.sqrt(kI):.3f}  D_CV={1/np.sqrt(kD):.3f}")
 
     return df
-
-
-def fit_seir(target_exposed, target_dead, target_hosp, N, seed, days, fixed=None):
-    """Fit SEIRHD parameters to target time series.
-
-    Parameters
-    ----------
-    target_exposed : array-like, daily new exposures  (length >= days)
-    target_dead    : array-like, daily new deaths      (length >= days); may be all zeros
-    target_hosp    : array-like, daily new hospitalized(length >= days); may be all zeros
-    N              : total population (fixed)
-    seed           : initial guess for infectious seed count
-    days           : number of days to simulate
-    fixed          : set of parameter names to hold fixed during optimisation.
-                     Valid names: 'beta', 'sigma', 'gamma', 'hosp_rate', 'gamma_h', 'mu', 'seed'.
-
-    Returns
-    -------
-    (beta, sigma, gamma, hosp_rate, gamma_h, mu, seed, fitted_df)
-    """
-    if fixed is None:
-        fixed = set()
-
-    exp_arr  = np.array(target_exposed[:days], dtype=float)
-    dead_arr = np.array(target_dead[:days],    dtype=float)
-    hosp_arr = np.array(target_hosp[:days],    dtype=float)
-
-    exp_scale  = exp_arr.max()  + 1e-9
-    dead_scale = dead_arr.max() + 1e-9
-    hosp_scale = hosp_arr.max() + 1e-9
-    has_deaths = dead_arr.max() > 0
-    has_hosp   = hosp_arr.max() > 0
-
-    all_params = [
-        ("beta",      args.beta,       (1e-4, 5.0)),
-        ("sigma",     args.sigma,      (1e-4, 5.0)),
-        ("gamma",     args.gamma,      (1e-4, 5.0)),
-        ("hosp_rate", args.hosp_rate,  (1e-6, 2.0)),
-        ("gamma_h",   args.gamma_h,    (1e-4, 5.0)),
-        ("mu",        args.mu,         (1e-6, 1.0)),
-        ("seed",      float(seed),     (1.0, float(N))),
-    ]
-    free_params  = [(name, val, bnd) for name, val, bnd in all_params if name not in fixed]
-    fixed_values = {name: val for name, val, _ in all_params if name in fixed}
-    fixed_values.setdefault("N", float(N))
-
-    def _unpack(free_vals):
-        it = iter(free_vals)
-        vals = {}
-        for name, _, _ in all_params:
-            vals[name] = next(it) if name not in fixed else fixed_values[name]
-        vals["N"] = fixed_values["N"]
-        return vals
-
-    def objective(free_vals):
-        p = _unpack(free_vals)
-        if any(p[k] <= 0 for k in ("beta", "sigma", "gamma", "hosp_rate", "gamma_h", "mu", "seed")):
-            return 1e18
-        df = run_seir(p["beta"], p["sigma"], p["gamma"], p["hosp_rate"], p["gamma_h"], p["mu"],
-                      int(round(p["N"])), int(round(p["seed"])), days)
-        w_exp = 1.0 + exp_arr / exp_scale
-        res = np.sum(w_exp * ((df["exposed"].values - exp_arr) / exp_scale) ** 2)
-        if has_deaths:
-            w_dead = 1.0 + dead_arr / dead_scale
-            res += np.sum(w_dead * ((df["dead"].values - dead_arr) / dead_scale) ** 2)
-        if has_hosp:
-            w_hosp = 1.0 + hosp_arr / hosp_scale
-            res += np.sum(w_hosp * ((df["hospitalized"].values - hosp_arr) / hosp_scale) ** 2)
-        return float(res)
-
-    x0     = [val for _, val, _   in free_params]
-    bounds = [bnd for _, _,   bnd in free_params]
-
-    if x0:
-        result = minimize(objective, x0, method="L-BFGS-B", bounds=bounds,
-                          options={"maxiter": 2000, "ftol": 1e-12, "gtol": 1e-8})
-        p = _unpack(result.x)
-        converged = result.success
-    else:
-        p = _unpack([])
-        converged = True
-
-    beta_fit      = p["beta"]
-    sigma_fit     = p["sigma"]
-    gamma_fit     = p["gamma"]
-    hosp_rate_fit = p["hosp_rate"]
-    gamma_h_fit   = p["gamma_h"]
-    mu_fit        = p["mu"]
-    seed_fit      = int(round(p["seed"]))
-    N_fit         = int(round(p["N"]))
-
-    fitted_df = run_seir(beta_fit, sigma_fit, gamma_fit, hosp_rate_fit, gamma_h_fit,
-                         mu_fit, N_fit, seed_fit, days)
-    r0  = beta_fit / (gamma_fit + hosp_rate_fit)
-    hfr = mu_fit / (gamma_h_fit + mu_fit)
-    ifr = (hosp_rate_fit / (gamma_fit + hosp_rate_fit)) * hfr
-    fixed_str = f" [fixed: {', '.join(sorted(fixed))}]" if fixed else ""
-    print(f"  Fit converged={converged}  β={beta_fit:.4f}  σ={sigma_fit:.4f}  "
-          f"γ={gamma_fit:.4f}  h={hosp_rate_fit:.4f}  γ_h={gamma_h_fit:.4f}  μ={mu_fit:.5f}  "
-          f"seed={seed_fit}  R0={r0:.2f}  HFR={hfr:.4f}  IFR={ifr:.4f}{fixed_str}")
-    return beta_fit, sigma_fit, gamma_fit, hosp_rate_fit, gamma_h_fit, mu_fit, seed_fit, fitted_df
 
 
 def parse_file_with_label(file_spec):
@@ -1207,7 +1021,7 @@ def plot_source_stack(ax, epicast_data, exaepi_data, model, title):
 
 
 
-def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results=None):
+def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None):
     """Plot time series data from multiple files.
 
     Both epicast_data and exaepi_data are lists of group dicts:
@@ -1219,8 +1033,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
     Args:
         label: the data series to plot (e.g., 'exposed', 'symptomatic')
         seir_dfs: optional list of (curve_index, resolved_params, df) from run_seir()/
-            run_seirhd_erlang(), one per --seir curve (see _resolve_seir_params)
-        fit_results: optional list of (series_label, color, beta, sigma, gamma, fitted_df)
+            run_seirhd_erlang(), one per --seir_from_ini curve (see _resolve_seir_params)
     """
     epicast_colors = ["blue", "darkblue", "royalblue", "steelblue", "navy", "cornflowerblue"]
     exaepi_colors  = ["red", "darkred", "crimson", "firebrick", "maroon", "indianred"]
@@ -1249,20 +1062,11 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
     )
 
     # Second reference for SEIRHD curves specifically: the first ExaEpi group's curve, shifted
-    # by that group's own shift, so SEIRHD overlays/fits can be scored against both models.
+    # by that group's own shift, so SEIRHD overlays can be scored against both models.
     exaepi_reference_y = (
         _shift_array(_get_group_y(exaepi_data[0], exaepi_col, args.xlimit), shift_by_group[0], args.xlimit)
         if exaepi_data else None
     )
-
-    # Plot fitted SEIRHD curves first (under experimental lines)
-    if fit_results and seir_col is not None:
-        for (series_lbl, _, _, _, _, _, _, _, _, fdf) in fit_results:
-            fit_y = fdf[seir_col].values[: args.xlimit]
-            ax.plot(np.arange(len(fit_y)), fit_y, color="green", linewidth=2, linestyle="-", zorder=1)
-            auc = np.sum(fit_y)
-            fit_lbl = f"SEIRHD fit ({series_lbl})" if series_lbl else "SEIRHD fit"
-            auc_lines.append((fit_lbl, auc, "green", False, _shift_array(fit_y, 0, args.xlimit), False, True))
 
     def _plot_group(entry, i, base_colors, col, x_col=None, x_shift=0.0):
         """Plot one group entry; return (legend_label, auc, color, is_wildcard, y_for_gof)."""
@@ -1317,7 +1121,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
                                               x_col="Day", x_shift=shift_by_group[i])
         auc_lines.append((lbl, auc, color, is_wc, y_for_gof, False, False))
 
-    # Plot each manual SEIRHD curve (one per --seir curve; see _resolve_seir_params)
+    # Plot each SEIRHD curve (one per --seir_from_ini curve; see _resolve_seir_params)
     if seir_dfs and seir_col is not None:
         multi = len(seir_dfs) > 1
         for i, (idx, p, seir_df) in enumerate(seir_dfs):
@@ -1326,7 +1130,8 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
             short_lbl = f"SEIRHD {idx}" if multi else "SEIRHD"
             ax.plot(
                 np.arange(len(seir_y)), seir_y,
-                label=f"{short_lbl} (β={p['beta']}, h={p['hosp_rate']}, μ={p['mu']})",
+                label=f"{short_lbl} (β={p['beta']:.4g}, h={p['hosp_rate']:.4g}, "
+                      f"μ={p['mu']:.4g})",
                 color=color, linewidth=1.5, linestyle="-",
             )
             auc_lines.append((short_lbl, np.sum(seir_y), color, False,
@@ -1362,9 +1167,6 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
     if seir_dfs and seir_col is not None:
         for _, _p, seir_df in seir_dfs:
             max_vals.append(seir_df[seir_col].values[: args.xlimit].max())
-    if fit_results and seir_col is not None:
-        for (_, _c, _b, _s, _g, _h, _gh, _d, _sd, fdf) in fit_results:
-            max_vals.append(fdf[seir_col].values[: args.xlimit].max())
     if args.ylimit is not None:
         ax.set_ylim([0, args.ylimit])
     elif max_vals:
@@ -1379,16 +1181,16 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
     # cumulative curve, since it rises into the upper-right area)
     if col_name == "cumulative_exposed":
         # Collect (label, text, color) in the same top-to-bottom order used by the other plots'
-        # AUC block below (fit_results, then Epicast, then ExaEpi, then manual SEIRHD). Unlabelled
-        # entries are still printed (with a "(unlabelled)" fallback) but skip the on-plot text,
-        # matching the other plots' behavior.
+        # AUC block below (Epicast, then ExaEpi, then the SEIRHD curves). Unlabelled entries are
+        # still printed (with a "(unlabelled)" fallback) but skip the on-plot text, matching the
+        # other plots' behavior.
         text_entries = []
 
         def summary(max_val, pop):
             """What this curve's final cumulative count says, as the share of the population it
             reached, as (on-plot text, console text). A count on its own means nothing without the
             population behind it, and the two models' counts are not even on the same axis as a
-            SEIRHD curve's, which is run at whatever --N it was given. Falls back to the raw count
+            SEIRHD curve's, which is run at the population its own .ini names. Falls back to the raw count
             where there is no population to divide by (see --population).
 
             The console keeps the count alongside the rate; the panel does not, since it is a
@@ -1399,15 +1201,6 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
             rate = f"attack rate {100.0 * max_val / pop:.1f}%"
             return rate, f"{rate} ({max_val:,.0f})"
 
-        if fit_results and seir_col is not None:
-            for (fit_series_lbl, _c, _b, _s, _g, _h, _gh, _d, _sd, fdf) in fit_results:
-                max_val = float(fdf[seir_col].values[: args.xlimit].max())
-                lbl_str = f"SEIRHD fit ({fit_series_lbl})" if fit_series_lbl else "SEIRHD fit"
-                # A fit runs at the population it was fitted with (fit_seir holds N fixed at
-                # --N), not at the data's own.
-                text, logged = summary(max_val, float(args.N))
-                print(f"  {lbl_str}: {logged}")
-                text_entries.append((lbl_str, text, "green"))
         for i, entry in enumerate(epicast_data):
             legend_label = entry["label"]
             color = epicast_colors[i % len(epicast_colors)]
@@ -1439,7 +1232,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
             for i, (idx, p, seir_df) in enumerate(seir_dfs):
                 max_val = float(seir_df[seir_col].values[: args.xlimit].max())
                 short_lbl = f"SEIRHD {idx}" if multi else "SEIRHD"
-                # Each curve is run at its own --N (see _resolve_seir_params).
+                # Each curve is run at the N derived from its own .ini.
                 text, logged = summary(max_val, float(p["N"]))
                 print(f"  {short_lbl}: {logged}")
                 text_entries.append((short_lbl, text, seir_colors[i % len(seir_colors)]))
@@ -1579,48 +1372,57 @@ parser.add_argument(
          "either way.",
 )
 MAX_SEIR_CURVES = 9
-parser.add_argument(
-    "--seir", action="store_true", default=False,
-    help="Overlay one or more SEIR model curves using the parameters below. To plot more than "
-         "one curve, append a number 1-9 to any of --beta/--sigma/--gamma/--hosp_rate/"
-         "--gamma_h/--mu/--N/--seed/--kE/--kI/--kD (e.g. --beta2 0.6) to override that "
-         "parameter for curve N only; curve N falls back to the unnumbered flag for any "
-         "parameter not given a numbered override. Curve 1 always runs (using the unnumbered "
-         "flags unless overridden by e.g. --beta1); curves 2-9 run only if at least one "
-         "numbered flag references them.",
-)
-parser.add_argument(
-    "--erlang", action="store_true", default=False,
-    help="With --seir, use run_seirhd_erlang (gamma-distributed E/I sojourn times) "
-         "instead of run_seir (exponential), for every curve",
-)
-parser.add_argument(
-    "--fit", action="store_true", default=False,
-    help="Fit an SEIR model to each experimental series and overlay the fitted curves",
-)
-# Per-curve SEIRHD parameters: each is registered both bare (the shared default/fallback,
-# documented here) and with numbered siblings --<name>1 .. --<name>{MAX_SEIR_CURVES} (undocumented
-# in --help, see --seir) that override it for one curve -- see _resolve_seir_params.
+# Every flag belonging to the SEIRHD overlay carries this prefix, so --help groups them and
+# nothing here can be confused with a flag about the plotted data. The table below names them
+# without it -- the prefix goes on at registration, and _seir_flag puts it back when reading.
+SEIR_FLAG_PREFIX = "seir_"
+# SEIRHD curves are only ever plotted from an .ini: --seir_from_ini both turns the overlay on
+# and says where its parameters come from, so there is no way to get a curve built out of
+# stale defaults. Everything the .ini determines -- sigma, gamma, hosp_rate, gamma_h, mu, kE,
+# kI and N -- is derived and has no flag. What is left here is the three things no disease
+# parameter fixes, plus kD.
+#
+# Each is registered bare (the shared value, documented in --help) and with numbered siblings
+# --seir_<name>1 .. --seir_<name>{MAX_SEIR_CURVES} (hidden from --help) that override it for
+# one curve, so several curves can be compared in a single plot -- see _resolve_seir_params.
 _SEIR_PARAM_ARGS = [
-    ("kE",        int,   3,           "SEIRHD-Erlang number of E sub-stages (default: 3)"),
-    ("kI",        int,   4,           "SEIRHD-Erlang number of I sub-stages (default: 4)"),
-    ("kD",        int,   1,           "SEIRHD-Erlang number of sub-stages in the hospitalization-to-"
-                                       "discharge chain (shared by both the recovery and death "
-                                       "outcomes -- see run_seirhd_erlang) (default: 1, i.e. a single "
-                                       "exponential stage, identical to run_seir)"),
-    ("beta",      float, 0.48,        "SEIR transmission rate (default: 0.44)"),
-    ("sigma",     float, 0.263,       "SEIR E→I progression rate (default: 0.3)"),
-    ("gamma",     float, 0.152,       "SEIR I→R recovery rate (default: 0.17)"),
-    ("hosp_rate", float, 0.042,       "SEIRHD I→H hospitalisation rate (default: 0.01)"),
-    ("gamma_h",   float, 0.162,       "SEIRHD H→R hospital recovery rate (default: 0.1)"),
-    ("mu",        float, 0.017,       "SEIRHD H→D death rate (default: 0.005)"),
-    ("N",         int,   2_100_000,   "SEIRHD total population (default: 1800000)"),
-    ("seed",      int,   12000,       "SEIRHD initial infectious count (default: 1000)"),
+    ("from_ini",   str,   None,
+     "plot a SEIRHD curve whose parameters are derived from this ExaEpi .ini: sigma, gamma, "
+     "hosp_rate, gamma_h, mu, kE, kI and N, obtained by replaying ExaEpi's own per-agent "
+     "disease lifecycle over the age composition of the UrbanPop population the .ini names "
+     "(see seirhd_params.py). No simulation output is read. Without this flag no SEIRHD curve "
+     "is plotted. To plot several, number the flags: --seir_from_ini2 for a second .ini, or "
+     "e.g. --seir_rate_scale2 to vary one knob against the same .ini"),
+    ("r0",         float, None,
+     "R0 for the curve, which sets beta = R0 * (gamma + hosp_rate). beta is the one SEIRHD "
+     "parameter that no disease parameter determines -- it depends on the contact network -- "
+     "so it has to be fitted, and going through R0 keeps it consistent with the derived rates "
+     "instead of silently changing R0 whenever they change. Required with --seir_from_ini"),
+    ("seed",       int,   None,
+     "initial infectious count. Not derivable either: it is a phase offset, since an ODE "
+     "started from the .ini's handful of index cases cannot line up with a stochastic "
+     "take-off. Required with --seir_from_ini"),
+    ("rate_scale", float, 1.0,
+     "multiply beta/sigma/gamma/hosp_rate/gamma_h/mu by this factor. R0 and every branch "
+     "fraction are invariant under it, so it rescales time alone: >1 gives a taller, narrower "
+     "peak at an earlier day, <1 a flatter, broader one, with the same final attack rate"),
+    ("kD",         int,   1,
+     "sub-stages in the hospitalisation-to-discharge chain (see run_seirhd_erlang). Left out "
+     "of the derivation deliberately: it is the one shape that barely reaches the plotted "
+     "curves, since admissions come from the I chain and carry no kD at all. 1 makes H a "
+     "single exponential compartment"),
 ]
+_SEIR_PARAM_DEFAULTS = {_name: _default for _name, _, _default, _ in _SEIR_PARAM_ARGS}
+# Registered with default=None rather than the real default so _resolve_seir_params can tell
+# "not given" from "given a value that happens to equal the default". The documented default
+# is generated from the table instead of being restated in each help string, which is how the
+# two came to disagree before, back when the parameters were all stated by hand.
 for _name, _typ, _default, _help in _SEIR_PARAM_ARGS:
-    parser.add_argument(f"--{_name}", type=_typ, default=_default, help=_help)
+    _flag = f"--{SEIR_FLAG_PREFIX}{_name}"
+    _suffix = "" if _default is None else f" (default: {_default})"
+    parser.add_argument(_flag, type=_typ, default=None, help=_help + _suffix)
     for _i in range(1, MAX_SEIR_CURVES + 1):
-        parser.add_argument(f"--{_name}{_i}", type=_typ, default=None, help=argparse.SUPPRESS)
+        parser.add_argument(f"{_flag}{_i}", type=_typ, default=None, help=argparse.SUPPRESS)
 parser.add_argument(
     "--stack_window", type=int, default=1, metavar="DAYS",
     help="Smooth the 'Source Stack ...' panels with a centered moving average of this many days "
@@ -1638,38 +1440,93 @@ parser.add_argument(
         + ", ".join(f"'{n}'" for n in SOURCE_PLOT_NAMES + SOURCE_STACK_PLOT_NAMES) + ". "
         "'Source Fractions' is a legacy alias that expands to all of the per-context "
         "'Source: ...' plots, and 'Source Stack' expands to both 'Source Stack (...)' plots. "
-        "Default: all 8 (or Exposed/Recovered/Cumulative Exposed when --seir/--fit is used)."
+        "Default: all 8 (or Exposed/Recovered/Cumulative Exposed when --seir_from_ini is used)."
     ),
 )
 args = parser.parse_args()
 
-# Track which SEIR parameters were explicitly set so fitting can hold them fixed.
-_seir_params = {"beta", "sigma", "gamma", "hosp_rate", "gamma_h", "mu", "N", "seed"}
+# The flags actually given, which is how the numbered per-curve overrides are spotted below.
 _argv_flags = set()
 for _tok in sys.argv[1:]:
     if _tok.startswith("--"):
         _argv_flags.add(_tok.lstrip("-").split("=")[0])
-fit_fixed = {p for p in _seir_params if p in _argv_flags}
 
-# Which --seir curves were requested: curve 1 always runs; curves 2+ run only if at least one
-# --<param>N flag referencing them was passed (see _SEIR_PARAM_ARGS/_resolve_seir_params).
+# Which SEIRHD curves to plot, and with what. A curve exists only where an .ini resolves for
+# it -- curve 1 from the bare --seir_from_ini, curve N from --seir_from_ini{N} or from the bare
+# one when some other numbered flag (say --seir_rate_scale3) references N. With no .ini
+# anywhere, there are no curves.
 _SEIR_PARAM_NAMES = [name for name, *_ in _SEIR_PARAM_ARGS]
 _seir_curve_indices = {1}
 for _flag in _argv_flags:
     for _name in _SEIR_PARAM_NAMES:
-        if _flag.startswith(_name) and _flag[len(_name):].isdigit():
-            _seir_curve_indices.add(int(_flag[len(_name):]))
-_seir_curve_indices = sorted(_seir_curve_indices)
+        _prefixed = SEIR_FLAG_PREFIX + _name
+        if _flag.startswith(_prefixed) and _flag[len(_prefixed):].isdigit():
+            _seir_curve_indices.add(int(_flag[len(_prefixed):]))
+
+# Deriving costs a Monte Carlo over the agent lifecycle and, the first time, a pass over the
+# UrbanPop .bin, so several curves sharing an .ini should only pay for it once.
+_derived_seir_cache = {}
+
+
+def _derive_seir_params(ini):
+    """SEIRHD rates implied by an ExaEpi .ini (see seirhd_params.params_from_ini)."""
+    if ini not in _derived_seir_cache:
+        derivation = seirhd_params.params_from_ini(ini)
+        print(f"Derived SEIRHD rates from {ini}")
+        print(f"  age composition: {derivation.age_source}")
+        print("  " + "  ".join(
+            f"{k}={v:.6g}" if isinstance(v, float) else f"{k}={v}"
+            for k, v in derivation.rates.items()))
+        _derived_seir_cache[ini] = derivation.rates
+    return _derived_seir_cache[ini]
+
+
+# beta and the rates it is scaled alongside. kE/kI/kD are shapes and N/seed are counts, none of
+# which a --seir_rate_scale should touch -- scaling exactly these six is what leaves R0 and
+# every branch fraction invariant.
+_SEIR_RATE_NAMES = ("beta", "sigma", "gamma", "hosp_rate", "gamma_h", "mu")
+
+
+def _seir_flag(idx, name):
+    """The value of --seir_<name>{idx} if given, else the shared bare --seir_<name>. `name` is
+    the table's unprefixed spelling, which is also the key the model uses for it."""
+    prefixed = SEIR_FLAG_PREFIX + name
+    numbered = getattr(args, f"{prefixed}{idx}")
+    return numbered if numbered is not None else getattr(args, prefixed)
 
 
 def _resolve_seir_params(idx):
-    """Per-curve SEIRHD parameters for --seir curve `idx`: the numbered --<name>{idx} override
-    if given, else the shared/bare --<name> value."""
-    resolved = {}
-    for name in _SEIR_PARAM_NAMES:
-        numbered = getattr(args, f"{name}{idx}")
-        resolved[name] = numbered if numbered is not None else getattr(args, name)
+    """Everything run_seirhd_erlang needs for curve `idx`: the rates and shapes derived from
+    that curve's .ini, with --seir_r0 supplying beta and --seir_rate_scale applied to the
+    result."""
+    ini = _seir_flag(idx, "from_ini")
+    resolved = dict(_derive_seir_params(ini))
+    for name in ("seed", "kD", "rate_scale", "r0"):
+        value = _seir_flag(idx, name)
+        resolved[name] = _SEIR_PARAM_DEFAULTS[name] if value is None else value
+
+    resolved["beta"] = resolved["r0"] * (resolved["gamma"] + resolved["hosp_rate"])
+    for name in _SEIR_RATE_NAMES:
+        resolved[name] *= resolved["rate_scale"]
     return resolved
+
+
+_seir_curve_indices = sorted(i for i in _seir_curve_indices
+                             if _seir_flag(i, "from_ini") is not None)
+for _idx in _seir_curve_indices:
+    for _required in ("r0", "seed"):
+        if _seir_flag(_idx, _required) is None:
+            parser.error(f"--seir_from_ini needs --{SEIR_FLAG_PREFIX}{_required} as well "
+                         f"(curve {_idx}): it is not derivable from disease parameters, see "
+                         f"its --help entry")
+    # Every one of these has to be strictly positive for the model to mean anything, and
+    # without the check a bad value surfaces far from its cause -- a --seir_rate_scale of 0
+    # in particular zeroes every rate and only shows up as a ZeroDivisionError inside the ODE.
+    for _positive in ("r0", "seed", "rate_scale", "kD"):
+        _value = _seir_flag(_idx, _positive)
+        if _value is not None and _value <= 0:
+            parser.error(f"--{SEIR_FLAG_PREFIX}{_positive} must be greater than zero "
+                         f"(curve {_idx}), got {_value}")
 
 ALL_PLOTS = [
     "Exposed", "Symptomatic", "Presymptomatic", "Asymptomatic",
@@ -1858,8 +1715,8 @@ if args.shift == "auto":
 else:
     shift_by_group = [args.shift] * len(exaepi_data)
 
-# Population behind the Cumulative Exposed panel's attack rate. SEIRHD curves carry their own N
-# (--N), so they are converted with that instead, not with this.
+# Population behind the Cumulative Exposed panel's attack rate. SEIRHD curves carry their own N,
+# derived from their .ini, so they are converted with that instead, not with this.
 population = args.population
 if population is None and exaepi_data:
     population = _exaepi_population(exaepi_data[0]["dfs"][0])
@@ -1876,67 +1733,22 @@ for _entry, _shift in zip(exaepi_data, shift_by_group):
     for _fname, _df in zip(_entry["fnames"], _entry["dfs"]):
         _write_exaepi_csv(_fname, _df, _shift)
 
-# seir_dfs: list of (curve_index, resolved_params, df), one per requested --seir curve
+# seir_dfs: list of (curve_index, resolved_params, df), one per --seir_from_ini curve
 # (curve 1 plus any curve N referenced by a --<param>N override -- see _seir_curve_indices).
 seir_dfs = []
-if args.seir:
-    for _idx in _seir_curve_indices:
-        _p = _resolve_seir_params(_idx)
-        if len(_seir_curve_indices) > 1:
-            print(f"SEIRHD curve {_idx}:")
-        if args.erlang:
-            _df = run_seirhd_erlang(_p["beta"], _p["sigma"], _p["gamma"], _p["hosp_rate"], _p["gamma_h"],
-                                     _p["mu"], _p["N"], _p["seed"], args.xlimit,
-                                     kE=_p["kE"], kI=_p["kI"], kD=_p["kD"])
-        else:
-            _df = run_seir(_p["beta"], _p["sigma"], _p["gamma"], _p["hosp_rate"], _p["gamma_h"],
-                            _p["mu"], _p["N"], _p["seed"], args.xlimit)
-        seir_dfs.append((_idx, _p, _df))
-
-# fit_results: list of (label, color, beta, sigma, gamma, h, gamma_h, mu, seed, fitted_df)
-fit_results = []
-if args.fit:
-    epicast_colors = ["blue", "darkblue", "royalblue", "steelblue", "navy", "cornflowerblue"]
-    exaepi_colors  = ["red", "darkred", "crimson", "firebrick", "maroon", "indianred"]
-
-    for i, entry in enumerate(epicast_data):
-        lbl   = entry["label"] or f"Epicast {i+1}"
-        color = epicast_colors[i % len(epicast_colors)]
-        print(f"Fitting SEIRHD to {lbl} ...")
-        if entry["is_wildcard"] and len(entry["dfs"]) > 1:
-            exp  = _align_arrays(entry["dfs"], "exposed",      args.xlimit).mean(axis=0)
-            dead = _align_arrays(entry["dfs"], "dead",         args.xlimit).mean(axis=0)
-            hosp = _align_arrays(entry["dfs"], "hospitalized", args.xlimit).mean(axis=0)
-        else:
-            df   = entry["dfs"][0]
-            exp, dead, hosp = df["exposed"].values, df["dead"].values, df["hospitalized"].values
-        b, s, g, h, gh, d, sd, fdf = fit_seir(exp, dead, hosp, args.N, args.seed,
-                                               args.xlimit, fixed=fit_fixed)
-        fit_results.append((lbl, color, b, s, g, h, gh, d, sd, fdf))
-
-    for i, entry in enumerate(exaepi_data):
-        lbl   = entry["label"] or f"ExaEpi {i+1}"
-        color = exaepi_colors[i % len(exaepi_colors)]
-        print(f"Fitting SEIRHD to {lbl} ...")
-        if entry["is_wildcard"] and len(entry["dfs"]) > 1:
-            new_i = _align_arrays(entry["dfs"], "NewI",       args.xlimit).mean(axis=0)
-            ddead = _align_arrays(entry["dfs"], "delta_dead", args.xlimit).mean(axis=0)
-            new_h = _align_arrays(entry["dfs"], "NewH",       args.xlimit).mean(axis=0)
-        else:
-            df    = entry["dfs"][0]
-            new_i, ddead, new_h = df["NewI"].values, df["delta_dead"].values, df["NewH"].values
-        b, s, g, h, gh, d, sd, fdf = fit_seir(new_i, ddead, new_h, args.N, args.seed,
-                                               args.xlimit, fixed=fit_fixed)
-        fit_results.append((lbl, color, b, s, g, h, gh, d, sd, fdf))
+for _idx in _seir_curve_indices:
+    _p = _resolve_seir_params(_idx)
+    if len(_seir_curve_indices) > 1:
+        print(f"SEIRHD curve {_idx}:")
+    _df = run_seirhd_erlang(_p["beta"], _p["sigma"], _p["gamma"], _p["hosp_rate"], _p["gamma_h"],
+                             _p["mu"], _p["N"], _p["seed"], args.xlimit,
+                             kE=_p["kE"], kI=_p["kI"], kD=_p["kD"])
+    seir_dfs.append((_idx, _p, _df))
 
 if args.plots is not None:
     selected_plots = args.plots
-elif args.seir or fit_results:
-    show_hosp = args.hosp_rate != 0
-    if show_hosp:
-        selected_plots = ["Exposed", "Cumulative Exposed", "Hospitalized", "Dead", "Recovered"]
-    else:
-        selected_plots = ["Exposed", "Cumulative Exposed", "Recovered"]
+elif seir_dfs:
+    selected_plots = ["Exposed", "Cumulative Exposed", "Hospitalized", "Dead", "Recovered"]
 else:
     selected_plots = [p for p in ALL_PLOTS
                       if p != "Context" and p not in SOURCE_PLOT_NAMES
@@ -1974,8 +1786,7 @@ for i, plot_name in enumerate(selected_plots):
         plot_source_stack(axes[i], epicast_data, exaepi_data, _SOURCE_STACK_TO_MODEL[plot_name],
                            plot_name)
     else:
-        plot_series(axes[i], epicast_data, exaepi_data, plot_name,
-                    seir_dfs=seir_dfs, fit_results=fit_results)
+        plot_series(axes[i], epicast_data, exaepi_data, plot_name, seir_dfs=seir_dfs)
 
 for i in range(n, len(axes)):
     axes[i].set_visible(False)
