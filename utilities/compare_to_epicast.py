@@ -575,6 +575,13 @@ _ENVELOPE_SMOOTH_WINDOW = 9
 # min/max. Overridden by --band (see _smoothed_band).
 _DEFAULT_BAND_COVERAGE = 100.0
 
+# Fill opacity for a spread band. Drawn with no edge at all, not merely a matching one: passing
+# fill_between a single `color=` sets the face AND the edge, and at alpha the two compound wherever
+# they overlap, ringing every band in a darker outline that reads as a plotted boundary rather than
+# as the edge of a shaded region -- particularly misleading here, where the band's edges are
+# percentiles across runs and not any run's own curve.
+_BAND_ALPHA = 0.18
+
 
 def _smoothed_band(y_mat, coverage=_DEFAULT_BAND_COVERAGE, window=_ENVELOPE_SMOOTH_WINDOW):
     """Pointwise central-`coverage`-percent interval across the rows in y_mat (files x days),
@@ -916,8 +923,9 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
                       f"[{min(peak_days)}, {max(peak_days)}]  std={np.std(peak_days):.1f}d")
                 if args.band > 0:
                     band_lo, band_hi = _smoothed_band(y_mat, args.band)
-                    ax.fill_between(x[: y_mat.shape[1]], band_lo, band_hi, alpha=0.25, color="blue",
-                                    zorder=1, label="Epicast" if args.band_only else "_nolegend_")
+                    ax.fill_between(x[: y_mat.shape[1]], band_lo, band_hi, alpha=_BAND_ALPHA,
+                                    facecolor="blue", edgecolor="none", zorder=1,
+                                    label="Epicast" if args.band_only else "_nolegend_")
                     band_drawn = True
             # See _plot_group in plot_series: --band_only leaves the band to speak for the group,
             # but only where there is one, so a group is never silently left off the plot.
@@ -950,8 +958,9 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
                       f"[{min(peak_days)}, {max(peak_days)}]  std={np.std(peak_days):.1f}d")
                 if args.band > 0:
                     band_lo, band_hi = _smoothed_band(y_mat, args.band)
-                    ax.fill_between(x[: y_mat.shape[1]], band_lo, band_hi, alpha=0.25, color="red",
-                                    zorder=1, label="ExaEpi" if args.band_only else "_nolegend_")
+                    ax.fill_between(x[: y_mat.shape[1]], band_lo, band_hi, alpha=_BAND_ALPHA,
+                                    facecolor="red", edgecolor="none", zorder=1,
+                                    label="ExaEpi" if args.band_only else "_nolegend_")
                     band_drawn = True
             # See _plot_group in plot_series: --band_only leaves the band to speak for the group,
             # but only where there is one, so a group is never silently left off the plot.
@@ -1262,7 +1271,8 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results
             band_drawn = False
             if args.band > 0:
                 band_lo, band_hi = _smoothed_band(y_mat, args.band)
-                ax.fill_between(x_vals, band_lo, band_hi, alpha=0.25, color=color, zorder=1,
+                ax.fill_between(x_vals, band_lo, band_hi, alpha=_BAND_ALPHA, facecolor=color,
+                                edgecolor="none", zorder=1,
                                 label=plot_label if args.band_only else "_nolegend_")
                 band_drawn = True
             # --band_only leaves the band to speak for the group; with no band to draw (--band 0)
