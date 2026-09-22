@@ -109,21 +109,21 @@ def load_exaepi(fname):
 
     print(f"ExaEpi total infected/exposed {df.NewI.sum()}")
 
-    print(f"ExaEpi hospitalized by age:")
+    #print(f"ExaEpi hospitalized by age:")
     ages = ["U5", "5to17", "18to29", "30to49", "50to64", "O64"]
     for i in range(len(ages)):
         num_symp = float(df["Symp" + ages[i]].to_numpy().sum())
         num_hosp = float(df["Hosp" + ages[i]].to_numpy().sum())
         frac_hosp = num_hosp / num_symp if num_symp > 0 else float("nan")
-        print(f"  {ages[i]:8s}   {num_hosp:8.0f} {frac_hosp:.3f}")
+        #print(f"  {ages[i]:8s}   {num_hosp:8.0f} {frac_hosp:.3f}")
 
     tot_symp = float(df.NewS.sum())
     tot_hosp = float(df.NewH.sum())
     tot_exposed = float(df.NewI.sum())
     frac_symp = tot_symp / tot_exposed if tot_exposed > 0 else float("nan")
     frac_hosp = tot_hosp / tot_symp if tot_symp > 0 else float("nan")
-    print(f"ExaEpi total symptomatic {tot_symp} {frac_symp:.2f}")
-    print(f"ExaEpi total hospitalized {tot_hosp} {frac_hosp:.2f}")
+    #print(f"ExaEpi total symptomatic {tot_symp} {frac_symp:.2f}")
+    #print(f"ExaEpi total hospitalized {tot_hosp} {frac_hosp:.2f}")
 
     if not fname.startswith("adjusted"):
         transformed_df = df.copy()
