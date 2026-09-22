@@ -16,11 +16,11 @@ using float32_t = amrex::ParticleReal;
 
 namespace UrbanPop {
 
-const size_t NUM_COLS = 18;
+const size_t NUM_COLS = 19;
 
 /*! Layout version of the .bin this header can read, checked against the file header by
     readBlockGroupsFile -- see BIN_FORMAT_VERSION in upop_to_exaepi.py. */
-const uint32_t FORMAT_VERSION = 3;
+const uint32_t FORMAT_VERSION = 4;
 
 const int NAICS_COUNT = 251;
 static string naics_descriptions[NAICS_COUNT] =
@@ -369,6 +369,7 @@ struct UrbanPopAgent {
     int64_t home_geoid;
     int64_t work_geoid;
     int32_t school_class_group;
+    int32_t work_group;
     int16_t naics;
     int16_t household_id;
     int16_t school_id;
@@ -401,20 +402,21 @@ struct UrbanPopAgent {
             home_geoid = stol(tokens[1]);
             work_geoid = stol(tokens[2]);
             school_class_group = stoi(tokens[3]);
-            naics = stoi(tokens[4]);
-            household_id = stoi(tokens[5]);
-            school_id = stoi(tokens[6]);
-            nborhood = stoi(tokens[7]);
-            work_nborhood = stoi(tokens[8]);
-            workgroup = stoi(tokens[9]);
-            hh_cluster = stoi(tokens[10]);
-            school_class = stoi(tokens[11]);
-            age = stoi(tokens[12]);
-            sex = stoi(tokens[13]);
-            race = stoi(tokens[14]);
-            travel = stoi(tokens[15]);
-            veh_occ = stoi(tokens[16]);
-            grade = stoi(tokens[17]);
+            work_group = stoi(tokens[4]);
+            naics = stoi(tokens[5]);
+            household_id = stoi(tokens[6]);
+            school_id = stoi(tokens[7]);
+            nborhood = stoi(tokens[8]);
+            work_nborhood = stoi(tokens[9]);
+            workgroup = stoi(tokens[10]);
+            hh_cluster = stoi(tokens[11]);
+            school_class = stoi(tokens[12]);
+            age = stoi(tokens[13]);
+            sex = stoi(tokens[14]);
+            race = stoi(tokens[15]);
+            travel = stoi(tokens[16]);
+            veh_occ = stoi(tokens[17]);
+            grade = stoi(tokens[18]);
 
         } catch (const std::exception& ex) {
             std::ostringstream os;
@@ -429,9 +431,10 @@ struct UrbanPopAgent {
         includes alignment padding the file does not have. Checked against the .bin header so a
         field added or widened here without a FORMAT_VERSION bump still fails loudly. */
     static constexpr size_t record_size () {
-        return sizeof(int64_t) + sizeof(int64_t) + sizeof(int64_t) + sizeof(int32_t) + sizeof(int16_t) + sizeof(int16_t) +
+        return sizeof(int64_t) + sizeof(int64_t) + sizeof(int64_t) + sizeof(int32_t) + sizeof(int32_t) + sizeof(int16_t) +
                sizeof(int16_t) + sizeof(int16_t) + sizeof(int16_t) + sizeof(int16_t) + sizeof(int16_t) + sizeof(int16_t) +
-               sizeof(int8_t) + sizeof(int8_t) + sizeof(int8_t) + sizeof(int8_t) + sizeof(int8_t) + sizeof(int8_t);
+               sizeof(int16_t) + sizeof(int8_t) + sizeof(int8_t) + sizeof(int8_t) + sizeof(int8_t) + sizeof(int8_t) +
+               sizeof(int8_t);
     }
 
     friend std::ostream& operator<<(std::ostream& os, const UrbanPopAgent& agent) {
@@ -440,6 +443,7 @@ struct UrbanPopAgent {
         os << agent.home_geoid << ",";
         os << agent.work_geoid << ",";
         os << agent.school_class_group << ",";
+        os << agent.work_group << ",";
         os << agent.naics << (agent.naics != -1 ? ":" + naics_descriptions[agent.naics] : "") << ",";
         os << agent.household_id << ",";
         os << agent.school_id << ",";
@@ -478,6 +482,7 @@ class AgentFrame {
         m_home_geoid = takeColumn<int64_t>(p, num_agents);
         m_work_geoid = takeColumn<int64_t>(p, num_agents);
         m_school_class_group = takeColumn<int32_t>(p, num_agents);
+        m_work_group = takeColumn<int32_t>(p, num_agents);
         m_naics = takeColumn<int16_t>(p, num_agents);
         m_household_id = takeColumn<int16_t>(p, num_agents);
         m_school_id = takeColumn<int16_t>(p, num_agents);
@@ -501,6 +506,7 @@ class AgentFrame {
         agent.home_geoid = m_home_geoid[i];
         agent.work_geoid = m_work_geoid[i];
         agent.school_class_group = m_school_class_group[i];
+        agent.work_group = m_work_group[i];
         agent.naics = m_naics[i];
         agent.household_id = m_household_id[i];
         agent.school_id = m_school_id[i];
@@ -531,6 +537,7 @@ class AgentFrame {
     const int64_t* m_home_geoid;
     const int64_t* m_work_geoid;
     const int32_t* m_school_class_group;
+    const int32_t* m_work_group;
     const int16_t* m_naics;
     const int16_t* m_household_id;
     const int16_t* m_school_id;

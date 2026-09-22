@@ -40,7 +40,9 @@ DUMP_INTERMEDIATES = False
 #   3: agents are stored as one independently-compressed frame per home GEOID, laid out column
 #      by column inside the frame; the index entry carries the frame's compressed size and the
 #      header carries a codec field
-BIN_FORMAT_VERSION = 3
+#   4: added work_group, a globally dense id for the (work block group, NAICS, workgroup) team
+#      that InteractionModWork.H keys transmission on -- see assign_work_groups
+BIN_FORMAT_VERSION = 4
 
 # Codec for the per-GEOID agent frames, written into the file header. The field exists so a
 # future codec can be added without another format version bump; ExaEpi implements both of these.
@@ -2880,6 +2882,7 @@ def assign_groups(df: pl.DataFrame, args) -> pl.DataFrame:
             "home_geoid",
             "work_geoid",
             "school_class_group",
+            "work_group",
             "naics",
             "household_id",
             "school_id",

@@ -157,6 +157,8 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
         write_int_comp.push_back(static_cast<int>(step == 0));
         int_varnames.push_back("workgroup");
         write_int_comp.push_back(static_cast<int>(step == 0));
+        int_varnames.push_back("work_group");
+        write_int_comp.push_back(static_cast<int>(step == 0));
         int_varnames.push_back("work_nborhood");
         write_int_comp.push_back(static_cast<int>(step == 0));
         int_varnames.push_back("withdrawn");

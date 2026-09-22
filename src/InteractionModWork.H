@@ -30,16 +30,16 @@ class InteractionModWork {
     void fastInteractWork(PCType& agents);
 
   private:
-    /*! Per-OMP-thread scratch tallies of infectious workers, indexed by (community, workgroup,
-        naics) -- see fastInteractWork below. These are members, not locals of fastInteractWork,
-        because on a CPU build Gpu::DeviceVector is a PODVector over a plain std::allocator
-        (AMReX_GpuContainers.H) with no arena behind it: a function-local one re-mallocs the whole
-        buffer every timestep and then takes a first-touch page fault per 4 KB page during the
-        devMemset that follows. At CA scale that buffer is O(100 MB) per box, so the fault path
-        alone was a large fraction of this function's run time. PODVector::resize reallocates only
-        when growing past capacity, so as members these grow to the largest box's size during the
-        first step and are reused untouched from then on. On a GPU build this changes nothing --
-        The_Arena already caches the allocation across calls. */
+    /*! Per-OMP-thread scratch tallies of infectious workers, indexed by IntIdx::work_group -- one
+        entry per work-group that actually exists, so ~4 bytes per real team rather than one per
+        (community, workgroup, naics) triple the data could in principle contain.
+
+        These are members, not locals of fastInteractWork, because on a CPU build Gpu::DeviceVector
+        is a PODVector over a plain std::allocator (AMReX_GpuContainers.H) with no arena behind it,
+        so a function-local one re-mallocs and re-faults the buffer every timestep. PODVector::resize
+        reallocates only when growing past capacity, so as members these settle after the first step
+        and are reused untouched. On a GPU build this changes nothing -- The_Arena already caches the
+        allocation across calls. */
     Vector<Gpu::DeviceVector<int>> m_infected_workgroup_d;
     Vector<Gpu::DeviceVector<int>> m_infected_workgroup_asymp_d;
 };
@@ -59,8 +59,7 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
     for (int lev = 0; lev < agents.numLevels(); ++lev) {
         // getMaxGroup performs an MPI collective on first use per attribute -- must be called
         // once, single-threaded, here, never from inside the omp-parallel region below.
-        int max_workgroup = agents.getMaxGroup(IntIdx::workgroup) + 1;
-        int max_naics = agents.getMaxGroup(IntIdx::naics) + 1;
+        int max_work_group = agents.getMaxGroup(IntIdx::work_group) + 1;
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -72,30 +71,14 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
             if (np == 0) { continue; }
 
             auto& soa = ptile.GetStructOfArrays();
-            auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
-            auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
+            auto work_group_ptr = soa.GetIntData(IntIdx::work_group).data();
 
-            GetCommunityIndex<PTDType> getCommunityIndex;
-            getCommunityIndex.init(agents.Geom(lev), mfi.tilebox(), agents.comm_mf[mfi].array());
-            auto plo = getCommunityIndex.plo;
-            auto dxi = getCommunityIndex.dxi;
-            auto domain = getCommunityIndex.domain;
-            auto valid_box = getCommunityIndex.valid_box;
-            auto bin_size = getCommunityIndex.bin_size;
-            auto comm_to_local_index_d = getCommunityIndex.comm_to_local_index_d;
-
-            int max_communities = getCommunityIndex.max();
-
-            m_infected_workgroup_d[OMP_THREAD_NUM].resize(max_communities * max_workgroup * max_naics);
+            m_infected_workgroup_d[OMP_THREAD_NUM].resize(max_work_group);
             auto infected_workgroup_d_ptr = m_infected_workgroup_d[OMP_THREAD_NUM].data();
 
-            m_infected_workgroup_asymp_d[OMP_THREAD_NUM].resize(max_communities * max_workgroup * max_naics);
+            m_infected_workgroup_asymp_d[OMP_THREAD_NUM].resize(max_work_group);
             auto infected_workgroup_asymp_d_ptr = m_infected_workgroup_asymp_d[OMP_THREAD_NUM].data();
 
-            // Print() << mfi.tilebox() << " np " << np << " max communities " << max_communities
-            //         << " max workgroup " << max_workgroup << " max naics " << max_naics
-            //         << " workgroup vector size " << max_communities * max_workgroup * max_naics
-            //         << "\n";
             for (int d = 0; d < n_disease; d++) {
                 devMemset(infected_workgroup_d_ptr, 0, m_infected_workgroup_d[OMP_THREAD_NUM].size() * sizeof(int));
                 devMemset(infected_workgroup_asymp_d_ptr, 0, m_infected_workgroup_asymp_d[OMP_THREAD_NUM].size() * sizeof(int));
@@ -105,15 +88,10 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
                 auto lparm_h = agents.getDiseaseParameters_h(d);
                 Real scale = 1.0_rt; // TODO this should vary based on cell
                 Real infect = 1.0_rt - lparm_h->vac_eff;
-                auto d_ptr = getCommunityIndex.comm_to_local_index_d.data();
 
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                     if (isInfectious(i, ptd, d) && isCandidate(i, ptd)) {
-                        Box tbx;
-                        auto iv = getParticleCell(ptd, i, plo, dxi, domain);
-                        auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
-                        auto community = d_ptr[tidx];
-                        int wgroup_i = (community * max_workgroup + workgroup_ptr[i]) * max_naics + naics_ptr[i];
+                        int wgroup_i = work_group_ptr[i];
                         if (isAsymptomatic(i, ptd, d) || isPresymptomatic(i, ptd, d)) {
                             Gpu::Atomic::AddNoRet(&infected_workgroup_asymp_d_ptr[wgroup_i], 1);
                         } else {
@@ -125,11 +103,7 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
 
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                     if (isSusceptible(i, ptd, d) && isCandidate(i, ptd)) {
-                        Box tbx;
-                        auto iv = getParticleCell(ptd, i, plo, dxi, domain);
-                        auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
-                        auto community = d_ptr[tidx];
-                        int wgroup_i = (community * max_workgroup + workgroup_ptr[i]) * max_naics + naics_ptr[i];
+                        int wgroup_i = work_group_ptr[i];
                         int num_infected_workgroup = infected_workgroup_d_ptr[wgroup_i];
                         Real workgroup_prob = 1.0_prt - infect * lparm->xmit_work * scale;
                         prob_ptr[i] *= static_cast<ParticleReal>(std::pow(workgroup_prob, num_infected_workgroup));

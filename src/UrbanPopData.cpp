@@ -583,6 +583,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         auto school_closed_ptr = soa.GetIntData(IntIdx::school_closed).data();
         auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
+        auto work_group_ptr = soa.GetIntData(IntIdx::work_group).data();
         auto work_nborhood_ptr = soa.GetIntData(IntIdx::work_nborhood).data();
         auto school_class_ptr = soa.GetIntData(IntIdx::school_class).data();
         auto school_class_group_ptr = soa.GetIntData(IntIdx::school_class_group).data();
@@ -674,11 +675,15 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             nborhood_ptr[i] = agent.nborhood;
             hh_cluster_ptr[i] = agent.hh_cluster;
             workgroup_ptr[i] = agent.workgroup;
+            work_group_ptr[i] = agent.work_group;
             work_nborhood_ptr[i] = agent.work_nborhood;
             school_class_ptr[i] = agent.school_class;
             school_class_group_ptr[i] = agent.school_class_group;
             AMREX_ASSERT(nborhood_ptr[i] >= 0 && work_nborhood_ptr[i] >= 0 && workgroup_ptr[i] >= 0 && hh_cluster_ptr[i] >= 0);
             AMREX_ASSERT((agent.school_id != 0) == (school_class_group_ptr[i] >= 0));
+            // work_group is the bucket InteractionModWork.H tallies into and workgroup is the
+            // flag WorkCandidate gates on, so the two must agree on exactly who is at a workplace
+            AMREX_ASSERT((agent.workgroup > 0) == (work_group_ptr[i] >= 0));
 
             if (agent.naics != -1 && agent.school_id == 0 && agent.travel == TRAVEL::_wfh) {
                 // Declared work-from-home: no real commute, so spend the day at home. Still

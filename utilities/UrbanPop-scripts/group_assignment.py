@@ -41,6 +41,11 @@ TRAVEL_WFH = 7
 NO_SCHOOL_CLASS = 0
 NO_SCHOOL_CLASS_GROUP = -1
 
+# Agents who do not go to a workplace get this for `work_group`, mirroring NO_SCHOOL_CLASS_GROUP.
+# InteractionModWork.H never indexes on it: WorkCandidate already excludes everyone whose
+# `workgroup` is 0, which is exactly this set.
+NO_WORK_GROUP = -1
+
 
 @dataclass
 class GroupParams:
@@ -239,7 +244,21 @@ def assign_work_groups(
     default_target: int,
     rng: np.random.Generator,
 ) -> pl.DataFrame:
-    """Add `workgroup`.
+    """Add `workgroup` and `work_group`.
+
+    `workgroup` is the team id within one (work block group, NAICS) pair; `work_group` is a
+    globally dense id for the same team, numbered across the whole population. The two carry
+    identical information -- work_group is a bijection with the (work block group, NAICS,
+    workgroup) triple -- but only work_group is a single small integer.
+
+    That matters because the (block group, NAICS, workgroup) triple is what transmission is keyed
+    on, and InteractionModWork.H used to tally it into an array indexed by that triple directly:
+    max_communities * max_workgroup * max_naics entries, the last two being global maxima. At CA
+    scale that is 43M slots per box holding at most ~133k workers -- 0.3% occupied, ~173 MB, zeroed
+    every timestep -- because every community gets room for the busiest (community, NAICS) pair in
+    the country across all 251 NAICS codes. Indexing on work_group instead makes the array one
+    entry per team that actually exists. This is the same reason school_class_group exists
+    alongside school_class (see assign_school_groups and InteractionModSchool.H).
 
     Only agents who physically go to a workplace get a real work-group: employed (naics != -1),
     not an educator (school_id == 0) and not declared work-from-home. The two exclusions are
@@ -269,10 +288,14 @@ def assign_work_groups(
 
     # default: not at a workplace -- no work-group
     workgroup = np.zeros(n, dtype=np.int64)
+    work_group = np.full(n, NO_WORK_GROUP, dtype=np.int64)
 
     eligible = np.flatnonzero((naics != -1) & (school_id == 0) & (travel != TRAVEL_WFH))
     if len(eligible) == 0:
-        return df.with_columns(pl.Series("workgroup", workgroup, dtype=pl.Int16))
+        return df.with_columns(
+            pl.Series("workgroup", workgroup, dtype=pl.Int16),
+            pl.Series("work_group", work_group, dtype=pl.Int32),
+        )
 
     # Shuffle before grouping, then rely on lexsort being stable: workers end up in a random
     # order within each (work block group, NAICS) run, so slicing them into establishments below
@@ -305,6 +328,12 @@ def assign_work_groups(
     grp_ends = np.append(grp_starts[1:], n_elig)
 
     out_workgroup = np.empty(n_elig, dtype=np.int64)
+    out_work_group = np.empty(n_elig, dtype=np.int64)
+
+    # running count of teams emitted so far, which is what makes work_group dense and global:
+    # each (block group, NAICS) group's 1-based team ids are simply shifted past every team
+    # already numbered
+    n_work_groups = 0
 
     n_establishments = 0
     for g in range(len(grp_starts)):
@@ -329,7 +358,14 @@ def assign_work_groups(
         # workgroup 0 means "not working", so real work-groups are 1-based
         out_workgroup[lo:hi] = team_base[est_of_worker] + (pos_in_est % n_teams[est_of_worker]) + 1
 
+        # The same teams, numbered globally instead of per group. Every team id in 1..n_teams.sum()
+        # is used -- n_teams is never larger than its establishment's size, so `pos_in_est %
+        # n_teams` reaches every team -- which is what keeps this dense rather than merely unique.
+        out_work_group[lo:hi] = n_work_groups + out_workgroup[lo:hi] - 1
+        n_work_groups += int(n_teams.sum())
+
     workgroup[sidx] = out_workgroup
+    work_group[sidx] = out_work_group
 
     if sampler.missing_keys:
         print(
@@ -337,10 +373,15 @@ def assign_work_groups(
             f"bands; their workplaces were all sized at the target work-group size",
             file=sys.stderr,
         )
-    print(f"  {len(eligible)} workers in {n_establishments} establishments")
+    print(f"  {len(eligible)} workers in {n_establishments} establishments, {n_work_groups} work-groups")
 
     _check_fits_int16("workgroup", workgroup)
-    return df.with_columns(pl.Series("workgroup", workgroup, dtype=pl.Int16))
+    if n_work_groups > np.iinfo(np.int32).max:
+        raise SystemExit("error: work_group overflowed the int32 field used for it in the .bin")
+    return df.with_columns(
+        pl.Series("workgroup", workgroup, dtype=pl.Int16),
+        pl.Series("work_group", work_group, dtype=pl.Int32),
+    )
 
 
 # --------------------------------------------------------------------------------------------

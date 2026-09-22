@@ -65,7 +65,15 @@ struct IntIdx {
                                  UrbanPop-scripts/group_assignment.py / InteractionModSchool.H. -1 for
                                  agents not enrolled (school_id == 0) */
         naics,              /*!< industry NAICS code for business employed at */
-        workgroup,          /*!< workgroup ID */
+        workgroup,          /*!< workgroup ID, unique only within this agent's (work community,
+                                 naics) pair -- diagnostic, and the "is this agent at a workplace
+                                 at all" flag (0 == not working, checked by WorkCandidate). The
+                                 transmission bucket itself is work_group below */
+        work_group,         /*!< compact, densely-packed ID for this agent's actual (work
+                                 community, naics, workgroup) mixing bucket -- the work analogue of
+                                 school_class_group, and what InteractionModWork.H tallies into.
+                                 -1 for agents not at a workplace (workgroup == 0) -- see
+                                 UrbanPop-scripts/group_assignment.py */
         work_nborhood,      /*!< work neighborhood ID */
         withdrawn,          /*!< quarantine status */
         random_travel,      /*!< on long distance travel? */
@@ -379,6 +387,7 @@ void setAgentData (PTDType& ptd, int ip, int i, int j, const amrex::GpuArray<amr
     ptd.m_idata[IntIdx::hh_cluster][ip] = family / 4;
     ptd.m_idata[IntIdx::work_nborhood][ip] = nborhood;
     ptd.m_idata[IntIdx::workgroup][ip] = 0;
+    ptd.m_idata[IntIdx::work_group][ip] = -1;
     ptd.m_idata[IntIdx::naics][ip] = 0;
     ptd.m_idata[IntIdx::school_class][ip] = 0;
     ptd.m_idata[IntIdx::school_class_group][ip] = -1;
