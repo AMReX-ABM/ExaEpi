@@ -109,7 +109,29 @@ def log_spaced_integer_bins(vmin, vmax, max_bins=50):
     return np.logspace(np.log10(vmin), np.log10(vmax), n_bins + 1)
 
 
-def nice_linear_bins(vmin, vmax, target_bins=50):
+# How many bins the narrowest distribution on a panel has to be resolved into, whatever the
+# combined range is (see nice_linear_bins). Deliberately well below the whole panel's target: the
+# narrow series only needs enough bins to show its shape, not the same resolution as the wide one.
+MIN_BINS_FOR_NARROWEST = 25
+
+# ...and the floor that stops that from overshooting: average samples per bin, for whichever series
+# has the fewest in view. Finer bins resolve a tight distribution but also expose counting noise in
+# a sparse one, and past a point the panel is showing sampling scatter rather than shape -- New
+# Mexico has 1,982 ExaEpi schools in view against California's 24,358, so the same width that reads
+# as a smooth curve for one is visibly spiky for the other.
+MIN_SAMPLES_PER_BIN = 25
+
+
+def core_span(sizes, lo_pct=1, hi_pct=99):
+    """The x-range a distribution actually occupies, ignoring its tails.
+
+    Percentiles rather than min/max because a single outlier -- one 70,000-agent university among
+    California's 25,612 schools -- says nothing about how much room the distribution needs.
+    """
+    return float(np.percentile(sizes, hi_pct) - np.percentile(sizes, lo_pct))
+
+
+def nice_linear_bins(vmin, vmax, target_bins=50, resolve_span=None, sparsest_count=None):
     """Linear bin edges from ~vmin to vmax, with a "nice" width (1/2/5 x a power of 10) instead
     of vmax-vmin split into an arbitrary number of equal pieces.
 
@@ -119,9 +141,23 @@ def nice_linear_bins(vmin, vmax, target_bins=50):
     bins naturally do (every integer tick is trivially some bin's center when width=1). An
     arbitrary width (e.g. span/50) has no such relationship to the ticks, so they end up looking
     like they're aligned to bin edges in some spots and nothing in particular elsewhere.
+
+    `resolve_span`, if given, is a second, narrower range that also has to come out with enough
+    bins to read; the width is then whichever of the two demands is finer. Two overlaid
+    distributions share one set of bins (they have to, to be compared as densities), so a width
+    sized only by the combined range starves whichever of them is tightly clustered: California's
+    school sizes run to 1,200 on the ExaEpi side while 99.8% of Epicast's sit below 250, which at
+    the 50-wide bins that range implies left the entire Epicast distribution drawn as five bars.
+
+    `sparsest_count`, if given, is how many values the thinnest-sampled series has in view, and
+    caps how far that refinement can go (MIN_SAMPLES_PER_BIN).
     """
     span = max(vmax - vmin, 1e-9)
     raw_width = span / target_bins
+    if resolve_span:
+        raw_width = min(raw_width, resolve_span / MIN_BINS_FOR_NARROWEST)
+    if sparsest_count:
+        raw_width = max(raw_width, span / max(1.0, sparsest_count / MIN_SAMPLES_PER_BIN))
     magnitude = 10 ** np.floor(np.log10(raw_width))
     width = next((m * magnitude for m in (1, 2, 5, 10) if m * magnitude >= raw_width), 10 * magnitude)
     first_center = np.floor(vmin / width) * width
@@ -253,7 +289,14 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, weight_
             bins = (
                 np.arange(combined_min - 0.5, bin_max + 1.5, 1.0)
                 if span <= max_integer_bins
-                else nice_linear_bins(combined_min, bin_max)
+                # Sized so the tighter of the two distributions is resolved too, not just the
+                # combined range, and no finer than the sparser one can support -- see
+                # nice_linear_bins.
+                else nice_linear_bins(
+                    combined_min, bin_max,
+                    resolve_span=min(core_span(epicast_sizes), core_span(exaepi_sizes)),
+                    sparsest_count=min((epicast_sizes <= bin_max).sum(), (exaepi_sizes <= bin_max).sum()),
+                )
             )
             # nice_linear_bins() anchors bin centers to global multiples of the bin width (so
             # they land on the same "nice" values matplotlib's tick locator picks -- see its
