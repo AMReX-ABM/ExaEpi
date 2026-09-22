@@ -48,17 +48,6 @@ _EXAEPI_SOURCE_MAPPING = {
     "school":                 ["ESchool"],
 }
 
-# The two halves of the "neighborhood_community" bucket, added as EXTRA columns alongside it
-# rather than in place of it: anything compared against Epicast has to keep using the merged
-# bucket (Epicast has no separate neighborhood and community contexts to compare against), so only
-# the stacked-composition panel -- which shows one model at a time and has nothing to match --
-# splits it. Day and night are still summed together within each half, since the merged bucket
-# they add up to is the one Epicast's single context corresponds to.
-_EXAEPI_SOURCE_SPLIT = {
-    "neighborhood": ["ENbhD", "ENbhN"],
-    "community":    ["ECommD", "ECommN"],
-}
-
 
 def _add_exaepi_source_fractions(df):
     """Add "<source>_frac" columns to df: each source bucket's expected-infection contribution
@@ -66,15 +55,12 @@ def _add_exaepi_source_fractions(df):
     day's own total) -- see the matching normalization in aggregate_infections_by_source, which
     this must match for the two models' curves to be comparable. No-op (columns simply absent
     downstream) if the run wasn't started with context_diag=true.
-
-    The _EXAEPI_SOURCE_SPLIT sub-buckets are normalized by that same grand total, so they stay
-    directly comparable with (and add up to) the merged bucket they came from.
     """
     needed_cols = [c for cols in _EXAEPI_SOURCE_MAPPING.values() for c in cols]
     if not all(c in df.columns for c in needed_cols):
         return df
     grand_total = df[needed_cols].to_numpy().sum()
-    for source, cols in {**_EXAEPI_SOURCE_MAPPING, **_EXAEPI_SOURCE_SPLIT}.items():
+    for source, cols in _EXAEPI_SOURCE_MAPPING.items():
         bucket_sum = df[cols].sum(axis=1)
         df[source + "_frac"] = (bucket_sum / grand_total) if grand_total > 0 else 0.0
     return df
@@ -954,54 +940,69 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
                 row += 1
 
 
-# Bottom-to-top stacking order for the "Source Stack ..." panels, and one color per source.
+# Bottom-to-top stacking order for the stacked-composition panels, and one color per source.
 # "other" (Epicast's ctx_customer/ctx_bar_social bucket -- see _CONTEXT_TO_SOURCE) has no ExaEpi
 # counterpart in _EXAEPI_SOURCE_MAPPING, so it simply doesn't appear on the ExaEpi panel.
-# The colors reuse _CONTEXT_COLS' per-context hues where the buckets correspond, so a source keeps
-# the same color it has on the Context panel.
 _SOURCE_STACK_ORDER = ["household", "cluster", "neighborhood_community", "work", "school", "other"]
 
-# Sources that are drawn as two adjacent sub-bands where the model reports both halves, and as one
-# band where it doesn't. ExaEpi has separate neighborhood and community contexts
-# (_EXAEPI_SOURCE_SPLIT); Epicast records a single merged one, so its panel keeps the single band.
-# The children take the parent's slot in _SOURCE_STACK_ORDER, in the order listed here, which keeps
-# the stack running outward from the household and keeps the pair contiguous -- so the two shades
-# together still occupy the band that reads as Epicast's one green.
-_SOURCE_STACK_SPLIT = {"neighborhood_community": ("neighborhood", "community")}
-
-# Shorter than _SOURCE_LABELS: these go in a multi-column legend inside a half-page-wide panel, and
-# the full names ("Neighborhood+Comm") make it wider than the panel itself at PLOS's 8pt legend font.
+# Shorter than _SOURCE_LABELS: these go in one legend row spanning the figure, and the full names
+# ("Neighborhood+Comm") make it wider than the figure itself at PLOS's 8pt legend font.
 _SOURCE_STACK_LABELS = {
     "household":              "Household",
-    "cluster":                "Cluster",
+    "cluster":                "HH Cluster",
     "neighborhood_community": "Nbhd+Comm",
-    "neighborhood":           "Nbhd",
-    "community":              "Comm",
     "work":                   "Work",
     "school":                 "School",
     "other":                  "Other",
 }
+
+# Muted versions of the tab10 hues the Context panel uses (_CONTEXT_COLS), so a source still reads
+# as the same color there, just softer -- solid bands covering the whole axes at full tab10
+# saturation are much louder than the thin lines those hues were picked for.
+#
+# Chosen against the categorical-palette checks rather than by eye, in the stacking order below,
+# since that is the order the bands actually touch in. Two results worth recording:
+#
+#   * The pair that decides the palette is Household/Cluster, and the tab10 pair it replaces
+#     (#d62728/#8c564b) FAILED outright -- 14.6 normal-vision dE, below the 15 floor, and 4.6 under
+#     protanopia. Muting alone makes that worse, because chroma is what carries the separation; what
+#     fixes it is stepping LIGHTNESS along the stack (dark red, light tan, mid green, dark blue,
+#     light orange), which survives color-vision deficiency where hue alone does not. This palette
+#     comes out at 16.9 normal-vision and 6.8 protan, so it is both softer and better separated.
+#   * 6.8 is inside the band that needs a secondary encoding to be legible, which is what the white
+#     boundary line between bands in plot_source_stack provides (it is also just a good idea on a
+#     stacked chart). The low-chroma warning is inherent to the ask: muted means less chroma.
+#
+# "other" stays neutral gray, the usual convention for a catch-all bucket, and never appears
+# alongside the rest in any checked run anyway.
 _SOURCE_STACK_COLORS = {
-    "household":              "tab:red",
-    "cluster":                "tab:brown",
-    "neighborhood_community": "tab:green",
-    # Two shades either side of tab:green (#2ca02c), from the same ColorBrewer Greens ramp, so a
-    # split panel's pair still reads as "the green band" against an unsplit panel's single one.
-    "neighborhood":           "#1b7837",
-    "community":              "#7bc87c",
-    "work":                   "tab:blue",
-    "school":                 "tab:orange",
-    "other":                  "tab:gray",
+    "household":              "#a85252",
+    "cluster":                "#d6a677",
+    "neighborhood_community": "#5f9e6e",
+    "work":                   "#4c72a8",
+    "school":                 "#e39c4e",
+    "other":                  "#9a9a9a",
 }
 
 # One panel per model: a stacked composition is a single model's breakdown, so unlike the
-# "Source: ..." line panels the two models can't share one axes.
+# "Source: ..." line panels the two models can't share one axes. The -p name has to say which
+# panel it selects; the panel's own title doesn't, since the two sit side by side and the figure
+# is only ever about these two models -- so it's just the model name.
 SOURCE_STACK_PLOT_NAMES = ["Source Stack (Epicast)", "Source Stack (ExaEpi)"]
+_SOURCE_STACK_TITLES = {"epicast": "Epicast", "exaepi": "ExaEpi"}
 
-# Blank fraction of the axes left above the bars for the legend (see plot_source_stack): enough for
-# the two rows of three entries the six sources need at FONT_LEGEND, in a panel of this figure's
-# per-panel height.
-_STACK_LEGEND_HEADROOM = 0.38
+# Filled by plot_source_stack, {label: bar container}, in stacking order. Both panels draw the same
+# sources, so one legend serves them both; it's added to the FIGURE once every panel is drawn (see
+# after the plotting loop) rather than per-axes, which would repeat it and eat into the plot area.
+SOURCE_STACK_HANDLES = {}
+
+# Blank fraction of the axes left above the bars, so a day-0 marker's rotated label has somewhere
+# to go: the bars fill 0..1, and the label would otherwise sit on top of whichever band is at the
+# top. Reserved on every stacked panel, including those with no marker to place, because the panels
+# are meant to be read against each other and would otherwise be drawn at different y-scales. The
+# legend needs no room here -- it is a single figure-level one along the bottom (see the
+# SOURCE_STACK_HANDLES block after the plotting loop).
+_STACK_LABEL_HEADROOM = 0.15
 _SOURCE_STACK_TO_MODEL = {
     "Source Stack (Epicast)": "epicast",
     "Source Stack (ExaEpi)":  "exaepi",
@@ -1039,25 +1040,12 @@ def _daily_source_composition(entry, xlimit, window=1):
     Days with no infections at all get all-zero fractions (an empty column in the plot), since
     there's no mix to report.
 
-    A source listed in _SOURCE_STACK_SPLIT is drawn as its two sub-bands where this group's files
-    report both of them, and as the single merged band where they don't -- so the same panel code
-    gives ExaEpi separate neighborhood and community bands and Epicast, which only has the merged
-    context, one.
-
     Returns (keys, frac) where keys are the sources actually present and nonzero, in stacking
     order, and frac is a (len(keys) x n_days) array -- or None if this group has no source columns
     at all (i.e. an ExaEpi run without context_diag=true).
     """
     dfs = entry["dfs"]
-    cols = dfs[0].columns
-
-    keys = []
-    for key in _SOURCE_STACK_ORDER:
-        parts = _SOURCE_STACK_SPLIT.get(key)
-        if parts and all((p + "_frac") in cols for p in parts):
-            keys.extend(parts)
-        elif (key + "_frac") in cols:
-            keys.append(key)
+    keys = [k for k in _SOURCE_STACK_ORDER if (k + "_frac") in dfs[0].columns]
     if not keys:
         return None
 
@@ -1091,21 +1079,21 @@ def plot_source_stack(ax, epicast_data, exaepi_data, model, title):
     plot_single_source, and it's drawn at that group's own shift so it lines up day-for-day with
     the other panels.
     """
-    ax.set_title(title)
+    ax.set_title(_SOURCE_STACK_TITLES[model])
     ax.set_xlabel("Days")
-    ax.set_ylabel("Fraction of day's infections")
+    # Shorter than "Fraction of day's infections": a rotated label is bounded by the axes HEIGHT,
+    # and the figure legend along the bottom takes enough of it that the longer text is clipped.
+    # "day's" is what the x-axis already says.
+    ax.set_ylabel("Fraction of infections")
     ax.set_xlim([0, args.xlimit])
-    # The bars fill 0..1, so a legend drawn inside the axes covers real data wherever it goes
-    # (unlike the line panels, where there's usually empty space). Extend the y-axis past 1 to
-    # leave an empty strip along the top for the legend to sit in, and keep the ticks at 0..1 so
-    # the extra room doesn't read as part of the scale.
-    ax.set_ylim([0, 1 + _STACK_LEGEND_HEADROOM])
-    ax.set_yticks(np.arange(0, 1.01, 0.2))
-
     if model == "epicast":
         data, day_col, shift = epicast_data, "day", epicast_shift
     else:
         data, day_col, shift = exaepi_data, "Day", (shift_by_group[0] if shift_by_group else 0.0)
+
+    # The ticks stay at 0..1 so the reserved strip doesn't read as part of the scale.
+    ax.set_ylim([0, 1 + _STACK_LABEL_HEADROOM])
+    ax.set_yticks(np.arange(0, 1.01, 0.2))
 
     print(title)
 
@@ -1125,21 +1113,29 @@ def plot_source_stack(ax, epicast_data, exaepi_data, model, title):
 
     bottom = np.zeros(n)
     for key, y in zip(keys, frac):
-        ax.bar(x, y, bottom=bottom, width=1.0, linewidth=0, color=_SOURCE_STACK_COLORS[key],
-               label=_SOURCE_STACK_LABELS[key], zorder=2)
+        bar = ax.bar(x, y, bottom=bottom, width=1.0, linewidth=0, color=_SOURCE_STACK_COLORS[key],
+                     label=_SOURCE_STACK_LABELS[key], zorder=2)
         bottom += y
+        if key is not keys[-1]:
+            # Thin surface-colored line along each band's top edge. Two jobs: it separates bands
+            # that a reader with a color-vision deficiency would otherwise have to tell apart by
+            # hue alone (the Cluster/Nbhd+Comm pair is close enough under protanopia to need it --
+            # see _SOURCE_STACK_COLORS), and it makes the boundary itself, which is the thing the
+            # panel is actually about, legible against the grid.
+            ax.step(x, bottom, where="mid", color="white", linewidth=0.6, zorder=3)
+        SOURCE_STACK_HANDLES.setdefault(_SOURCE_STACK_LABELS[key], bar)
         # The run-wide share of each source, i.e. what its slice would be if the whole run were a
         # single bar -- the one number the per-day picture doesn't show directly.
         overall = float(np.mean([df[key + "_frac"].values[:n].sum() for df in entry["dfs"]]))
         print(f"  {_SOURCE_STACK_LABELS[key]:20s} run-wide share: {overall:.3f}")
 
-    # Same day-0 marker the other panels draw, but with its label held below the legend strip
-    # (_mark_exaepi_start isn't used here for exactly that reason -- it has no label_top).
+    # Same day-0 marker the other panels draw, but with its label held in the strip reserved above
+    # the bars (_mark_exaepi_start isn't used here for exactly that reason -- it has no label_top).
     if shift:
         mark_label, mark_color = (("ExaEpi day 0", "red") if model == "exaepi"
                                   else ("Epicast day 0", "blue"))
         _mark_day_zero(ax, shift, mark_label, mark_color, _format_shift(shift),
-                       label_top=1.0 / (1.0 + _STACK_LEGEND_HEADROOM) - 0.02)
+                       label_top=1.0 / (1.0 + _STACK_LABEL_HEADROOM) - 0.02)
 
     # Same major+minor grid as every other panel here, with two differences forced by the bars:
     # it's drawn over them (set_axisbelow(False)) and in white rather than the default gray, since
@@ -1150,14 +1146,7 @@ def plot_source_stack(ax, epicast_data, exaepi_data, model, title):
     ax.grid(True, which="minor", color="white", alpha=0.2, linewidth=AXES_LINEWIDTH)
     ax.minorticks_on()
 
-    # fontsize comes from rcParams (FONT_LEGEND), as on every other panel; only the geometry is set
-    # here, tightened so six entries fit three-to-a-row inside a half-page-wide panel.
-    # Anchored so the box's bottom edge sits just above data y=1, i.e. entirely inside the blank
-    # strip _STACK_LEGEND_HEADROOM reserved: an opaque legend merely placed "upper center" hangs
-    # down over the top of the stack and hides whichever source is thin up there (School, here).
-    ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0 / (1.0 + _STACK_LEGEND_HEADROOM)),
-              ncols=3, framealpha=1.0, borderaxespad=0.0, borderpad=0.3,
-              handlelength=1.0, handletextpad=0.4, columnspacing=0.8)
+
 
 
 def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None, fit_results=None):
@@ -1875,6 +1864,14 @@ for i, plot_name in enumerate(selected_plots):
 
 for i in range(n, len(axes)):
     axes[i].set_visible(False)
+
+if SOURCE_STACK_HANDLES:
+    # One legend for every stacked panel, in one row under the whole figure. "outside lower center"
+    # makes constrained_layout reserve space for it instead of overlaying the axes, so it costs the
+    # panels nothing and stays put however many of them there are.
+    fig.legend(SOURCE_STACK_HANDLES.values(), SOURCE_STACK_HANDLES.keys(),
+               loc="outside lower center", ncols=len(SOURCE_STACK_HANDLES), frameon=False,
+               handlelength=1.0, handletextpad=0.5, columnspacing=1.5)
 
 # plt.suptitle("ExaEpi vs Epicast Comparison", y=1.05)
 plt.savefig(args.output, dpi=300)
