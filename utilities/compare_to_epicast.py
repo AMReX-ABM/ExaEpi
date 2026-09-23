@@ -595,8 +595,8 @@ def _mark_day_zero(ax, x, label, color, sublabel=None, label_top=0.98):
     says by *how much*, which otherwise has to be read off the axis by eye.
 
     `label_top` is the axes-fraction height the (rotated, top-aligned) label hangs down from;
-    lower it on a panel whose top strip is spoken for, e.g. the legend headroom the stacked-source
-    panels reserve (see _STACK_LEGEND_HEADROOM), where the default runs the text behind the legend.
+    lower it on a panel whose top strip is spoken for by something the default would run the
+    label behind.
 
     Call this after the axes' x-limits are set: a marker for a negative shift lands left of the
     plotted range, where the vertical line is clipped away, and the sublabel is suppressed to
@@ -868,13 +868,6 @@ _SOURCE_STACK_TITLES = {"epicast": "Epicast", "exaepi": "ExaEpi"}
 # after the plotting loop) rather than per-axes, which would repeat it and eat into the plot area.
 SOURCE_STACK_HANDLES = {}
 
-# Blank fraction of the axes left above the bars, so a day-0 marker's rotated label has somewhere
-# to go: the bars fill 0..1, and the label would otherwise sit on top of whichever band is at the
-# top. Reserved on every stacked panel, including those with no marker to place, because the panels
-# are meant to be read against each other and would otherwise be drawn at different y-scales. The
-# legend needs no room here -- it is a single figure-level one along the bottom (see the
-# SOURCE_STACK_HANDLES block after the plotting loop).
-_STACK_LABEL_HEADROOM = 0.15
 _SOURCE_STACK_TO_MODEL = {
     "Source Stack (Epicast)": "epicast",
     "Source Stack (ExaEpi)":  "exaepi",
@@ -953,18 +946,16 @@ def plot_source_stack(ax, epicast_data, exaepi_data, model, title):
     """
     ax.set_title(_SOURCE_STACK_TITLES[model])
     ax.set_xlabel("Days")
-    # Shorter than "Fraction of day's infections": a rotated label is bounded by the axes HEIGHT,
-    # and the figure legend along the bottom takes enough of it that the longer text is clipped.
-    # "day's" is what the x-axis already says.
-    ax.set_ylabel("Fraction of infections")
+    ax.set_ylabel("Source fraction")
     ax.set_xlim([0, args.xlimit])
     if model == "epicast":
         data, day_col, shift = epicast_data, "day", epicast_shift
     else:
         data, day_col, shift = exaepi_data, "Day", (shift_by_group[0] if shift_by_group else 0.0)
 
-    # The ticks stay at 0..1 so the reserved strip doesn't read as part of the scale.
-    ax.set_ylim([0, 1 + _STACK_LABEL_HEADROOM])
+    # The bars fill the axes exactly: every day's fractions sum to 1, so there is nothing above 1
+    # to show and a taller axes would only add empty space.
+    ax.set_ylim([0, 1])
     ax.set_yticks(np.arange(0, 1.01, 0.2))
 
     print(title)
@@ -1001,13 +992,12 @@ def plot_source_stack(ax, epicast_data, exaepi_data, model, title):
         overall = float(np.mean([df[key + "_frac"].values[:n].sum() for df in entry["dfs"]]))
         print(f"  {_SOURCE_STACK_LABELS[key]:20s} run-wide share: {overall:.3f}")
 
-    # Same day-0 marker the other panels draw, but with its label held in the strip reserved above
-    # the bars (_mark_exaepi_start isn't used here for exactly that reason -- it has no label_top).
+    # Same day-0 marker the other panels draw. _mark_exaepi_start isn't used here because this
+    # panel also marks Epicast's day 0, in that model's color.
     if shift:
         mark_label, mark_color = (("ExaEpi day 0", "red") if model == "exaepi"
                                   else ("Epicast day 0", "blue"))
-        _mark_day_zero(ax, shift, mark_label, mark_color, _format_shift(shift),
-                       label_top=1.0 / (1.0 + _STACK_LABEL_HEADROOM) - 0.02)
+        _mark_day_zero(ax, shift, mark_label, mark_color, _format_shift(shift))
 
     # Same major+minor grid as every other panel here, with two differences forced by the bars:
     # it's drawn over them (set_axisbelow(False)) and in white rather than the default gray, since
