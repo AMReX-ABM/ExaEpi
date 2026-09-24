@@ -263,6 +263,31 @@ changed.
 The cap of 86 on the target size follows the Epicast 2.0 paper, which limits work-group size "based
 on studies of workplace contact patterns"; see `related/epicast.pdf`.
 
+### `read_moe_fit_rates.py`
+
+Extracts the published ACS estimates and margins of error that UrbanPop's P-MEDM run was fitted
+against, from the `moe_fit_rates_<state>.pkl` that ships in each `data/UrbanPop/base/<NN>_XX/`
+directory. That file is the P-MEDM diagnostic of section 3.6.1 of `related/urbanpop.pdf`: a dict
+keyed by PUMA, each value holding a `Ycomp` frame indexed by 12-digit block group GEOID with
+columns `constraint, acs, pmedm, err, moe, in_moe`, plus a scalar `moe_fit_rate`.
+
+```
+python utilities/UrbanPop-scripts/read_moe_fit_rates.py --state 35 --output data/UrbanPop/acs_moe_35.csv
+```
+
+`--constraints` selects which of the 266 constraints to keep (default `population`; pass `all` for
+every one). The output carries a `se` column, `moe / 1.645`, since the ACS publishes margins of
+error at 90% confidence.
+
+The point of reading them from here rather than re-fetching from the Census API is that these are
+the margins the *delivered* population was actually fitted against, so they cannot drift out of
+step with it. For New Mexico the per-block-group coefficient of variation on population has a
+median of 0.160, which is the scale any proposed source of population variation has to reach to be
+worth sampling.
+
+The pickles were written with `dill`. The script carries a small shim so it loads with stock
+`pickle` if `dill` is not installed, which is why it works regardless of the environment.
+
 ### `check_nt_dt.py`
 
 Also provided is a script `check_nt_dt.py`, which compares the results generated from the LODES flows

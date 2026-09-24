@@ -58,6 +58,46 @@ the static aggregated diagnostics a run writes when `agent.aggregated_diag_int` 
 
 Plots community size (population per community) against population density.
 
+## Comparing ensembles of runs
+
+### `compare_realizations.py`
+
+Decomposes the variance across a set of ExaEpi runs into the part coming from the disease model's
+own randomness and the part coming from which synthetic population was used. A single run tells you
+nothing about either, and a set of runs that vary only `agent.seed` measures only the first, so
+without this it is easy to mistake one population's idiosyncrasies for a result.
+
+Runs are grouped into arms by a prefix on their directory name:
+
+| arm | varies | measures |
+| --- | --- | --- |
+| `A_*` | `agent.seed` only, one population | the noise floor |
+| `B_*` | population *and* seed | adds whatever the populations differ by |
+| `C_*` | population *and* seed | a second population-varying arm, e.g. a different generator |
+
+```
+compare_realizations.py --runs <dir> [--curve output_nm.dat] [--spatial cases00160]
+```
+
+Each arm's runs live in `<dir>/<arm>_<population>_s<seed>/`, and the population id is everything
+before the `_s<seed>` suffix, so `B_r3_s1` is population `B_r3` at seed 1. Two families of metric
+are reported, because they can disagree and the disagreement is informative: scalars reduced from
+the per-day diagnostic table (peak infectious, peak day, attack rate, deaths), and the per-block-group
+attack rate from the aggregated diagnostic, compared by correlation rather than variance since it is
+a field rather than a scalar. A state-wide curve can absorb a lot of spatial rearrangement, so an
+arm that looks identical on the aggregate may still have moved the epidemic around geographically.
+
+For each scalar it reports each arm's spread, an F test of whether an arm is genuinely wider than
+arm A (the sd ratio alone is not evidence -- with ten runs in A its own sd is uncertain to roughly a
+quarter of its value), and, for arms built as several populations times several seeds, a one-way
+decomposition into between-population and within-population components with an ICC. The ICC is the
+number to read: it is the share of variance attributable to which population was used.
+
+Runs still being written are detected by curve length and excluded by name rather than averaged in.
+A truncated diagnostic table reduces to a plausible-looking but wrong result -- a mid-epidemic
+snapshot reads as a much lower attack rate and puts the "peak" at whatever day the file stops -- and
+nothing about the numbers themselves flags it.
+
 ## Comparing against Epicast
 
 ### `compare_to_epicast.py`
