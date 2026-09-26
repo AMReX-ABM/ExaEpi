@@ -29,8 +29,29 @@ agent.weather_int = -1
 # agent.weather_filename =
 # Simulation start date (YYYY-MM-DD). Only meaningful if agent.weather_int > 0.
 agent.startdate = ""
-# The UrbanPop data file. Do not include the extension -- there must be two files alongside
-# it, with extensions .csv and .idx. No default; always required.
+# Where the population comes from: "bin" reads agent.urbanpop_filename; "bundle" generates a
+# fresh synthetic population at init from agent.population_bundle -- a per-run P-MEDM re-solve
+# with inputs perturbed within their ACS sampling error, then household placement and every
+# group and destination stage (see src/GeneratePopulation.H). A generated population depends
+# only on (bundle, population_seed, population_rep) and the device type (GPU and CPU solves
+# round differently), not on the rank or thread count.
+agent.population_source = bin
+# Population bundle (utilities/UrbanPop-scripts/build_precompute.py, format 2). No default;
+# must be set if agent.population_source = bundle.
+# agent.population_bundle =
+# Seed of the generated population. Defaults to agent.seed, so varying agent.seed varies both
+# the population and the disease; set it separately to hold one fixed.
+# agent.population_seed =
+# Replicate number: a second key for the generated population.
+agent.population_rep = 0
+# P-MEDM solver stopping rule: every check_every iterations, stop once fewer than tol_moved of
+# the households moved since the last check, or at max_iter.
+agent.popgen.check_every = 250
+agent.popgen.tol_moved = 0.001
+agent.popgen.max_iter = 6000
+# Write the generated population to this .bin (readable with agent.population_source = bin).
+# agent.write_population =
+# The UrbanPop data file (.bin). No default; required if agent.population_source = bin.
 # This file also carries each agent's group structure (home neighborhood, household cluster,
 # work neighborhood, work-group, school class), so the targets that size those groups are
 # options of utilities/UrbanPop-scripts/upop_to_exaepi.py rather than settings here --

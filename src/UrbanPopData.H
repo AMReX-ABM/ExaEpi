@@ -6,6 +6,7 @@
 
 #include <iostream>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,7 @@
 #include <AMReX_iMultiFab.H>
 
 #include "CaseData.H"
+#include "GeneratePopulation.H"
 #include "UrbanPopAgentStruct.H"
 #include "Utils.H"
 
@@ -57,6 +59,9 @@ struct BlockGroup {
     int num_employed = 0;
     int num_students = 0;
     int num_educators = 0;
+    /*! For a generated population (agent.population_source = bundle): the block group's agent
+        frame in memory, uncompressed and in the file's columnar layout, read instead of the file. */
+    const std::vector<char>* mem_frame = nullptr;
 
     bool read(std::istream& f);
     /*! Inflate this block group's frame into `scratch` and append its agents to `agents`. */
@@ -143,4 +148,7 @@ struct UrbanPopData {
     std::map<amrex::IntVect, int> xy_to_block_groups;
     std::ifstream urbanpop_file;
     uint32_t codec = CODEC_DEFLATE; /*!< how urbanpop_file's agent frames are compressed */
+    /*! A population generated at init (population_source = bundle); its frames stand in for the
+        file's until initAgents has read them. */
+    std::unique_ptr<PopGen::GeneratedPopulation> generated;
 };

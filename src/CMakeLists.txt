@@ -10,6 +10,8 @@ set(_sources
     CaseData.cpp
     DenseLinAlg.H
     DenseLinAlg.cpp
+    GeneratePopulation.H
+    GeneratePopulation.cpp
     WeatherData.H
     WeatherData.cpp
     DiseaseCoupling.H

@@ -79,7 +79,24 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
 
     if (params.weather_int > 0) { pp.get("weather_filename", params.weather_filename); }
 
-    pp.get("urbanpop_filename", params.urbanpop_filename);
+    pp.query("population_source", params.population_source);
+    if (params.population_source == "bin") {
+        pp.get("urbanpop_filename", params.urbanpop_filename);
+    } else if (params.population_source == "bundle") {
+        pp.get("population_bundle", params.population_bundle);
+    } else {
+        amrex::Abort("agent.population_source must be \"bin\" or \"bundle\", not \"" + params.population_source + "\"");
+    }
+    // read whatever the source, so none is ever reported as an unused input
+    {
+        ParmParse ppg(prefix + ".popgen");
+        ppg.query("check_every", params.popgen_check_every);
+        ppg.query("tol_moved", params.popgen_tol_moved);
+        ppg.query("max_iter", params.popgen_max_iter);
+        ppg.query("inject_allocations", params.popgen_inject_allocations);
+        pp.query("population_rep", params.population_rep);
+        pp.query("write_population", params.write_population);
+    }
 
     pp.query("size_scale_enabled", params.size_scale_enabled);
 
@@ -105,6 +122,8 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
         ULong cpu_seed = (ULong)seed;
         amrex::ResetRandomSeed(cpu_seed, gpu_seed);
     }
+    params.population_seed = seed;
+    pp.query("population_seed", params.population_seed);
 
     pp.query("fast", params.fast);
     pp.query("context_diag", params.context_diag);

@@ -50,9 +50,22 @@ struct TestParams {
     std::string weather_filename;
     std::string startdate;
 
-    /*! UrbanPop data filename.
+    /*! UrbanPop data filename (population_source = bin).
      */
     std::string urbanpop_filename;
+
+    /*! Where the population comes from: "bin" reads urbanpop_filename; "bundle" generates a fresh
+        population at init from population_bundle (see GeneratePopulation.H). */
+    std::string population_source = "bin";
+    std::string population_bundle;         /*!< population bundle, for population_source = bundle */
+    long population_seed = 0;              /*!< population seed; defaults to agent.seed, so a run varies both
+                                                unless it is set separately */
+    long population_rep = 0;               /*!< replicate number, a second population key */
+    int popgen_check_every = 250;          /*!< solver: iterations between convergence checks */
+    double popgen_tol_moved = 1e-3;        /*!< solver: stop when less than this share of households moved */
+    int popgen_max_iter = 6000;            /*!< solver: iteration cap */
+    std::string popgen_inject_allocations; /*!< debug: saved allocations used instead of solving */
+    std::string write_population;          /*!< if set, write the generated population to this .bin */
 
     /*! Population-size-based scale factor (see computeCommunitySizeScale / computeCommunityWorkSizeScale).
         home_population and UrbanPopData::day_population are always available, no side file needed.

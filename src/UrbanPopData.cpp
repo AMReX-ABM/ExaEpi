@@ -56,6 +56,10 @@ void copyToDeviceAsync (const Vector<T>& h_vec, Gpu::DeviceVector<T>& d_vec) {
     as a corruption check. */
 static void readFrame (ifstream& f, const BlockGroup& block_group, uint32_t codec, FrameScratch& scratch) {
     BL_PROFILE("readFrame");
+    if (block_group.mem_frame) { // generated population: the frame is already in memory, uncompressed
+        scratch.raw.assign(block_group.mem_frame->begin(), block_group.mem_frame->end());
+        return;
+    }
     const uLongf raw_nbytes = (uLongf)block_group.home_population * UrbanPopAgent::record_size();
     scratch.raw.resize(raw_nbytes);
     f.seekg(block_group.frame_offset);
@@ -267,13 +271,46 @@ static Vector<Real> computeDayPopulation (ifstream& f, uint32_t codec, const Vec
  */
 void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& ba, DistributionMapping& dm) {
     BL_PROFILE("UrbanPopData::init");
-    std::string fname = params.urbanpop_filename;
-
-    urbanpop_file.open(fname, std::ios::binary);
-    if (!urbanpop_file) { Abort("Failed to open file: " + fname); }
-
-    // every rank reads all the block groups from the index file
-    readBlockGroupsFile(urbanpop_file, block_groups, codec, params.verbose);
+    if (params.population_source == "bundle") {
+        // Generate the population now; every rank ends up with the whole of it, identically, and
+        // its block-group index and frames are exactly what the .bin would have held.
+        PopGen::GenerationSettings gs;
+        gs.bundle = params.population_bundle;
+        gs.seed = params.population_seed;
+        gs.rep = params.population_rep;
+        gs.solver.check_every = params.popgen_check_every;
+        gs.solver.tol_moved = params.popgen_tol_moved;
+        gs.solver.max_iter = params.popgen_max_iter;
+        gs.inject_allocations = params.popgen_inject_allocations;
+        gs.verbose = params.verbose;
+        try {
+            generated = std::make_unique<PopGen::GeneratedPopulation>(PopGen::generatePopulation(gs, NAICS_COUNT));
+        } catch (const std::exception& e) { Abort(std::string("Population generation failed: ") + e.what()); }
+        for (std::size_t k = 0; k < generated->block_groups.size(); ++k) {
+            const auto& g = generated->block_groups[k];
+            BlockGroup block_group;
+            block_group.geoid = g.geoid;
+            block_group.frame_offset = 0;
+            block_group.frame_nbytes = 0;
+            block_group.block_i = static_cast<int>(k);
+            block_group.home_population = g.home_population;
+            block_group.work_populations.assign(g.work_populations.begin(), g.work_populations.end());
+            block_group.mem_frame = g.home_population > 0 ? &g.frame : nullptr;
+            block_groups.push_back(block_group);
+        }
+        if (!params.write_population.empty() && ParallelDescriptor::IOProcessor()) {
+            try {
+                PopGen::writePopulationBin(*generated, params.write_population, FORMAT_VERSION, UrbanPopAgent::record_size());
+            } catch (const std::exception& e) { Abort(e.what()); }
+            Print() << "Wrote the generated population to " << params.write_population << "\n";
+        }
+    } else {
+        std::string fname = params.urbanpop_filename;
+        urbanpop_file.open(fname, std::ios::binary);
+        if (!urbanpop_file) { Abort("Failed to open file: " + fname); }
+        // every rank reads all the block groups from the index file
+        readBlockGroupsFile(urbanpop_file, block_groups, codec, params.verbose);
+    }
     // now sort block groups by geoid to make all FIPS units consecutively grouped
     std::sort(block_groups.begin(), block_groups.end(), [] (const BlockGroup& bg1, const BlockGroup& bg2) {
         return bg1.geoid < bg2.geoid;
@@ -491,7 +528,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
     std::unordered_map<int64_t, int> cluster_occupants;
     std::unordered_set<int64_t> nborhoods_seen;
 
-    if (!urbanpop_file) { Abort("File " + params.urbanpop_filename + " is not open\n"); }
+    if (!generated && !urbanpop_file) { Abort("File " + params.urbanpop_filename + " is not open\n"); }
     // hoisted out of the loop so the inflate buffers are reused across every block group this
     // rank reads instead of being reallocated per tile (this loop is not OpenMP-parallel)
     FrameScratch scratch;
@@ -726,6 +763,11 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
     }
 
     urbanpop_file.close();
+    // The agents are particles now; the generated frames have served their purpose.
+    for (auto& block_group : block_groups) {
+        block_group.mem_frame = nullptr;
+    }
+    generated.reset();
     AMREX_ALWAYS_ASSERT(pc.OK());
 
     pc.comm_mf.define(community_mf.boxArray(), community_mf.DistributionMap(), 1, 0);

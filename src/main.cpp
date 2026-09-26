@@ -120,8 +120,20 @@ void printHelp (const char* prog) {
     line("weather_filename", "required if weather_int > 0", "");
     desc_line("weather data file");
     line("startdate", fmt(tp.startdate), "simulation start date (YYYY-MM-DD)");
-    line("urbanpop_filename", "required", "");
+    line("urbanpop_filename", "required if population_source=bin", "");
     desc_line("UrbanPop data file");
+    line("population_source", fmt(tp.population_source), "\"bin\" reads urbanpop_filename; \"bundle\" generates");
+    desc_line("a fresh population at init from population_bundle");
+    line("population_bundle", "required if population_source=bundle", "");
+    desc_line("population bundle (build_precompute.py, format 2)");
+    line("population_seed", "agent.seed", "seed of the generated population");
+    line("population_rep", fmt(static_cast<int>(tp.population_rep)), "replicate number, a second population key");
+    line("popgen.check_every", fmt(tp.popgen_check_every), "P-MEDM solver: iterations between convergence checks");
+    line("popgen.tol_moved", fmt(static_cast<amrex::Real>(tp.popgen_tol_moved)),
+         "P-MEDM solver: stop when fewer than this share of");
+    desc_line("households moved since the last check");
+    line("popgen.max_iter", fmt(tp.popgen_max_iter), "P-MEDM solver: iteration cap");
+    line("write_population", "unset", "write the generated population to this .bin file");
     line("air_traffic_filename", "required if air_travel_int > 0", "");
     desc_line("air traffic flow file");
     line("airports_filename", "required if air_travel_int > 0", "");
