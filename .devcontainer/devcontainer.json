@@ -41,11 +41,29 @@
   // path, which is a harmless no-op. (The default can't be ${localWorkspaceFolder}: the
   // devcontainer CLI doesn't resolve a variable reference nested inside another variable's
   // default value, so it would be passed to Docker as a literal, unresolved string.)
+  // The fourth entry holds credentials that should outlive a rebuild without ever being written
+  // into the checked-out repo -- currently just the Census API key. /home/user itself is part of
+  // the container filesystem and is discarded on rebuild, so anything that must survive has to sit
+  // on a named volume like this one.
   "mounts": [
     "source=exaepi-ccache,target=/home/user/.ccache,type=volume",
     "source=exaepi-claude-config,target=/home/user/.claude,type=volume",
+    "source=exaepi-secrets,target=/home/user/.config/exaepi,type=volume",
     "source=${localEnv:EXAEPI_LOCAL_MOUNT_SRC:/tmp},target=${localEnv:EXAEPI_LOCAL_MOUNT_DST:/tmp/.exaepi-unused-local-mount},type=bind"
   ],
+
+  // Pass a Census API key through from the host. livelike's acs.puma() fetches both the ACS
+  // Summary File constraints and the PUMS extracts from the Census API, and as of 2026 BOTH
+  // endpoints reject keyless requests -- they answer HTTP 200 with an HTML "Missing Key" page
+  // rather than an error status, so the failure surfaces downstream as a JSON parse error
+  // ("ValueError: Expected object or value") rather than anything that names the real cause.
+  // A key is therefore required, not merely advisable. They are free and immediate from
+  // https://api.census.gov/data/key_signup.html. Set CENSUS_API_KEY in your own shell before
+  // launching VS Code. Deliberately taken from the environment rather than written into this
+  // file, which is checked in.
+  "containerEnv": {
+    "CENSUS_API_KEY": "${localEnv:CENSUS_API_KEY}"
+  },
 
   // Run VS Code server and all terminal sessions as UID 1000
   "remoteUser": "user",
@@ -100,5 +118,5 @@
   // reconfigured from scratch every time, since a stale CMakeCache.txt from a prior CUDA
   // toolkit version (e.g. after bumping the base image) can cache now-invalid toolchain
   // paths/library versions rather than just failing loudly.
-  "postCreateCommand": "sudo npm install -g @anthropic-ai/claude-code && git config core.hooksPath .githooks && rm -rf .build/CUDA/Release .build/CUDA/Debug && cmake -S . -B .build/CUDA/Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DAMReX_OMP=ON -DAMReX_GPU_BACKEND=CUDA -DCMAKE_CXX_COMPILER_LAUNCHER=ccache && cmake -S . -B .build/CUDA/Debug -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DAMReX_OMP=ON -DAMReX_GPU_BACKEND=CUDA -DCMAKE_CXX_COMPILER_LAUNCHER=ccache && ln -sf .build/CUDA/Release/compile_commands.json compile_commands.json"
+  "postCreateCommand": "sudo npm install -g @anthropic-ai/claude-code && bash .devcontainer/setup-secrets.sh && git config core.hooksPath .githooks && rm -rf .build/CUDA/Release .build/CUDA/Debug && cmake -S . -B .build/CUDA/Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DAMReX_OMP=ON -DAMReX_GPU_BACKEND=CUDA -DCMAKE_CXX_COMPILER_LAUNCHER=ccache && cmake -S . -B .build/CUDA/Debug -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DAMReX_OMP=ON -DAMReX_GPU_BACKEND=CUDA -DCMAKE_CXX_COMPILER_LAUNCHER=ccache && ln -sf .build/CUDA/Release/compile_commands.json compile_commands.json"
 }
