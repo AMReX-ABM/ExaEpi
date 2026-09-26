@@ -13,7 +13,7 @@ namespace PopGen {
 namespace Stage {
 constexpr std::int64_t PERTURB_TARGET = 257;   // id 1 v1: puma, constraint, bg
 constexpr std::int64_t PERTURB_PRIOR = 513;    // id 2 v1: puma, donor
-constexpr std::int64_t TRS = 769;              // id 3 v1: bg, k
+constexpr std::int64_t TRS = 769;              // id 3 v1: bg, k  -- superseded by HH_TYPE_TRS / HH_DRAW; id reserved
 constexpr std::int64_t CHILDCARE = 1025;       // id 4 v1: bg, h, p
 constexpr std::int64_t SLOT_NAICS = 1281;      // id 5 v1: dest_geoid, slot
 constexpr std::int64_t SLOT_SIZE = 1537;       // id 6 v1: dest_geoid, slot
@@ -32,7 +32,9 @@ constexpr std::int64_t WG_ORDER = 4609;        // id 18 v1: work_geoid, naics, b
 constexpr std::int64_t WG_EST_SIZE = 4865;     // id 19 v1: work_geoid, naics, e
 constexpr std::int64_t CLASS_SMEAR = 5121;     // id 20 v1: work_geoid, school_geoid, school_ord, grade, rank
 constexpr std::int64_t DAY_NB = 5377;          // id 21 v1: day_geoid, kind, a, b, c
-constexpr std::int64_t TRS_TRIM = 5633;        // id 22 v1: bg, donor_row
+constexpr std::int64_t TRS_TRIM = 5633;        // id 22 v1: bg, donor_row  -- superseded by HH_TYPE_TRS / HH_DRAW; id reserved
+constexpr std::int64_t HH_TYPE_TRS = 5889;     // id 23 v1: puma, k
+constexpr std::int64_t HH_DRAW = 6145;         // id 24 v1: bg, category, k
 } // namespace Stage
 } // namespace PopGen
 

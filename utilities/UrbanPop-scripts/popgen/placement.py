@@ -1,23 +1,28 @@
-"""From a solved allocation to whole households and persons (TRS integerization and expansion).
+"""From a solved allocation to whole households and persons, following livelike.homesim.synthesize.
 
-The allocation holds EXPECTED households per (donor, block group), vacant units included. For each
-block group:
+The allocation holds EXPECTED households per (donor, block group), vacant units included. This
+follows UrbanPop's own synthesis step (livelike/homesim.py, synthesize), with keyed draws:
 
-  1. Only occupied donors can place people, so vacant units (true size 0) are dropped here. They
-     still did their job in the solve, satisfying the housing-unit constraints.
-  2. The number of occupied households to place is this draw's perturbed block-group population
-     divided by the mean true household size of the occupied allocation, rounded half to even.
-     Targeting through TRUE sizes matters: livelike's est_ind `population` is fractional (it
-     rescales by the PUMS person/household weight ratio), so taking the allocation's household
-     count at face value under-delivers people by ~9% statewide.
-  3. TRS (truncate, replicate, sample): keep each cell's whole part; fill the shortfall by drawing
-     cells with probability proportional to their fractional parts, with replacement; or, if the
-     whole parts already exceed the target, remove one household from each of the first cells of a
-     keyed shuffle of the nonzero cells.
+  1. Reweight each donor household: almat_adj = almat * est_ind.population / household size.
+     livelike counts each person in est_ind as (person weight / householder's person weight), so
+     the solve fits the ACS in those units while an agent is one whole person. The reweighting is
+     the household-level part of the conversion -- a family whose members carry high person
+     weights gets proportionally more copies -- and it is what keeps UrbanPop's age mix near the
+     ACS (NM: 65+ +3.7%, under 18 -2.0%; skipping it gave +6.9% and -1.2% expected, +9% and -4.6%
+     realized). Vacant units (size 0) keep weight 1. Household size is livelike's own member count
+     (solve.donor_hh_size, from sporder).
+  2. Fractional counts per (category, block group), categories being household type x size, group
+     quarters and vacant: tosamp = res^T almat_adj, summed sequentially over donor rows.
+  3. One TRS over the whole PUMA's (category x block group) matrix, as livelike does: whole parts,
+     then round(sum of fractional parts) extra cells drawn without replacement in proportion to
+     the fractional parts -- sequential keyed draws over the category-major flattened matrix,
+     removing each chosen cell (HH_TYPE_TRS (puma, k)).
+  4. For each (block group, category), that many donor households drawn with replacement in
+     proportion to almat_adj[:, g] * res[:, category] (HH_DRAW (bg, category, k)).
 
-Keys: TRS (bg, k) for the k-th shortfall draw, TRS_TRIM (bg, donor_row) for the trim order. Every
-draw is a pure function of the block group and donor identities, so block groups can be processed
-in any order, on any rank.
+Vacant households are drawn (they are part of the category scheme) but contribute nobody, so they
+are dropped before expansion. Every draw is keyed on PUMA, block group and category identities,
+so PUMAs can be processed in any order, on any rank.
 
 Expansion: a block group's households are ordered by donor row, repeated by count, and numbered
 h = 0, 1, ... densely; each household copy contributes its donor's persons in SPORDER order,
@@ -39,43 +44,62 @@ def true_sizes(b, prob):
     return size
 
 
-def trs(vals, target, seed, rep, bg, rows):
-    """Integer household counts for one block group; rows are the cells' donor-row identities."""
-    whole = np.floor(vals).astype(np.int64)
-    short = int(target) - int(whole.sum())
-    if short > 0:
-        frac = vals - whole
-        if np.cumsum(frac)[-1] <= 0:
-            return whole
-        xs = kr64.draw(kr64.key(seed, rep, stages.TRS, bg, np.arange(short, dtype=np.int64)), 0)
-        whole += np.bincount(kr64.float_cdf(frac, xs), minlength=len(vals))
-    elif short < 0:
-        nz = np.flatnonzero(whole > 0)
-        if len(nz):
-            ids = rows[nz]
-            order = kr64.shuffle_order(kr64.key(seed, rep, stages.TRS_TRIM, bg, ids), ids)
-            whole[nz[order[:min(-short, len(nz))]]] -= 1
-    return whole
+def categories(prob, cols):
+    """(D x V) residential category indicators: household type x size, group quarters, vacant."""
+    hht = [j for j, c in enumerate(cols) if c.startswith("hht") and "hhsize" in c]
+    if not hht:
+        raise ValueError("constraints must include household type by household size")
+    gq, occ = cols.index("group_quarters_pop"), cols.index("occhu")
+    vacant = ((prob.C[:, occ] == 0) & (prob.C[:, gq] == 0)).astype(np.float64)
+    return np.column_stack([prob.C[:, hht], prob.C[:, gq], vacant])
 
 
-def place_puma(b, prob, al, bg_pop, seed, rep):
-    """(bg_geoid, donor_row, count) placements for one PUMA; bg_pop is the perturbed population."""
+def _seq_colsum(M):
+    """Column sums accumulated sequentially down the rows (reproducible in C++)."""
+    return np.cumsum(M, axis=0)[-1] if len(M) else np.zeros(M.shape[1])
+
+
+def place_puma(b, prob, al, cols, seed, rep):
+    """(bg_geoid, donor_row, count) placements of occupied households for one PUMA."""
+    pop = prob.C[:, cols.index("population")]
+    nm = prob.donor_hh_size.astype(np.float64)
+    adj = np.where(nm > 0, pop / np.where(nm > 0, nm, 1.0), 1.0)
+    A = al * adj[:, None]                                          # D x G
+    R = categories(prob, cols)                                     # D x V
+    V, G = R.shape[1], prob.G
+    tosamp = np.stack([_seq_colsum(R[:, v][:, None] * A) for v in range(V)])   # V x G
+
+    # 3. TRS over the whole PUMA matrix, category-major (livelike flattens (V, G) row-major).
+    whole = np.floor(tosamp).astype(np.int64).ravel()
+    frac = (tosamp - np.floor(tosamp)).ravel()
+    extra = int(np.rint(np.cumsum(frac)[-1])) if len(frac) else 0
+    f = frac.copy()
+    fips = int(prob.fips)
+    for k in range(extra):
+        if np.cumsum(f)[-1] <= 0:
+            break
+        i = int(kr64.float_cdf(f, kr64.draw(kr64.key(seed, rep, stages.HH_TYPE_TRS, fips, k), 0)))
+        whole[i] += 1
+        f[i] = 0.0
+    counts_vg = whole.reshape(V, G)
+
+    # 4. Donors within each (block group, category), with replacement.
     size = true_sizes(b, prob)
-    occ = np.flatnonzero(size > 0)
-    out_bg, out_row, out_ct = [], [], []
-    for j in range(prob.G):
-        vals = al[occ, j]
-        mass = np.cumsum(vals)[-1] if len(vals) else 0.0
-        if mass <= 0:
-            continue
-        mean_size = np.cumsum(vals * size[occ])[-1] / mass
-        target = int(np.rint(bg_pop[j] / mean_size))
-        counts = trs(vals, target, seed, rep, int(prob.bg_geoid[j]), occ)
-        keep = counts > 0
-        out_bg.append(np.full(int(keep.sum()), prob.bg_geoid[j], dtype=np.int64))
-        out_row.append(occ[keep])
-        out_ct.append(counts[keep])
-    return (np.concatenate(out_bg), np.concatenate(out_row), np.concatenate(out_ct))
+    per_bg = []
+    for g in range(G):
+        n_d = np.zeros(prob.D, dtype=np.int64)
+        bg = int(prob.bg_geoid[g])
+        for v in np.flatnonzero(counts_vg[:, g]):
+            w = A[:, g] * R[:, v]
+            if np.cumsum(w)[-1] <= 0:
+                continue
+            n = int(counts_vg[v, g])
+            xs = kr64.draw(kr64.key(seed, rep, stages.HH_DRAW, bg, int(v),
+                                    np.arange(n, dtype=np.int64)), 0)
+            n_d += np.bincount(kr64.float_cdf(w, xs), minlength=prob.D)
+        keep = np.flatnonzero((n_d > 0) & (size > 0) & (prob.donor_index >= 0))
+        per_bg.append((np.full(len(keep), bg, dtype=np.int64), keep, n_d[keep]))
+    return tuple(np.concatenate([x[i] for x in per_bg]) for i in range(3))
 
 
 def expand(b, placements):

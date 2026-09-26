@@ -11,7 +11,8 @@ Stages (popgen/):
     perturb     targets redrawn within their ACS standard errors (block groups first, tracts
                 rebuilt from them) and the PUMS prior weights by a Bayesian bootstrap
     solve       P-MEDM re-solve per PUMA (float32 incremental L-BFGS, popgen/solver.py)
-    place       TRS integerization per block group and expansion to persons (bg, h, p)
+    place       livelike-style synthesis: household reweighting, TRS by household type x size,
+                donor draws per (block group, type); expansion to persons (bg, h, p)
     S1-S2       childcare and the worker/student split (persons.py)
     S3          worker destinations: CBP-sized establishment slots, IPF fill (workers.py)
     S4-S5       student and teacher school assignment (students.py, teachers.py)
@@ -38,17 +39,17 @@ from popgen.problem import PumaProblem, puma_count  # noqa: E402
 def generate(b, seed, rep=0, pumas=None, verbose=True):
     """Placements for every (or the named) PUMA: (bg_geoid, donor_global, count) plus stats."""
     names = bundle.strings(b, "solve.puma")
-    pop_col = bundle.strings(b, "solve.constraints").index("population")
+    cols = bundle.strings(b, "solve.constraints")
     parts, stats = [], []
     for p in range(puma_count(b)):
         if pumas and names[p] not in pumas:
             continue
         t0 = time.perf_counter()
         prob = PumaProblem(b, p)
-        Y, y2 = perturb.perturbed_targets(prob, seed, rep)
+        Y, _ = perturb.perturbed_targets(prob, seed, rep)
         logq = perturb.log_prior(perturb.perturbed_prior(prob, seed, rep), prob.G)
         al, iters, gnorm = solver.solve(prob, Y, logq)
-        bg, row, ct = placement.place_puma(b, prob, al, y2[:, pop_col], seed, rep)
+        bg, row, ct = placement.place_puma(b, prob, al, cols, seed, rep)
         parts.append((bg, prob.donor_index[row].astype(np.int64), ct))
         stats.append(dict(puma=names[p], donors=prob.D, bgs=prob.G, iters=iters,
                           grad=gnorm, households=int(ct.sum()), seconds=time.perf_counter() - t0))

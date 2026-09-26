@@ -15,7 +15,7 @@ import os
 STAGES = {
     "PERTURB_TARGET": (1, 1, "puma, constraint, bg"),
     "PERTURB_PRIOR": (2, 1, "puma, donor"),
-    "TRS": (3, 1, "bg, k"),
+    "TRS": (3, 1, "bg, k  -- superseded by HH_TYPE_TRS / HH_DRAW; id reserved"),
     "CHILDCARE": (4, 1, "bg, h, p"),
     "SLOT_NAICS": (5, 1, "dest_geoid, slot"),
     "SLOT_SIZE": (6, 1, "dest_geoid, slot"),
@@ -34,7 +34,9 @@ STAGES = {
     "WG_EST_SIZE": (19, 1, "work_geoid, naics, e"),
     "CLASS_SMEAR": (20, 1, "work_geoid, school_geoid, school_ord, grade, rank"),
     "DAY_NB": (21, 1, "day_geoid, kind, a, b, c"),
-    "TRS_TRIM": (22, 1, "bg, donor_row"),
+    "TRS_TRIM": (22, 1, "bg, donor_row  -- superseded by HH_TYPE_TRS / HH_DRAW; id reserved"),
+    "HH_TYPE_TRS": (23, 1, "puma, k"),
+    "HH_DRAW": (24, 1, "bg, category, k"),
 }
 
 
