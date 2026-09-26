@@ -32,6 +32,7 @@ constexpr std::int64_t WG_ORDER = 4609;        // id 18 v1: work_geoid, naics, b
 constexpr std::int64_t WG_EST_SIZE = 4865;     // id 19 v1: work_geoid, naics, e
 constexpr std::int64_t CLASS_SMEAR = 5121;     // id 20 v1: work_geoid, school_geoid, school_ord, grade, rank
 constexpr std::int64_t DAY_NB = 5377;          // id 21 v1: day_geoid, kind, a, b, c
+constexpr std::int64_t TRS_TRIM = 5633;        // id 22 v1: bg, donor_row
 } // namespace Stage
 } // namespace PopGen
 

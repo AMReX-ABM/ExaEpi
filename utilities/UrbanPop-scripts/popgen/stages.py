@@ -34,6 +34,7 @@ STAGES = {
     "WG_EST_SIZE": (19, 1, "work_geoid, naics, e"),
     "CLASS_SMEAR": (20, 1, "work_geoid, school_geoid, school_ord, grade, rank"),
     "DAY_NB": (21, 1, "day_geoid, kind, a, b, c"),
+    "TRS_TRIM": (22, 1, "bg, donor_row"),
 }
 
 
