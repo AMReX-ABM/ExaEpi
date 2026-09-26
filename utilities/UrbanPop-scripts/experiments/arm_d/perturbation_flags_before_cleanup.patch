@@ -1,0 +1,52 @@
+--- a/utilities/UrbanPop-scripts/upop_to_exaepi.py
++++ b/utilities/UrbanPop-scripts/upop_to_exaepi.py
+@@ -27,6 +27,7 @@
+ from pandas.api.types import CategoricalDtype
+ 
+ import group_assignment
++import perturb_population
+ 
+ 
+ DUMP_INTERMEDIATES = False
+@@ -306,6 +307,23 @@
+     )
+     parser.add_argument("--rseed", "-r", default=29, type=int, help="Random seed")
+     parser.add_argument(
++        "--perturb_moe_file",
++        default="",
++        help="CSV of per-block-group ACS population margins of error (see "
++        "read_moe_fit_rates.py). When given, each block group's resident population is resampled "
++        "within its ACS sampling error before any allocation, which is the one axis --rseed "
++        "cannot vary: without it every run has identical agents in identical home block groups. "
++        "Off by default, so the normal pipeline is unaffected",
++    )
++    parser.add_argument(
++        "--perturb_inflation",
++        default=1.35,
++        type=float,
++        help="Scale on the ACS standard error used by --perturb_moe_file. The default follows "
++        "section 4.4.1 of related/urbanpop.pdf, which reports Monte Carlo spread across the 30 "
++        "HomeSim realizations at roughly 1.3-1.4 times the ACS margins",
++    )
++    parser.add_argument(
+         "--county_adjacency_file",
+         default="county_adjacency.csv",
+         help="CSV of geoid,neighbor_geoid county-adjacency pairs (see "
+@@ -2907,6 +2925,17 @@
+     np.random.seed(args.rseed)
+     upop_df = load_upop_feather_files(args.upop_files, args.output)
+     upop_df = process_upop(upop_df, args.output)
++    if args.perturb_moe_file:
++        # Before any allocation, so workers, students and every group tier are built against the
++        # perturbed population rather than being reconciled to it afterwards. Its own rng stream,
++        # so adding or removing a perturbation does not shift the draws the rest of the pipeline
++        # makes from the global numpy seed.
++        upop_df = perturb_population.perturb_households(
++            upop_df,
++            args.perturb_moe_file,
++            np.random.default_rng(args.rseed),
++            args.perturb_inflation,
++        )
+     lodes_df = get_lodes_groups(args.lodes_files)
+     schools_df = load_schools(args.schools_file)
+     # filter out those schools that don't have the same geoid as the home geoids

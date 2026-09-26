@@ -1,0 +1,29 @@
+--- a/utilities/UrbanPop-scripts/upop_to_exaepi.py
++++ b/utilities/UrbanPop-scripts/upop_to_exaepi.py
+@@ -27,6 +27,7 @@
+ from pandas.api.types import CategoricalDtype
+ 
+ import group_assignment
++import perturb_population
+ 
+ 
+ DUMP_INTERMEDIATES = False
+@@ -305,6 +306,8 @@
+         help="File containing schools data in CSV format",
+     )
+     parser.add_argument("--rseed", "-r", default=29, type=int, help="Random seed")
++    parser.add_argument("--perturb_moe_file", default="", help="scratch probe only")
++    parser.add_argument("--perturb_cv", default=0.0499, type=float, help="target median per-bg CV")
+     parser.add_argument(
+         "--county_adjacency_file",
+         default="county_adjacency.csv",
+@@ -2907,6 +2910,9 @@
+     np.random.seed(args.rseed)
+     upop_df = load_upop_feather_files(args.upop_files, args.output)
+     upop_df = process_upop(upop_df, args.output)
++    if args.perturb_moe_file:
++        upop_df = perturb_population.perturb_households(
++            upop_df, args.perturb_moe_file, np.random.default_rng(args.rseed), args.perturb_cv)
+     lodes_df = get_lodes_groups(args.lodes_files)
+     schools_df = load_schools(args.schools_file)
+     # filter out those schools that don't have the same geoid as the home geoids
