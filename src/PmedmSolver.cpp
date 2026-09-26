@@ -181,19 +181,22 @@ constexpr int MAX_BLOCKS = 1024;
 constexpr int MAX_NV = 16;
 
 // Device scalars (doubles) and integer state.
-enum Scal { S_GD, S_LIN, S_QUAD, S_USE, S_T, S_GAMMA, S_COUNT };
+enum Scal { S_GD, S_LIN, S_QUAD, S_USE, S_T, S_GAMMA, S_FULL, S_COUNT };
 enum IState { I_N, I_HEAD, I_SLOT, I_KEEP, I_COUNT };
 
 /*! Deterministic sums of NV per-element terms: f(i, acc) adds element i's terms into acc[0 .. NV).
     Two passes with a block count set by n alone, and fixed-order block reductions, so the result
-    is the same on every run of a given device and size. out is device memory. */
+    is the same on every run of a given device and size. out is device memory. If skip is given
+    and *skip (device memory) is nonzero when the kernels run, they return at once and leave out
+    unchanged -- a pass whose result the device already knows it won't need. */
 template <int NV, class F>
-void deviceSums (int n, F const& f, double* out, double* partials) {
+void deviceSums (int n, F const& f, double* out, double* partials, const double* skip = nullptr) {
     static_assert(NV <= MAX_NV);
 #if defined(AMREX_USE_CUDA) || defined(AMREX_USE_HIP)
     const int nb = std::max(1, std::min((n + MT - 1) / MT, MAX_BLOCKS));
     const auto stream = amrex::Gpu::gpuStream();
     amrex::launch<MT>(nb, stream, [=] AMREX_GPU_DEVICE () noexcept {
+        if (skip && *skip != 0.0) { return; }
         double acc[NV];
         for (int v = 0; v < NV; ++v) {
             acc[v] = 0.0;
@@ -207,6 +210,7 @@ void deviceSums (int n, F const& f, double* out, double* partials) {
         }
     });
     amrex::launch<MT>(1, stream, [=] AMREX_GPU_DEVICE () noexcept {
+        if (skip && *skip != 0.0) { return; }
         for (int v = 0; v < NV; ++v) {
             double a = 0.0;
             for (int b = static_cast<int>(threadIdx.x); b < nb; b += MT) {
@@ -217,10 +221,11 @@ void deviceSums (int n, F const& f, double* out, double* partials) {
         }
     });
 #elif defined(AMREX_USE_GPU)
-    amrex::ignore_unused(n, f, out, partials);
+    amrex::ignore_unused(n, f, out, partials, skip);
     amrex::Abort("PmedmSolver: deterministic reductions are implemented for CUDA, HIP and CPU only");
 #else
     amrex::ignore_unused(partials);
+    if (skip && *skip != 0.0) { return; }
     double acc[NV] = {};
     for (int i = 0; i < n; ++i) {
         f(i, acc);
@@ -332,8 +337,9 @@ PmedmResult PmedmSolver::solve (const PmedmProblem& prob, const std::vector<doub
     std::vector<float> C32_h(prob.C.begin(), prob.C.end());
 
     DeviceVector<double> C64, Yv, Vv, logq, l(nd, 0.0), g(nd), gprev(nd), d(nd), E(DG), tmp64(DG), L64(KG);
-    DeviceVector<double> W(static_cast<std::size_t>(2 * HIST) * nd, 0.0), gram(4 * HIST * HIST), Wg(2 * HIST), coef(2 * HIST),
-            red(MAX_NV), scal(S_COUNT, 0.0), partials(MAX_BLOCKS * MAX_NV);
+    DeviceVector<double> W(static_cast<std::size_t>(2 * HIST) * nd, 0.0), gram(4 * HIST * HIST, 0.0), Wg(2 * HIST),
+            coef(2 * HIST), red(MAX_NV), scal(S_COUNT, 0.0), partials(MAX_BLOCKS * MAX_NV);
+    DeviceVector<double> sybuf(2 * static_cast<std::size_t>(nd)), cross(4 * HIST);
     DeviceVector<float> C32, w(DG), wprev(DG), Dm(DG), L32(KG), dL(KG);
     DeviceVector<int> tract, tptr, tbg, ist(I_COUNT, 0);
     toDevice(prob.C, C64);
@@ -416,9 +422,10 @@ PmedmResult PmedmSolver::solve (const PmedmProblem& prob, const std::vector<doub
 
     // -H g by the compact L-BFGS representation. W holds S (rows 0 .. HIST-1) and Y (rows HIST ..
     // 2 HIST-1) as a ring: logical row i (oldest first) is physical row (head + i) % HIST, and rows
-    // not yet written are zero, exactly as the unused history rows in solver.py.
+    // not yet written are zero, exactly as the unused history rows in solver.py. gram holds W W^T
+    // in physical order, updated in place whenever a pair enters the history (only its row and
+    // column change); the direction reads its S.Y and Y.Y blocks.
     auto direction = [&] () {
-        la.gemm(Op::N, Op::T, 2 * HIST, 2 * HIST, nd, 1.0, pW, nd, pW, nd, 0.0, gram.data(), 2 * HIST);
         la.gemm(Op::N, Op::N, 2 * HIST, 1, nd, 1.0, pW, nd, pg, 1, 0.0, Wg.data(), 1);
         const double* pgram = gram.data();
         const double* pWg = Wg.data();
@@ -483,7 +490,9 @@ PmedmResult PmedmSolver::solve (const PmedmProblem& prob, const std::vector<doub
         la.gemm(Op::T, Op::N, nd, 1, 2 * HIST, -1.0, pW, nd, pcoef, 1, 1.0, pd, 1);
     };
 
-    auto step = [&] (int it) {
+    // One iteration. Pointers captured here never change, so on CUDA the whole body is recorded
+    // once as a graph (one per value of refresh) and replayed.
+    auto stepBody = [&] (bool refresh) {
         direction();
         // Descent check (fall back to steepest descent) and the line search's linear and
         // quadratic coefficients, for both d and -g in one pass.
@@ -512,23 +521,36 @@ PmedmResult PmedmSolver::solve (const PmedmProblem& prob, const std::vector<doub
         leff32(pd, L32.data());
         la.gemm(Op::N, Op::N, D, G, K, 1.0f, C32.data(), K, L32.data(), G, 0.0f, pDm, G);
 
-        // All twelve step lengths' log1p arguments in one pass; the choice is made on the device.
-        deviceSums<NSTEPS>(
+        // Line search, decided on the device: the full step first (accepted 90-95% of iterations);
+        // the eleven shorter steps in one more pass, which returns at once if the full step passed.
+        deviceSums<1>(
+                DG,
+                [=] AMREX_GPU_DEVICE (int i, double* acc) noexcept {
+                    acc[0] += static_cast<double>(pw[i] * std::expm1(-1.0f * pDm[i]));
+                },
+                pred, ppart);
+        amrex::single_task([=] AMREX_GPU_DEVICE () noexcept {
+            const bool full = pscal[S_LIN] + pscal[S_QUAD] + std::log1p(pred[0]) <= C1 * pscal[S_GD];
+            pscal[S_FULL] = full ? 1.0 : 0.0;
+            pscal[S_T] = 1.0;
+        });
+        deviceSums<NSTEPS - 1>(
                 DG,
                 [=] AMREX_GPU_DEVICE (int i, double* acc) noexcept {
                     const float wi = pw[i], Di = pDm[i];
-                    float t = 1.0f;
-                    for (int j = 0; j < NSTEPS; ++j) {
+                    float t = 0.5f;
+                    for (int j = 0; j < NSTEPS - 1; ++j) {
                         acc[j] += static_cast<double>(wi * std::expm1(-t * Di));
                         t *= 0.5f;
                     }
                 },
-                pred, ppart);
+                pred + 1, ppart, pscal + S_FULL);
         amrex::single_task([=] AMREX_GPU_DEVICE () noexcept {
+            if (pscal[S_FULL] != 0.0) { return; }
             const double gd = pscal[S_GD], lin = pscal[S_LIN], quad = pscal[S_QUAD];
             double chosen = std::ldexp(1.0, -(NSTEPS - 1));
-            double t = 1.0;
-            for (int j = 0; j < NSTEPS; ++j) {
+            double t = 0.5;
+            for (int j = 1; j < NSTEPS; ++j) {
                 const double dec = t * lin + t * t * quad + std::log1p(pred[j]);
                 if (dec <= C1 * t * gd) {
                     chosen = t;
@@ -544,7 +566,7 @@ PmedmResult PmedmSolver::solve (const PmedmProblem& prob, const std::vector<doub
             pd[i] = pscal[S_T] * pd[i];
             pl[i] += pd[i];
         });
-        if ((it + 1) % REFRESH == 0) {
+        if (refresh) {
             exactE();
         } else {
             amrex::ParallelFor(DG, [=] AMREX_GPU_DEVICE (int i) noexcept {
@@ -552,7 +574,9 @@ PmedmResult PmedmSolver::solve (const PmedmProblem& prob, const std::vector<doub
             });
         }
         weights();
-        std::swap(pg, pgprev);
+        amrex::ParallelFor(nd, [=] AMREX_GPU_DEVICE (int i) noexcept {
+            pgprev[i] = pg[i];
+        });
         grad(pg);
 
         // History: keep (s, y) when s.y is safely positive.
@@ -577,15 +601,60 @@ PmedmResult PmedmSolver::solve (const PmedmProblem& prob, const std::vector<doub
                     if (pist[I_N] < HIST) { ++pist[I_N]; }
                 }
             });
+            double* psy = sybuf.data();
             amrex::ParallelFor(nd, [=] AMREX_GPU_DEVICE (int i) noexcept {
+                const double y = gnew[i] - gold[i];
+                psy[i] = pd[i];
+                psy[nd + i] = y;
                 if (pist[I_KEEP]) {
                     const int slot = pist[I_SLOT];
                     pW[static_cast<std::size_t>(slot) * nd + i] = pd[i];
-                    pW[static_cast<std::size_t>(HIST + slot) * nd + i] = gnew[i] - gold[i];
+                    pW[static_cast<std::size_t>(HIST + slot) * nd + i] = y;
+                }
+            });
+            // cross = W [s y]: the new pair's products with every history row, new rows included.
+            double* pcross = cross.data();
+            double* pgram = gram.data();
+            la.gemm(Op::N, Op::T, 2 * HIST, 2, nd, 1.0, pW, nd, psy, nd, 0.0, pcross, 2);
+            amrex::single_task([=] AMREX_GPU_DEVICE () noexcept {
+                if (!pist[I_KEEP]) { return; }
+                constexpr int H = HIST, H2 = 2 * HIST;
+                const int p = pist[I_SLOT];
+                for (int j = 0; j < H; ++j) {
+                    pgram[p * H2 + H + j] = pcross[(H + j) * 2 + 0];       // s_p . y_j
+                    pgram[(H + p) * H2 + H + j] = pcross[(H + j) * 2 + 1]; // y_p . y_j
+                    pgram[(H + j) * H2 + H + p] = pcross[(H + j) * 2 + 1];
+                }
+                for (int i = 0; i < H; ++i) {
+                    pgram[i * H2 + H + p] = pcross[i * 2 + 1]; // s_i . y_p
                 }
             });
         }
     };
+
+#ifdef AMREX_USE_CUDA
+    // Replaying a recorded graph replaces ~25 kernel launches per iteration with one; the kernels
+    // and their order are the same, so the result is too.
+    cudaGraphExec_t graphs[2] = {nullptr, nullptr};
+    auto step = [&] (int it) {
+        const bool refresh = (it + 1) % REFRESH == 0;
+        cudaStream_t s = amrex::Gpu::gpuStream();
+        cudaGraphExec_t& exec = graphs[refresh ? 1 : 0];
+        if (!exec) {
+            cudaGraph_t graph;
+            AMREX_CUDA_SAFE_CALL(cudaStreamBeginCapture(s, cudaStreamCaptureModeThreadLocal));
+            stepBody(refresh);
+            AMREX_CUDA_SAFE_CALL(cudaStreamEndCapture(s, &graph));
+            AMREX_CUDA_SAFE_CALL(cudaGraphInstantiate(&exec, graph, 0));
+            AMREX_CUDA_SAFE_CALL(cudaGraphDestroy(graph));
+        }
+        AMREX_CUDA_SAFE_CALL(cudaGraphLaunch(exec, s));
+    };
+#else
+    auto step = [&] (int it) {
+        stepBody((it + 1) % REFRESH == 0);
+    };
+#endif
 
     exactE();
     weights();
@@ -611,6 +680,12 @@ PmedmResult PmedmSolver::solve (const PmedmProblem& prob, const std::vector<doub
         amrex::Gpu::streamSynchronize();
         moved = m;
     }
+
+#ifdef AMREX_USE_CUDA
+    for (auto& exec : graphs) {
+        if (exec) { AMREX_CUDA_SAFE_CALL(cudaGraphExecDestroy(exec)); }
+    }
+#endif
 
     // Final allocation and gradient norm in float64 at the returned prices.
     exactE();

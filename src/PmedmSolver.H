@@ -31,7 +31,10 @@
     Everything per iteration stays on the device -- the line-search choice and the 10 x 10 L-BFGS
     algebra run as single-thread kernels -- and every reduction is two-pass with a block count
     fixed by the problem size, so a solve is bitwise reproducible for a given device type and
-    shape. The host synchronises once per check_every iterations.
+    shape. The host synchronises once per check_every iterations. On CUDA each iteration is
+    recorded once as a graph and replayed. Two choices keep the float64 work small on GPUs with
+    slow float64: the history's Gram matrix is updated in place when a pair enters (one row and
+    column), and the eleven shorter line-search steps are evaluated only when the full step fails.
 */
 #ifndef PMEDM_SOLVER_H_
 #define PMEDM_SOLVER_H_
