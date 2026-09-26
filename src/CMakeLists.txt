@@ -29,11 +29,16 @@ set(_sources
     InitializeInfections.H
     InitializeInfections.cpp
     KeyedRNG.H
+    PmedmProblem.H
+    PmedmProblem.cpp
     PmedmSolver.H
     PmedmSolver.cpp
     PopGenStages.H
     PopulationBundle.H
     PopulationBundle.cpp
+    PopulationGenerator.H
+    PopulationGenerator.cpp
+    Sha256.H
     UrbanPopAgentStruct.H
     UrbanPopData.H
     UrbanPopData.cpp
@@ -49,6 +54,11 @@ if(EXAEPI_DISABLE_SCHOOL)
 endif()
 
 setup_agent(_sources _input_files EXTRA_DEFINITIONS "${_extra_definitions}")
+
+# The population stages must round exactly as the Python reference generator does (bit-for-bit
+# digests), so no fused multiply-adds: on the host compiler in CUDA builds, directly otherwise.
+set_source_files_properties(PopulationGenerator.cpp PROPERTIES COMPILE_OPTIONS
+  "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-ffp-contract=off>;$<$<COMPILE_LANGUAGE:CXX>:-ffp-contract=off>")
 
 # The UrbanPop .bin stores each block group's agents as an independently-deflated frame, so the
 # reader inflates them (see readFrame in UrbanPopData.cpp). zlib is ubiquitous -- including on
@@ -105,7 +115,7 @@ if(ExaEpi_POPGEN_TESTS)
   exaepi_link_blas(popgen_gemm_check)
 
   add_executable(popgen_pmedm_check ${PROJECT_SOURCE_DIR}/utilities/tests/pmedm_check.cpp DenseLinAlg.cpp
-                                    PmedmSolver.cpp PopulationBundle.cpp)
+                                    PmedmProblem.cpp PmedmSolver.cpp PopulationBundle.cpp)
   set_target_properties(popgen_pmedm_check PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
   target_include_directories(popgen_pmedm_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_link_libraries(popgen_pmedm_check amrex ZLIB::ZLIB)
@@ -113,6 +123,16 @@ if(ExaEpi_POPGEN_TESTS)
     setup_target_for_cuda_compilation(popgen_pmedm_check)
   endif()
   exaepi_link_blas(popgen_pmedm_check)
+
+  # Built like the agent (through nvcc in CUDA builds), so it checks the stages as ExaEpi compiles them.
+  add_executable(popgen_stages_check ${PROJECT_SOURCE_DIR}/utilities/tests/popgen_stages_check.cpp
+                                     PopulationGenerator.cpp PmedmProblem.cpp PopulationBundle.cpp)
+  set_target_properties(popgen_stages_check PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+  target_include_directories(popgen_stages_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_link_libraries(popgen_stages_check amrex ZLIB::ZLIB)
+  if(AMReX_CUDA)
+    setup_target_for_cuda_compilation(popgen_stages_check)
+  endif()
 endif()
 
 unset(_sources)

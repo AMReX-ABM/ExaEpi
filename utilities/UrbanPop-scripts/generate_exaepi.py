@@ -27,6 +27,7 @@ import glob
 import hashlib
 import json
 import os
+import struct
 import sys
 import time
 
@@ -38,8 +39,34 @@ from popgen import (bundle, cbp, groups, perturb, persons, placement, solver,  #
 from popgen.problem import PumaProblem, puma_count  # noqa: E402
 
 
-def generate(b, seed, rep=0, pumas=None, verbose=True):
-    """Placements for every (or the named) PUMA: (bg_geoid, donor_global, count) plus stats."""
+def write_allocations(path, allocs):
+    """Solved allocations, for injecting into the C++ generator (PopulationGenerator's check):
+    per PUMA an int32 name length, the name, int32 D and G, then D x G float64, row-major."""
+    with open(path, "wb") as f:
+        for puma, al in allocs.items():
+            f.write(struct.pack("<i", len(puma)) + puma.encode())
+            f.write(struct.pack("<2i", *al.shape))
+            f.write(np.ascontiguousarray(al, dtype="<f8").tobytes())
+
+
+def read_allocations(path):
+    out = {}
+    with open(path, "rb") as f:
+        while head := f.read(4):
+            (n,) = struct.unpack("<i", head)
+            puma = f.read(n).decode()
+            D, G = struct.unpack("<2i", f.read(8))
+            out[puma] = np.frombuffer(f.read(8 * D * G), dtype="<f8").reshape(D, G)
+    return out
+
+
+def generate(b, seed, rep=0, pumas=None, verbose=True, allocs_out=None, allocs_in=None):
+    """Placements for every (or the named) PUMA: (bg_geoid, donor_global, count) plus stats.
+
+    allocs_out, a dict, receives each PUMA's solved allocation; allocs_in (PUMA -> allocation)
+    replaces the perturb-and-solve step, so placement and the stages can be rerun on exactly the
+    allocation another run solved -- how the C++ port is checked bit for bit.
+    """
     names = bundle.strings(b, "solve.puma")
     cols = bundle.strings(b, "solve.constraints")
     parts, stats = [], []
@@ -48,9 +75,14 @@ def generate(b, seed, rep=0, pumas=None, verbose=True):
             continue
         t0 = time.perf_counter()
         prob = PumaProblem(b, p)
-        Y, _ = perturb.perturbed_targets(prob, seed, rep)
-        logq = perturb.log_prior(perturb.perturbed_prior(prob, seed, rep), prob.G)
-        al, iters, gnorm = solver.solve(prob, Y, logq)
+        if allocs_in is not None:
+            al, iters, gnorm = allocs_in[names[p]], 0, float("nan")
+        else:
+            Y, _ = perturb.perturbed_targets(prob, seed, rep)
+            logq = perturb.log_prior(perturb.perturbed_prior(prob, seed, rep), prob.G)
+            al, iters, gnorm = solver.solve(prob, Y, logq)
+        if allocs_out is not None:
+            allocs_out[names[p]] = al
         bg, row, ct = placement.place_puma(b, prob, al, cols, seed, rep)
         parts.append((bg, prob.donor_index[row].astype(np.int64), ct))
         stats.append(dict(puma=names[p], donors=prob.D, bgs=prob.G, iters=iters,
@@ -189,12 +221,22 @@ def main():
     ap.add_argument("--out", default=None, help="write the person arrays to this .npz")
     ap.add_argument("--bin", default=None,
                     help="run stages S1-S10 and write the population to <BIN>.bin for ExaEpi")
+    ap.add_argument("--save-alloc", default=None,
+                    help="write the solved allocations here (input for the C++ stage check)")
+    ap.add_argument("--load-alloc", default=None,
+                    help="use these saved allocations instead of perturbing and solving")
     args = ap.parse_args()
 
     t0 = time.perf_counter()
     b = bundle.read(args.bundle)
     print(f"bundle {args.bundle}: {puma_count(b)} PUMAs, {len(b['bg.geoid'])} block groups")
-    placements, stats = generate(b, args.seed, args.rep, args.pumas)
+    allocs = {} if args.save_alloc else None
+    placements, stats = generate(b, args.seed, args.rep, args.pumas, allocs_out=allocs,
+                                 allocs_in=read_allocations(args.load_alloc) if args.load_alloc
+                                 else None)
+    if args.save_alloc:
+        write_allocations(args.save_alloc, allocs)
+        print(f"wrote {args.save_alloc}")
     pers = placement.expand(b, placements)
     age = b["donors.age"][pers["src"]]
     print(f"\n{len(pers['bg'])} persons in {pers['n_households']} households, "
