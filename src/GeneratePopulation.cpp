@@ -199,9 +199,9 @@ GeneratedPopulation generatePopulation (const GenerationSettings& settings, int 
         mine.insert(mine.end(), pl.donor.begin(), pl.donor.end());
         mine.insert(mine.end(), pl.count.begin(), pl.count.end());
     }
-    const double t_solve = since(t);
     amrex::ParallelDescriptor::ReduceIntSum(iterations);
     const auto all = allGather(mine);
+    const double t_solve = since(t); // through the gather: the slowest rank's solves
     std::vector<Placements> per_puma(np);
     for (std::size_t q = 0; q < all.size();) {
         const auto p = all[q], n = all[q + 1];
