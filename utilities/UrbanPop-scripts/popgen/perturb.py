@@ -4,7 +4,8 @@ Each run re-solves P-MEDM on inputs redrawn within their sampling error, which i
 lives where (experiments/resolve_spread.py: block-group spread 0.30-0.33 of ACS, <=0.2% of block
 groups outside their published margins of error). Two independent sources:
 
-    targets   block-group estimates redrawn from their standard errors; tract targets rebuilt as
+    targets   block-group estimates redrawn from their standard errors (moment-matched log-normal,
+              so the mean stays exact where a clipped normal would not); tract targets rebuilt as
               published tract + (sum of the tract's perturbed block groups - sum of published),
               so tracts and block groups stay consistent. Perturbing them independently makes the
               two levels contradict each other and the solve averages the contradiction away
@@ -38,12 +39,27 @@ def exponential(k):
     return -np.log1p(-kr64.u01(kr64.draw(k, 0)))
 
 
+def lognormal_like(est, se, z):
+    """Positive draws with mean est and standard deviation se, from standard normals z.
+
+    A clipped normal, max(est + se z, 0), is biased upward wherever se is comparable to est --
+    common for small block-group cells -- and summed over thousands of cells the bias is large:
+    measured on NM, perturbed 65+ targets totalled 7.8% above the published 352,687. The
+    moment-matched log-normal keeps the mean exact: sigma^2 = log(1 + (se/est)^2),
+    mu = log(est) - sigma^2 / 2. A zero estimate stays zero.
+    """
+    pos = est > 0
+    safe = np.where(pos, est, 1.0)
+    s2 = np.log1p(np.square(se / safe))
+    return np.where(pos, np.exp(np.log(safe) - 0.5 * s2 + np.sqrt(s2) * z), 0.0)
+
+
 def perturbed_targets(prob, seed, rep):
     """(Y, est_bg perturbed) for one PUMA: nested block-group-first perturbation."""
     K = prob.K
     k = kr64.key(seed, rep, stages.PERTURB_TARGET, int(prob.fips),
                  np.arange(K, dtype=np.int64)[None, :], prob.bg_geoid[:, None])
-    y2 = np.maximum(prob.est_bg + prob.se_bg * normal(k), 0.0)
+    y2 = lognormal_like(prob.est_bg, prob.se_bg, normal(k))
     y1 = np.maximum(prob.est_tract + prob.A1 @ (y2 - prob.est_bg), 0.0)
     return targets(y2, y1, prob.N), y2
 
