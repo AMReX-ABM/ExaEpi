@@ -8,6 +8,8 @@ set(_sources
     AirTravelFlow.cpp
     CaseData.H
     CaseData.cpp
+    DenseLinAlg.H
+    DenseLinAlg.cpp
     WeatherData.H
     WeatherData.cpp
     DiseaseCoupling.H
@@ -52,6 +54,33 @@ setup_agent(_sources _input_files EXTRA_DEFINITIONS "${_extra_definitions}")
 # that is what setup_agent already used for amrex and the two forms cannot be mixed.
 find_package(ZLIB REQUIRED)
 target_link_libraries(agent ZLIB::ZLIB)
+
+# Population generation's solver runs its matrix products on the vendor BLAS (DenseLinAlg.cpp):
+# cuBLAS and rocBLAS ship with their toolkits; CPU builds use DenseLinAlg's own kernel.
+function(exaepi_link_gpu_blas _target)
+  if(AMReX_GPU_BACKEND STREQUAL "CUDA")
+    find_package(CUDAToolkit REQUIRED)
+    target_link_libraries(${_target} CUDA::cublas)
+  elseif(AMReX_GPU_BACKEND STREQUAL "HIP")
+    find_package(rocblas REQUIRED)
+    target_link_libraries(${_target} roc::rocblas)
+  endif()
+endfunction()
+exaepi_link_gpu_blas(agent)
+
+# Unit checks for the population-generation building blocks that need AMReX (the standalone ones
+# -- kr64_kat, bundle_read -- build with a plain compiler; see their headers).
+option(ExaEpi_POPGEN_TESTS "Build population-generation unit checks" OFF)
+if(ExaEpi_POPGEN_TESTS)
+  add_executable(popgen_gemm_check ${PROJECT_SOURCE_DIR}/utilities/tests/gemm_check.cpp DenseLinAlg.cpp)
+  set_target_properties(popgen_gemm_check PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+  target_include_directories(popgen_gemm_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_link_libraries(popgen_gemm_check amrex)
+  if(AMReX_CUDA)
+    setup_target_for_cuda_compilation(popgen_gemm_check)
+  endif()
+  exaepi_link_gpu_blas(popgen_gemm_check)
+endif()
 
 unset(_sources)
 unset(_input_files)
