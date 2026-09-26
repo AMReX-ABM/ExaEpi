@@ -1,0 +1,39 @@
+#!/bin/sh
+# Reject commit messages that attribute the commit to an AI assistant.
+#
+# See CLAUDE.md for the rule this enforces. Tracked in .githooks/ rather than
+# .git/hooks/ so it is version-controlled; the devcontainer's postCreateCommand
+# points core.hooksPath here, so a rebuild re-arms it automatically. To arm it
+# by hand (e.g. in a fresh clone):
+#
+#     git config core.hooksPath .githooks
+#
+# To bypass deliberately for one commit: git commit --no-verify
+
+msg_file="$1"
+
+# git strips comment lines before using the message, so ignore them here too --
+# otherwise the commit template's own instructions could trip the check.
+body=$(grep -v '^#' "$msg_file")
+
+fail() {
+	echo "commit-msg: rejected -- $1" >&2
+	echo >&2
+	echo "  Commit messages must not attribute the commit to an AI assistant." >&2
+	echo "  Remove the offending line and commit again. See CLAUDE.md." >&2
+	echo "  To bypass deliberately: git commit --no-verify" >&2
+	exit 1
+}
+
+if printf '%s\n' "$body" | grep -qiE '^[[:space:]]*co-authored-by:.*(claude|anthropic|copilot|chatgpt|gpt-|gemini)'; then
+	fail "Co-Authored-By trailer naming an AI assistant"
+fi
+
+# Anchored to trailer lines ("Word-Word: ...") rather than matched anywhere, so
+# a commit message may still discuss the address in prose -- as the commit that
+# introduced this hook needed to.
+if printf '%s\n' "$body" | grep -qiE '^[[:space:]]*[a-z][a-z-]*:.*noreply@anthropic\.com'; then
+	fail "assistant no-reply address in a trailer"
+fi
+
+exit 0
