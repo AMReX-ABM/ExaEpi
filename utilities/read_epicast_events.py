@@ -236,6 +236,10 @@ def read_events_bin(path: str, full: bool = True) -> tuple[pd.DataFrame, pd.Data
         disease_state_codes, categories=_DISEASE_STATE_DTYPE.categories
     )
     if full:
+        # Read back from columns rather than reusing the locals from the first `if full:` block,
+        # which pyright can't tell are always bound here.
+        agent_id = columns["agent_id"]
+        location_id = columns["location_id"]
         # Derived columns (matching Julia helper functions)
         columns["variant"] = records["variant"]
         columns["home_state"] = (agent_id >> np.uint64(58)).astype(np.uint8)
