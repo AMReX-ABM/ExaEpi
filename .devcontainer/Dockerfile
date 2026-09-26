@@ -3,7 +3,7 @@ FROM nvidia/cuda:12.8.0-devel-ubuntu24.04
 # Install build deps and Python packages
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     cmake git git-lfs g++ make ninja-build \
-    libopenmpi-dev openmpi-bin libhdf5-openmpi-dev \
+    libopenmpi-dev openmpi-bin libhdf5-openmpi-dev libopenblas-dev \
     ccache python3 python3-pip python3-venv clang-format sudo \
     curl ca-certificates poppler-utils time \
     && pip3 install --no-cache-dir --break-system-packages \
@@ -26,6 +26,8 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
 #             them needs it, or a shim that stands in for it.
 # time     -- GNU /usr/bin/time; `time -v` reports peak RSS, which the UrbanPop experiments use to
 #             measure solve memory. The bash builtin `time` does not.
+# libopenblas-dev -- CPU BLAS for population generation's P-MEDM solver (src/DenseLinAlg.cpp);
+#             without it CPU builds fall back to a much slower built-in matrix product.
 # python3-venv -- provides ensurepip, without which `python3 -m venv` fails outright. Needed for
 #             the isolated livelike/pymedm environment created below.
 
