@@ -22,6 +22,13 @@ _HEADER = struct.Struct("<4I Q")
 
 def read(path, require_version=FORMAT_VERSION):
     """All sections as numpy arrays keyed by name, plus 'meta' decoded from JSON."""
+    out = read_raw(path, require_version)
+    out["meta"] = json.loads(out["meta"].tobytes().decode())
+    return out
+
+
+def read_raw(path, require_version=FORMAT_VERSION):
+    """All sections as numpy arrays keyed by name, 'meta' left as its stored bytes."""
     out = {}
     with open(path, "rb") as f:
         magic, version, n_sections, _, dir_off = _HEADER.unpack(f.read(_HEADER.size))
@@ -49,7 +56,6 @@ def read(path, require_version=FORMAT_VERSION):
             if len(blob) != nraw:
                 raise ValueError(f"{path}: section {name} has {len(blob)} bytes, expected {nraw}")
             out[name] = np.frombuffer(blob, dtype=np.dtype(dtype)).reshape(shape)
-    out["meta"] = json.loads(out["meta"].tobytes().decode())
     return out
 
 
@@ -57,3 +63,21 @@ def strings(b, name):
     """A string list stored as name.blob (concatenated UTF-8) + name.offsets (start offsets)."""
     blob, off = b[name + ".blob"].tobytes(), b[name + ".offsets"]
     return [blob[int(a):int(e)].decode() for a, e in zip(off[:-1], off[1:])]
+
+
+def manifest(path):
+    """One line per section, sorted by name: name, dtype, shape (x-separated), raw bytes, CRC-32.
+    utilities/tests/bundle_read.cpp prints the same lines from the C++ reader."""
+    lines = []
+    for name, a in sorted(read_raw(path).items()):
+        shape = "x".join(str(d) for d in a.shape)
+        lines.append(f"{name} {a.dtype.str} {shape} {a.nbytes} {zlib.crc32(a.tobytes()):08x}")
+    return lines
+
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) != 3 or sys.argv[1] != "--manifest":
+        raise SystemExit("usage: python -m popgen.bundle --manifest BUNDLE")
+    print("\n".join(manifest(sys.argv[2])))

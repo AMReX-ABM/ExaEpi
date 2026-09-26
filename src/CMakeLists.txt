@@ -26,6 +26,10 @@ set(_sources
     InteractionModelLibrary.H
     InitializeInfections.H
     InitializeInfections.cpp
+    KeyedRNG.H
+    PopGenStages.H
+    PopulationBundle.H
+    PopulationBundle.cpp
     UrbanPopAgentStruct.H
     UrbanPopData.H
     UrbanPopData.cpp
