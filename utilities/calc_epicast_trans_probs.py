@@ -15,21 +15,21 @@ apply_style()
 
 # latent period
 exposed_to_presymp = [0.0] * 1
-exposed_to_presymp.extend([0.1, 0.25, 0.55, 0.66, 0.78, 0.85, 1.0])
+exposed_to_presymp.extend([0.1, 0.25, 0.55, 0.66, 0.78, 0.85, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
 # incubation period
 incubation = [0.0] * 1
 incubation.extend(exposed_to_presymp)
 # infectious period - in epicast runs from 3 to 9 days, excluding the presymp infectious period, so this needs to start at 4
 infectious = [0.0] * 4
-infectious.extend([0.1, 0.3, 0.5, 0.7, 0.85, 0.95, 1.0])
+infectious.extend([0.1, 0.3, 0.5, 0.7, 0.85, 0.95, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
 
 transitions = [
-    # (exposed_to_presymp, 2.82, 1.36, 0.0, "Exposed to Presymptomatic"),
-    (exposed_to_presymp, 2.77, 1.5, 0.0, "Exposed to Presymptomatic"),
-    # (exposed_to_presymp, 1.95, 2.53, 0.0, "Exposed to Presymptomatic"),
-    # (exposed_to_presymp, 6, 0.73, 0, "Exposed to Presymptomatic"),
-    # (exposed_to_presymp, 2.55, 1.34, 0.0, "Exposed to Presymptomatic"),
-    # (exposed_to_presymp, 1.5, 3.0, 0.0, "Exposed to Presymptomatic"),
+    # (exposed_to_presymp, 2.82, 1.36, 0.0, "Latent Period"),
+    (exposed_to_presymp, 2.77, 1.5, 0.0, "Latent Period"),
+    # (exposed_to_presymp, 1.95, 2.53, 0.0, "Latent Period"),
+    # (exposed_to_presymp, 6, 0.73, 0, "Latent Period"),
+    # (exposed_to_presymp, 2.55, 1.34, 0.0, "Latent Period"),
+    # (exposed_to_presymp, 1.5, 3.0, 0.0, "Latent Period"),
     # (infectious, 1.5, 3, 3.0, "Infectious Period"),
     # (infectious, 5.221, 0.946, 2.24, "Infectious Period"),
     (infectious, 3.54, 1.22, 2.75, "Infectious Period"),
@@ -208,11 +208,13 @@ for idx, group in enumerate(groups):
     )
     for i, (bar, prob) in enumerate(zip(bars, trans_probs)):
         height = bar.get_height()
-        if prob > 0:
+        label = f"{prob:.2f}"
+        # Skip empty bars and saturated ones (cumulative prob that reads as 1.00)
+        if prob > 0 and label != "1.00":
             ax.text(
                 bar.get_x() + bar.get_width() / 2,
                 height,
-                f"{prob:.2f}",
+                label,
                 ha="center",
                 va="bottom",
                 fontsize=FONT_TICK,
@@ -228,9 +230,12 @@ for idx, group in enumerate(groups):
         corr_manual = pearsonr(gamma_manual, trans_probs)[0]
         params_str = f"α={shape:.2f}, β={scale:.2f}, loc={loc:.2f} r={corr_manual:.3f}"
         label = (
-            f"{title}: Gamma ({params_str})"
+            # f"{title}: Gamma ({params_str})"
+            # if label_with_title
+            # else f"Gamma ({params_str})"
+            f"{title}: Gamma"
             if label_with_title
-            else f"Gamma ({params_str})"
+            else f"Gamma"
         )
         corr_by_series.append(("Manual", params_str, corr_manual))
         ax.plot(
@@ -242,8 +247,6 @@ for idx, group in enumerate(groups):
             # function whose treads are centered on the integer days -- steps-mid, not the
             # steps-post/pre that would imply the jump happens at the day boundary.
             drawstyle="steps-mid",
-            marker="o",
-            markersize=4,
             lw=1,
             label=label,
         )
@@ -278,8 +281,6 @@ for idx, group in enumerate(groups):
             lw=1,
             linestyle="-",
             drawstyle="steps-mid",
-            marker="^",
-            markersize=4,
             label=f"Optimized gamma (α={shape_opt:.2f}, β={scale_opt:.2f}, loc={loc_opt:.2f} , r={corr_opt:.3f})",
         )
 
@@ -289,12 +290,12 @@ for idx, group in enumerate(groups):
     print()
 
     ax.set_xlim(0, days - 1)
-    ax.set_ylim(0, 1.2)
+    ax.set_ylim(0, 1.0)
     ax.set_xlabel("Days")
     ax.set_ylabel("Cumulative probability")
     ax.set_title(group_title)
     ax.grid(True, alpha=0.3, linewidth=AXES_LINEWIDTH)
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.0))
+    ax.legend(loc="lower right")#, bbox_to_anchor=(0.5, 1.0))
 
 plt.savefig("epicast_transitions_comparison.png", dpi=300)
 #plt.show()
