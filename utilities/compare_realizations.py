@@ -6,15 +6,18 @@ ExaEpi normally runs against a single UrbanPop realization, so its reported spre
 the disease model's own randomness. This script compares runs grouped into arms that add one
 source of population variation at a time:
 
+Arms are named by a single leading letter in each run directory, and `A` is by convention the
+reference arm: one fixed population run at many disease seeds, which measures the model's own
+stochastic noise floor. Every other arm is compared against it. A typical set:
+
     A   one population, many disease seeds      -- the noise floor
     B   populations differing by --rseed        -- adds work/school destinations and mixing groups
-    C   populations additionally perturbed      -- adds ACS-scale variation in who lives where
-        within ACS sampling error
+    C   populations perturbed at ACS scale      -- adds variation in who lives where
+    D   populations perturbed at some smaller   -- probes how much population variation is
+        scale                                      needed before outcomes move
 
-The arms are nested, so the interesting comparisons are B against A (does re-drawing assignment
-matter?) and C against B (does re-drawing the residential population matter on top of that?). An
-arm whose spread is indistinguishable from A is telling you that source of variation does not
-reach the model's outputs.
+An arm whose spread is indistinguishable from A is telling you that source of variation does not
+reach the model's outputs -- which is a result, not a failure.
 
 Two families of metric are reported, because they can disagree and the disagreement is the point.
 Aggregate curve metrics come from the per-day diagnostic table; a state-wide curve can absorb a
@@ -100,7 +103,7 @@ def parse_spatial(fname: str) -> tuple[np.ndarray, np.ndarray]:
 
 def arm_of(run_name: str) -> str | None:
     """Arm label from a run directory name like 'B_r3_s1' or 'A_base_s7'."""
-    m = re.match(r"^([ABC])_", run_name)
+    m = re.match(r"^([A-Z])_", run_name)
     return m.group(1) if m else None
 
 
@@ -220,7 +223,7 @@ def f_test_greater(var_num: float, n_num: int, var_den: float, n_den: int) -> fl
 
 
 def report_curves(curves: dict[str, list[dict[str, float]]]) -> None:
-    arms = [a for a in ("A", "B", "C") if a in curves]
+    arms = sorted(curves)
     if not arms:
         return
     names = sorted({k for arm in arms for m in curves[arm] for k in m if not k.startswith("_")})
@@ -263,7 +266,7 @@ def report_curves(curves: dict[str, list[dict[str, float]]]) -> None:
                     f"excess variance share {share:>7.1%}   F p={p:.3f}  [{verdict}]"
                 )
         # The within-arm decomposition, which does not depend on arm A at all.
-        for arm in ("B", "C"):
+        for arm in [a for a in arms if a != "A"]:
             if arm not in curves:
                 continue
             nv = nested_variance(curves[arm], metric)
@@ -300,7 +303,7 @@ def mean_pairwise_corr(members: list[tuple[str, dict[str, float]]]) -> tuple[flo
 
 
 def report_spatial(spatial: dict[str, list[tuple[str, dict[str, float]]]]) -> None:
-    arms = [a for a in ("A", "B", "C") if a in spatial and len(spatial[a]) >= 2]
+    arms = [a for a in sorted(spatial) if len(spatial[a]) >= 2]
     if not arms:
         print("=== Per-block-group attack rate: no spatial output found ===")
         return
@@ -330,8 +333,8 @@ def main():
     curves, spatial, missing, incomplete = collect(args.runs, args.curve, args.spatial)
     total = sum(len(v) for v in curves.values())
     print(f"Collected {total} complete runs from {args.runs}")
-    for arm in ("A", "B", "C"):
-        if arm in curves:
+    for arm in sorted(curves):
+        if True:
             print(f"  arm {arm}: {len(curves[arm])} runs")
     if missing:
         print(f"  WARNING: {len(missing)} run dirs had no {args.curve}: {missing[:5]}")
