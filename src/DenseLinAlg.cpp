@@ -129,8 +129,9 @@ DenseLinAlg::DenseLinAlg (Stream stream) : m_stream(stream) {
 #elif defined(EXAEPI_POPGEN_OPENBLAS)
     // Threaded OpenBLAS may partition a product differently with the thread count, and so round
     // differently; one thread per call keeps results independent of it. (Process-wide setting:
-    // nothing else in ExaEpi calls BLAS.)
-    openblas_set_num_threads(1);
+    // nothing else in ExaEpi calls BLAS; set once, as solves may construct handles concurrently.)
+    static const bool one_thread = (openblas_set_num_threads(1), true);
+    amrex::ignore_unused(one_thread);
 #endif
 }
 

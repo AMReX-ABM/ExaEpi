@@ -54,15 +54,20 @@ std::map<std::string, std::vector<double>> readAllocations (const std::string& p
     return out;
 }
 
+//! A PUMA's solve size, donors x block groups: the load estimate for splitting work.
+std::int64_t pumaCells (const PopulationBundle& b, int p) {
+    const auto bgo = b.get<std::int64_t>("solve.bg_offset");
+    const auto dno = b.get<std::int64_t>("solve.donor_offset");
+    return (bgo[p + 1] - bgo[p]) * (dno[p + 1] - dno[p]);
+}
+
 /*! Owner rank of each PUMA: longest processing time first on donors x block groups, ties to the
     lower PUMA index and the lower rank, so every rank computes the same split. */
 std::vector<int> splitPumas (const PopulationBundle& b, int nranks) {
     const int np = pumaCount(b);
-    const auto bgo = b.get<std::int64_t>("solve.bg_offset");
-    const auto dno = b.get<std::int64_t>("solve.donor_offset");
     std::vector<std::int64_t> cells(np);
     for (int p = 0; p < np; ++p) {
-        cells[p] = (bgo[p + 1] - bgo[p]) * (dno[p + 1] - dno[p]);
+        cells[p] = pumaCells(b, p);
     }
     std::vector<int> order(np);
     std::iota(order.begin(), order.end(), 0);
@@ -139,12 +144,22 @@ GeneratedPopulation generatePopulation (const GenerationSettings& settings, int 
     std::map<std::string, std::vector<double>> injected;
     if (!settings.inject_allocations.empty()) { injected = readAllocations(settings.inject_allocations); }
 
-    // Perturb, solve and place this rank's PUMAs; gather everyone's placements.
-    std::vector<std::int64_t> mine;
-    const PmedmSolver solver(settings.solver);
-    int iterations = 0;
+    // Perturb, solve and place this rank's PUMAs, largest first; gather everyone's placements.
+    // Each PUMA is solved on its own at its own shape, so on CPU they run on separate OpenMP
+    // threads (each solve single-threaded) without changing any result; they are packed in PUMA
+    // order afterwards.
+    std::vector<int> todo;
     for (int p = 0; p < np; ++p) {
-        if (owner[p] != me) { continue; }
+        if (owner[p] == me) { todo.push_back(p); }
+    }
+    std::stable_sort(todo.begin(), todo.end(), [&] (int x, int y) {
+        return pumaCells(b, x) > pumaCells(b, y);
+    });
+    const PmedmSolver solver(settings.solver);
+    std::vector<Placements> placed(np);
+    std::vector<int> iters(np, 0);
+    std::vector<std::string> errors(np);
+    auto solveAndPlace = [&] (int p) {
         const PmedmProblem prob(b, p);
         std::vector<double> al;
         if (!injected.empty()) {
@@ -155,10 +170,29 @@ GeneratedPopulation generatePopulation (const GenerationSettings& settings, int 
             const auto Y = perturbedTargets(prob, settings.seed, settings.rep);
             const auto logq = perturbedLogPrior(prob, settings.seed, settings.rep);
             auto res = solver.solve(prob, Y, logq);
-            iterations += res.iterations;
+            iters[p] = res.iterations;
             al = std::move(res.allocation);
         }
-        const auto pl = placePuma(b, prob, al, cols, settings.seed, settings.rep);
+        placed[p] = placePuma(b, prob, al, cols, settings.seed, settings.rep);
+    };
+    const int n_todo = static_cast<int>(todo.size());
+#if defined(AMREX_USE_OMP) && !defined(AMREX_USE_GPU)
+#pragma omp parallel for schedule(dynamic, 1)
+#endif
+    for (int q = 0; q < n_todo; ++q) {
+        try {
+            solveAndPlace(todo[q]);
+        } catch (const std::exception& e) { errors[todo[q]] = e.what(); }
+    }
+    for (const auto& e : errors) {
+        if (!e.empty()) { throw std::runtime_error(e); }
+    }
+    std::vector<std::int64_t> mine;
+    int iterations = 0;
+    for (int p = 0; p < np; ++p) {
+        if (owner[p] != me) { continue; }
+        const auto& pl = placed[p];
+        iterations += iters[p];
         mine.push_back(p);
         mine.push_back(static_cast<std::int64_t>(pl.size()));
         mine.insert(mine.end(), pl.bg.begin(), pl.bg.end());
