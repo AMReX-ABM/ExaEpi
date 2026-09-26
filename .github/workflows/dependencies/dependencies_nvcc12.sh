@@ -32,6 +32,7 @@ sudo apt-get install -y \
     cuda-minimal-build-12-6      \
     cuda-nvml-dev-12-6           \
     cuda-nvtx-12-6               \
+    libcublas-dev-12-6           \
     libcurand-dev-12-6
 sudo ln -s cuda-12.6 /usr/local/cuda
 

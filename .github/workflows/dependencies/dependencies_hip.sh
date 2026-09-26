@@ -61,7 +61,8 @@ sudo apt-get install -y --no-install-recommends \
     rocrand-dev${VERSION}     \
     rocfft-dev${VERSION}      \
     rocprim-dev${VERSION}     \
-    rocsparse-dev${VERSION}
+    rocsparse-dev${VERSION}   \
+    rocblas-dev${VERSION}
 
 # hiprand-dev is a new package that does not exist in old versions
 sudo apt-get install -y --no-install-recommends hiprand-dev${VERSION} || true

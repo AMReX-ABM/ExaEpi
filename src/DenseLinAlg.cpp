@@ -125,6 +125,9 @@ DenseLinAlg::DenseLinAlg (Stream stream) : m_stream(stream) {
     rocblas_handle h;
     check(rocblas_create_handle(&h), "create");
     check(rocblas_set_stream(h, m_stream), "set stream");
+    // Some rocBLAS kernels accumulate with atomics by default, which makes results vary from run
+    // to run; the solver needs the same product every time.
+    check(rocblas_set_atomics_mode(h, rocblas_atomics_not_allowed), "set atomics mode");
     m_handle = h;
 #elif defined(EXAEPI_POPGEN_OPENBLAS)
     // Threaded OpenBLAS may partition a product differently with the thread count, and so round
