@@ -26,7 +26,7 @@ import sys
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, "/workspaces/ExaEpi/utilities/UrbanPop-scripts")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from build_precompute import read_bundle  # noqa: E402
 from generate_population import draw_placements, expand_to_persons  # noqa: E402
 

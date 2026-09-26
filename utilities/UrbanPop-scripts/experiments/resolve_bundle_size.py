@@ -21,7 +21,7 @@ import zlib
 
 import numpy as np
 
-sys.path.insert(0, "/workspaces/ExaEpi/utilities/UrbanPop-scripts")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from build_precompute import EXAEPI_MINIMAL  # noqa: E402
 
 PUMAS = [f"35{p:05d}" for p in (100, 1001, 1002, 1100, 1200, 200, 300, 400, 500, 600, 700,

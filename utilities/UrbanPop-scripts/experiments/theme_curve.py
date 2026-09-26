@@ -31,7 +31,7 @@ import time
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, "/workspaces/ExaEpi/utilities/UrbanPop-scripts")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from build_precompute import EXAEPI_MINIMAL, repair_controlled_se  # noqa: E402
 
 
