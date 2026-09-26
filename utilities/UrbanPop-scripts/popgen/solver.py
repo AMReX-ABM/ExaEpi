@@ -29,10 +29,19 @@ fp32_capped.py):
 import functools
 import os
 
-import jax
-import jax.numpy as jnp
-import numpy as np
-from jax.scipy.linalg import solve_triangular
+# XLA autotunes GPU kernels by timing candidates, so two processes can pick different matrix-
+# product algorithms, round differently, and -- because a capped solve does not run to the exact
+# minimum -- produce different populations from the same seed (measured: 2,073,366 vs 2,073,800
+# persons for NM seed 1). Fix the kernel choice and require deterministic reductions. This must be
+# set before JAX initialises its GPU backend.
+_DETERMINISTIC = "--xla_gpu_autotune_level=0 --xla_gpu_deterministic_ops=true"
+if "xla_gpu_autotune_level" not in os.environ.get("XLA_FLAGS", ""):
+    os.environ["XLA_FLAGS"] = (os.environ.get("XLA_FLAGS", "") + " " + _DETERMINISTIC).strip()
+
+import jax  # noqa: E402
+import jax.numpy as jnp  # noqa: E402
+import numpy as np  # noqa: E402
+from jax.scipy.linalg import solve_triangular  # noqa: E402
 
 jax.config.update("jax_enable_x64", True)
 jax.config.update("jax_default_matmul_precision", "highest")

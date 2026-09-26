@@ -38,6 +38,11 @@ def by_puma(b, placements, pumas):
 
 def main():
     path = sys.argv[1]
+    if len(sys.argv) > 2 and sys.argv[2] == "--digest":
+        # Print one population's digest, for comparing separate processes.
+        b = bundle.read(path)
+        print(digest(generate(b, 5, 0, sys.argv[3:], verbose=False)[0]))
+        return 0
     pumas = sys.argv[2:] or ["3500804", "3500200", "3500806"]
     b = bundle.read(path)
     fwd, _ = generate(b, 5, 0, pumas, verbose=False)
