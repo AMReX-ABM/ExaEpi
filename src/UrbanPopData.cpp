@@ -24,6 +24,7 @@
 #include <AMReX_iMultiFab.H>
 
 #include "AgentContainer.H"
+#include "Sha256.H"
 #include "UrbanPopData.H"
 
 using namespace amrex;
@@ -238,16 +239,19 @@ static std::pair<int, double> getAllLoadBalance (const long num) {
     that only runs on a fresh start and would leave day_population empty on a restarted run. Pure
     host-side counting (no particle/GPU work), so the redundant per-rank scan is cheap relative to
     the one-time cost of reading the file at all. */
-static Vector<Real> computeDayPopulation (ifstream& f, uint32_t codec, const Vector<BlockGroup>& block_groups,
+static Vector<Real> computeDayPopulation (ifstream& f, uint32_t codec, std::string& digest,
+                                          const Vector<BlockGroup>& block_groups,
                                           const std::map<int64_t, int>& geoid_to_block_groups) {
     BL_PROFILE("computeDayPopulation");
     Vector<Real> day_population(block_groups.size(), 0.0_rt);
     UrbanPopAgent agent;
     FrameScratch scratch;
+    PopGen::Sha256 sha; // the population digest: every home block group's frame, in geoid order
     for (int bi = 0; bi < (int)block_groups.size(); ++bi) {
         const auto& block_group = block_groups[bi];
         if (block_group.home_population == 0) { continue; }
         readFrame(f, block_group, codec, scratch);
+        sha.update(scratch.raw.data(), scratch.raw.size());
         const UrbanPop::AgentFrame frame(scratch.raw.data(), block_group.home_population);
         for (int i = 0; i < block_group.home_population; ++i) {
             frame.get(i, agent);
@@ -264,6 +268,7 @@ static Vector<Real> computeDayPopulation (ifstream& f, uint32_t codec, const Vec
             }
         }
     }
+    digest = sha.hex().substr(0, 16);
     return day_population;
 }
 
@@ -416,7 +421,8 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
 
     std::ofstream geoid_coords_ofs;
 
-    day_population = computeDayPopulation(urbanpop_file, codec, block_groups, geoid_to_block_groups);
+    day_population = computeDayPopulation(urbanpop_file, codec, population_digest, block_groups, geoid_to_block_groups);
+    Print() << "Population digest " << population_digest << "\n";
 
     fillGridMetadataOnHost();
 

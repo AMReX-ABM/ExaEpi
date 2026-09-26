@@ -283,6 +283,29 @@ void readCheckpointFile (const std::string restart_chkfile, /*!< checkpoint file
     iMultiFab::Copy(pc.comm_mf, *comm_mf_ptr, 0, 0, 1, 0);
 }
 
+void writePopulationDigest (const std::string& chk, const std::string& digest) {
+    if (!amrex::ParallelDescriptor::IOProcessor()) { return; }
+    std::ofstream ofs(chk + "/PopulationDigest", std::ofstream::out | std::ofstream::trunc);
+    if (!ofs.good()) { amrex::FileOpenFailed(chk + "/PopulationDigest"); }
+    ofs << digest << "\n";
+}
+
+void checkPopulationDigest (const std::string& chk, const std::string& digest) {
+    std::ifstream ifs(chk + "/PopulationDigest");
+    std::string recorded;
+    if (!(ifs >> recorded)) {
+        amrex::Print() << "Warning: checkpoint " << chk << " records no population digest; cannot confirm the restart "
+                       << "runs on the population it was written with\n";
+        return;
+    }
+    if (recorded != digest) {
+        amrex::Abort("Restart population " + digest + " differs from the checkpoint's " + recorded + " (" + chk +
+                     "): check agent.population_source, the bundle or .bin, agent.population_seed / population_rep, "
+                     "and the device type");
+    }
+    amrex::Print() << "Restart population matches checkpoint " << chk << " (digest " << digest << ")\n";
+}
+
 void writeCheckpointFile (const AgentContainer& pc,                      /*!< Agent (particle) container */
                           const MFPtrVec& a_disease_stats,               /*!< Disease stats tracker */
                           const iMultiFab* unit_mf_ptr,                  /*!< MultiFabs to write out */

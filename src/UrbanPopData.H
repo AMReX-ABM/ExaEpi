@@ -127,6 +127,11 @@ struct UrbanPopData {
         BlockGroup::work_populations[0]. */
     amrex::Vector<amrex::Real> day_population;
 
+    /*! SHA-256 (16 hex digits) over every home block group's uncompressed agent frame, in geoid
+        order: the same for a generated population and for the .bin it writes, so checkpoints can
+        record it and a restart can confirm it is running on the same population. */
+    std::string population_digest;
+
     amrex::iMultiFab geoid_mf;     /*!< FIPS code (component 0) and census block group number (component 1) of each block group */
     amrex::iMultiFab community_mf; /*!< Index for community == block group */
     /*! Compact FIPS-unit index (0..FIPS_codes.size()-1, index-aligned with FIPS_codes/

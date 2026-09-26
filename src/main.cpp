@@ -575,6 +575,7 @@ void runAgent () {
         } else {
             IO::readCheckpointFile(params.restart_chkfile, pc, disease_stats, nullptr, &(urbanPopData.geoid_mf),
                                    &(urbanPopData.community_mf), cur_time, start_day);
+            IO::checkPopulationDigest(params.restart_chkfile, urbanPopData.population_digest);
         }
 
         // Populate pc.comm_density_scale from the population-size scale. Done after both the
@@ -737,6 +738,7 @@ void runAgent () {
             if ((params.check_int > 0) && (i % params.check_int == 0) && ((params.restart_chkfile == "") || (i != start_day))) {
                 ExaEpi::IO::writeCheckpointFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
                                                 params.num_diseases, params.disease_names, cur_time, i);
+                ExaEpi::IO::writePopulationDigest(amrex::Concatenate("chk", i, 5), urbanPopData.population_digest);
             }
 
             if ((params.aggregated_diag_int > 0) && (i % params.aggregated_diag_int == 0)) {
@@ -1038,6 +1040,7 @@ void runAgent () {
     if (params.check_int > 0) {
         ExaEpi::IO::writeCheckpointFile(pc, disease_stats, nullptr, &urbanPopData.geoid_mf, &urbanPopData.community_mf,
                                         params.num_diseases, params.disease_names, cur_time, params.nsteps);
+        ExaEpi::IO::writePopulationDigest(amrex::Concatenate("chk", params.nsteps, 5), urbanPopData.population_digest);
     }
 
     if ((params.aggregated_diag_int > 0) && (params.nsteps % params.aggregated_diag_int == 0)) {

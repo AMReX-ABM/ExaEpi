@@ -33,6 +33,14 @@ void writeCheckpointFile(const AgentContainer& pc, const MFPtrVec& a_disease_sta
                          const iMultiFab* FIPS_mf_ptr, const iMultiFab* comm_mf_ptr, const int num_diseases,
                          const std::vector<std::string>& disease_names, const Real cur_time, const int step);
 
+/*! Record the population digest (UrbanPopData::population_digest) in checkpoint directory chk. */
+void writePopulationDigest(const std::string& chk, const std::string& digest);
+
+/*! Abort unless the population digest recorded in checkpoint chk equals digest -- a restart must
+    run on the population it was checkpointed with. Checkpoints written before digests were
+    recorded carry none; those only warn. */
+void checkPopulationDigest(const std::string& chk, const std::string& digest);
+
 void writeAggregatedData(const AgentContainer& pc, const UrbanPopData& urbanpopData, const std::string& prefix,
                          const int num_diseases, const std::vector<std::string>& disease_names, const int step);
 
