@@ -29,6 +29,8 @@ set(_sources
     InitializeInfections.H
     InitializeInfections.cpp
     KeyedRNG.H
+    PmedmSolver.H
+    PmedmSolver.cpp
     PopGenStages.H
     PopulationBundle.H
     PopulationBundle.cpp
@@ -80,6 +82,16 @@ if(ExaEpi_POPGEN_TESTS)
     setup_target_for_cuda_compilation(popgen_gemm_check)
   endif()
   exaepi_link_gpu_blas(popgen_gemm_check)
+
+  add_executable(popgen_pmedm_check ${PROJECT_SOURCE_DIR}/utilities/tests/pmedm_check.cpp DenseLinAlg.cpp
+                                    PmedmSolver.cpp PopulationBundle.cpp)
+  set_target_properties(popgen_pmedm_check PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+  target_include_directories(popgen_pmedm_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_link_libraries(popgen_pmedm_check amrex ZLIB::ZLIB)
+  if(AMReX_CUDA)
+    setup_target_for_cuda_compilation(popgen_pmedm_check)
+  endif()
+  exaepi_link_gpu_blas(popgen_pmedm_check)
 endif()
 
 unset(_sources)
