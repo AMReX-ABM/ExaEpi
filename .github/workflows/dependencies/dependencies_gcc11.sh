@@ -15,4 +15,5 @@ sudo apt-get install -y --no-install-recommends \
     gfortran-11           \
     libopenmpi-dev        \
     openmpi-bin           \
-    libhdf5-openmpi-dev
+    libhdf5-openmpi-dev   \
+    libopenblas-dev

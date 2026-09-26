@@ -1,0 +1,18 @@
+## NM with the population generated at init from the bundle instead of read from a .bin
+agent.population_source = bundle
+agent.population_bundle = "data/UrbanPop/nm_popgen.upb"
+agent.population_seed = 42
+agent.seed = 42
+# CI runners have two cores: cap the P-MEDM solve well short of convergence (the full solve takes
+# ~2 min on one CPU core). This checks the pipeline runs end to end, not the population's fit.
+agent.popgen.check_every = 250
+agent.popgen.max_iter = 250
+
+agent.nsteps = 4
+agent.plot_int = 1
+
+agent.aggregated_diag_int = 1
+agent.aggregated_diag_prefix = "cases"
+
+disease.initial_case_type = "random"
+disease.num_initial_cases = 1000
