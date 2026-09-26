@@ -9,20 +9,25 @@ in the pipeline that involves no sampling at all, so the only thing left at runt
 
 The split it encodes:
 
-    precomputed here    P-MEDM allocation matrices, PUMS donor attributes and household index,
-                        LODES O-D flows, CBP establishment-size and workgroup-size tables,
-                        school capacities, county adjacency, block-group metadata
-    drawn in ExaEpi     TRS integerization, worker and student destinations, home neighborhood
-                        and household cluster, establishment draw and workgroup split, class
-                        partition, dense id assignment
+    precomputed here    per-PUMA P-MEDM inputs (donor constraint matrix, PUMS prior weights,
+                        block-group and tract estimates with standard errors), PUMS donor
+                        attributes and household index, LODES O-D flows, CBP establishment-size
+                        and workgroup-size tables, school capacities, county adjacency,
+                        block-group metadata
+    drawn in ExaEpi     perturbed targets and prior, the P-MEDM re-solve, TRS integerization,
+                        worker and student destinations, home neighborhood and household
+                        cluster, establishment draw and workgroup split, class partition, dense
+                        id assignment
 
-For New Mexico the bundle comes out around the size of the 22.06 MB `.bin` it replaces, so this is
-not a storage tradeoff -- it swaps a fixed realization for a generator of about the same size.
+Format version 2 ships the solver's inputs (build_solve_inputs) rather than solved allocation
+matrices, so every run can draw a fresh, calibrated population instead of picking from a fixed set
+of replicates. `--laplace` still writes the version-1 allocation matrices (build_almats) for
+comparison. popgen/ holds the reference generator that consumes a version-2 bundle.
 
-Donor attributes are recovered from the delivered feathers rather than re-downloaded from the
-Census API. Every synthetic person carries the `pums_id` of the household it was copied from, so
-taking one replicate of each `pums_id` reconstructs the donor table exactly, with the exact integer
-age and detailed NAICS the API path would need `keep_intermediates=True` to retain.
+With --pumas, donor attributes come from the household-level PUMS (build_donors_pums), which needs
+a Census API key: the delivered feathers only contain donors that one realization happened to use
+(16.9% of NM allocation rows would have no attributes). Without --pumas, build_donors recovers
+them from the feathers, which is enough to inspect a bundle but not to generate from it.
 
 File layout (little-endian throughout):
 
@@ -54,7 +59,10 @@ import upop_to_exaepi as U  # noqa: E402
 
 # Bumped whenever the section set or any section's layout changes. ExaEpi refuses a mismatch,
 # the same way readBlockGroupsFile checks FORMAT_VERSION against the .bin header.
-PRECOMPUTE_FORMAT_VERSION = 1
+PRECOMPUTE_FORMAT_VERSION = 2
+# Versions read_bundle still accepts. Version 1 bundles (allocation matrices only) are read by the
+# experiments and generate_population.py; ExaEpi itself requires PRECOMPUTE_FORMAT_VERSION.
+READABLE_VERSIONS = (1, 2)
 MAGIC = 0x42505055  # "UPPB"
 
 CODEC_RAW = 0
@@ -150,8 +158,8 @@ def read_bundle(path: str) -> dict:
         magic, version, n_sections, _, dir_off = HEADER.unpack(f.read(HEADER.size))
         if magic != MAGIC:
             raise ValueError(f"not a precompute bundle: magic {magic:#x}")
-        if version != PRECOMPUTE_FORMAT_VERSION:
-            raise ValueError(f"bundle version {version} != expected {PRECOMPUTE_FORMAT_VERSION}")
+        if version not in READABLE_VERSIONS:
+            raise ValueError(f"bundle version {version} not in readable {READABLE_VERSIONS}")
         f.seek(dir_off)
         for _ in range(n_sections):
             (nl,) = struct.unpack("<H", f.read(2))
@@ -543,12 +551,20 @@ def build_schools(path, states, bw, meta):
     """
     df = pl.read_csv(path, schema_overrides={"geoid": pl.Utf8, "id": pl.Utf8})
     df = df.filter(pl.col("geoid").str.slice(0, 2).cast(pl.Int32).is_in(sorted(states)))
+    # Canonical order (geoid, id, level), and each school's ordinal within its geoid. Generation
+    # keys a school on (geoid, ordinal): NCES ids are alphanumeric and not unique nationally, and
+    # a position in a filtered table would shift whenever the filter changed.
+    df = df.sort(["geoid", "id", "level"])
+    df = df.with_columns(pl.int_range(pl.len()).over("geoid").alias("ord"))
+    if len(df) and df["ord"].max() > 32767:
+        raise SystemExit("more than 32767 schools in one block group do not fit schools.ord")
     levels = sorted(set(df["level"].to_list()))
     lut = {v: i for i, v in enumerate(levels)}
     bw.add("schools.geoid", df["geoid"].cast(pl.Int64).to_numpy())
     bw.add("schools.students", df["students"].cast(pl.Int32).to_numpy())
     bw.add("schools.teachers", df["teachers"].cast(pl.Int32).to_numpy())
     bw.add("schools.level", df["level"].replace_strict(lut).to_numpy().astype(np.int8))
+    bw.add("schools.ord", df["ord"].to_numpy().astype(np.int16))
     bw.add_strings("schools.level_names", levels)
     bw.add_strings("schools.id", df["id"].to_list())
     meta["schools"] = {"count": len(df), "levels": levels,
@@ -881,6 +897,158 @@ def build_almats(pumas, n_reps, cache_folder, year, bw, meta, hh_index,
         print(f"  WARNING: {miss} donor rows did not match the bundle's donor index")
 
 
+def build_solve_inputs(pumas, cache_folder, year, bw, meta, hh_index, check_pymedm=True):
+    """Per-PUMA P-MEDM inputs, so the runtime can re-solve with perturbed targets and prior.
+
+    This replaces shipping solved allocation matrices (build_almats). A per-run re-solve on
+    perturbed inputs gave block-group spread 0.30-0.33 of ACS with <=0.2% of block groups outside
+    their margins of error, needs no Hessian, and draws an unlimited number of distinct
+    populations (experiments/resolve_spread.py). What it needs is only published and survey
+    data: the donor constraint matrix (livelike's est_ind), the PUMS prior weights, and the
+    block-group and tract estimates with standard errors -- repaired where the ACS publishes none
+    for a controlled estimate (repair_controlled_se). popgen/problem.py rebuilds pymedm's Y, V,
+    N and tract matrix from these, and with check_pymedm that reconstruction is compared against
+    pymedm itself for every PUMA before anything is written.
+
+    Sections (all PUMAs concatenated, in the order given; *_offset arrays have P+1 entries):
+      solve.puma, solve.constraints              strings (constraint order = est_ind columns)
+      solve.bg_offset, solve.bg_geoid            block groups per PUMA
+      solve.tract_offset, solve.tract_geoid      tracts per PUMA, sorted
+      solve.bg_tract                             each block group's tract, local to its PUMA
+      solve.donor_offset, solve.donor_index      donor rows -> donors.* household (-1 unmatched)
+      solve.prior_weight, solve.donor_hh_size    PUMS weight; persons (0 = vacant unit)
+      solve.c_indptr/indices/values              donor constraint matrix, CSR over all donor rows
+      solve.est_bg, solve.se_bg                  (block groups x K)
+      solve.est_tract, solve.se_tract            (tracts x K)
+    """
+    from livelike import acs, config
+    from pymedm import PMEDM
+
+    from popgen.problem import PumaProblem
+
+    key = os.environ.get("CENSUS_API_KEY") or None
+    constraints = None
+    parts = {k: [] for k in ("bg_geoid", "tract_geoid", "bg_tract", "donor_index", "prior_weight",
+                             "donor_hh_size", "c_nnz", "c_indices", "c_values", "est_bg", "se_bg",
+                             "est_tract", "se_tract")}
+    repaired = {}
+    for fips in pumas:
+        t0 = time.time()
+        pup = acs.puma(
+            fips, constraints_selection=EXAEPI_MINIMAL,
+            constraints_theme_order=config.up_constraints_theme_order,
+            year=year, target_zone="bg", cache=True,
+            cache_folder=cache_folder, censusapikey=key,
+        )
+        cols = list(pup.est_ind.columns)
+        if constraints is None:
+            constraints = cols
+        if cols != constraints or list(pup.est_g2.columns) != cols or list(pup.est_g1.columns) != cols:
+            raise SystemExit(f"PUMA {fips}: constraint columns differ from the first PUMA's")
+        est_bg = np.asarray(pup.est_g2, dtype=np.float64)
+        est_tract = np.asarray(pup.est_g1, dtype=np.float64)
+        se_tract, n1 = repair_controlled_se(pup.se_g1, est_tract, "tract")
+        se_bg, n2 = repair_controlled_se(pup.se_g2, est_bg, "bg")
+        repaired[fips] = n1 + n2
+
+        bgs = np.array([int(g) for g in pup.est_g2.index], dtype=np.int64)
+        tracts = np.array([int(t) for t in pup.est_g1.index], dtype=np.int64)
+        # pymedm's crosswalk is "block group geoid minus its last digit", tracts sorted; the
+        # estimates must come in that same order or every tract constraint lands on the wrong rows.
+        if not np.array_equal(tracts, np.unique(bgs // 10)):
+            raise SystemExit(f"PUMA {fips}: tract rows are not the sorted block-group prefixes")
+        C = np.asarray(pup.est_ind, dtype=np.float64)
+        if len(cols) > 255:
+            raise SystemExit("more than 255 constraints do not fit solve.c_indices (uint8)")
+        rows, ccols = np.nonzero(C)
+        wt = np.asarray(pup.wt, dtype=np.float64)
+        hh_people = (pup.sporder.groupby(level=0).size()
+                     .reindex(pup.est_ind.index).fillna(0).to_numpy())
+
+        parts["bg_geoid"].append(bgs)
+        parts["tract_geoid"].append(tracts)
+        parts["bg_tract"].append(np.searchsorted(tracts, bgs // 10).astype(np.int32))
+        parts["donor_index"].append(np.array([hh_index.get(str(d), -1) for d in pup.est_ind.index],
+                                             dtype=np.int32))
+        parts["prior_weight"].append(wt)
+        parts["donor_hh_size"].append(hh_people.astype(np.int16))
+        parts["c_nnz"].append(np.bincount(rows, minlength=C.shape[0]))
+        parts["c_indices"].append(ccols.astype(np.uint8))
+        parts["c_values"].append(C[rows, ccols])
+        parts["est_bg"].append(est_bg)
+        parts["se_bg"].append(np.asarray(se_bg, dtype=np.float64))
+        parts["est_tract"].append(est_tract)
+        parts["se_tract"].append(np.asarray(se_tract, dtype=np.float64))
+
+        if check_pymedm:
+            # Rebuild this PUMA from exactly what will be written and compare with pymedm.
+            one = _single_puma_sections(fips, constraints, {k: v[-1] for k, v in parts.items()})
+            prob = PumaProblem(one, 0)
+            pmd = PMEDM(pup.year, pup.est_ind.index, pup.wt, pup.est_ind, pup.est_g1, pup.est_g2,
+                        pd.DataFrame(se_tract, index=pup.se_g1.index, columns=cols),
+                        pd.DataFrame(se_bg, index=pup.se_g2.index, columns=cols),
+                        n_reps=0, random_state=1)
+            checks = {"Y": (prob.Y, np.asarray(pmd.Y_vec)), "V": (prob.V, np.asarray(pmd.V_vec)),
+                      "A1": (prob.A1, np.asarray(pmd.A1, dtype=float)), "C": (prob.C, C),
+                      "N": (prob.N, float(pmd.N))}
+            for name, (mine, ref) in checks.items():
+                if np.shape(mine) != np.shape(ref) or not np.allclose(mine, ref, rtol=1e-12, atol=0):
+                    raise SystemExit(f"PUMA {fips}: rebuilt {name} disagrees with pymedm's")
+        print(f"  PUMA {fips}: {C.shape[0]} donors, {len(bgs)} block groups, {len(tracts)} tracts, "
+              f"{len(rows)} nonzeros{'  (checked against pymedm)' if check_pymedm else ''}  "
+              f"{time.time() - t0:.1f} s")
+
+    def offsets(arrs):
+        return np.concatenate([[0], np.cumsum([len(a) for a in arrs])]).astype(np.int64)
+
+    bw.add_strings("solve.puma", [str(p) for p in pumas])
+    bw.add_strings("solve.constraints", constraints)
+    bw.add("solve.bg_offset", offsets(parts["bg_geoid"]))
+    bw.add("solve.tract_offset", offsets(parts["tract_geoid"]))
+    bw.add("solve.donor_offset", offsets(parts["donor_index"]))
+    for k in ("bg_geoid", "tract_geoid", "bg_tract", "donor_index", "prior_weight",
+              "donor_hh_size", "c_indices", "c_values"):
+        bw.add(f"solve.{k}", np.concatenate(parts[k]))
+    bw.add("solve.c_indptr", np.concatenate([[0], np.cumsum(np.concatenate(parts["c_nnz"]))])
+           .astype(np.int64))
+    for k in ("est_bg", "se_bg", "est_tract", "se_tract"):
+        bw.add(f"solve.{k}", np.concatenate(parts[k], axis=0))
+
+    miss = int(sum((d < 0).sum() for d in parts["donor_index"]))
+    meta["solve"] = {
+        "pumas": len(pumas), "constraints": "EXAEPI_MINIMAL", "n_constraints": len(constraints),
+        "donors": int(sum(len(d) for d in parts["donor_index"])),
+        "block_groups": int(sum(len(g) for g in parts["bg_geoid"])),
+        "nonzeros": int(sum(len(v) for v in parts["c_values"])),
+        "donors_unmatched": miss, "controlled_se_repaired": repaired,
+        "checked_against_pymedm": bool(check_pymedm),
+    }
+    print(f"  {len(pumas)} PUMAs, {meta['solve']['donors']} donor rows, "
+          f"{meta['solve']['nonzeros']} constraint nonzeros")
+    if miss:
+        print(f"  WARNING: {miss} donor rows did not match the bundle's donor index")
+
+
+def _single_puma_sections(fips, constraints, one):
+    """A one-PUMA in-memory bundle, shaped as read_bundle returns it, for the pymedm check."""
+    def strings(vals):
+        enc = [v.encode() for v in vals]
+        return (np.frombuffer(b"".join(enc), dtype=np.uint8),
+                np.concatenate([[0], np.cumsum([len(e) for e in enc])]).astype(np.int64))
+    b = {}
+    b["solve.puma.blob"], b["solve.puma.offsets"] = strings([fips])
+    b["solve.constraints.blob"], b["solve.constraints.offsets"] = strings(constraints)
+    b["solve.bg_offset"] = np.array([0, len(one["bg_geoid"])])
+    b["solve.tract_offset"] = np.array([0, len(one["tract_geoid"])])
+    b["solve.donor_offset"] = np.array([0, len(one["donor_index"])])
+    b["solve.c_indptr"] = np.concatenate([[0], np.cumsum(one["c_nnz"])])
+    for k in ("bg_geoid", "tract_geoid", "bg_tract", "donor_index", "prior_weight",
+              "donor_hh_size", "c_indices", "c_values", "est_bg", "se_bg", "est_tract",
+              "se_tract"):
+        b[f"solve.{k}"] = one[k]
+    return b
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -895,7 +1063,12 @@ def main():
     ap.add_argument("--verify", action="store_true",
                     help="read the bundle back and check every section round-trips")
     ap.add_argument("--pumas", nargs="*", default=None,
-                    help="PUMA FIPS to solve P-MEDM for; omit to skip the allocation matrices")
+                    help="PUMA FIPS to write P-MEDM inputs for; omit to skip them")
+    ap.add_argument("--laplace", action="store_true",
+                    help="also solve each PUMA and write version-1 allocation matrices with Laplace "
+                         "replicates (build_almats), for comparison with the re-solve path")
+    ap.add_argument("--no_pymedm_check", action="store_true",
+                    help="skip checking the rebuilt Y, V, A1 and C against pymedm for each PUMA")
     ap.add_argument("--n_reps", type=int, default=1,
                     help="replicate allocation matrices per PUMA. 1 gives a single deterministic "
                          "matrix, whose TRS re-draws are 36x below ACS sampling scale and produce "
@@ -962,15 +1135,21 @@ def main():
     build_adjacency(args.county_adjacency_file, set(states), bw, meta)
 
     if args.pumas:
+        U.printgreen(f"P-MEDM inputs ({len(args.pumas)} PUMAs)")
+        build_solve_inputs(args.pumas, args.cache_folder, args.acs_year, bw, meta, hh_index,
+                           check_pymedm=not args.no_pymedm_check)
+    else:
+        print("\nNOTE: --pumas not given, so the bundle carries no P-MEDM inputs. Without them\n"
+              "      it cannot place anyone: the donor table, flows and size tables are all here,\n"
+              "      but 'who lives where' is exactly the missing section.")
+        meta["solve"] = None
+    if args.pumas and args.laplace:
         U.printgreen(f"P-MEDM allocation matrices ({len(args.pumas)} PUMAs, "
                      f"n_reps={args.n_reps})")
         build_almats(args.pumas, args.n_reps, args.cache_folder, args.acs_year,
                      bw, meta, hh_index, strict_replicates=not args.allow_degenerate,
                      oversample=args.oversample)
     else:
-        print("\nNOTE: --pumas not given, so the bundle carries no allocation matrices. Without "
-              "them\n      it cannot place anyone: the donor table, flows and size tables are all "
-              "here,\n      but 'who lives where' is exactly the missing section.")
         meta["almat"] = None
 
     bw.add_strings("naics.codes", list(U.categ_types["pr_naics"].categories))
