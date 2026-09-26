@@ -14,8 +14,8 @@ on the ExaEpi and Epicast curves.  The model is parameterised by rates:
     gamma_h  H -> R       1/(gamma_h+mu) = mean hospital stay
     mu       H -> D       mu/(gamma_h+mu)= P(dead | hospitalised)
 
-ExaEpi has no such parameters: it draws per-agent latent/incubation/infectious
-periods from gamma distributions and resolves hospitalisation and death through
+ExaEpi has no such parameters: it draws per-agent latent/pre-symptomatic/infectious
+periods from gamma distributions (incubation = latent + pre-symptomatic) and resolves hospitalisation and death through
 per-age-group conditional probabilities (CHR/CIC/CVE/hospCVF/icuCVF/ventCVF).
 This script maps the latter onto the former by replaying ExaEpi's *agent
 lifecycle* -- the draws in setInfected() plus the day-by-day transitions in
@@ -66,9 +66,9 @@ DEFAULTS: dict[str, Any] = {
     "compare_to_epicast": False,
     "latent_length_alpha": 2.77,
     "latent_length_beta": 1.5,
-    "incubation_length_alpha": 2.77,
-    "incubation_length_beta": 1.5,
-    "incubation_length_loc": 0.85,
+    "presymptomatic_length_alpha": 0.0,
+    "presymptomatic_length_beta": 0.0,
+    "presymptomatic_length_loc": 1.0,
     "infectious_length_alpha": 3.54,
     "infectious_length_beta": 1.22,
     "infectious_length_loc": 2.75,
@@ -141,6 +141,14 @@ class Params:
         self.raw = raw
         self.prefix = prefix
         self.used: dict[str, tuple[Any, str]] = {}
+        # DiseaseParm::readInputs() aborts on these, so refuse them here too.
+        for old in ("incubation_length_alpha", "incubation_length_beta",
+                    "incubation_length_loc"):
+            if f"{prefix}.{old}" in raw:
+                sys.exit(
+                    f"error: {prefix}.{old} is no longer supported: the incubation period "
+                    f"is now always latent + pre-symptomatic period. Use "
+                    f"{prefix}.presymptomatic_length_alpha/beta/loc instead.")
 
     def _tokens(self, name: str) -> list[str] | None:
         return self.raw.get(f"{self.prefix}.{name}")
@@ -328,9 +336,15 @@ def draw_periods(p, rng, n):
     else:
         latent = rng.gamma(p.scalar("latent_length_alpha"),
                            p.scalar("latent_length_beta"), n)
-        incubation = rng.gamma(p.scalar("incubation_length_alpha"),
-                               p.scalar("incubation_length_beta"), n) \
-            + p.scalar("incubation_length_loc")
+        # Pre-symptomatic period (infectiousness -> symptom onset), possibly
+        # negative; alpha <= 0 means exactly presymptomatic_length_loc days.
+        presymp_alpha = p.scalar("presymptomatic_length_alpha")
+        if presymp_alpha > 0:
+            presymptomatic = rng.gamma(presymp_alpha,
+                                       p.scalar("presymptomatic_length_beta"), n)
+        else:
+            presymptomatic = np.zeros(n)
+        presymptomatic = presymptomatic + p.scalar("presymptomatic_length_loc")
         infectious = rng.gamma(p.scalar("infectious_length_alpha"),
                                p.scalar("infectious_length_beta"), n) \
             + p.scalar("infectious_length_loc")
@@ -344,17 +358,17 @@ def draw_periods(p, rng, n):
             hospital_delay = np.zeros(n)
         hospital_delay = hospital_delay + p.scalar("hospital_delay_length_loc")
         latent = np.maximum(latent, 1.0)
-        incubation = np.maximum(incubation, 1.0)
+        # incubation >= 1, enforced by clamping the pre-symptomatic period
+        # (not to >= 0, only to >= 1 - latent).
+        incubation = latent + np.maximum(presymptomatic, 1.0 - latent)
         infectious = np.maximum(infectious, 1.0)
 
-    # setInfected() pulls the incubation period back if hospitalisation would
+    # setInfected() extends the infectious period if hospitalisation would
     # otherwise land after recovery, so that a symptomatic agent is always still
     # infected when its CHR check fires.
-    too_late = (incubation + hospital_delay) > (infectious + latent)
-    incubation = np.where(
-        too_late,
-        np.maximum(np.round(infectious + latent) - hospital_delay, 1.0),
-        incubation)
+    hosp_check_day = np.round(incubation) + np.round(hospital_delay)
+    infectious = np.where(np.round(latent + infectious) < hosp_check_day,
+                          hosp_check_day - latent, infectious)
     return latent, incubation, infectious, hospital_delay
 
 

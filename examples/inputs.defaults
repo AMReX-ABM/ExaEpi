@@ -139,8 +139,8 @@ disease.child_compliance = 0.5
 # NOTE: currently has no effect -- DiseaseParm::initialize() unconditionally overwrites this
 # to 2.0 regardless of what is set here.
 disease.child_hh_closure = 2.0
-# Sample latent/incubation/infectious periods from Epicast's fixed CDFs instead of the Gamma
-# distributions below.
+# Sample latent/infectious periods from Epicast's fixed CDFs (with incubation = latent + 1)
+# instead of the Gamma distributions below.
 disease.compare_to_epicast = false
 # Gamma distribution alpha/beta for latent period length (time from infection until
 # infectious). Mean = alpha*beta, variance = alpha*beta^2.
@@ -151,11 +151,14 @@ disease.latent_length_beta = 1.5
 disease.infectious_length_alpha = 3.54
 disease.infectious_length_beta = 1.22
 disease.infectious_length_loc = 2.75
-# Gamma distribution alpha/beta/loc for incubation period length (time from infection until
-# symptoms appear).
-disease.incubation_length_alpha = 2.77
-disease.incubation_length_beta = 1.5
-disease.incubation_length_loc = 0.85
+# Gamma distribution alpha/beta/loc for the pre-symptomatic period (time from the start of
+# infectiousness until symptoms appear). loc may be negative, meaning symptoms appear before
+# infectiousness. alpha <= 0 means no random part, i.e. exactly loc days. The incubation period
+# (infection until symptoms) is always latent + pre-symptomatic. The default gives every agent
+# a 1-day pre-symptomatic stage, as in Epicast.
+disease.presymptomatic_length_alpha = 0.0
+disease.presymptomatic_length_beta = 0.0
+disease.presymptomatic_length_loc = 1.0
 # Gamma distribution alpha/beta/loc for hospital admission delay (time from symptom onset
 # until an agent seeks treatment).
 disease.hospital_delay_length_alpha = 0.0

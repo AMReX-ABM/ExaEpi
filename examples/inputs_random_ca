@@ -11,5 +11,9 @@ disease.num_initial_cases = 5
 disease.p_trans = 0.20
 disease.p_asymp = 0.40
 
-disease.incubation_length_alpha = 9.0
-disease.incubation_length_beta = 0.33
+# Converted from the old independent incubation draw, Gamma(9.0, 0.33) + 0.85 (mean 3.82 days):
+# with the default latent period, Gamma(2.77, 1.5) (mean 4.17 days after the 1-day floor), a
+# deterministic pre-symptomatic period of -0.4 days gives about the same mean incubation (3.80 days).
+disease.presymptomatic_length_alpha = 0.0
+disease.presymptomatic_length_beta = 0.0
+disease.presymptomatic_length_loc = -0.4

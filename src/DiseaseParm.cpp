@@ -57,18 +57,32 @@ void DiseaseParm::readInputs (const std::string& a_pp_str /*!< Parmparse string 
 
     pp.query("compare_to_epicast", compare_to_epicast);
 
+    // The incubation period is no longer drawn independently; it is always latent + pre-symptomatic
+    // (see setInfected()). Refuse old configs rather than silently running them with different dynamics.
+    for (const char* old_key : {"incubation_length_alpha", "incubation_length_beta", "incubation_length_loc"}) {
+        if (pp.contains(old_key)) {
+            amrex::Abort(a_pp_str + "." + old_key +
+                         " is no longer supported: the incubation period is now always latent + pre-symptomatic period. "
+                         "Use " +
+                         a_pp_str +
+                         ".presymptomatic_length_alpha/beta/loc instead (the time from the start of infectiousness to "
+                         "symptom onset; may be negative). The default, alpha = 0 and loc = 1, gives every agent a 1-day "
+                         "pre-symptomatic stage.");
+        }
+    }
+
     pp.query("latent_length_alpha", latent_length_alpha);
     pp.query("infectious_length_alpha", infectious_length_alpha);
-    pp.query("incubation_length_alpha", incubation_length_alpha);
+    pp.query("presymptomatic_length_alpha", presymptomatic_length_alpha);
     pp.query("hospital_delay_length_alpha", hospital_delay_length_alpha);
 
     pp.query("latent_length_beta", latent_length_beta);
     pp.query("infectious_length_beta", infectious_length_beta);
-    pp.query("incubation_length_beta", incubation_length_beta);
+    pp.query("presymptomatic_length_beta", presymptomatic_length_beta);
     pp.query("hospital_delay_length_beta", hospital_delay_length_beta);
 
     pp.query("infectious_length_loc", infectious_length_loc);
-    pp.query("incubation_length_loc", incubation_length_loc);
+    pp.query("presymptomatic_length_loc", presymptomatic_length_loc);
     pp.query("hospital_delay_length_loc", hospital_delay_length_loc);
 
     pp.query("immune_length_alpha", immune_length_alpha);

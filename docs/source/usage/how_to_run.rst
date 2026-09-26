@@ -167,8 +167,8 @@ The following inputs specify the disease parameters:
     `Note`: currently has no effect regardless of what is set here -- ``DiseaseParm::initialize()``
     unconditionally overwrites this to ``2.0``.
 * ``disease.compare_to_epicast`` (`bool`, default ``false``)
-    Sample latent/incubation/infectious periods from Epicast's fixed CDFs instead of the Gamma
-    distributions below.
+    Sample latent/infectious periods from Epicast's fixed CDFs, with the incubation period set to
+    latent + 1, instead of the Gamma distributions below.
 * ``disease.immune_length_alpha`` / ``disease.immune_length_beta`` / ``disease.immune_length_loc``
     (`float`, defaults ``1.0`` / ``1.0`` / ``10000.0``)
     Gamma-distribution alpha, beta, and location (shift) for the immunity length: the length of
@@ -181,14 +181,25 @@ The following inputs specify the disease parameters:
     (`float`, defaults ``3.54`` / ``1.22`` / ``2.5``)
     Gamma-distribution alpha, beta, and location for the infectious length: the length of time
     in days that agents are infectious. This counter starts once the latent phase is over.
-* ``disease.incubation_length_alpha`` / ``disease.incubation_length_beta`` / ``disease.incubation_length_loc``
-    (`float`, defaults ``6.0`` / ``0.73`` / ``1.0``)
-    Gamma-distribution alpha, beta, and location for the incubation length: the length of time
-    in days after exposure until agents develop symptoms.
+* ``disease.presymptomatic_length_alpha`` / ``disease.presymptomatic_length_beta`` / ``disease.presymptomatic_length_loc``
+    (`float`, defaults ``0.0`` / ``0.0`` / ``1.0``)
+    Gamma-distribution alpha, beta, and location for the pre-symptomatic period: the length of
+    time in days from the start of infectiousness until agents develop symptoms. The location may
+    be negative; a negative pre-symptomatic period means symptoms start before infectiousness
+    (e.g. smallpox, Ebola). An alpha of zero (or less) means no random part, so the period is
+    exactly the location. The defaults give every agent a 1-day pre-symptomatic stage, the same
+    structure Epicast uses.
+
+    The incubation period (the time from exposure until symptoms) is not a parameter: it is
+    always latent + pre-symptomatic. The pre-symptomatic period is clamped so that the incubation
+    period is at least 1 day. The ``incubation_length_*`` parameters of earlier versions are no
+    longer accepted; an inputs file that sets any of them aborts.
 * ``disease.hospital_delay_length_alpha`` / ``disease.hospital_delay_length_beta`` / ``disease.hospital_delay_length_loc``
     (`float`, defaults ``0.1`` / ``0.1`` / ``1.0``)
     Gamma-distribution alpha, beta, and location for the hospital-admission delay: the length
-    of time in days after developing symptoms that agents seek treatment.
+    of time in days after developing symptoms that agents seek treatment. If an agent's
+    hospitalization check (incubation + hospital delay) would come after its recovery (latent +
+    infectious), its infectious period is extended so that the check still happens.
 * ``disease.hospital_stay_type`` (`string`, either ``constant`` or ``random``, default ``constant``)
     If ``constant``, all the agents in an age group will be in the hospital for a fixed number of days.
     This number is set by the ``disease.hospitalization_days`` parameter.

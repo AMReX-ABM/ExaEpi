@@ -100,9 +100,9 @@ struct DiseaseParm {
     Real immune_length_beta = Real(1.0);     /*! beta parameter for gamma distribution*/
     Real immune_length_loc = Real(1000.0);   /*! location (shift) parameter for gamma distribution*/
 
-    /*! If true, sample latent/incubation/infectious periods from Epicast's literal fixed CDFs
-     *  (see latent_period_cdf/incubation_period_cdf/infectious_period_cdf below) instead of the
-     *  Gamma distributions parameterized below -- see setInfected(). Default false. */
+    /*! If true, sample latent/infectious periods from Epicast's literal fixed CDFs
+     *  (see latent_period_cdf/infectious_period_cdf below) and set incubation = latent + 1, instead of
+     *  using the Gamma distributions parameterized below -- see setInfected(). Default false. */
     bool compare_to_epicast = false;
 
     Real latent_length_alpha = Real(2.77);     /*! alpha parameter for gamma distribution (unused if
@@ -110,13 +110,22 @@ struct DiseaseParm {
     Real latent_length_beta = Real(1.5);       /*! beta parameter for gamma distribution (unused if
                                                     compare_to_epicast -- see latent_period_cdf)*/
 
-    Real infectious_length_alpha = Real(3.54); /*! alpha parameter for gamma distribution (unused - see infectious_period_cdf)*/
-    Real infectious_length_beta = Real(1.22);  /*! beta parameter for gamma distribution (unused - see infectious_period_cdf)*/
+    Real infectious_length_alpha = Real(3.54); /*! alpha parameter for gamma distribution (unused if
+                                                    compare_to_epicast -- see infectious_period_cdf)*/
+    Real infectious_length_beta = Real(1.22);  /*! beta parameter for gamma distribution (unused if
+                                                    compare_to_epicast -- see infectious_period_cdf)*/
     Real infectious_length_loc = Real(2.75);   /*! location (shift) parameter for gamma distribution */
 
-    Real incubation_length_alpha = Real(2.77); /*! alpha parameter for gamma distribution (unused - see incubation_period_cdf)*/
-    Real incubation_length_beta = Real(1.5);   /*! beta parameter for gamma distribution (unused - see incubation_period_cdf)*/
-    Real incubation_length_loc = Real(0.85);   /*! location (shift) parameter for gamma distribution */
+    /*! Pre-symptomatic period: the time from the start of infectiousness to symptom onset. It may be
+     *  negative, meaning symptoms start before infectiousness (e.g. smallpox, Ebola). The incubation
+     *  period (infection to symptom onset) is not a parameter: it is always latent + pre-symptomatic
+     *  (see setInfected()). An alpha <= 0 means no random component, i.e. a deterministic
+     *  pre-symptomatic period of exactly presymptomatic_length_loc days; the default is a 1-day
+     *  pre-symptomatic stage for every agent, the same structure Epicast uses. Unused if
+     *  compare_to_epicast. */
+    Real presymptomatic_length_alpha = Real(0.0); /*! alpha parameter for gamma distribution (<= 0: no random part)*/
+    Real presymptomatic_length_beta = Real(0.0);  /*! beta parameter for gamma distribution*/
+    Real presymptomatic_length_loc = Real(1.0);   /*! location (shift) parameter for gamma distribution; may be negative*/
 
     Real hospital_delay_length_alpha = Real(0.0); /*! alpha parameter for gamma distribution*/
     Real hospital_delay_length_beta = Real(0.0);  /*! beta parameter for gamma distribution*/
@@ -215,8 +224,9 @@ AMREX_GPU_DEVICE AMREX_GPU_CONSTANT
 constexpr Real latent_period_cdf[latent_period_cdf_size] = {Real(0.0),  Real(0.1),  Real(0.25), Real(0.55),
                                                             Real(0.66), Real(0.78), Real(0.85), Real(1.0)};
 
-/*! Fixed cumulative distribution for incubation period from Epicast (fig 6). Used only when
- *  DiseaseParm::compare_to_epicast is true (see setInfected()).
+/*! Fixed cumulative distribution for incubation period from Epicast (fig 6). Kept for reference
+ *  only: it is latent_period_cdf shifted by one day, and setInfected() (with
+ *  DiseaseParm::compare_to_epicast) sets incubation = latent + 1 directly rather than sampling it.
  *  Entry i gives P(transition by day i). Days 0-8. */
 static constexpr int incubation_period_cdf_size = 9;
 AMREX_GPU_DEVICE AMREX_GPU_CONSTANT
@@ -269,7 +279,10 @@ void setInfected (int* status, int* symptomatic, amrex::ParticleReal* counter, a
     *counter = ParticleReal(0);
 
     if (lparm->compare_to_epicast) {
-        // Sample latent, incubation, and infectious periods from fixed Epicast CDFs
+        // Sample latent and infectious periods from fixed Epicast CDFs. Epicast has no incubation
+        // distribution of its own: symptoms start exactly one day after infectiousness. The gamma
+        // branch below gives the same structure with presymptomatic_length_alpha = 0 and
+        // presymptomatic_length_loc = 1 (the defaults), on top of a gamma latent period.
         *latent_period = static_cast<ParticleReal>(sampleFromCDF(latent_period_cdf, latent_period_cdf_size, engine));
         *incubation_period = *latent_period + ParticleReal(1.0);
         *infectious_period = static_cast<ParticleReal>(sampleFromCDF(infectious_period_cdf, infectious_period_cdf_size, engine));
@@ -277,11 +290,14 @@ void setInfected (int* status, int* symptomatic, amrex::ParticleReal* counter, a
     } else {
         *latent_period =
                 static_cast<ParticleReal>(amrex::RandomGamma(lparm->latent_length_alpha, lparm->latent_length_beta, engine));
-        *incubation_period = static_cast<ParticleReal>(
-                                     amrex::RandomGamma(lparm->incubation_length_alpha, lparm->incubation_length_beta, engine)) +
-                             static_cast<ParticleReal>(lparm->incubation_length_loc);
-        // Hack to match EPICAST hospitalization rates better
-        //*incubation_period = *latent_period + 1.0;
+        // Pre-symptomatic period: start of infectiousness to symptom onset; negative means symptoms
+        // start before infectiousness. As for hospital_delay below, alpha <= 0 means no random part.
+        ParticleReal presymptomatic_period =
+                (lparm->presymptomatic_length_alpha > 0)
+                        ? static_cast<ParticleReal>(amrex::RandomGamma(lparm->presymptomatic_length_alpha,
+                                                                       lparm->presymptomatic_length_beta, engine))
+                        : ParticleReal(0);
+        presymptomatic_period += static_cast<ParticleReal>(lparm->presymptomatic_length_loc);
         *infectious_period = static_cast<ParticleReal>(
                                      amrex::RandomGamma(lparm->infectious_length_alpha, lparm->infectious_length_beta, engine)) +
                              static_cast<ParticleReal>(lparm->infectious_length_loc);
@@ -295,18 +311,30 @@ void setInfected (int* status, int* symptomatic, amrex::ParticleReal* counter, a
                                   : ParticleReal(0);
         *hospital_delay += static_cast<ParticleReal>(lparm->hospital_delay_length_loc);
         if (*latent_period < 1) { *latent_period = amrex::Real(1); }
-        if (*incubation_period < 1) { *incubation_period = amrex::Real(1); }
+        // Enforce incubation >= 1 by clamping the pre-symptomatic period to >= 1 - latent, so that the
+        // ordering of infectiousness and symptom onset is only distorted at that 1-day floor. P is
+        // deliberately not clamped to >= 0.
+        if (presymptomatic_period < ParticleReal(1) - *latent_period) {
+            presymptomatic_period = ParticleReal(1) - *latent_period;
+        }
+        *incubation_period = *latent_period + presymptomatic_period;
         if (*infectious_period < 1) { *infectious_period = amrex::Real(1); }
     }
-    if (*incubation_period + *hospital_delay > (*infectious_period + *latent_period)) {
-        // Matches the round() (not floor()) used to convert these periods to whole days
-        // elsewhere (DiseaseStatus.H's recovered_period, AgentDefinitions.H's incb_period).
-        // Leaves room for hospital_delay after incubation_period so that a symptomatic agent
-        // doesn't recover (transition to immune) before its hospitalization check -- which
-        // fires at incb_period + hospital_delay -- ever runs; otherwise the agent is silently
-        // never tested against m_CHR, biasing the observed hospitalized fraction downward.
-        *incubation_period = amrex::Math::round(*infectious_period + *latent_period) - *hospital_delay;
-        if (*incubation_period < 1) { *incubation_period = amrex::Real(1); }
+    // A symptomatic agent's hospitalization check fires at round(incubation) + round(hospital_delay)
+    // and recovery (transition to immune) at round(latent + infectious) -- see
+    // DiseaseStatus::updateAgents, which checks hospitalization before recovery on the same step and
+    // skips recovery for an agent just marked for hospital, so equality is fine. If recovery came
+    // first, the agent would silently never be tested against m_CHR, biasing the observed
+    // hospitalized fraction downward. Extend the infectious period to leave room, rather than
+    // shortening the incubation period, which would silently change the pre-symptomatic period.
+    // The trade-off is a longer infectious period for agents whose symptoms start late. (This
+    // effectively never triggers for compare_to_epicast, whose hospitalization check is 3 days after
+    // the latent period and whose infectious period is at least 4 days.)
+    {
+        const ParticleReal hosp_check_day = amrex::Math::round(*incubation_period) + amrex::Math::round(*hospital_delay);
+        if (amrex::Math::round(*latent_period + *infectious_period) < hosp_check_day) {
+            *infectious_period = hosp_check_day - *latent_period;
+        }
     }
 
     *hospital_random = static_cast<ParticleReal>(amrex::Random(engine));

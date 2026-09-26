@@ -188,16 +188,18 @@ void printHelp (const char* prog) {
     line("asymp_relative_inf", fmt(dp.asymp_relative_inf), "relative infectiousness of asymptomatic individuals");
     line("vac_eff", fmt(dp.vac_eff), "vaccine efficacy (unsupported; must be 0)");
     line("compare_to_epicast", fmt(dp.compare_to_epicast),
-         "sample latent/incubation/infectious periods from Epicast's fixed CDFs instead of the Gamma "
-         "distributions below");
+         "sample latent/infectious periods from Epicast's fixed CDFs (with incubation = latent + 1) instead of "
+         "the Gamma distributions below");
     line("latent_length_alpha", fmt(dp.latent_length_alpha), "Gamma distribution alpha for latent period length");
     line("latent_length_beta", fmt(dp.latent_length_beta), "Gamma distribution beta for latent period length");
     line("infectious_length_alpha", fmt(dp.infectious_length_alpha), "Gamma distribution alpha for infectious period length");
     line("infectious_length_beta", fmt(dp.infectious_length_beta), "Gamma distribution beta for infectious period length");
     line("infectious_length_loc", fmt(dp.infectious_length_loc), "location (shift) for infectious period length");
-    line("incubation_length_alpha", fmt(dp.incubation_length_alpha), "Gamma distribution alpha for incubation period length");
-    line("incubation_length_beta", fmt(dp.incubation_length_beta), "Gamma distribution beta for incubation period length");
-    line("incubation_length_loc", fmt(dp.incubation_length_loc), "location (shift) for incubation period length");
+    line("presymptomatic_length_alpha", fmt(dp.presymptomatic_length_alpha),
+         "Gamma distribution alpha for pre-symptomatic period (infectiousness to symptom onset); <=0: no random part");
+    line("presymptomatic_length_beta", fmt(dp.presymptomatic_length_beta), "Gamma distribution beta for pre-symptomatic period");
+    line("presymptomatic_length_loc", fmt(dp.presymptomatic_length_loc),
+         "location (shift) for pre-symptomatic period; may be negative. Incubation = latent + pre-symptomatic");
     line("hospital_delay_length_alpha", fmt(dp.hospital_delay_length_alpha),
          "Gamma distribution alpha for hospital admission delay");
     line("hospital_delay_length_beta", fmt(dp.hospital_delay_length_beta),
