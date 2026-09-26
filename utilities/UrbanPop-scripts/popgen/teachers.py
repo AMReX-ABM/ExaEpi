@@ -25,7 +25,7 @@ Same rules as the converter, with keyed draws:
 
 import numpy as np
 
-from . import kr64, stages
+from . import kr64, stages, units
 from .students import SCALES, _strings, prefix
 
 TYPES = [
@@ -52,7 +52,7 @@ def allocate(b, P, work, school, seed, rep):
     worker_homes = np.unique(P["bg"][P["employed"]])
     stats = {}
 
-    for ti, (name, code, levels, (glo, ghi)) in enumerate(TYPES):
+    for ti, (name, code, levels, (glo, ghi)) in units.each(list(enumerate(TYPES))):
         n_code = naics_codes.index(code)
         rows = np.array([i for i in range(len(sg)) if s_level[i] in levels], dtype=np.int64)
         rows = rows[np.isin(sg[rows], worker_homes)]
@@ -76,7 +76,8 @@ def allocate(b, P, work, school, seed, rep):
                 t_reg = prefix(work[teach], 5)
                 s_reg = prefix(sg[rows], 5)
                 regions = np.unique(s_reg[need > 0])
-            for region in regions:
+            # regions of a scale are disjoint; the county pass (scale 0) overlaps, so it is ordered
+            for region in (units.each(regions) if scale else regions):
                 cand = np.flatnonzero((s_reg == region) & (need > 0))
                 if scale:
                     pool = np.flatnonzero(free & (t_reg == region))

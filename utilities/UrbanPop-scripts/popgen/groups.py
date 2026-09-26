@@ -29,7 +29,7 @@ key, so the C++ port reproduces these stages bit for bit given the same inputs.
 
 import numpy as np
 
-from . import kr64, stages
+from . import kr64, stages, units
 
 NBORHOOD_SIZE = 500
 WORKGROUP_SIZE = 20
@@ -107,8 +107,9 @@ def work_groups(P, work, sid, tables, seed, rep):
     s_geo, s_naics = work[s], P["naics"][s].astype(np.int64)
     starts, ns = _runs([s_geo, s_naics])
     ends = np.r_[starts[1:], ns]
-    next_id = 0
-    for lo, hi in zip(starts, ends):
+    team_count = np.zeros(len(starts), dtype=np.int64)
+    for gi in units.each(range(len(starts))):
+        lo, hi = starts[gi], ends[gi]
         pop = int(hi - lo)
         geo, nai = int(s_geo[lo]), int(s_naics[lo])
         state = geo // 10**10
@@ -127,8 +128,10 @@ def work_groups(P, work, sid, tables, seed, rep):
         team_base = np.cumsum(n_teams) - n_teams
         wg = team_base[est_of] + pos % n_teams[est_of] + 1
         workgroup[s[lo:hi]] = wg
-        work_group[s[lo:hi]] = next_id + wg - 1
-        next_id += int(n_teams.sum())
+        team_count[gi] = int(n_teams.sum())
+    # dense ids: exclusive scan of team counts over groups in (geoid, NAICS) order
+    base = np.cumsum(team_count) - team_count
+    work_group[s] = np.repeat(base, ends - starts) + workgroup[s] - 1
     return workgroup, work_group
 
 
@@ -147,8 +150,10 @@ def school_groups(b, P, work, school, sid, seed, rep):
     s = en[order]
     starts, ns = _runs([work[s], sid[s], grade[s]])
     ends = np.r_[starts[1:], ns]
-    next_id = 0
-    for lo, hi in zip(starts, ends):
+    group_count = np.zeros(len(starts), dtype=np.int64)
+    local = np.zeros(n, dtype=np.int64)
+    for gi in units.each(range(len(starts))):
+        lo, hi = starts[gi], ends[gi]
         members = s[lo:hi]
         is_st = P["naics"][members] == -1
         n_st = int(is_st.sum())
@@ -161,8 +166,7 @@ def school_groups(b, P, work, school, sid, seed, rep):
             n_classes = max(-(-n_st // CLASS_MAX), min(raw, max(1, n_st // CLASS_MIN)))
         excess = n_te - n_classes
         n_admin = -(-excess // WORKGROUP_SIZE) if excess > 0 else 0
-        base = next_id
-        next_id += n_classes + n_admin
+        group_count[gi] = n_classes + n_admin
         # rank within the raw group by agent id, separately for students and teachers
         cls = np.empty(len(members), dtype=np.int64)
         t_rank = np.arange(n_te)
@@ -178,7 +182,10 @@ def school_groups(b, P, work, school, sid, seed, rep):
                                                   int(grade[m0]), r), 0), n_classes)
             cls[is_st] = np.where(r < CLASS_MIN * n_classes, r % n_classes, smear)
         school_class[members] = cls
-        scg[members] = np.where(cls >= 0, base + cls, base + n_classes + (-2 - cls))
+        local[members] = np.where(cls >= 0, cls, n_classes + (-2 - cls))
+    # dense ids: exclusive scan of class + admin group counts over raw groups
+    base = np.cumsum(group_count) - group_count
+    scg[s] = np.repeat(base, ends - starts) + local[s]
     return school_class, scg
 
 

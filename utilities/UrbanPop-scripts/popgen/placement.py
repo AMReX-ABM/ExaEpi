@@ -31,7 +31,7 @@ numbered p = 0, 1, .... (bg, h, p) is the person identity every later stage keys
 
 import numpy as np
 
-from . import kr64, stages
+from . import kr64, stages, units
 
 
 def true_sizes(b, prob):
@@ -85,8 +85,8 @@ def place_puma(b, prob, al, cols, seed, rep):
 
     # 4. Donors within each (block group, category), with replacement.
     size = true_sizes(b, prob)
-    per_bg = []
-    for g in range(G):
+    per_bg = [None] * G
+    for g in units.each(range(G)):
         n_d = np.zeros(prob.D, dtype=np.int64)
         bg = int(prob.bg_geoid[g])
         for v in np.flatnonzero(counts_vg[:, g]):
@@ -98,7 +98,7 @@ def place_puma(b, prob, al, cols, seed, rep):
                                     np.arange(n, dtype=np.int64)), 0)
             n_d += np.bincount(kr64.float_cdf(w, xs), minlength=prob.D)
         keep = np.flatnonzero((n_d > 0) & (size > 0) & (prob.donor_index >= 0))
-        per_bg.append((np.full(len(keep), bg, dtype=np.int64), keep, n_d[keep]))
+        per_bg[g] = (np.full(len(keep), bg, dtype=np.int64), keep, n_d[keep])
     return tuple(np.concatenate([x[i] for x in per_bg]) for i in range(3))
 
 

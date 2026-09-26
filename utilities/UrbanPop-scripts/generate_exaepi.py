@@ -24,6 +24,8 @@ only on the bundle, the seed and the replicate number -- not on processing order
 
 import argparse
 import glob
+import hashlib
+import json
 import os
 import sys
 import time
@@ -61,9 +63,29 @@ def generate(b, seed, rep=0, pumas=None, verbose=True):
     return placements, stats
 
 
+def digest(*arrays):
+    """First 16 hex digits of SHA-256 over int64 copies of the arrays, in the order given."""
+    h = hashlib.sha256()
+    for a in arrays:
+        h.update(np.ascontiguousarray(a, dtype=np.int64).tobytes())
+    return h.hexdigest()[:16]
+
+
+def placement_digest(placements):
+    """Digest of (bg, donor, count) placements sorted by (bg, donor): independent of PUMA order."""
+    bg, donor, ct = placements
+    o = np.lexsort((donor, bg))
+    return digest(bg[o], donor[o], ct[o])
+
+
 def assign(b, pers, seed, rep=0, verbose=True):
-    """Stages S1-S10 on expanded persons; returns the agent columns the .bin carries."""
-    times = {}
+    """Stages S1-S10 on expanded persons.
+
+    Returns the agent columns the .bin carries and a digest of each stage's outputs, taken in
+    canonical person order (agent id) right after the stage -- the values the C++ port's stages
+    must reproduce bit for bit given the same placements.
+    """
+    times, dig = {}, {}
 
     def lap(name, t0):
         times[name] = time.perf_counter() - t0
@@ -71,19 +93,30 @@ def assign(b, pers, seed, rep=0, verbose=True):
 
     t = time.perf_counter()
     P = persons.build(b, pers, seed, rep)
+    dig["S0-S2 persons"] = digest(P["bg"], P["h"], P["p"], P["age"], P["sex"], P["race"],
+                                  P["naics"], P["travel"], P["veh_occ"], P["grade"],
+                                  P["employed"], P["student"])
     t = lap("S1-S2", t)
     tables = cbp.SizeTables(b)
     work, wst = workers.allocate(b, P, tables, seed, rep)
+    dig["S3 workers"] = digest(work)
     t = lap("S3 workers", t)
     school, sst = students.allocate(b, P, work, seed, rep)
+    dig["S4 students"] = digest(school, work, P["grade"])
     t = lap("S4 students", t)
     tst = teachers.allocate(b, P, work, school, seed, rep)
+    dig["S5 teachers"] = digest(school, work, P["grade"])
     t = lap("S5 teachers", t)
     sid = groups.school_ids(b, P, work, school)
+    dig["S6 school ids"] = digest(sid)
     nb, hhc = groups.home_groups(P, seed, rep)
+    dig["S7 home groups"] = digest(nb, hhc)
     wg, wgrp = groups.work_groups(P, work, sid, tables, seed, rep)
+    dig["S8 work groups"] = digest(wg, wgrp)
     scls, scg = groups.school_groups(b, P, work, school, sid, seed, rep)
+    dig["S9 school groups"] = digest(scls, scg)
     wnb = groups.day_neighborhoods(b, P, work, school, sid, wg, scls, scg, seed, rep)
+    dig["S10 day neighbourhoods"] = digest(wnb)
     t = lap("S6-S10 groups", t)
     if verbose:
         print("  " + ", ".join(f"{k} {v:.1f} s" for k, v in times.items()))
@@ -98,7 +131,7 @@ def assign(b, pers, seed, rep=0, verbose=True):
         "sex": P["sex"], "race": P["race"], "travel": P["travel"], "veh_occ": P["veh_occ"],
         "grade": P["grade"],
     }
-    return cols
+    return cols, dig
 
 
 # Column types of the .bin record (UrbanPopAgentStruct.H), in on-disk order.
@@ -177,8 +210,13 @@ def main():
         np.savez_compressed(args.out, **{k: v for k, v in pers.items() if k != "n_households"})
         print(f"wrote {args.out}")
     if args.bin:
-        cols = assign(b, pers, args.seed, args.rep)
+        cols, dig = assign(b, pers, args.seed, args.rep)
         write_bin(cols, args.bin)
+        dig = {"seed": args.seed, "rep": args.rep, "placements": placement_digest(placements),
+               **dig}
+        with open(args.bin + ".digests.json", "w") as f:
+            json.dump(dig, f, indent=1)
+        print(f"wrote {args.bin}.digests.json")
         print(f"total {time.perf_counter() - t0:.1f} s")
     return 0
 

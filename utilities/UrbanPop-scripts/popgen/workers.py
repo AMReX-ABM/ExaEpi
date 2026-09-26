@@ -33,7 +33,7 @@ pairwise np.sum, so the C++ port can reproduce them exactly.
 import numpy as np
 import scipy.sparse as sp
 
-from . import kr64, stages
+from . import kr64, stages, units
 
 IPF_ITERS = 60
 IPF_TOL = 1e-9
@@ -83,7 +83,7 @@ def allocate(b, P, tables, seed, rep):
     avg = tsum / len(W)
     n_slots = np.where(dest_total > 0, np.maximum(1, np.rint(dest_total / avg)), 0).astype(np.int64)
     implied = np.zeros((len(dests), n_naics), dtype=np.int64)
-    for d in range(len(dests)):
+    for d in units.each(range(len(dests))):
         ns = int(n_slots[d])
         if ns == 0 or local[d].sum() == 0:
             continue
@@ -101,7 +101,7 @@ def allocate(b, P, tables, seed, rep):
     # --- 4. rescale to true industry totals, exactly -------------------------------------------
     true_total = np.bincount(naics_w, minlength=n_naics).astype(np.int64)
     demand = np.zeros_like(implied)
-    for n in range(n_naics):
+    for n in units.each(range(n_naics)):
         T, S = int(true_total[n]), int(implied[:, n].sum())
         if T == 0 or S == 0:
             continue
@@ -121,7 +121,7 @@ def allocate(b, P, tables, seed, rep):
     wsort = np.lexsort((p_w, h_w, order_key, hidx_w, naics_w))
     wn_bounds = np.searchsorted(naics_w[wsort], np.arange(n_naics + 1))
     stats = {"unplaceable": 0, "repair_final": 0, "cells": 0, "one_worker_cells": 0}
-    for n in range(n_naics):
+    for n in units.each(range(n_naics)):
         if true_total[n] == 0 or demand[:, n].sum() == 0:
             continue
         rows_h, cols_d, cnt, unpl = _fill_one(flow_hd, home_naics[:, n], demand[:, n], homes,
@@ -136,7 +136,7 @@ def allocate(b, P, tables, seed, rep):
         co = np.lexsort((dests[cols_d], rows_h))
         rows_s, dest_s, cnt_s = rows_h[co], dests[cols_d[co]], cnt[co]
         cb = np.flatnonzero(np.r_[True, rows_s[1:] != rows_s[:-1], True])
-        for a, z in zip(cb[:-1], cb[1:]):
+        for a, z in units.each(list(zip(cb[:-1], cb[1:]))):
             h = rows_s[a]
             lo, hi = np.searchsorted(wh, h), np.searchsorted(wh, h, side="right")
             dest_of = np.repeat(dest_s[a:z], cnt_s[a:z])
@@ -150,7 +150,7 @@ def allocate(b, P, tables, seed, rep):
     if len(left):
         fk = kr64.draw(kr64.key(seed, rep, stages.WORK_FALLBACK, P["bg"][W][left], P["h"][W][left],
                                 P["p"][W][left]), 0)
-        for i, x in zip(left, fk):
+        for i, x in units.each(list(zip(left, fk))):
             h = hidx_w[i]
             s, e = flow_hd.indptr[h], flow_hd.indptr[h + 1]
             if e > s:
@@ -195,7 +195,7 @@ def _fill_one(flow_hd, supply, demand, homes, dests, n, seed, rep, stats):
     ct_i = np.rint(ct).astype(np.int64)
     oc = np.lexsort((rows, cols))
     bounds = np.flatnonzero(np.r_[True, cols[oc][1:] != cols[oc][:-1], True])
-    for a, z in zip(bounds[:-1], bounds[1:]):
+    for a, z in units.each(list(zip(bounds[:-1], bounds[1:]))):
         idx = oc[a:z]
         cj = cols[idx[0]]
         dg = int(dests[ci[cj]])
@@ -222,7 +222,7 @@ def _fill_one(flow_hd, supply, demand, homes, dests, n, seed, rep, stats):
         bad = np.flatnonzero(delta != 0)
         if len(bad) == 0:
             break
-        for r in bad:
+        for r in units.each(bad):
             idx = row_cells[int(r)]
             hg = int(homes[ri[r]])
             d = int(delta[r])
@@ -242,7 +242,7 @@ def _fill_one(flow_hd, supply, demand, homes, dests, n, seed, rep, stats):
                         cnt[idx[j]] -= 1
     # Deterministic final pass: whatever repair left, settle on the row's largest cells.
     delta = target - np.bincount(rows, weights=cnt, minlength=len(ri)).astype(np.int64)
-    for r in np.flatnonzero(delta != 0):
+    for r in units.each(np.flatnonzero(delta != 0)):
         stats["repair_final"] += 1
         idx = row_cells[int(r)]
         d = int(delta[r])

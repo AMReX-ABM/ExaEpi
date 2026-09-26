@@ -23,7 +23,7 @@ Same rules as the converter, with keyed draws in place of the shared numpy strea
 
 import numpy as np
 
-from . import kr64, stages
+from . import kr64, stages, units
 
 LEVELS = ["P", "E", "M", "H", "U", "C"]
 LEVEL_GRADES = {"C": (3, 3), "P": (4, 4), "E": (5, 10), "M": (11, 13), "H": (14, 17), "U": (18, 19)}
@@ -50,7 +50,7 @@ def allocate(b, P, work, seed, rep):
     # The converter keeps only schools located in a populated block group.
     in_pop = np.isin(sg, np.unique(P["bg"]))
 
-    for li, L in enumerate(LEVELS):
+    for li, L in units.each(list(enumerate(LEVELS))):
         lo, hi = LEVEL_GRADES[L]
         stud = np.flatnonzero(P["student"] & (P["grade"] >= lo) & (P["grade"] <= hi))
         if len(stud) == 0:
@@ -70,7 +70,7 @@ def allocate(b, P, work, seed, rep):
             reg_s = prefix(P["bg"][stud[todo]], scale)
             reg_c = prefix(sg[rows], scale)
             taken = np.zeros(len(rows), dtype=np.int64)
-            for region in np.unique(reg_s):
+            for region in units.each(np.unique(reg_s)):
                 who = todo[reg_s == region]
                 cand = np.flatnonzero(reg_c == region)
                 if len(cand) == 0:

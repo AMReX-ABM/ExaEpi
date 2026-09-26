@@ -6,22 +6,13 @@ A population must be a pure function of (bundle, seed, rep): the same PUMAs gene
 different order, or alone, must give identical placements, and a different seed must not.
 """
 
-import hashlib
 import sys
 
 import numpy as np
 
 from generate_exaepi import generate
+from generate_exaepi import placement_digest as digest
 from popgen import bundle
-
-
-def digest(placements):
-    bg, donor, ct = placements
-    order = np.lexsort((donor, bg))
-    h = hashlib.sha256()
-    for a in (bg[order], donor[order], ct[order]):
-        h.update(np.ascontiguousarray(a, dtype=np.int64).tobytes())
-    return h.hexdigest()[:16]
 
 
 def by_puma(b, placements, pumas):
