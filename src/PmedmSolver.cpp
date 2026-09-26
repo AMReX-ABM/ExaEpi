@@ -574,9 +574,11 @@ PmedmResult PmedmSolver::solve (const PmedmProblem& prob, const std::vector<doub
 
     PmedmResult res;
     res.allocation = toHost(tmp64);
-    const auto r = toHost(red);
+    double gsq = 0; // |gradient|^2, from device scalar pred[2]
+    amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost, pred + 2, pred + 3, &gsq);
+    amrex::Gpu::streamSynchronize();
     res.iterations = it;
-    res.grad_norm = std::sqrt(r[2]);
+    res.grad_norm = std::sqrt(gsq);
     return res;
 }
 
