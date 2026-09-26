@@ -106,7 +106,7 @@ int main (int argc, char** argv) {
             return s;
         };
         check("placements", PopGen::placementDigest(pl), secs(t0));
-        const auto P = PopGen::buildPersons(b, pl, seed, rep);
+        auto P = PopGen::buildPersons(b, pl, seed, rep);
         check("S0-S2 persons", PopGen::personsDigest(P), secs(t0));
         const PopGen::SizeTables tables(b);
         PopGen::WorkerStats ws;
@@ -114,6 +114,27 @@ int main (int argc, char** argv) {
         check("S3 workers", PopGen::Digest().add(work).hex16(), secs(t0));
         std::cout << "    workers " << ws.workers << ", fallback " << ws.fallback << ", unplaceable " << ws.unplaceable
                   << ", one-worker cells " << ws.one_worker_cells << " of " << ws.cells << "\n";
+        std::map<std::string, std::pair<std::int64_t, std::int64_t>> sst, tst;
+        auto school = PopGen::allocateStudents(b, P, work, seed, rep, &sst);
+        check("S4 students", PopGen::Digest().add(school).add(work).add(P.grade).hex16(), secs(t0));
+        PopGen::allocateTeachers(b, P, work, school, seed, rep, &tst);
+        check("S5 teachers", PopGen::Digest().add(school).add(work).add(P.grade).hex16(), secs(t0));
+        std::cout << "    students unplaced:";
+        for (const auto& [lv, nu] : sst) {
+            std::cout << " " << lv << " " << nu.second << "/" << nu.first;
+        }
+        std::cout << "; teachers placed:";
+        for (const auto& [ty, rg] : tst) {
+            std::cout << " " << ty << " " << rg.second << "/" << rg.first;
+        }
+        std::cout << "\n";
+        std::map<std::string, std::string> gd;
+        const auto groups = PopGen::assignGroups(b, P, work, school, tables, seed, rep, &gd);
+        const double tg = secs(t0);
+        for (const auto& [stage, d] : gd) {
+            check(stage, d, 0.0);
+        }
+        std::cout << "    S6-S10 together " << tg << " s\n";
         std::cout << P.size() << " persons; popgen_stages_check " << (ok ? "passed" : "FAILED") << "\n";
         return ok ? 0 : 1;
     } catch (const std::exception& e) {

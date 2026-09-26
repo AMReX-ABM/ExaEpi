@@ -96,6 +96,34 @@ struct WorkerStats {
 std::vector<std::int64_t> allocateWorkers(const PopulationBundle& b, const Persons& P, const SizeTables& tables,
                                           std::int64_t seed, std::int64_t rep, WorkerStats* stats = nullptr);
 
+/*! S4 (students.py, allocate): school row per person (-1 if none). Sets work to the school's
+    geoid for placed students; students left unplaced leave school (grade -1). students and
+    unplaced, if given, receive the counts per level (P E M H U C). */
+std::vector<std::int64_t> allocateStudents(const PopulationBundle& b, Persons& P, std::vector<std::int64_t>& work,
+                                           std::int64_t seed, std::int64_t rep,
+                                           std::map<std::string, std::pair<std::int64_t, std::int64_t>>* stats = nullptr);
+
+/*! S5 (teachers.py, allocate): teachers to schools that received students; updates school, work
+    and grade for the chosen workers. stats, if given, receives (required, placed) per type. */
+void allocateTeachers(const PopulationBundle& b, Persons& P, std::vector<std::int64_t>& work, std::vector<std::int64_t>& school,
+                      std::int64_t seed, std::int64_t rep,
+                      std::map<std::string, std::pair<std::int64_t, std::int64_t>>* stats = nullptr);
+
+/*! Group structure from stages S6-S10 (groups.py), one entry per person. */
+struct Groups {
+    std::vector<std::int64_t> school_id;             /*!< S6: 1 + dense rank of the school at its block group; 0 = none */
+    std::vector<std::int64_t> nborhood, hh_cluster;  /*!< S7 */
+    std::vector<std::int64_t> workgroup, work_group; /*!< S8: team within (work bg, NAICS) (0 = none), dense id (-1) */
+    std::vector<std::int64_t> school_class, school_class_group; /*!< S9 (0 / -1 for anyone not at a school) */
+    std::vector<std::int64_t> work_nborhood;                    /*!< S10: dense id per daytime block group */
+};
+
+/*! Stages S6-S10 (groups.py: school_ids, home_groups, work_groups, school_groups,
+    day_neighborhoods). If digests is given, each stage's digest is added under its name. */
+Groups assignGroups(const PopulationBundle& b, const Persons& P, const std::vector<std::int64_t>& work,
+                    const std::vector<std::int64_t>& school, const SizeTables& tables, std::int64_t seed, std::int64_t rep,
+                    std::map<std::string, std::string>* digests = nullptr);
+
 /*! The digests generate_exaepi.py writes to <bin>.digests.json, by the same names. */
 std::string placementDigest(const Placements& pl);
 std::string personsDigest(const Persons& P);
