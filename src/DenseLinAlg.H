@@ -8,9 +8,9 @@
         CUDA        cuBLAS, CUBLAS_PEDANTIC_MATH (full-precision float32, never TF32), one handle
                     per stream with a fixed workspace
         HIP         rocBLAS
-        otherwise   gemmReference, a portable kernel (CPU builds for now: a CPU BLAS is a later
-                    addition, and must then be held to one thread per call -- threaded BLAS may
-                    split the inner dimension differently with the thread count)
+        CPU         OpenBLAS when CMake finds it (EXAEPI_POPGEN_OPENBLAS), one thread per call --
+                    threaded BLAS may partition a product differently with the thread count
+        otherwise   gemmReference, a portable kernel
 
     Determinism: a generated population must not depend on the run's layout, so every product has
     to be bitwise reproducible for a fixed device type and shape. cuBLAS and rocBLAS are, given a

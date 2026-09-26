@@ -18,6 +18,8 @@
 #else
 #include <rocblas.h>
 #endif
+#elif defined(EXAEPI_POPGEN_OPENBLAS)
+#include <cblas.h>
 #endif
 
 #ifdef AMREX_USE_OMP
@@ -90,6 +92,10 @@ void check (rocblas_status s, const char* what) {
 rocblas_operation op (Op o) {
     return o == Op::T ? rocblas_operation_transpose : rocblas_operation_none;
 }
+#elif defined(EXAEPI_POPGEN_OPENBLAS)
+CBLAS_TRANSPOSE op (Op o) {
+    return o == Op::T ? CblasTrans : CblasNoTrans;
+}
 #endif
 
 } // namespace
@@ -120,6 +126,11 @@ DenseLinAlg::DenseLinAlg (Stream stream) : m_stream(stream) {
     check(rocblas_create_handle(&h), "create");
     check(rocblas_set_stream(h, m_stream), "set stream");
     m_handle = h;
+#elif defined(EXAEPI_POPGEN_OPENBLAS)
+    // Threaded OpenBLAS may partition a product differently with the thread count, and so round
+    // differently; one thread per call keeps results independent of it. (Process-wide setting:
+    // nothing else in ExaEpi calls BLAS.)
+    openblas_set_num_threads(1);
 #endif
 }
 
@@ -136,8 +147,8 @@ DenseLinAlg::~DenseLinAlg () {
 }
 
 // Row-major C = op(A) op(B) is column-major C^T = op(B)^T op(A)^T, and a row-major matrix read as
-// column-major is its transpose -- so the vendor call swaps the operands and M with N, keeping
-// each operand's own transpose flag.
+// column-major is its transpose -- so the column-major GPU calls swap the operands and M with N,
+// keeping each operand's own transpose flag. CBLAS takes row-major directly.
 void DenseLinAlg::gemm (Op ta, Op tb, int M, int N, int K, float alpha, const float* A, int lda, const float* B, int ldb,
                         float beta, float* C, int ldc) {
 #if defined(AMREX_USE_CUDA)
@@ -146,6 +157,8 @@ void DenseLinAlg::gemm (Op ta, Op tb, int M, int N, int K, float alpha, const fl
 #elif defined(AMREX_USE_HIP)
     check(rocblas_sgemm(static_cast<rocblas_handle>(m_handle), op(tb), op(ta), N, M, K, &alpha, B, ldb, A, lda, &beta, C, ldc),
           "sgemm");
+#elif defined(EXAEPI_POPGEN_OPENBLAS)
+    cblas_sgemm(CblasRowMajor, op(ta), op(tb), M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
 #else
     gemmReference(ta, tb, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
 #endif
@@ -159,6 +172,8 @@ void DenseLinAlg::gemm (Op ta, Op tb, int M, int N, int K, double alpha, const d
 #elif defined(AMREX_USE_HIP)
     check(rocblas_dgemm(static_cast<rocblas_handle>(m_handle), op(tb), op(ta), N, M, K, &alpha, B, ldb, A, lda, &beta, C, ldc),
           "dgemm");
+#elif defined(EXAEPI_POPGEN_OPENBLAS)
+    cblas_dgemm(CblasRowMajor, op(ta), op(tb), M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
 #else
     gemmReference(ta, tb, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
 #endif
@@ -169,6 +184,8 @@ const char* DenseLinAlg::backend () {
     return "cuBLAS (pedantic math)";
 #elif defined(AMREX_USE_HIP)
     return "rocBLAS";
+#elif defined(EXAEPI_POPGEN_OPENBLAS)
+    return "OpenBLAS (one thread per call)";
 #else
     return "reference kernel";
 #endif

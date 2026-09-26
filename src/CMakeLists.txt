@@ -58,17 +58,38 @@ find_package(ZLIB REQUIRED)
 target_link_libraries(agent ZLIB::ZLIB)
 
 # Population generation's solver runs its matrix products on the vendor BLAS (DenseLinAlg.cpp):
-# cuBLAS and rocBLAS ship with their toolkits; CPU builds use DenseLinAlg's own kernel.
-function(exaepi_link_gpu_blas _target)
+# cuBLAS and rocBLAS ship with their toolkits. CPU builds use OpenBLAS when it is found (held to
+# one thread per call, for results independent of the thread count) and DenseLinAlg's own, much
+# slower kernel otherwise. Only OpenBLAS is looked for, because only its thread count can be set
+# portably from the code.
+option(ExaEpi_POPGEN_OPENBLAS "Use OpenBLAS for population generation in CPU builds, if found" ON)
+if(ExaEpi_POPGEN_OPENBLAS AND (NOT AMReX_GPU_BACKEND OR AMReX_GPU_BACKEND STREQUAL "NONE"))
+  set(BLA_VENDOR OpenBLAS)
+  find_package(BLAS QUIET)
+  unset(BLA_VENDOR)
+  find_path(EXAEPI_CBLAS_INCLUDE_DIR cblas.h PATH_SUFFIXES openblas openblas-pthread openblas-openmp)
+  if(BLAS_FOUND AND EXAEPI_CBLAS_INCLUDE_DIR)
+    message(STATUS "Population generation: OpenBLAS ${BLAS_LIBRARIES}, cblas.h in ${EXAEPI_CBLAS_INCLUDE_DIR}")
+    set(EXAEPI_POPGEN_USE_OPENBLAS ON)
+  else()
+    message(STATUS "Population generation: OpenBLAS not found; CPU builds use the built-in matrix kernel")
+  endif()
+endif()
+
+function(exaepi_link_blas _target)
   if(AMReX_GPU_BACKEND STREQUAL "CUDA")
     find_package(CUDAToolkit REQUIRED)
     target_link_libraries(${_target} CUDA::cublas)
   elseif(AMReX_GPU_BACKEND STREQUAL "HIP")
     find_package(rocblas REQUIRED)
     target_link_libraries(${_target} roc::rocblas)
+  elseif(EXAEPI_POPGEN_USE_OPENBLAS)
+    target_link_libraries(${_target} ${BLAS_LIBRARIES})
+    target_include_directories(${_target} PRIVATE ${EXAEPI_CBLAS_INCLUDE_DIR})
+    target_compile_definitions(${_target} PRIVATE EXAEPI_POPGEN_OPENBLAS)
   endif()
 endfunction()
-exaepi_link_gpu_blas(agent)
+exaepi_link_blas(agent)
 
 # Unit checks for the population-generation building blocks that need AMReX (the standalone ones
 # -- kr64_kat, bundle_read -- build with a plain compiler; see their headers).
@@ -81,7 +102,7 @@ if(ExaEpi_POPGEN_TESTS)
   if(AMReX_CUDA)
     setup_target_for_cuda_compilation(popgen_gemm_check)
   endif()
-  exaepi_link_gpu_blas(popgen_gemm_check)
+  exaepi_link_blas(popgen_gemm_check)
 
   add_executable(popgen_pmedm_check ${PROJECT_SOURCE_DIR}/utilities/tests/pmedm_check.cpp DenseLinAlg.cpp
                                     PmedmSolver.cpp PopulationBundle.cpp)
@@ -91,7 +112,7 @@ if(ExaEpi_POPGEN_TESTS)
   if(AMReX_CUDA)
     setup_target_for_cuda_compilation(popgen_pmedm_check)
   endif()
-  exaepi_link_gpu_blas(popgen_pmedm_check)
+  exaepi_link_blas(popgen_pmedm_check)
 endif()
 
 unset(_sources)
