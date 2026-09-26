@@ -53,9 +53,9 @@ disease-specific field below is repeated once per disease, prefixed with the dis
 
     - ``latent_period``: Latent period length, i.e. time between exposure and infectiousness.
 
-    - ``infectious_period``: Infectious period length, i.e. time during which agent can spread disease.
+    - ``infectious_period``: Infectious period length, i.e. time during which agent can spread disease. It may have been extended beyond its drawn value so that the agent's hospitalization check (``incubation_period + hospital_delay``) comes before recovery.
 
-    - ``incubation_period``: Symptom development period length (known as incubation period in some contexts), i.e. time between exposure and symptoms appearing.
+    - ``incubation_period``: Incubation period length, i.e. time between exposure and symptoms appearing. This is always ``latent_period`` plus the agent's pre-symptomatic period (see ``disease.presymptomatic_length_*``), which may be negative, so ``incubation_period - latent_period`` gives the pre-symptomatic period (clamped so that the incubation period is at least 1 day).
 
     - ``hospital_delay``: Delay after symptom appearance for agents to seek treatment.
 

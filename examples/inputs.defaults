@@ -160,7 +160,9 @@ disease.presymptomatic_length_alpha = 0.0
 disease.presymptomatic_length_beta = 0.0
 disease.presymptomatic_length_loc = 1.0
 # Gamma distribution alpha/beta/loc for hospital admission delay (time from symptom onset
-# until an agent seeks treatment).
+# until an agent seeks treatment). alpha <= 0 means no random part, i.e. exactly loc days. If an
+# agent's hospitalization check (incubation + delay) would come after its recovery (latent +
+# infectious), its infectious period is extended so that the check still happens.
 disease.hospital_delay_length_alpha = 0.0
 disease.hospital_delay_length_beta = 0.0
 disease.hospital_delay_length_loc = 2.0

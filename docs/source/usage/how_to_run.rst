@@ -168,17 +168,18 @@ The following inputs specify the disease parameters:
     unconditionally overwrites this to ``2.0``.
 * ``disease.compare_to_epicast`` (`bool`, default ``false``)
     Sample latent/infectious periods from Epicast's fixed CDFs, with the incubation period set to
-    latent + 1, instead of the Gamma distributions below.
+    latent + 1, instead of the Gamma distributions below. The ``presymptomatic_length_*``
+    parameters are then unused.
 * ``disease.immune_length_alpha`` / ``disease.immune_length_beta`` / ``disease.immune_length_loc``
-    (`float`, defaults ``1.0`` / ``1.0`` / ``10000.0``)
+    (`float`, defaults ``1000.0`` / ``1.0`` / ``1000.0``)
     Gamma-distribution alpha, beta, and location (shift) for the immunity length: the length of
     time in days that agents are immune to the disease after recovering from it. For a Gamma
     distribution, the mean is alpha*beta (plus loc) and the variance is alpha*beta^2.
-* ``disease.latent_length_alpha`` / ``disease.latent_length_beta`` (`float`, defaults ``6.0`` / ``0.73``)
+* ``disease.latent_length_alpha`` / ``disease.latent_length_beta`` (`float`, defaults ``2.77`` / ``1.5``)
     Gamma-distribution alpha and beta for the latent length: the length of time in days until
-    agents become infectious after exposure.
+    agents become infectious after exposure. Values below 1 day are raised to 1 day.
 * ``disease.infectious_length_alpha`` / ``disease.infectious_length_beta`` / ``disease.infectious_length_loc``
-    (`float`, defaults ``3.54`` / ``1.22`` / ``2.5``)
+    (`float`, defaults ``3.54`` / ``1.22`` / ``2.75``)
     Gamma-distribution alpha, beta, and location for the infectious length: the length of time
     in days that agents are infectious. This counter starts once the latent phase is over.
 * ``disease.presymptomatic_length_alpha`` / ``disease.presymptomatic_length_beta`` / ``disease.presymptomatic_length_loc``
@@ -195,9 +196,10 @@ The following inputs specify the disease parameters:
     period is at least 1 day. The ``incubation_length_*`` parameters of earlier versions are no
     longer accepted; an inputs file that sets any of them aborts.
 * ``disease.hospital_delay_length_alpha`` / ``disease.hospital_delay_length_beta`` / ``disease.hospital_delay_length_loc``
-    (`float`, defaults ``0.1`` / ``0.1`` / ``1.0``)
+    (`float`, defaults ``0.0`` / ``0.0`` / ``2.0``)
     Gamma-distribution alpha, beta, and location for the hospital-admission delay: the length
-    of time in days after developing symptoms that agents seek treatment. If an agent's
+    of time in days after developing symptoms that agents seek treatment. An alpha of zero (or
+    less) means no random part, so the delay is exactly the location. If an agent's
     hospitalization check (incubation + hospital delay) would come after its recovery (latent +
     infectious), its infectious period is extended so that the check still happens.
 * ``disease.hospital_stay_type`` (`string`, either ``constant`` or ``random``, default ``constant``)
