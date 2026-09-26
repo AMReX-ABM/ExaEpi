@@ -6,12 +6,16 @@ bundle, the same stages and the same keyed random draws the C++ port implements,
 stage can be checked against it. It is also usable on its own -- its output is a `.bin` that
 today's ExaEpi runs unchanged -- which gives per-run fresh populations before any C++ exists.
 
-Stages implemented so far (popgen/):
+Stages (popgen/):
 
     perturb     targets redrawn within their ACS standard errors (block groups first, tracts
                 rebuilt from them) and the PUMS prior weights by a Bayesian bootstrap
     solve       P-MEDM re-solve per PUMA (float32 incremental L-BFGS, popgen/solver.py)
     place       TRS integerization per block group and expansion to persons (bg, h, p)
+    S1-S2       childcare and the worker/student split (persons.py)
+    S3          worker destinations: CBP-sized establishment slots, IPF fill (workers.py)
+    S4-S5       student and teacher school assignment (students.py, teachers.py)
+    S6-S10      dense ids, home and work groups, school classes, day neighbourhoods (groups.py)
 
 Every draw is keyed on (seed, rep, stage, global identifiers) through KR64, so the result depends
 only on the bundle, the seed and the replicate number -- not on processing order.
@@ -26,7 +30,8 @@ import time
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from popgen import bundle, perturb, placement, solver  # noqa: E402
+from popgen import (bundle, cbp, groups, perturb, persons, placement, solver,  # noqa: E402
+                    students, teachers, workers)
 from popgen.problem import PumaProblem, puma_count  # noqa: E402
 
 
@@ -55,6 +60,74 @@ def generate(b, seed, rep=0, pumas=None, verbose=True):
     return placements, stats
 
 
+def assign(b, pers, seed, rep=0, verbose=True):
+    """Stages S1-S10 on expanded persons; returns the agent columns the .bin carries."""
+    times = {}
+
+    def lap(name, t0):
+        times[name] = time.perf_counter() - t0
+        return time.perf_counter()
+
+    t = time.perf_counter()
+    P = persons.build(b, pers, seed, rep)
+    t = lap("S1-S2", t)
+    tables = cbp.SizeTables(b)
+    work, wst = workers.allocate(b, P, tables, seed, rep)
+    t = lap("S3 workers", t)
+    school, sst = students.allocate(b, P, work, seed, rep)
+    t = lap("S4 students", t)
+    tst = teachers.allocate(b, P, work, school, seed, rep)
+    t = lap("S5 teachers", t)
+    sid = groups.school_ids(b, P, work, school)
+    nb, hhc = groups.home_groups(P, seed, rep)
+    wg, wgrp = groups.work_groups(P, work, sid, tables, seed, rep)
+    scls, scg = groups.school_groups(b, P, work, school, sid, seed, rep)
+    wnb = groups.day_neighborhoods(b, P, work, school, sid, wg, scls, scg, seed, rep)
+    t = lap("S6-S10 groups", t)
+    if verbose:
+        print("  " + ", ".join(f"{k} {v:.1f} s" for k, v in times.items()))
+        print(f"  workers {wst['workers']}, fallback {wst['fallback']}; students unplaced by level "
+              + ", ".join(f"{k} {u}" for k, (n, u) in sst.items())
+              + "; teachers placed " + ", ".join(f"{k} {g}/{r}" for k, (r, g) in tst.items()))
+    cols = {
+        "id": P["id"], "home_geoid": P["bg"], "work_geoid": work,
+        "school_class_group": scg, "work_group": wgrp, "naics": P["naics"],
+        "household_id": P["h"], "school_id": sid, "nborhood": nb, "work_nborhood": wnb,
+        "workgroup": wg, "hh_cluster": hhc, "school_class": scls, "age": P["age"],
+        "sex": P["sex"], "race": P["race"], "travel": P["travel"], "veh_occ": P["veh_occ"],
+        "grade": P["grade"],
+    }
+    return cols
+
+
+# Column types of the .bin record (UrbanPopAgentStruct.H), in on-disk order.
+BIN_TYPES = [("id", "Int64"), ("home_geoid", "Int64"), ("work_geoid", "Int64"),
+             ("school_class_group", "Int32"), ("work_group", "Int32"), ("naics", "Int16"),
+             ("household_id", "Int16"), ("school_id", "Int16"), ("nborhood", "Int16"),
+             ("work_nborhood", "Int16"), ("workgroup", "Int16"), ("hh_cluster", "Int16"),
+             ("school_class", "Int16"), ("age", "Int8"), ("sex", "Int8"), ("race", "Int8"),
+             ("travel", "Int8"), ("veh_occ", "Int8"), ("grade", "Int8")]
+
+
+def write_bin(cols, out_prefix):
+    """Write the population as <out_prefix>.bin with upop_to_exaepi's own writer."""
+    import polars as pl
+
+    import upop_to_exaepi as U
+
+    for name, _ in BIN_TYPES:
+        if name in ("id", "home_geoid", "work_geoid"):
+            continue
+        lim = {"Int32": 2**31, "Int16": 2**15, "Int8": 2**7}[dict(BIN_TYPES)[name]]
+        v = np.asarray(cols[name])
+        if len(v) and (v.max() >= lim or v.min() < -lim):
+            raise SystemExit(f"{name} does not fit the .bin's {dict(BIN_TYPES)[name]} field")
+    df = pl.DataFrame({name: pl.Series(name, np.asarray(cols[name]), dtype=getattr(pl, t))
+                       for name, t in BIN_TYPES})
+    U.sanity_checks(df)
+    U.print_agents(df, out_prefix)
+
+
 def compare(pers, feathers):
     """Totals, per-block-group population correlation and mean age against delivered feathers."""
     import polars as pl
@@ -80,6 +153,8 @@ def main():
     ap.add_argument("--pumas", nargs="*", default=None, help="restrict to these PUMAs")
     ap.add_argument("--compare", default=None, help="glob of delivered feathers to score against")
     ap.add_argument("--out", default=None, help="write the person arrays to this .npz")
+    ap.add_argument("--bin", default=None,
+                    help="run stages S1-S10 and write the population to <BIN>.bin for ExaEpi")
     args = ap.parse_args()
 
     t0 = time.perf_counter()
@@ -100,6 +175,10 @@ def main():
     if args.out:
         np.savez_compressed(args.out, **{k: v for k, v in pers.items() if k != "n_households"})
         print(f"wrote {args.out}")
+    if args.bin:
+        cols = assign(b, pers, args.seed, args.rep)
+        write_bin(cols, args.bin)
+        print(f"total {time.perf_counter() - t0:.1f} s")
     return 0
 
 
