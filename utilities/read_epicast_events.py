@@ -502,6 +502,129 @@ def aggregate_infections_by_source(events_df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+# Every Epicast community is split into exactly this many neighborhoods, with households dealt
+# across them in approximately equal number (Epicast 2.0 paper, related/epicast.pdf) -- the events
+# file itself has no neighborhood field at all, so this is the only handle on neighborhood size.
+EPICAST_NEIGHBORHOODS_PER_COMMUNITY = 4
+
+# Day-timestep contexts that only occur after symptom onset, when most symptomatic agents stay in
+# their residential community during the day instead of going to work. Not all of them do: in the
+# emerge-paper NM runs ~7.6% of commuters' post-symptom events are still at their workplace
+# (checked against agents whose home is independently known from a night event).
+_POST_SYMPTOM_CONTEXTS = ["ctx_symptomatic_recovered", "ctx_treatment_recovered", "ctx_removed"]
+
+
+def estimate_community_populations(events_df: pd.DataFrame, demog_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Estimate every Epicast community's nighttime (residential) and daytime population from an
+    events file -- which only ever records agents who get infected, so it can't be a direct count.
+
+    Each event's location_id is the agent's location *at that timestep*: its home community at
+    night (even timesteps), its daytime community by day (odd timesteps). So for each infected
+    agent:
+      - home = the location of any night event (every night event of an agent has the same one),
+        or failing that of a post-symptom day event (see _POST_SYMPTOM_CONTEXTS) in a community
+        some agent is seen at by night. Agents with neither -- infected by day and never
+        symptomatic -- have no known home and are dropped.
+        Night events alone would cover fewer agents, and would under-represent commuters (more
+        likely to be infected at work, i.e. by day) enough to understate commuting by >10%.
+      - day = the location of its ctx_presymptomatic event, which is always a day timestep before
+        symptom onset, so it's the regular weekday location (Epicast has no weekends): the home
+        community itself for anyone who doesn't commute, the workplace for anyone who does. Where
+        commuters go is drawn afresh in every Epicast run (whether they commute at all, and every
+        home, is the same across runs), so day_pop is specific to this run's draw.
+
+    Those known-home agents are then scaled up to the exact tract populations in demog_df ("total"),
+    each standing in for a share of its home tract's residents. Summing those weights by home
+    community gives night_pop; summing them by day community gives day_pop, which also picks up
+    Epicast's work-only communities (commuter destinations with no residents).
+
+    The weights aren't equal, because a home identified only from a post-symptom event is found for
+    just the fraction q of agents infected by day who have one -- asymptomatic agents (30%) never do,
+    and they keep commuting, so their later events are all at their daytime location. Agents infected
+    at night are always found. So a post-symptom-only agent gets inverse-probability weight 1/q
+    (q measured from this run's agents infected by day) and a night-found one weight 1, normalized
+    per tract to its total. Without that, commuters -- more often infected by day, at work -- are
+    under-represented: in the emerge-paper CA p02 run it understated the commute share by 1.4
+    points and roughly doubled the day_pop error. It deliberately does *not* also upweight commuters
+    by 1/withdrawal-rate: a symptomatic commuter who keeps going to work isn't missing from day_pop,
+    just counted with home = day = their workplace, so that overcorrects.
+
+    Still assumed: that infected agents are a representative sample of their home tract's residents,
+    in where within the tract they live and whether/where they commute. That holds well only at a
+    high attack rate -- validated against a pooled 13-run reference, the CA p02 run (91% infected)
+    gets median per-community errors of ~0.9% (night) and ~1.4% (day), but the CA p01 run (63%)
+    ~4% for both, because commuters are then more likely to be infected at all.
+
+    Parameters
+    ----------
+    events_df, demog_df : pd.DataFrame
+        Output of read_events_bin(..., full=True).
+
+    Returns
+    -------
+    pd.DataFrame with one row per community: location_id, tract_fips, tract_community, night_pop,
+    day_pop (float estimates; 0 where a community has no residents, or no one there by day)
+    """
+    night = (events_df["timestep"] % 2 == 0).to_numpy()
+    home_night = events_df.loc[night].groupby("true_agent_id")["location_id"].first()
+    post_symptom = ~night & events_df["context"].isin(_POST_SYMPTOM_CONTEXTS).to_numpy()
+    home_post = events_df.loc[post_symptom].groupby("true_agent_id")["location_id"].first()
+    day = events_df.loc[events_df["context"] == "ctx_presymptomatic"].groupby("true_agent_id")["location_id"].first()
+    # q = P(post-symptom event | infected by day), for the 1/q weight (see docstring). Measured before
+    # the residential filter below, which is about where the event is, not whether there is one.
+    day_infected = day.index[~day.index.isin(home_night.index)]
+    q = float(day_infected.isin(home_post.index).mean()) if len(day_infected) > 0 else 1.0
+    # A symptomatic commuter who keeps going to work would otherwise be "resident" at their
+    # workplace -- which, for Epicast's work-only communities, invents a few dozen residents in a
+    # community that has none. So only trust a post-symptom location that some agent is actually
+    # seen at by night. (Such a commuter whose workplace *is* residential still gets misplaced
+    # there, which no event distinguishes from a non-commuter infected by day: a small residual
+    # bias, ~2% of commuters in the emerge-paper NM runs.)
+    home_post = home_post[home_post.isin(home_night.unique())]
+    # concat rather than combine_first, which upcasts the uint64 location IDs to float64.
+    home = pd.concat([home_night, home_post[~home_post.index.isin(home_night.index)]])
+    agents = home.rename("home").to_frame().join(day.rename("day"), how="inner")
+    n_agents = events_df["true_agent_id"].nunique()
+    print(
+        f"Epicast: home community known for {len(agents):,} of {n_agents:,} infected agents "
+        f"({len(home) - len(agents):,} more with no ctx_presymptomatic event dropped); "
+        f"post-symptom-only homes weighted 1/q, q={q:.3f}"
+    )
+
+    home_tract = agents["home"].to_numpy() >> np.uint64(8)
+    ipw = np.where(agents.index.isin(home_night.index), 1.0, 1.0 / q)
+    ipw_sum = pd.Series(ipw).groupby(home_tract).sum()
+    tract_total = demog_df.set_index("fips")["total"].astype(float)
+    missing = tract_total.index.difference(ipw_sum.index)
+    if len(missing) > 0:
+        import warnings
+
+        warnings.warn(
+            f"{len(missing)} tract(s) with {int(tract_total[missing].sum()):,} residents have no "
+            "infected agent with a known home, so their population is missing from the estimate."
+        )
+    agents["weight"] = (tract_total / ipw_sum).reindex(home_tract).to_numpy() * ipw
+
+    pops = pd.concat(
+        [
+            agents.groupby("home")["weight"].sum().rename("night_pop"),
+            agents.groupby("day")["weight"].sum().rename("day_pop"),
+        ],
+        axis=1,
+    ).fillna(0.0)
+    location_id = pops.index.to_numpy(dtype=np.uint64)
+    return pd.DataFrame(
+        {
+            "location_id": location_id,
+            "tract_fips": location_id >> np.uint64(8),
+            "tract_community": (location_id & np.uint64(0xFF)).astype(np.uint8),
+            "night_pop": pops["night_pop"].to_numpy(),
+            "day_pop": pops["day_pop"].to_numpy(),
+        }
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Example usage
 # --------------------------------------------------------------------------- #
