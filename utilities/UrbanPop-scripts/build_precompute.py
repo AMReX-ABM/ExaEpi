@@ -182,6 +182,27 @@ def read_bundle(path: str) -> dict:
     return res
 
 
+def naics_to_index(values) -> np.ndarray:
+    """NAICS strings (PUMS NAICSP or feather pr_naics) to indices into pr_naics' 251 categories.
+
+    Exactly as upop_to_exaepi.set_types does it: keep the LEADING DIGIT RUN, then look that up.
+    PUMS writes aggregated industries with letter suffixes -- "611M1" colleges, "722Z" restaurants,
+    "92MP" public administration -- and those strip to "611", "722" and "92", which are categories.
+    Looking the raw string up instead turns every such worker into a non-worker: measured on NM,
+    542,976 employed against the converter's 836,778, and an epidemic attack rate of 21.8% against
+    31.1%. Anything with no digits, or digits outside the category list, is -1.
+    """
+    import re
+
+    lut = {c: i for i, c in enumerate(U.categ_types["pr_naics"].categories)}
+    out = np.full(len(values), -1, dtype=np.int16)
+    for i, v in enumerate(values):
+        m = re.search(r"\d+", v) if isinstance(v, str) else None
+        if m:
+            out[i] = lut.get(m.group(0), -1)
+    return out
+
+
 def encode_categorical(series: pl.Series, name: str) -> np.ndarray:
     """Map a feather's string column onto the same integer codes upop_to_exaepi uses.
 
@@ -266,9 +287,6 @@ def build_donors(feathers, bw, meta):
     offsets = np.zeros(len(hh_ids) + 1, dtype=np.int64)
     np.cumsum(counts, out=offsets[1:])
 
-    naics_cats = list(U.categ_types["pr_naics"].categories)
-    naics_lut = {c: i for i, c in enumerate(naics_cats)}
-
     bw.add("donors.hh_offset", offsets)
     bw.add("donors.hh_size", counts.astype(np.int16))
     bw.add("donors.age", don["pr_age"].cast(pl.Int16).to_numpy().astype(np.int8))
@@ -277,9 +295,7 @@ def build_donors(feathers, bw, meta):
     bw.add("donors.travel", encode_categorical(don["pr_travel"], "pr_travel").astype(np.int8))
     bw.add("donors.veh_occ", encode_categorical(don["pr_veh_occ"], "pr_veh_occ").astype(np.int8))
     bw.add("donors.grade", encode_categorical(don["pr_grade"], "pr_grade").astype(np.int8))
-    bw.add("donors.naics",
-           don["pr_naics"].cast(pl.Utf8).replace_strict(naics_lut, default=-1)
-           .to_numpy().astype(np.int16))
+    bw.add("donors.naics", naics_to_index(don["pr_naics"].cast(pl.Utf8).to_list()))
     bw.add_strings("donors.pums_id", hh_ids.to_list())
 
     meta["donors"] = {"households": len(hh_ids), "persons": len(don)}
@@ -347,7 +363,6 @@ def recode_pums(d):
     SCHG happens to be the identity on 1..16 only because `pr_grade`'s first category, childcare,
     has no PUMS code -- it is assigned later by `set_childcare`.
     """
-    naics_lut = {c: i for i, c in enumerate(U.categ_types["pr_naics"].categories)}
     num = lambda c: pd.to_numeric(d[c], errors="coerce").fillna(0).astype(np.int64)
 
     sex = np.where(num("SEX").to_numpy() == 1, 1, 0)          # categories are [female, male]
@@ -357,7 +372,7 @@ def recode_pums(d):
     veh = np.where(jwrip == 1, 0, np.where(jwrip >= 2, 1, -1))
     schg = num("SCHG").to_numpy()
     grade = np.where((schg >= 1) & (schg <= 16), schg, -1)
-    naics = d["NAICSP"].astype(str).map(naics_lut).fillna(-1).to_numpy()
+    naics = naics_to_index(d["NAICSP"].astype(str).tolist())
     employed = np.isin(num("ESR").to_numpy(), list(ESR_EMPLOYED))
     naics = np.where(employed, naics, -1)
     return {
@@ -433,17 +448,49 @@ def build_donors_pums(pumas, year, key, bw, meta, validate_feathers=None):
     return hh_index
 
 
-def acs_extract(fips, year, key):
+# Where PUMS extracts are cached (set from --cache_folder in main). livelike caches its ACS
+# summary-file pulls but not these, so without a cache every bundle rebuild refetches them.
+PUMS_CACHE = None
+
+
+def _pums(fips, kind, features, year, key, attempts=5):
+    """A PUMS extract, from the local cache or the Census API with retries.
+
+    The API fails intermittently -- it answers a valid request that worked minutes earlier with a
+    "does not exist" error, a different PUMA each time -- so retry with backoff rather than abort
+    a build half way through its downloads.
+    """
     from livelike import acs
-    return acs.extract_pums_descriptors(
-        fips, "person", PUMS_FEATURES, year=year, censusapikey=key)
+
+    path = None
+    if PUMS_CACHE:
+        os.makedirs(PUMS_CACHE, exist_ok=True)
+        path = os.path.join(PUMS_CACHE, f"pums_{kind}_{fips}_{year}_{'-'.join(features)}.parquet")
+        if os.path.exists(path):
+            return pd.read_parquet(path)
+    for attempt in range(attempts):
+        try:
+            d = acs.extract_pums_descriptors(fips, kind, features, year=year, censusapikey=key)
+            break
+        except (FileNotFoundError, ValueError, OSError) as e:
+            if attempt == attempts - 1:
+                raise
+            wait = 5 * 2 ** attempt
+            # the message carries the request URL, which includes the API key: print the type only
+            print(f"    PUMS {kind} {fips}: {type(e).__name__}, retrying in {wait} s")
+            time.sleep(wait)
+    if path:
+        d.to_parquet(path)
+    return d
+
+
+def acs_extract(fips, year, key):
+    return _pums(fips, "person", PUMS_FEATURES, year, key)
 
 
 def acs_extract_household(fips, year, key):
     """Household-level PUMS: the authoritative donor row set, vacant units included."""
-    from livelike import acs
-    return acs.extract_pums_descriptors(
-        fips, "household", ["NP"], year=year, censusapikey=key)
+    return _pums(fips, "household", ["NP"], year, key)
 
 
 def validate_donor_recode(d, cols, feathers):
@@ -472,7 +519,6 @@ def validate_donor_recode(d, cols, feathers):
         print("  VALIDATION: no overlap with the delivered feathers -- cannot check the recode")
         return
 
-    naics_cats = list(U.categ_types["pr_naics"].categories)
     checks = [
         ("age", j["age"].cast(pl.Int64), j["pr_age"].cast(pl.Int64)),
         ("sex", j["sex"], j["pr_sex"].cast(pl.Utf8)
@@ -485,8 +531,9 @@ def validate_donor_recode(d, cols, feathers):
          .replace_strict({c: i for i, c in enumerate(VEH_OCC_CATS_B)}, default=-1)),
         ("grade", j["grade"], j["pr_grade"].cast(pl.Utf8)
          .replace_strict({c: i for i, c in enumerate(GRADE_CATS_B)}, default=-1)),
-        ("naics", j["naics"], j["pr_naics"].cast(pl.Utf8)
-         .replace_strict({c: i for i, c in enumerate(naics_cats)}, default=-1)),
+        # Through naics_to_index, the converter's own digit-run rule: comparing against a raw
+        # lookup of the feather string is exactly how a wrong recode once validated at 1.0000.
+        ("naics", j["naics"], pl.Series(naics_to_index(j["pr_naics"].cast(pl.Utf8).to_list()))),
     ]
     print(f"  VALIDATION against {len(j)} overlapping donor persons:")
     worst = 1.0
@@ -1106,6 +1153,8 @@ def main():
             sys.exit("CENSUS_API_KEY is required to build donor attributes from PUMS. The feather "
                      "shortcut covers only the donors the delivered realization used (41,848 of "
                      "50,376 for NM), which is not enough for a bundle meant to draw new ones.")
+        global PUMS_CACHE
+        PUMS_CACHE = os.path.join(args.cache_folder, "pums")
         hh_index = build_donors_pums(args.pumas, args.acs_year, key, bw, meta,
                                      validate_feathers=feathers if args.validate_donors else None)
     else:
