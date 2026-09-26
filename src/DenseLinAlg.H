@@ -28,6 +28,18 @@ namespace PopGen {
 
 enum class Op { N, T };
 
+#ifdef AMREX_USE_GPU
+using Stream = amrex::gpuStream_t;
+inline Stream currentStream () {
+    return amrex::Gpu::gpuStream();
+}
+#else
+struct Stream {}; //!< CPU builds have no streams
+inline Stream currentStream () {
+    return {};
+}
+#endif
+
 /*! Row-major C (M x N) = alpha op(A) op(B) + beta C, with op(A) M x K and op(B) K x N, computed
     by the portable kernel: each C element is one sequential sum over k = 0 .. K-1. */
 void gemmReference(Op ta, Op tb, int M, int N, int K, float alpha, const float* A, int lda, const float* B, int ldb, float beta,
@@ -38,7 +50,7 @@ void gemmReference(Op ta, Op tb, int M, int N, int K, double alpha, const double
 class DenseLinAlg {
   public:
     /*! Bind to a stream (the current AMReX stream by default); owns one BLAS handle for it. */
-    explicit DenseLinAlg(amrex::gpuStream_t stream = amrex::Gpu::gpuStream());
+    explicit DenseLinAlg(Stream stream = currentStream());
     ~DenseLinAlg();
     DenseLinAlg(const DenseLinAlg&) = delete;
     DenseLinAlg& operator=(const DenseLinAlg&) = delete;
@@ -49,15 +61,16 @@ class DenseLinAlg {
     void gemm(Op ta, Op tb, int M, int N, int K, double alpha, const double* A, int lda, const double* B, int ldb, double beta,
               double* C, int ldc);
 
-    amrex::gpuStream_t stream () const noexcept { return m_stream; }
+    Stream stream () const noexcept { return m_stream; }
 
     /*! Name of the backend in use, for the log. */
     static const char* backend();
 
   private:
-    amrex::gpuStream_t m_stream;
-    void* m_handle = nullptr;    /*!< cublasHandle_t / rocblas_handle, opaque here */
-    void* m_workspace = nullptr; /*!< fixed cuBLAS workspace */
+    Stream m_stream;
+    // Unused in CPU builds; [[maybe_unused]] keeps clang's -Wunused-private-field quiet there.
+    [[maybe_unused]] void* m_handle = nullptr;    /*!< cublasHandle_t / rocblas_handle, opaque here */
+    [[maybe_unused]] void* m_workspace = nullptr; /*!< fixed cuBLAS workspace */
 };
 
 } // namespace PopGen

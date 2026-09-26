@@ -104,7 +104,7 @@ void gemmReference (Op ta, Op tb, int M, int N, int K, double alpha, const doubl
     referenceImpl(ta, tb, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
 }
 
-DenseLinAlg::DenseLinAlg (amrex::gpuStream_t stream) : m_stream(stream) {
+DenseLinAlg::DenseLinAlg (Stream stream) : m_stream(stream) {
 #if defined(AMREX_USE_CUDA)
     cublasHandle_t h;
     check(cublasCreate(&h), "create");

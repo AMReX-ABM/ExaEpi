@@ -318,7 +318,7 @@ PmedmResult PmedmSolver::solve (const PmedmProblem& prob, const std::vector<doub
     if (static_cast<int>(Y_h.size()) != nd || static_cast<int>(logq_h.size()) != D) {
         throw std::invalid_argument("PmedmSolver::solve: Y or logq has the wrong length for PUMA " + prob.puma);
     }
-    DenseLinAlg la(amrex::Gpu::gpuStream());
+    DenseLinAlg la(currentStream());
 
     // Tract membership as CSR (block groups of each tract, ascending) for the gradient's tract sums.
     std::vector<int> tptr_h(T + 1, 0), tbg_h(G);
