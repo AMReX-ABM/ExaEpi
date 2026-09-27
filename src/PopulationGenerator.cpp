@@ -436,42 +436,78 @@ Fill fillOne (const Flows& F, const std::vector<std::int64_t>& supply, const std
         ct[c] = static_cast<double>(demand[ci2[c]]) * scale;
     }
 
+    // Entries are in CSR order: each row's entries contiguous, rows ascending, columns ascending
+    // within a row. rptr[r] is row r's first entry.
+    std::vector<std::int64_t> rptr(NR + 1, 0);
+    for (std::size_t e = 0; e < NZ; ++e) {
+        ++rptr[rows[e] + 1];
+    }
+    for (std::size_t r = 0; r < NR; ++r) {
+        rptr[r + 1] += rptr[r];
+    }
+
+    // IPF, as workers.py: per iteration, scale rows to their targets, then columns, then measure
+    // the row error. Done here in two fused passes rather than five, with each row's and
+    // column's factor formed once: every entry sees the same multiplications in the same order,
+    // every sum accumulates in the same (entry) order, and a factor is the same double whether
+    // formed once or per entry -- so the result is bit for bit the separate-pass one.
     const double tol = IPF_TOL * std::max(1.0, seqSum(rt.data(), NR));
-    std::vector<double> rs(NR), cs(NC);
-    auto rowSums = [&] () {
-        std::fill(rs.begin(), rs.end(), 0.0);
-        for (std::size_t e = 0; e < NZ; ++e) {
-            rs[rows[e]] += v[e];
+    std::vector<double> rs(NR), cs(NC), fr(NR), fc(NC);
+    for (std::size_t r = 0; r < NR; ++r) {
+        double s = 0.0;
+        for (std::int64_t e = rptr[r]; e < rptr[r + 1]; ++e) {
+            s += v[e];
         }
-    };
+        rs[r] = s;
+    }
     for (int it = 0; it < IPF_ITERS; ++it) {
-        rowSums();
-        for (std::size_t e = 0; e < NZ; ++e) {
-            v[e] = v[e] * (rs[rows[e]] > 0 ? rt[rows[e]] / rs[rows[e]] : 0.0);
+        for (std::size_t r = 0; r < NR; ++r) {
+            fr[r] = rs[r] > 0 ? rt[r] / rs[r] : 0.0;
         }
         std::fill(cs.begin(), cs.end(), 0.0);
-        for (std::size_t e = 0; e < NZ; ++e) {
-            cs[cols[e]] += v[e];
+        for (std::size_t r = 0; r < NR; ++r) {
+            const double f = fr[r];
+            for (std::int64_t e = rptr[r]; e < rptr[r + 1]; ++e) {
+                v[e] = v[e] * f;
+                cs[cols[e]] += v[e];
+            }
         }
-        for (std::size_t e = 0; e < NZ; ++e) {
-            v[e] = v[e] * (cs[cols[e]] > 0 ? ct[cols[e]] / cs[cols[e]] : 0.0);
+        for (std::size_t c = 0; c < NC; ++c) {
+            fc[c] = cs[c] > 0 ? ct[c] / cs[c] : 0.0;
         }
-        rowSums();
+        // Column scaling, and the row sums it leaves -- which are also the next iteration's.
         double err = 0.0;
         for (std::size_t r = 0; r < NR; ++r) {
-            err += std::abs(rs[r] - rt[r]);
+            double s = 0.0;
+            for (std::int64_t e = rptr[r]; e < rptr[r + 1]; ++e) {
+                v[e] = v[e] * fc[cols[e]];
+                s += v[e];
+            }
+            rs[r] = s;
+            err += std::abs(s - rt[r]);
         }
         if (err < tol) { break; }
     }
 
-    // Column-wise TRS, each column's entries in row (home) order.
+    // Column-wise TRS, each column's entries in row (home) order: a stable counting sort of the
+    // entries by column, as entry order is already row order.
     std::vector<std::int64_t> cnt(NZ);
     for (std::size_t e = 0; e < NZ; ++e) {
         cnt[e] = static_cast<std::int64_t>(std::floor(v[e]));
     }
-    const auto oc = stableOrder(NZ, [&] (std::int64_t x, std::int64_t y) {
-        return cols[x] != cols[y] ? cols[x] < cols[y] : rows[x] < rows[y];
-    });
+    std::vector<std::int64_t> oc(NZ);
+    {
+        std::vector<std::int64_t> cp(NC + 1, 0);
+        for (std::size_t e = 0; e < NZ; ++e) {
+            ++cp[cols[e] + 1];
+        }
+        for (std::size_t c = 0; c < NC; ++c) {
+            cp[c + 1] += cp[c];
+        }
+        for (std::size_t e = 0; e < NZ; ++e) {
+            oc[cp[cols[e]]++] = static_cast<std::int64_t>(e);
+        }
+    }
     std::vector<double> frac, cum;
     std::vector<std::int64_t> idx;
     for (std::size_t a = 0; a < NZ;) {
@@ -522,17 +558,10 @@ Fill fillOne (const Flows& F, const std::vector<std::int64_t>& supply, const std
         a = z;
     }
 
-    // Row repair: moves stay inside a row, whose cells are in destination order.
-    const auto orr = stableOrder(NZ, [&] (std::int64_t x, std::int64_t y) {
-        return rows[x] != rows[y] ? rows[x] < rows[y] : cols[x] < cols[y];
-    });
-    std::vector<std::int64_t> rptr(NR + 1, 0);
-    for (std::size_t e = 0; e < NZ; ++e) {
-        ++rptr[rows[e] + 1];
-    }
-    for (std::size_t r = 0; r < NR; ++r) {
-        rptr[r + 1] += rptr[r];
-    }
+    // Row repair: moves stay inside a row, whose cells are in destination order -- entry order,
+    // so orr (entries by row, then column) is the identity.
+    std::vector<std::int64_t> orr(NZ);
+    std::iota(orr.begin(), orr.end(), 0);
     auto rowDelta = [&] () {
         std::vector<std::int64_t> got(NR, 0);
         for (std::size_t e = 0; e < NZ; ++e) {
@@ -823,10 +852,10 @@ std::vector<std::int64_t> allocateWorkers (const PopulationBundle& b, const Pers
         st.unplaceable += f.unplaced;
         if (f.cnt.empty()) { continue; }
         st.cells += static_cast<std::int64_t>(f.cnt.size());
-        // cells sorted by (home, destination geoid)
-        const auto co = stableOrder(f.cnt.size(), [&] (std::int64_t x, std::int64_t y) {
-            return f.row_h[x] != f.row_h[y] ? f.row_h[x] < f.row_h[y] : F.dests[f.col_d[x]] < F.dests[f.col_d[y]];
-        });
+        // cells by (home, destination geoid): fillOne emits them in that order already (homes
+        // ascending, destinations ascending within a home, and F.dests is sorted)
+        std::vector<std::int64_t> co(f.cnt.size());
+        std::iota(co.begin(), co.end(), 0);
         const std::int64_t* wn = wsort.data() + nb[n];
         const std::int64_t nwn = nb[n + 1] - nb[n];
         for (std::size_t a = 0; a < co.size();) {
@@ -1209,22 +1238,35 @@ void allocateTeachers (const PopulationBundle& b, Persons& P, std::vector<std::i
             }
             std::sort(regions.begin(), regions.end());
             regions.erase(std::unique(regions.begin(), regions.end()), regions.end());
+            // Teachers and schools of each region, ascending. A region's candidates and pool are
+            // these filtered by need and freev when the region comes up, which is what scanning
+            // every school and teacher then would find.
+            std::map<std::int64_t, std::vector<std::int64_t>> teach_in, rows_in;
+            for (std::size_t t = 0; t < teach.size(); ++t) {
+                teach_in[t_reg[t]].push_back(static_cast<std::int64_t>(t));
+            }
+            for (std::size_t r = 0; r < NR; ++r) {
+                rows_in[s_reg[r]].push_back(static_cast<std::int64_t>(r));
+            }
             for (const auto region : regions) {
                 std::vector<std::int64_t> cand, pool;
-                for (std::size_t r = 0; r < NR; ++r) {
-                    if (s_reg[r] == region && need[r] > 0) { cand.push_back(static_cast<std::int64_t>(r)); }
+                for (auto r : rows_in[region]) {
+                    if (need[r] > 0) { cand.push_back(r); }
                 }
+                auto addFree = [&] (std::int64_t reg) {
+                    const auto it = teach_in.find(reg);
+                    if (it == teach_in.end()) { return; }
+                    for (auto t : it->second) {
+                        if (freev[t]) { pool.push_back(t); }
+                    }
+                };
                 if (scale) {
-                    for (std::size_t t = 0; t < teach.size(); ++t) {
-                        if (freev[t] && t_reg[t] == region) { pool.push_back(static_cast<std::int64_t>(t)); }
-                    }
+                    addFree(region);
                 } else {
-                    const auto nb = S.neighbourhood(region);
-                    for (std::size_t t = 0; t < teach.size(); ++t) {
-                        if (freev[t] && std::binary_search(nb.begin(), nb.end(), t_reg[t])) {
-                            pool.push_back(static_cast<std::int64_t>(t));
-                        }
+                    for (auto c : S.neighbourhood(region)) { // sorted, no repeats
+                        addFree(c);
                     }
+                    std::sort(pool.begin(), pool.end());
                 }
                 if (pool.empty() || cand.empty()) { continue; }
                 std::int64_t nsum = 0;
