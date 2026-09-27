@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
-"""Plot the commute-distance distribution -- the cumulative fraction of workers whose home-to-work
-distance is at most d, on a log d axis -- for ExaEpi, Epicast and the raw LODES data both are built
-from.
+"""Plot the commute-distance distribution -- a histogram of the fraction of workers by home-to-work
+distance, or with --cdf the cumulative fraction whose distance is at most d -- for ExaEpi, Epicast
+and the raw LODES data both are built from.
 
 Distances are great-circle distances between Census tract internal points (INTPTLAT10/INTPTLON10,
 roughly each tract's centroid). Every source is compared at tract level, the finest unit Epicast
@@ -25,12 +25,17 @@ resolves, so the curves are directly comparable:
     its LODES-derived commute-flow table, and on CA and NM this sample's distances match that
     table's to within a few percent.)
   - LODES: the raw block-level OD data, rolled up to tracts. LODES counts jobs (JT00 = all jobs),
-    not workers, so a worker with two jobs counts twice.
+    not workers, so a worker with two jobs counts twice. It links a job to a residence from
+    administrative records, so a pair is not necessarily a commute anyone makes daily.
+  - CTPP (optional): tract-to-tract flows from the ACS question about where each worker worked the
+    previous week (see download_ctpp_flows.py), so closer to the daily commutes the models
+    simulate. Its universe includes people who worked at home, who add to the same-tract share.
 
-A commute that starts and ends in the same tract has distance 0, drawn as the step at x = 0 on the
-default linear x axis. A log x axis (--logx) cannot show it, but those commutes are still counted in
-each curve's denominator, so every curve starts at its own same-tract fraction at the left edge
-rather than at 0. The fractions are also printed with the other summary statistics.
+A commute that starts and ends in the same tract has distance 0. On the default linear x axis it
+falls in the first histogram bin, or is the CDF's step at x = 0. A log x axis (--logx) cannot show
+it, but those commutes are still counted in every series' denominator: the histogram's bins then sum
+to less than 1, and each CDF starts at its own same-tract fraction at the left edge rather than at 0.
+The fractions are also printed with the other summary statistics.
 
 All sources are in-state only (LODES "main" files; the "aux" files with cross-state commutes are
 not used by either model).
@@ -114,15 +119,23 @@ def read_urbanpop_columns(path, fields):
     return columns
 
 
-def load_exaepi_pairs(urbanpop_bin):
-    """Return a DataFrame (home, work, count) of ExaEpi commuters per home/work tract pair. See the
-    module docstring for who counts as a commuter."""
-    cols = read_urbanpop_columns(urbanpop_bin, ["home_geoid", "work_geoid", "naics", "school_id", "travel"])
+def exaepi_commuters(cols):
+    """Return the boolean mask of agents ExaEpi sends to a workplace each day, from the naics,
+    school_id and travel columns of read_urbanpop_columns: anyone with a NAICS code except a
+    declared work-from-home non-educator (UrbanPopData.cpp's agent initialization)."""
     employed = cols["naics"] != -1
     wfh = employed & (cols["travel"] == TRAVEL_WFH) & (cols["school_id"] == 0)
     commuter = employed & ~wfh
     print(f"ExaEpi: {int(employed.sum()):,} employed, {int(wfh.sum()):,} work from home, "
           f"{int(commuter.sum()):,} commuters")
+    return commuter
+
+
+def load_exaepi_pairs(urbanpop_bin):
+    """Return a DataFrame (home, work, count) of ExaEpi commuters per home/work tract pair. See the
+    module docstring for who counts as a commuter."""
+    cols = read_urbanpop_columns(urbanpop_bin, ["home_geoid", "work_geoid", "naics", "school_id", "travel"])
+    commuter = exaepi_commuters(cols)
     # 12-digit block group -> 11-digit tract
     df = pd.DataFrame({"home": cols["home_geoid"][commuter] // 10, "work": cols["work_geoid"][commuter] // 10})
     return df.groupby(["home", "work"]).size().rename("count").reset_index()
@@ -182,6 +195,17 @@ def load_lodes_pairs(lodes_file):
     return df
 
 
+def load_ctpp_pairs(ctpp_file):
+    """Return a DataFrame (home, work, count) of CTPP workers per home/work tract pair, from
+    download_ctpp_flows.py's src, dst, flow CSV."""
+    print("Reading CTPP flows from", ctpp_file)
+    df = pd.read_csv(ctpp_file, usecols=["src", "dst", "flow"]).rename(
+        columns={"src": "home", "dst": "work", "flow": "count"})
+    df = df.groupby(["home", "work"], as_index=False)["count"].sum()
+    print(f"CTPP: {int(df['count'].sum()):,} workers over {len(df):,} tract pairs")
+    return df
+
+
 def load_internal_points(shape_files):
     """Return a DataFrame (lat, lon) indexed by int64 GEOID10, from the internal-point attribute
     columns of Census shapefiles (the geometry itself is not needed, so it is not read)."""
@@ -238,6 +262,29 @@ def print_stats(label, dist, weights):
           f">100km={100 * weights[dist > 100].sum() / total:.1f}%")
 
 
+def histogram_edges(series, n_bins, log_x, xlim):
+    """Bin edges shared by every series: n_bins equal-width bins on a linear axis, or equal-log-width
+    bins on a log one, spanning xlim if given, else all the (nonzero, for log) distances."""
+    if log_x:
+        lo = xlim[0] if xlim else min(dist[dist > 0].min() for _, dist, _, _, _ in series)
+        hi = xlim[1] if xlim else max(dist.max() for _, dist, _, _, _ in series)
+        return np.geomspace(lo, hi, n_bins + 1)
+    lo, hi = xlim if xlim else (0.0, max(dist.max() for _, dist, _, _, _ in series))
+    return np.linspace(lo, hi, n_bins + 1)
+
+
+def plot_histogram(ax, dist, weights, label, edges, color, reference):
+    """Plot the fraction of all workers in each bin. The fractions are of every worker, including
+    those outside the bins (same-tract commuters on a log axis, or anything beyond --xlim), so all
+    series share one scale. The reference (LODES) is an outline drawn on top; the models are filled."""
+    frac = weights / weights.sum()
+    if reference:
+        ax.hist(dist, bins=edges, weights=frac, histtype="step", color=color, linewidth=1, zorder=3,
+                label=label)
+    else:
+        ax.hist(dist, bins=edges, weights=frac, histtype="stepfilled", color=color, alpha=0.5, label=label)
+
+
 def plot_cdf(ax, dist, weights, label, log_x, **style):
     """Step-plot the worker-weighted CDF. On a log x axis only the nonzero distances are drawn, but
     the denominator still includes the same-tract commuters, so the curve starts at that fraction
@@ -275,6 +322,11 @@ def main():
         help="Raw LODES OD 'main' file for the state, e.g. data/LODES7/ca_od_main_JT00_2019.csv.gz",
     )
     parser.add_argument(
+        "--ctpp", default=None,
+        help="CTPP tract-to-tract flow CSV written by download_ctpp_flows.py (2012-2016 data, on 2010 "
+        "tracts), e.g. data/CTPP/nm_ctpp2016_tract_flows.csv",
+    )
+    parser.add_argument(
         "--tracts", "-t", required=True, nargs="+",
         help="2010 Census TRACT shapefile(s) for the state, e.g. "
         "data/US_2010_Census_Tracts/tl_2010_06_tract10.shp",
@@ -285,46 +337,68 @@ def main():
         "distances at once. On the linear axis most commutes are bunched at the left, so pair it "
         "with --xlim to see the bulk of the distribution (e.g. --xlim 0 100).",
     )
+    parser.add_argument(
+        "--cdf", action="store_true", default=False,
+        help="Plot the cumulative fraction of workers instead of the default histogram",
+    )
+    parser.add_argument(
+        "--bins", type=int, default=50,
+        help="Number of histogram bins over the x range (equal-log-width with --logx). Default: 50",
+    )
     parser.add_argument("--xlim", type=float, nargs=2, default=None, help="x-axis range in km")
-    parser.add_argument("--title", default="Commute distance", help="Plot title ('' for none)")
     parser.add_argument("--output", "-o", default="commute_distance.pdf", help="Output file name for plot")
     args = parser.parse_args()
 
     points = load_internal_points(args.tracts)
 
-    # (label, pairs, line style), in legend order. The LODES curve is drawn on top (zorder), dashed
-    # and thinner, since Epicast's curve follows it closely and would otherwise hide it.
+    # (label, pairs, color, is a reference), in legend order: the references (LODES, which both
+    # models are built from, and CTPP) are drawn on top of the models so they stay visible where
+    # they overlap.
     series = []
     if args.lodes:
-        series.append(("LODES", load_lodes_pairs(args.lodes),
-                       dict(color="black", linestyle="--", linewidth=0.7, zorder=3)))
+        series.append(("LODES", load_lodes_pairs(args.lodes), "black", True))
+    if args.ctpp:
+        series.append(("CTPP", load_ctpp_pairs(args.ctpp), "green", True))
     if args.epicast_events:
-        series.append(("Epicast", load_epicast_event_pairs(args.epicast_events),
-                       dict(color="blue", linestyle="-", alpha=0.7)))
-    series.append(("ExaEpi", load_exaepi_pairs(args.urbanpop), dict(color="red", linestyle="-", alpha=0.7)))
+        series.append(("Epicast", load_epicast_event_pairs(args.epicast_events), "blue", False))
+    series.append(("ExaEpi", load_exaepi_pairs(args.urbanpop), "red", False))
 
-    series = [(label, *pair_distances(pairs, points, label), style) for label, pairs, style in series]
-    for label, dist, weights, _ in series:
+    series = [(label, *pair_distances(pairs, points, label), color, reference)
+              for label, pairs, color, reference in series]
+    for label, dist, weights, _, _ in series:
         print_stats(label, dist, weights)
 
     fig, ax = plt.subplots(figsize=(HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN), layout="constrained")
-    for label, dist, weights, style in series:
-        plot_cdf(ax, dist, weights, label, log_x=args.logx, **style)
+    if args.cdf:
+        for label, dist, weights, color, reference in series:
+            # The reference is dashed and thinner, since Epicast's curve follows it closely.
+            style = (dict(color=color, linestyle="--", linewidth=0.7, zorder=3) if reference
+                     else dict(color=color, linestyle="-", alpha=0.7))
+            plot_cdf(ax, dist, weights, label, log_x=args.logx, **style)
+        ax.set_ylim(0, 1)
+        ax.set_ylabel("Cumulative fraction of workers")
+    else:
+        edges = histogram_edges(series, args.bins, args.logx, args.xlim)
+        for label, dist, weights, color, reference in series:
+            plot_histogram(ax, dist, weights, label, edges, color, reference)
+        ax.set_ylim(0, None)
+        ax.set_ylabel("Fraction of workers")
     if args.logx:
         ax.set_xscale("log")
         if args.xlim:
             ax.set_xlim(args.xlim)
     else:
         ax.set_xlim(args.xlim if args.xlim else (0, None))
-    ax.set_ylim(0, 1)
     ax.set_xlabel("Home-to-work tract distance (km)")
-    ax.set_ylabel("Cumulative fraction of workers")
-    if args.title:
-        ax.set_title(args.title)
     ax.grid(True, which="major", alpha=0.3)
-    # On a linear axis the curves rise steeply at the left, leaving lower right empty; on a log one
-    # upper left is empty instead (every curve is still below ~0.6 out to ~15 km).
-    ax.legend(loc="upper left" if args.logx else "lower right", frameon=False, handlelength=1.5)
+    # CDF: on a linear axis the curves rise steeply at the left, leaving lower right empty; on a log
+    # one upper left is empty instead (every curve is still below ~0.6 out to ~15 km). Histogram:
+    # the mass is at short distances, so upper right is empty.
+    if args.cdf:
+        loc = "upper left" if args.logx else "lower right"
+    else:
+        loc = "upper right"
+    ax.legend(loc=loc, frameon=False, handlelength=1.5)
 
     print("Plotting results to", args.output)
     plt.savefig(args.output)
