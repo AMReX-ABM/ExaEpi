@@ -47,7 +47,7 @@ import numpy as np  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "UrbanPop-scripts"))
 from compute_workgroup_sizes import load_cbp_cache, parse_naics_descriptions  # noqa: E402
-from plos_compbio_style import apply_style, HALF_PAGE_WIDTH_IN  # noqa: E402
+from plos_compbio_style import apply_style, HALF_PAGE_HEIGHT_IN, HALF_PAGE_WIDTH_IN  # noqa: E402
 from plot_commute_distance import read_urbanpop_columns  # noqa: E402
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -82,6 +82,10 @@ SECTOR_NAMES = {
 SECTOR_ALIASES = {"32": "31", "33": "31", "45": "44", "49": "48", "3": "31", "4": "44"}
 
 ALL_INDUSTRIES = "All industries"
+
+# Font size of the sector names on the y axis, in points. Smaller than the shared style's 8pt
+# tick labels so ~21 rows fit in a standard half-page figure's height.
+SECTOR_LABEL_FONT = 6
 
 # Two-letter postal abbreviation -> state FIPS code, as CBP's fipstate column uses.
 STATE_FIPS = {
@@ -214,13 +218,15 @@ def main():
     rows = [(ALL_INDUSTRIES, ALL_INDUSTRIES)] + [(s, SECTOR_NAMES[s]) for s in sectors]
     print_table(rows, series)
 
-    fig, ax = plt.subplots(figsize=(HALF_PAGE_WIDTH_IN, 0.16 * len(rows) + 0.9), layout="constrained")
+    # Same height as the other half-page figures, which leaves ~6.5pt per sector row -- hence sector
+    # labels and markers below the shared style's sizes.
+    fig, ax = plt.subplots(figsize=(HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN), layout="constrained")
     y = {key: i for i, (key, _name) in enumerate(rows)}
     for label, means, style in series:
         keys = [key for key, _name in rows if key in means]
-        ax.plot([means[k] for k in keys], [y[k] for k in keys], linestyle="none", markersize=4,
-                markeredgewidth=0.8, alpha=0.8, label=label, **style)
-    ax.set_yticks(range(len(rows)), [name for _key, name in rows])
+        ax.plot([means[k] for k in keys], [y[k] for k in keys], linestyle="none", markersize=3,
+                markeredgewidth=0.6, alpha=0.8, label=label, **style)
+    ax.set_yticks(range(len(rows)), [name for _key, name in rows], fontsize=SECTOR_LABEL_FONT)
     ax.get_yticklabels()[0].set_fontweight("bold")
     ax.axhline(0.5, color="0.5", linewidth=0.5)
     ax.set_ylim(len(rows) - 0.5, -0.5)
