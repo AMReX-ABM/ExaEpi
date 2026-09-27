@@ -110,8 +110,14 @@ void gemmReference (Op ta, Op tb, int M, int N, int K, double alpha, const doubl
     referenceImpl(ta, tb, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
 }
 
+std::mutex& deviceSetupMutex () {
+    static std::mutex m;
+    return m;
+}
+
 DenseLinAlg::DenseLinAlg (Stream stream) : m_stream(stream) {
 #if defined(AMREX_USE_CUDA)
+    std::lock_guard<std::mutex> lock(deviceSetupMutex());
     cublasHandle_t h;
     check(cublasCreate(&h), "create");
     check(cublasSetStream(h, m_stream), "set stream");
@@ -122,6 +128,7 @@ DenseLinAlg::DenseLinAlg (Stream stream) : m_stream(stream) {
     check(cublasSetWorkspace(h, m_workspace, CUBLAS_WORKSPACE_BYTES), "set workspace");
     m_handle = h;
 #elif defined(AMREX_USE_HIP)
+    std::lock_guard<std::mutex> lock(deviceSetupMutex());
     rocblas_handle h;
     check(rocblas_create_handle(&h), "create");
     check(rocblas_set_stream(h, m_stream), "set stream");
@@ -139,6 +146,9 @@ DenseLinAlg::DenseLinAlg (Stream stream) : m_stream(stream) {
 }
 
 DenseLinAlg::~DenseLinAlg () {
+#if defined(AMREX_USE_CUDA) || defined(AMREX_USE_HIP)
+    std::lock_guard<std::mutex> lock(deviceSetupMutex());
+#endif
 #if defined(AMREX_USE_CUDA)
     if (m_handle) { cublasDestroy(static_cast<cublasHandle_t>(m_handle)); }
     if (m_workspace) {

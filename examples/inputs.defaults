@@ -49,6 +49,9 @@ agent.population_rep = 0
 agent.popgen.check_every = 250
 agent.popgen.tol_moved = 0.001
 agent.popgen.max_iter = 6000
+# GPU builds: PUMAs solved at once, each on its own GPU stream (capped by amrex.max_gpu_streams,
+# default 4). Results do not depend on it. CPU builds solve one PUMA per OpenMP thread instead.
+agent.popgen.gpu_streams = 1
 # Write the generated population to this .bin (readable with agent.population_source = bin).
 # agent.write_population =
 # The UrbanPop data file (.bin). No default; required if agent.population_source = bin.

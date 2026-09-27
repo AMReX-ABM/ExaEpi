@@ -22,6 +22,8 @@
 #ifndef DENSE_LIN_ALG_H_
 #define DENSE_LIN_ALG_H_
 
+#include <mutex>
+
 #include <AMReX_Gpu.H>
 
 namespace PopGen {
@@ -46,6 +48,11 @@ void gemmReference(Op ta, Op tb, int M, int N, int K, float alpha, const float* 
                    float* C, int ldc);
 void gemmReference(Op ta, Op tb, int M, int N, int K, double alpha, const double* A, int lda, const double* B, int ldb,
                    double beta, double* C, int ldc);
+
+/*! Held while creating or destroying a BLAS handle and while recording or destroying a CUDA
+    graph. Solves on concurrent streams share one device, and handle setup or teardown can
+    synchronise it, which would invalidate a graph another thread is recording. */
+std::mutex& deviceSetupMutex();
 
 class DenseLinAlg {
   public:

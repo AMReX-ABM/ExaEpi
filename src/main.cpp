@@ -133,6 +133,8 @@ void printHelp (const char* prog) {
          "P-MEDM solver: stop when fewer than this share of");
     desc_line("households moved since the last check");
     line("popgen.max_iter", fmt(tp.popgen_max_iter), "P-MEDM solver: iteration cap");
+    line("popgen.gpu_streams", fmt(tp.popgen_gpu_streams), "GPU builds: PUMAs solved concurrently,");
+    desc_line("each on its own stream (at most amrex.max_gpu_streams)");
     line("write_population", "unset", "write the generated population to this .bin file");
     line("air_traffic_filename", "required if air_travel_int > 0", "");
     desc_line("air traffic flow file");

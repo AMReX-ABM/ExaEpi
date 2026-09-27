@@ -15,6 +15,8 @@
 #include <zlib.h>
 
 #include <AMReX.H>
+#include <AMReX_Gpu.H>
+#include <AMReX_OpenMP.H>
 #include <AMReX_ParallelDescriptor.H>
 #include <AMReX_Print.H>
 
@@ -176,13 +178,26 @@ GeneratedPopulation generatePopulation (const GenerationSettings& settings, int 
         placed[p] = placePuma(b, prob, al, cols, settings.seed, settings.rep);
     };
     const int n_todo = static_cast<int>(todo.size());
-#if defined(AMREX_USE_OMP) && !defined(AMREX_USE_GPU)
+#if defined(AMREX_USE_OMP) && defined(AMREX_USE_GPU)
+    // One OpenMP thread per stream; AMReX keeps a stream index per thread, so each thread's
+    // kernels, copies and cuBLAS calls go to its own stream. (Its per-thread table is sized by
+    // the OpenMP thread count at startup, hence that cap too.)
+    const int n_streams =
+            std::max(1, std::min({settings.gpu_streams, amrex::Gpu::numGpuStreams(), amrex::OpenMP::get_max_threads(), n_todo}));
+#pragma omp parallel for schedule(dynamic, 1) num_threads(n_streams) if (n_streams > 1)
+#elif defined(AMREX_USE_OMP)
 #pragma omp parallel for schedule(dynamic, 1)
 #endif
     for (int q = 0; q < n_todo; ++q) {
+#if defined(AMREX_USE_OMP) && defined(AMREX_USE_GPU)
+        amrex::Gpu::Device::setStreamIndex(amrex::OpenMP::get_thread_num());
+#endif
         try {
             solveAndPlace(todo[q]);
         } catch (const std::exception& e) { errors[todo[q]] = e.what(); }
+#if defined(AMREX_USE_OMP) && defined(AMREX_USE_GPU)
+        amrex::Gpu::Device::resetStreamIndex();
+#endif
     }
     for (const auto& e : errors) {
         if (!e.empty()) { throw std::runtime_error(e); }

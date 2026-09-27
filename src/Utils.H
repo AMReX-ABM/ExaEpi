@@ -64,6 +64,7 @@ struct TestParams {
     int popgen_check_every = 250;          /*!< solver: iterations between convergence checks */
     double popgen_tol_moved = 1e-3;        /*!< solver: stop when less than this share of households moved */
     int popgen_max_iter = 6000;            /*!< solver: iteration cap */
+    int popgen_gpu_streams = 1;            /*!< GPU builds: PUMAs solved concurrently, one per stream */
     std::string popgen_inject_allocations; /*!< debug: saved allocations used instead of solving */
     std::string write_population;          /*!< if set, write the generated population to this .bin */
 

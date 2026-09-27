@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <mutex>
 #include <stdexcept>
 
 #include <AMReX.H>
@@ -491,6 +492,7 @@ PmedmResult PmedmSolver::solve (const PmedmProblem& prob, const std::vector<doub
         cudaStream_t s = amrex::Gpu::gpuStream();
         cudaGraphExec_t& exec = graphs[refresh ? 1 : 0];
         if (!exec) {
+            std::lock_guard<std::mutex> lock(deviceSetupMutex());
             cudaGraph_t graph;
             AMREX_CUDA_SAFE_CALL(cudaStreamBeginCapture(s, cudaStreamCaptureModeThreadLocal));
             stepBody(refresh);
@@ -532,8 +534,11 @@ PmedmResult PmedmSolver::solve (const PmedmProblem& prob, const std::vector<doub
     }
 
 #ifdef AMREX_USE_CUDA
-    for (auto& exec : graphs) {
-        if (exec) { AMREX_CUDA_SAFE_CALL(cudaGraphExecDestroy(exec)); }
+    {
+        std::lock_guard<std::mutex> lock(deviceSetupMutex());
+        for (auto& exec : graphs) {
+            if (exec) { AMREX_CUDA_SAFE_CALL(cudaGraphExecDestroy(exec)); }
+        }
     }
 #endif
 

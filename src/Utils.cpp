@@ -93,6 +93,7 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
         ppg.query("check_every", params.popgen_check_every);
         ppg.query("tol_moved", params.popgen_tol_moved);
         ppg.query("max_iter", params.popgen_max_iter);
+        ppg.query("gpu_streams", params.popgen_gpu_streams);
         ppg.query("inject_allocations", params.popgen_inject_allocations);
         pp.query("population_rep", params.population_rep);
         pp.query("write_population", params.write_population);

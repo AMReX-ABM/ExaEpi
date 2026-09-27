@@ -286,6 +286,7 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
         gs.solver.check_every = params.popgen_check_every;
         gs.solver.tol_moved = params.popgen_tol_moved;
         gs.solver.max_iter = params.popgen_max_iter;
+        gs.gpu_streams = params.popgen_gpu_streams;
         gs.inject_allocations = params.popgen_inject_allocations;
         gs.verbose = params.verbose;
         try {

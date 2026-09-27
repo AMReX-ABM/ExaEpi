@@ -8,10 +8,12 @@
 
     Parallel layout: PUMAs are split over ranks by a deterministic longest-processing-time rule
     on donors x block groups; each rank solves and places its own, and the placements are
-    all-gathered. Every rank then runs S0-S10 on the whole population (deterministic host code), so
-    the population is identical whatever the rank count. A given (bundle, seed, rep) always
-    gives the same population on a given device type; GPU and CPU solves round differently, so
-    the device type is part of the run's configuration, like the seed.
+    all-gathered. Within a rank, PUMAs run concurrently on OpenMP threads: one per thread on
+    CPU, and on GPU up to gpu_streams at a time, each on its own stream. Every rank then runs
+    S0-S10 on the whole population (deterministic host code), so the population is identical
+    whatever the rank count. A given (bundle, seed, rep) always gives the same population on a
+    given device type; GPU and CPU solves round differently, so the device type is part of the
+    run's configuration, like the seed.
 */
 #ifndef GENERATE_POPULATION_H_
 #define GENERATE_POPULATION_H_
@@ -30,6 +32,7 @@ struct GenerationSettings {
     std::int64_t seed = 0;          /*!< population seed */
     std::int64_t rep = 0;           /*!< replicate number, a second key word */
     PmedmSettings solver;           /*!< solver stopping rule */
+    int gpu_streams = 1;            /*!< GPU builds: PUMAs solved concurrently, each on its own stream */
     std::string inject_allocations; /*!< debug: solved allocations to use instead of solving
                                          (generate_exaepi.py --save-alloc), for bit-for-bit checks */
     int verbose = 0;
