@@ -32,6 +32,7 @@ Derived columns added to the events DataFrame:
     tract_community - location_id & 0xff
 """
 
+import os
 import struct
 import numpy as np
 import pandas as pd
@@ -119,6 +120,45 @@ _AGENT_TRANSITION_SIZE = struct.calcsize(_AGENT_TRANSITION_FMT)  # should be 24
 assert _AGENT_TRANSITION_SIZE == 24, f"Unexpected struct size: {_AGENT_TRANSITION_SIZE}"
 
 
+_AGENT_TRANSITION_DTYPE = np.dtype(
+    [
+        ("agent_id", "<u8"),
+        ("location_id", "<u8"),
+        ("timestep", "<u2"),
+        ("context", "u1"),
+        ("disease_state", "u1"),
+        ("variant", "u1"),
+        ("_pad", "V3"),  # 3 padding bytes
+    ]
+)
+assert _AGENT_TRANSITION_DTYPE.itemsize == _AGENT_TRANSITION_SIZE
+
+
+def _read_header(f) -> pd.DataFrame:
+    """Read an events.bin header from f, leaving f positioned at the first event record, and
+    return the demographics DataFrame (one row per FIPS tract: fips, <demographic columns>)."""
+    nrow = struct.unpack("<Q", f.read(8))[0]
+    ncol = struct.unpack("<Q", f.read(8))[0]  # noqa: F841
+    n_pt = struct.unpack("<Q", f.read(8))[0]  # noqa: F841
+    ncol_demog = struct.unpack("<Q", f.read(8))[0]
+    demo_len = struct.unpack("<Q", f.read(8))[0]
+    col_len = struct.unpack("<Q", f.read(8))[0]  # noqa: F841
+
+    demo_names = [s for s in f.read(demo_len).decode("utf-8").split("\x00") if s]
+    _col_names = [s for s in f.read(col_len).decode("utf-8").split("\x00") if s]  # noqa: F841
+
+    # FIPS codes (one per tract row)
+    fips = np.frombuffer(f.read(nrow * 8), dtype="<u8").copy()
+
+    # Demographics matrix: nrow × ncol_demog, stored as UInt32
+    demog_raw = np.frombuffer(f.read(nrow * ncol_demog * 4), dtype="<u4").reshape(nrow, ncol_demog).copy()
+
+    demog_df = pd.DataFrame({"fips": fips})
+    for i, name in enumerate(demo_names):
+        demog_df[name] = demog_raw[:, i]
+    return demog_df
+
+
 def read_events_bin(path: str, full: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Read a run.events.bin file.
@@ -150,28 +190,7 @@ def read_events_bin(path: str, full: bool = True) -> tuple[pd.DataFrame, pd.Data
         One row per FIPS tract with columns: fips, <demographic column names>
     """
     with open(path, "rb") as f:
-        # ------------------------------------------------------------------ #
-        # Header
-        # ------------------------------------------------------------------ #
-        nrow = struct.unpack("<Q", f.read(8))[0]
-        ncol = struct.unpack("<Q", f.read(8))[0]  # noqa: F841
-        n_pt = struct.unpack("<Q", f.read(8))[0]  # noqa: F841
-        ncol_demog = struct.unpack("<Q", f.read(8))[0]
-        demo_len = struct.unpack("<Q", f.read(8))[0]
-        col_len = struct.unpack("<Q", f.read(8))[0]  # noqa: F841
-
-        demo_names = [s for s in f.read(demo_len).decode("utf-8").split("\x00") if s]
-        _col_names = [s for s in f.read(col_len).decode("utf-8").split("\x00") if s]  # noqa: F841
-
-        # FIPS codes (one per tract row)
-        fips = np.frombuffer(f.read(nrow * 8), dtype="<u8").copy()
-
-        # Demographics matrix: nrow × ncol_demog, stored as UInt32
-        demog_raw = (
-            np.frombuffer(f.read(nrow * ncol_demog * 4), dtype="<u4")
-            .reshape(nrow, ncol_demog)
-            .copy()
-        )
+        demog_df = _read_header(f)
 
         # ------------------------------------------------------------------ #
         # AgentTransition event records
@@ -189,20 +208,7 @@ def read_events_bin(path: str, full: bool = True) -> tuple[pd.DataFrame, pd.Data
         )
 
     # Parse all records at once using numpy structured array for speed
-    dtype = np.dtype(
-        [
-            ("agent_id", "<u8"),
-            ("location_id", "<u8"),
-            ("timestep", "<u2"),
-            ("context", "u1"),
-            ("disease_state", "u1"),
-            ("variant", "u1"),
-            ("_pad", "V3"),  # 3 padding bytes
-        ]
-    )
-    assert dtype.itemsize == 24
-
-    records = np.frombuffer(event_bytes[: n_events * _AGENT_TRANSITION_SIZE], dtype=dtype)
+    records = np.frombuffer(event_bytes[: n_events * _AGENT_TRANSITION_SIZE], dtype=_AGENT_TRANSITION_DTYPE)
 
     # Fast lookup-table-based Categorical construction (see _code_lookup) instead of
     # Series.map(dict).astype(dtype): ~15x faster on a ~103M-row file. The disease_state lookup's
@@ -250,14 +256,33 @@ def read_events_bin(path: str, full: bool = True) -> tuple[pd.DataFrame, pd.Data
 
     events_df = pd.DataFrame(columns)
 
-    # ------------------------------------------------------------------ #
-    # Demographics DataFrame
-    # ------------------------------------------------------------------ #
-    demog_df = pd.DataFrame({"fips": fips})
-    for i, name in enumerate(demo_names):
-        demog_df[name] = demog_raw[:, i]
-
     return events_df, demog_df
+
+
+def read_events_records(path: str) -> tuple[np.memmap, pd.DataFrame]:
+    """
+    Memory-map a run.events.bin file's raw AgentTransition records, without decoding them.
+
+    For callers that only need a filtered subset of the events (e.g. just the work-context
+    infections), this avoids read_events_bin's full decode, which peaks around 18 GB RSS for a
+    ~2.5 GB CA file: filter on the raw fields first (context is the raw byte code -- see
+    _CONTEXT_MAP -- and agent_id/location_id still carry their packed high bits) and only the
+    selected records are ever paged in.
+
+    Returns
+    -------
+    records : np.memmap
+        Read-only structured array with fields agent_id, location_id, timestep, context,
+        disease_state, variant (and padding), one element per event.
+    demog_df : pd.DataFrame
+        One row per FIPS tract, as for read_events_bin.
+    """
+    with open(path, "rb") as f:
+        demog_df = _read_header(f)
+        offset = f.tell()
+    n_events = (os.path.getsize(path) - offset) // _AGENT_TRANSITION_SIZE
+    records = np.memmap(path, dtype=_AGENT_TRANSITION_DTYPE, mode="r", offset=offset, shape=(n_events,))
+    return records, demog_df
 
 
 def aggregate_events(events_df: pd.DataFrame, split_day_night: bool = False) -> pd.DataFrame:
