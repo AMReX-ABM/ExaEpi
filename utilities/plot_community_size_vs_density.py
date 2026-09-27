@@ -79,14 +79,15 @@ def load_community_density(day_night_csv, shape_files):
 
 
 def _add_series(ax, df, pop_col, density_col, style, log):
-    """Scatter one (population, density) series plus its own binned-median trend line, and return
-    (scatter_handle, line_handle, corr, n) -- corr/n are the Pearson correlation (log10 density,
-    population) and community count for the printed summary. The caller lays the two handles out
-    as a two-column legend (dot+name, dash+"median") so each series is one row: see
-    plot_community_size_vs_density."""
+    """Scatter one (population, density) series plus its own binned-median trend line and fitted
+    line, and return (scatter_handle, line_handle, fit_handle, corr, n, (slope, intercept, r)) --
+    corr/n are the Pearson correlation (log10 density, population) and community count, and
+    slope/intercept/r describe the fitted line, all for the printed summary. The caller lays the
+    three handles out as a three-column legend (marker+name, line+"median", dashes+"fit") so each
+    series is one row: see plot_community_size_vs_density."""
     sub = df[df[pop_col] > 0]
-    scatter_handle = ax.scatter(sub[pop_col], sub[density_col], s=20, alpha=0.35, color=style["scatter"],
-                                 linewidths=0, label=style["label"])
+    scatter_handle = ax.scatter(sub[pop_col], sub[density_col], s=12, alpha=0.25, color=style["scatter"],
+                                 marker="+", linewidths=0.8, label=style["label"])
 
     # Median community size within density bins -- shows the trend through the scatter's heavy
     # overplotting rather than relying on the eye to average it. Bin edges are spaced in
@@ -105,32 +106,53 @@ def _add_series(ax, df, pop_col, density_col, style, log):
             bin_medians.append(sel.median())
     line_handle, = ax.plot(bin_medians, bin_centers, color=style["trend"], lw=1.5, label="median")
 
+    # Least-squares line fit (density on community size) in the displayed axis space, so it plots
+    # as a straight line: a power law density = 10^intercept * size^slope for --log, a plain
+    # linear fit otherwise. r is the Pearson correlation in that same space.
+    x = np.log10(sub[pop_col]) if log else sub[pop_col]
+    y = np.log10(sub[density_col]) if log else sub[density_col]
+    slope, intercept = np.polyfit(x, y, 1)
+    r = np.corrcoef(x, y)[0, 1]
+    fit_x = np.linspace(x.min(), x.max(), 100)
+    fit_y = intercept + slope * fit_x
+    fit_handle, = ax.plot(10 ** fit_x if log else fit_x, 10 ** fit_y if log else fit_y, color=style["trend"],
+                          lw=1.5, ls="--", label="fit")
+
     log_density = np.log10(sub[density_col])
-    return scatter_handle, line_handle, np.corrcoef(log_density, sub[pop_col])[0, 1], len(sub)
+    corr = np.corrcoef(log_density, sub[pop_col])[0, 1]
+    return scatter_handle, line_handle, fit_handle, corr, len(sub), (slope, intercept, r)
 
 
 def plot_community_size_vs_density(df, output, log=False):
     fig, ax = plt.subplots(figsize=(HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN), layout="constrained")
 
-    scatter_handles, line_handles = [], []
+    scatter_handles, line_handles, fit_handles = [], [], []
     for series, pop_col, density_col in (("night", "night_pop", "density_night"),
                                           ("day", "day_pop", "density_day")):
         style = SERIES_STYLE[series]
-        scatter_handle, line_handle, corr, n = _add_series(ax, df, pop_col, density_col, style, log)
+        scatter_handle, line_handle, fit_handle, corr, n, (slope, intercept, r) = _add_series(
+            ax, df, pop_col, density_col, style, log)
         scatter_handles.append(scatter_handle)
         line_handles.append(line_handle)
+        fit_handles.append(fit_handle)
         print(f"{n} communities plotted ({series})")
         print(f"Pearson correlation (log10 density, community size), {series}: {corr:.3f}")
+        if log:
+            print(f"Fit, {series}: log10(density) = {intercept:.4f} + {slope:.4f} * log10(size)  "
+                  f"[density = {10 ** intercept:.4g} * size^{slope:.4f}], r = {r:.3f}, r^2 = {r * r:.3f}")
+        else:
+            print(f"Fit, {series}: density = {intercept:.4g} + {slope:.4g} * size, r = {r:.3f}, r^2 = {r * r:.3f}")
 
     if log:
         ax.set_xscale("log")
         ax.set_yscale("log")
     ax.set_xlabel("Community size (population)")
     ax.set_ylabel("Population density (people / km²)")
-    # Two-column legend, one row per series: dot + series name in column 1, dash + "median" in
-    # column 2 (matplotlib fills a multi-column legend's handles column-major, so all scatter
-    # handles first, then all line handles, lines up each series' pair on the same row).
-    ax.legend(handles=scatter_handles + line_handles, ncol=2, columnspacing=0.8, handletextpad=0.5,
+    # Three-column legend, one row per series: marker + series name in column 1, solid line +
+    # "median" in column 2, dashed line + "fit" in column 3 (matplotlib fills a multi-column
+    # legend's handles column-major, so listing all scatter handles, then all median handles, then
+    # all fit handles lines up each series' entries on the same row).
+    ax.legend(handles=scatter_handles + line_handles + fit_handles, ncol=3, columnspacing=0.8, handletextpad=0.5,
               frameon=False, loc="upper left")
     ax.set_ylim(0.01, 1000000)
     print("Plotting results to", output)

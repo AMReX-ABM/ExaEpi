@@ -204,7 +204,7 @@ for idx, group in enumerate(groups):
         width=1.0,
         color="blue",
         alpha=0.2,
-        label="Epicast (cumulative)",
+        label="Epicast",
     )
     for i, (bar, prob) in enumerate(zip(bars, trans_probs)):
         height = bar.get_height()
@@ -228,11 +228,12 @@ for idx, group in enumerate(groups):
     for series_idx, (_, shape, scale, loc, title) in enumerate(group):
         gamma_manual = discrete_gamma_cdf(day_indices, shape, scale, loc)
         corr_manual = pearsonr(gamma_manual, trans_probs)[0]
-        params_str = f"α={shape:.2f}, β={scale:.2f}, loc={loc:.2f} r={corr_manual:.3f}"
+        #params_str = f"α={shape:.2f}, β={scale:.2f}, loc={loc:.2f} r={corr_manual:.3f}"
+        params_str = f"α={shape:.2f}, β={scale:.2f}, loc={loc:.2f}"
         label = (
-            # f"{title}: Gamma ({params_str})"
-            # if label_with_title
-            # else f"Gamma ({params_str})"
+            #f"{title}: Gamma ({params_str})"
+            #if label_with_title
+            #else f"Gamma ({params_str})"
             f"{title}: Gamma"
             if label_with_title
             else f"Gamma"
