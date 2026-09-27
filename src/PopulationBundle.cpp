@@ -44,7 +44,19 @@ PopulationBundle::PopulationBundle (const std::string& path) {
     const auto n_sections = readScalar<std::uint32_t>(f, path);
     readScalar<std::uint32_t>(f, path); // reserved
     const auto dir_offset = readScalar<std::uint64_t>(f, path);
-    if (magic != MAGIC) { throw std::runtime_error(path + ": not a population bundle (bad magic)"); }
+    if (magic != MAGIC) {
+        // Large bundles are kept in git-lfs; a clone that has not fetched them holds a small text
+        // pointer in their place.
+        const std::string lfs = "version https://git-lfs";
+        std::string head(lfs.size(), '\0');
+        f.clear();
+        f.seekg(0);
+        f.read(&head[0], static_cast<std::streamsize>(head.size()));
+        if (head == lfs) {
+            throw std::runtime_error(path + " is a git-lfs pointer, not the bundle: run `git lfs pull` to fetch it");
+        }
+        throw std::runtime_error(path + ": not a population bundle (bad magic)");
+    }
     if (m_version != FORMAT_VERSION) {
         throw std::runtime_error(path + ": bundle format " + std::to_string(m_version) + ", this build reads " +
                                  std::to_string(FORMAT_VERSION) + " -- rebuild it with build_precompute.py");

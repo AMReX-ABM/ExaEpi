@@ -19,6 +19,9 @@ UrbanPop/*
 # NM population bundle for in-process generation (agent.population_source = bundle). 2.5 MB and
 # committed directly, not via git-lfs, so CI's plain checkout has it -- see tests/inputs.nm.popgen
 !UrbanPop/nm_popgen.upb
+# CA population bundle (54 MB), via git-lfs like the .bin files: too large for plain git, and CI
+# does not need it (git lfs pull fetches it)
+!UrbanPop/ca_popgen.upb
 !UrbanPop/workgroup_sizes_us.txt
 !UrbanPop/establishment_sizes_us.txt
 !UrbanPop/cbp19st_derived.csv
