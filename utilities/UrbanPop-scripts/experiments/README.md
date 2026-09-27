@@ -97,7 +97,8 @@ Paired by population seed, the two generators give populations within ~150 agent
 within 1.6 standard errors. F's wider peak spread is a variance ratio of 2.65 on 9/9 degrees of
 freedom, short of the one-sided 5% point (3.18).
 
-**California.** `ca_v2.upb` (54.4 MB) is built like `nm_v2.upb` with
+**California.** `ca_v2.upb` (54.4 MB; committed via git-lfs as `data/UrbanPop/ca_popgen.upb`,
+as `nm_v2.upb` is committed plainly as `data/UrbanPop/nm_popgen.upb`) is built like `nm_v2.upb` with
 `--pumas $(python ../../utilities/UrbanPop-scripts/state_pumas.py 'base/06_CA/*.feather')` (265
 PUMAs) and the CA feathers and LODES file; 3.2 h, almost all of it Census downloads. The donor recode
 validates at 1.0000 on every field against the feathers (1.88 M overlapping persons). With the Python
