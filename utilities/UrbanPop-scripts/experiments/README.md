@@ -97,6 +97,19 @@ Paired by population seed, the two generators give populations within ~150 agent
 within 1.6 standard errors. F's wider peak spread is a variance ratio of 2.65 on 9/9 degrees of
 freedom, short of the one-sided 5% point (3.18).
 
+**California.** `ca_v2.upb` (54.4 MB) is built like `nm_v2.upb` with
+`--pumas $(python ../../utilities/UrbanPop-scripts/state_pumas.py 'base/06_CA/*.feather')` (265
+PUMAs) and the CA feathers and LODES file; 3.2 h, almost all of it Census downloads. The donor recode
+validates at 1.0000 on every field against the feathers (1.88 M overlapping persons). With the Python
+oracle's seed-1 allocations injected, every C++ stage digest matches it and the population written
+from inside ExaEpi is byte-identical to the oracle's `.bin` (39.25 M agents). Real solves on the
+laptop GPU generate CA in 211 s (solve 106 s at `agent.popgen.gpu_streams = 4`, 119 s at 1; stages
+96 s), 10.2 GB host memory; the Python oracle takes 14 min and 20 GB. Against the delivered
+population, `compare_bins.py` agrees within ~0.5% on every measure except the intended drop in
+one-person work groups (5.1% vs 14.1%). One 120-day run of `examples/inputs.ca` on each (same
+disease seed): attack rate 0.9449 delivered vs 0.9454 generated, peak 17.14 M vs 17.19 M, peak day
+32 both, deaths +0.6%.
+
 `arm_d/` holds the population-perturbation experiment (arm D of `utilities/compare_realizations.py`)
 as patches against `upop_to_exaepi.py`, which apply cleanly to the commit they were written on,
 plus `perturb_population.py`. The ensemble runs for arms A–D are in
