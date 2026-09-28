@@ -137,7 +137,9 @@ into its own places at the schools offering it -- the schools file's `students_<
 county or a neighboring one. Childcare and university fill past capacity when it runs out, but
 preschool and K-12 do not: a student with no place in reach is left unenrolled and spends the day at
 home, standing in for online and home schooling. Preschoolers without a school place first take any
-childcare places left over, and become childcare children there. On CA, filling past capacity used to
+childcare places left over, and become childcare children there. Once teachers are placed, each
+preschool/K-12 school's teachers are shared across its grades in proportion to its students, since
+each (school, grade) gets one class per teacher. On CA, filling past capacity used to
 put 1,476 schools at over 5x their listed enrollment (Santa Monica High at 4x, a 365-student preK-8
 school at 37x).
 

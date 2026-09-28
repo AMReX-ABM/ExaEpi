@@ -2419,6 +2419,72 @@ def alloc_teachers_for_school_type(
     return workers_df
 
 
+def assign_teacher_grades(workers_df: pl.DataFrame, students_df: pl.DataFrame, seed: int) -> pl.DataFrame:
+    """Share each preschool/K-12 school's teachers out across its grades in proportion to the
+    students actually placed in each grade (largest remainder), in place of the grade
+    alloc_teachers_region draws for each teacher.
+
+    That draw is uniform over the school's whole grade range, independent of its students, so
+    teachers land on grades by chance. group_assignment.py gives each (school, grade) one class
+    per teacher, so an unlucky grade got classes of 40-50 and a lucky one small classes: on CA,
+    32% of elementary students were in classes over 35, 12,221 (school, grade) groups with 253k
+    students got no teacher at all, and 4,161 teachers landed in grades with no students. Staffing
+    overall was right (24.4 elementary students per homeroom teacher) -- only the split was not.
+
+    Which teacher gets which grade is random. Teachers at a school with no students in these
+    grades keep their drawn grade; universities and childcare are untouched.
+    """
+    lo, hi = age_levels["P"][0], age_levels["H"][1]
+    school = ["school_id", "work_geoid"]
+    k12 = (pl.col("school_id") != "") & (pl.col("grade") >= lo) & (pl.col("grade") <= hi)
+    teachers = workers_df.filter(k12).select(["id"] + school)
+    if len(teachers) == 0:
+        return workers_df
+    per_school = teachers.group_by(school).agg(pl.len().alias("n_school_teachers"))
+    grades = (
+        students_df.filter(k12)
+        .group_by(school + ["grade"])
+        .agg(pl.len().alias("n_students"))
+        .join(per_school, on=school, how="inner")
+        .with_columns(
+            (pl.col("n_school_teachers") * pl.col("n_students") / pl.col("n_students").sum().over(school)).alias(
+                "share"
+            )
+        )
+        .with_columns(pl.col("share").floor().cast(pl.Int64).alias("base"))
+        .with_columns(
+            (pl.col("n_school_teachers") - pl.col("base").sum().over(school)).alias("short"),
+            (pl.col("share") - pl.col("base")).rank("ordinal", descending=True).over(school).alias("remainder_rank"),
+        )
+        .with_columns((pl.col("base") + (pl.col("remainder_rank") <= pl.col("short")).cast(pl.Int64)).alias("n"))
+        .filter(pl.col("n") > 0)
+    )
+    # one row per teacher slot, numbered within the school, grade by grade
+    slots = (
+        grades.select(school + ["grade", "n"])
+        .with_columns(pl.int_ranges(0, pl.col("n")).alias("k"))
+        .explode("k")
+        .sort(school + ["grade", "k"])
+        .with_columns(pl.int_range(pl.len()).over(school).alias("slot"))
+        .select(school + ["slot", pl.col("grade").alias("new_grade")])
+    )
+    rng = np.random.default_rng(seed)
+    teachers = (
+        teachers.with_columns(pl.Series("key", rng.permutation(len(teachers))))
+        .sort(school + ["key"])
+        .with_columns(pl.int_range(pl.len()).over(school).alias("slot"))
+        .join(slots, on=school + ["slot"], how="inner")
+        .select(["id", "new_grade"])
+    )
+    workers_df = (
+        workers_df.join(teachers, on="id", how="left")
+        .with_columns(pl.coalesce("new_grade", "grade").cast(workers_df["grade"].dtype).alias("grade"))
+        .drop("new_grade")
+    )
+    print(f"Shared {len(teachers)} preschool/K-12 teachers across their schools' grades by enrollment")
+    return workers_df
+
+
 @timer
 def allocate_teachers(
     workers_df: pl.DataFrame,
@@ -2441,7 +2507,7 @@ def allocate_teachers(
         workers_df = alloc_teachers_for_school_type(
             workers_df, students_df, schools_df, school_type, seed, county_adjacency
         )
-    return workers_df
+    return assign_teacher_grades(workers_df, students_df, seed)
 
 
 def adjust_indexes(df: pl.DataFrame, output: str) -> pl.DataFrame:
