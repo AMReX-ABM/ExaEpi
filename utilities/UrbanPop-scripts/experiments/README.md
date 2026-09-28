@@ -97,9 +97,9 @@ Paired by population seed, the two generators give populations within ~150 agent
 within 1.6 standard errors. F's wider peak spread is a variance ratio of 2.65 on 9/9 degrees of
 freedom, short of the one-sided 5% point (3.18).
 
-**California.** `ca_v2.upb` (54.4 MB; its format-3 upgrade is committed via git-lfs as
+**California.** `ca_v2.upb` (54.4 MB; its format-4 upgrade is committed via git-lfs as
 `data/UrbanPop/ca_popgen.upb`, and `nm_v2.upb`'s plainly as `data/UrbanPop/nm_popgen.upb` -- see
-Commutes below) is built like `nm_v2.upb` with
+Commutes and Schools below) is built like `nm_v2.upb` with
 `--pumas $(python ../../utilities/UrbanPop-scripts/state_pumas.py 'base/06_CA/*.feather')` (265
 PUMAs) and the CA feathers and LODES file; 3.2 h, almost all of it Census downloads. The donor recode
 validates at 1.0000 on every field against the feathers (1.88 M overlapping persons). With the Python
@@ -172,7 +172,35 @@ from the `.bin` files as ExaEpi moves agents (educators at their schools), seed 
 The time kernel holds up (time-distance rank correlation 0.63, walkers' median 1.8 km). Cost: S3 is
 ~1.5x slower than version 2 (C++, CA, 20 threads: 25.8 vs 19.0 s; one thread 96 vs 58 s) with
 peak memory 13.1 vs 10.3 GB -- each commuter's fill row now carries its home's LODES and
-background destinations for its own time band. The Python oracle's S3 takes ~11 min for CA.
+background destinations for its own time band. The Python oracle's S3 takes ~11 min for CA. A
+120-day CA epidemic on the same seed-1 allocations (disease seed 3) barely moves, since nearly
+everyone is infected either way: attack rate 0.9454 both, peak 17.19 M -> 16.85 M (-1.9%), peak
+day 32 -> 33, deaths -0.1%.
+
+**Schools (bundle format 4).** S4 used to give a multi-level school ceil(students / levels) places
+per level -- a K-8 school gave K-5's six grades the places of 6-8's three, and a PK-8 school a third
+of its enrollment to preschool -- and at the last region scale placed every remaining student
+anyway, piling each region's shortfall onto its few schools of the right level. It now follows the
+converter's fix (`upop_to_exaepi.py`, `get_schools.py`): each level fills to its own places
+(`schools.level_places`, from NCES's per-grade counts or the grade span); preschool and K-12 never
+overfill, so a student with no place in reach stays home (standing in for online and home
+schooling); K-12 gets the neighbouring-county pass university had; preschoolers still unplaced take
+leftover childcare places and become childcare children; and a full school keeps 0 places, not 1.
+`build_precompute.py --upgrade` adds the places to a format-3 bundle, keeping its calibrated
+commute tables. Seed 1, same S0-S3, old vs new S4:
+
+| measure | NM old | NM new | CA old | CA new |
+|---|---|---|---|---|
+| K-12 schools over 2x / 5x listed enrollment | 119 / 22 | 0 / 0 | 2,058 / 932 | 0 / 0 |
+| largest K-12 school (its listed enrollment) | 2,708 (2,597) | 2,597 (2,597) | 29,655 (6,324) | 6,324 (6,324) |
+| non-college schools over 5,000 agents (listed: NM 0, CA 2) | 0 | 0 | 15 | 2 |
+| K-12 students at home | 0 | 9,601 (2.7%) | 47 | 181,425 (2.7%) |
+| preschoolers at school / in childcare / home | 28.2 k / 0 / 0 | 12.3 k / 10.3 k / 5.6 k | 573 k / 0 / 2.4 k | 59 k / 118 k / 399 k |
+| K-12 staff (listed teachers: NM 24,319, CA 305,756) | 27,662 | 24,276 | 394,944 | 304,848 |
+
+CA's preschoolers mostly stay home because NCES has no PK counts for CA and childcare demand
+already exceeds its capacity; CA's high schools have 2.02 M places for 2.13 M students. Childcare
+and university still overfill as before.
 
 `arm_d/` holds the population-perturbation experiment (arm D of `utilities/compare_realizations.py`)
 as patches against `upop_to_exaepi.py`, which apply cleanly to the commit they were written on,

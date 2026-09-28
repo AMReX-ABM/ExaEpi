@@ -22,7 +22,7 @@ constexpr std::int64_t IPF_TRS_TRIM = 2050;    // id 8 v2: naics, dest_geoid, ho
 constexpr std::int64_t IPF_REPAIR = 2306;      // id 9 v2: naics, home_geoid, time_band, sweep, k
 constexpr std::int64_t WORK_ASSIGN = 2561;     // id 10 v1: bg, h, p
 constexpr std::int64_t WORK_FALLBACK = 2817;   // id 11 v1: bg, h, p
-constexpr std::int64_t STU_SCHOOL_PERM = 3073; // id 12 v1: level, scale, region, school_geoid, school_ord
+constexpr std::int64_t STU_SCHOOL_PERM = 3073; // id 12 v1: level (6 = P in C), scale, region, school_geoid, school_ord
 constexpr std::int64_t STU_SPILL = 3329;       // id 13 v1: level, scale, region, k
 constexpr std::int64_t TCH_SCHOOL_PERM = 3585; // id 14 v1: type, scale, region, school_geoid, school_ord
 constexpr std::int64_t TCH_PICK = 3841;        // id 15 v1: type, scale, region, bg, h, p

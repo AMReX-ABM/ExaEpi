@@ -24,7 +24,7 @@ STAGES = {
     "IPF_REPAIR": (9, 2, "naics, home_geoid, time_band, sweep, k"),
     "WORK_ASSIGN": (10, 1, "bg, h, p"),
     "WORK_FALLBACK": (11, 1, "bg, h, p"),
-    "STU_SCHOOL_PERM": (12, 1, "level, scale, region, school_geoid, school_ord"),
+    "STU_SCHOOL_PERM": (12, 1, "level (6 = P in C), scale, region, school_geoid, school_ord"),
     "STU_SPILL": (13, 1, "level, scale, region, k"),
     "TCH_SCHOOL_PERM": (14, 1, "type, scale, region, school_geoid, school_ord"),
     "TCH_PICK": (15, 1, "type, scale, region, bg, h, p"),

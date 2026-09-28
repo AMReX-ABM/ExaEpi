@@ -111,8 +111,10 @@ std::vector<std::int64_t> allocateWorkers(const PopulationBundle& b, const Perso
                                           const Partition* part = nullptr);
 
 /*! S4 (students.py, allocate): school row per person (-1 if none). Sets work to the school's
-    geoid for placed students; students left unplaced leave school (grade -1). students and
-    unplaced, if given, receive the counts per level (P E M H U C). */
+    geoid for placed students; students left unplaced leave school (grade -1), and preschoolers
+    placed in leftover childcare places become childcare children (grade 3). Each level fills to
+    its own places (schools.level_places); only childcare and university overfill. stats, if
+    given, receives (students, unplaced) per level (P E M H U C). */
 std::vector<std::int64_t> allocateStudents(const PopulationBundle& b, Persons& P, std::vector<std::int64_t>& work,
                                            std::int64_t seed, std::int64_t rep,
                                            std::map<std::string, std::pair<std::int64_t, std::int64_t>>* stats = nullptr);

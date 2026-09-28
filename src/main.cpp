@@ -125,7 +125,7 @@ void printHelp (const char* prog) {
     line("population_source", fmt(tp.population_source), "\"bin\" reads urbanpop_filename; \"bundle\" generates");
     desc_line("a fresh population at init from population_bundle");
     line("population_bundle", "required if population_source=bundle", "");
-    desc_line("population bundle (build_precompute.py, format 3)");
+    desc_line("population bundle (build_precompute.py, format 4)");
     line("population_seed", "agent.seed", "seed of the generated population");
     line("population_rep", fmt(static_cast<int>(tp.population_rep)), "replicate number, a second population key");
     line("popgen.check_every", fmt(tp.popgen_check_every), "P-MEDM solver: iterations between convergence checks");

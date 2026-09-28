@@ -27,8 +27,12 @@ comparison. popgen/ holds the reference generator that consumes the bundle.
 Format version 3 adds what the commute-aware worker placement (popgen/workers.py, commute.py)
 needs: each donor's reported travel time to work (donors.jwmnp, PUMS JWMNP), block-group
 coordinates (geo.geoid, geo.xyz, from --tract_shapefiles) and the commute.* tables. This script writes those
-tables uncalibrated; calibrate_commute.py then fits them against CTPP. `--upgrade V2_BUNDLE` turns
-an existing version-2 bundle into version 3 without rebuilding it.
+tables uncalibrated; calibrate_commute.py then fits them against CTPP.
+
+Format version 4 adds schools.level_places, each school's places per level (P, E, M, H) from the
+schools file's students_<level> columns, so S4 fills each level to its own capacity.
+`--upgrade OLD_BUNDLE` turns an existing version-2 or -3 bundle into the current version without
+rebuilding it.
 
 With --pumas, donor attributes come from the household-level PUMS (build_donors_pums), which needs
 a Census API key: the delivered feathers only contain donors that one realization happened to use
@@ -65,12 +69,13 @@ import upop_to_exaepi as U  # noqa: E402
 
 # Bumped whenever the section set or any section's layout changes. ExaEpi refuses a mismatch,
 # the same way readBlockGroupsFile checks FORMAT_VERSION against the .bin header.
-PRECOMPUTE_FORMAT_VERSION = 3
+PRECOMPUTE_FORMAT_VERSION = 4
 # Versions read_bundle still accepts. Version 1 bundles (allocation matrices only) are read by the
 # experiments and generate_population.py; ExaEpi itself requires PRECOMPUTE_FORMAT_VERSION.
 # Version 3 adds what the commute-aware S3 needs (build_commute): donors.jwmnp, geo.* and the
-# commute.* tables; --upgrade turns a version-2 bundle into one.
-READABLE_VERSIONS = (1, 2, 3)
+# commute.* tables; version 4 adds schools.level_places. --upgrade turns a version-2 or -3 bundle
+# into the current version.
+READABLE_VERSIONS = (1, 2, 3, 4)
 MAGIC = 0x42505055  # "UPPB"
 
 CODEC_RAW = 0
@@ -625,6 +630,36 @@ def build_cbp(wg_file, est_file, states, bw, meta):
           f"(states {sorted(states)})")
 
 
+SCHOOL_PLACE_LEVELS = "PEMH"
+
+
+def read_schools(path, states):
+    """The schools file restricted to the bundle's states, in canonical order (geoid, id, level),
+    with each school's ordinal within its geoid. Generation keys a school on (geoid, ordinal): NCES
+    ids are alphanumeric and not unique nationally, and a position in a filtered table would shift
+    whenever the filter changed."""
+    df = pl.read_csv(path, schema_overrides={"geoid": pl.Utf8, "id": pl.Utf8})
+    df = df.filter(pl.col("geoid").str.slice(0, 2).cast(pl.Int32).is_in(sorted(states)))
+    df = df.sort(["geoid", "id", "level"])
+    df = df.with_columns(pl.int_range(pl.len()).over("geoid").alias("ord"))
+    if len(df) and df["ord"].max() > 32767:
+        raise SystemExit("more than 32767 schools in one block group do not fit schools.ord")
+    return df
+
+
+def school_level_places(df, path):
+    """schools.level_places: each school's places per level P, E, M, H (the schools file's
+    students_<level> columns, written by get_schools.py from NCES's per-grade counts or the grade
+    span). Childcare and university schools have one level, so their places are `students`."""
+    cols = [f"students_{lv}" for lv in SCHOOL_PLACE_LEVELS]
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        raise SystemExit(f"{path} has no {', '.join(missing)} -- regenerate it with get_schools.py; "
+                         "splitting a multi-level school evenly across its levels misstates K-5 "
+                         "against 6-8 and invents preschool places")
+    return df.select(cols).fill_null(0).to_numpy().astype(np.int32)
+
+
 def build_schools(path, states, bw, meta):
     """School capacities and locations -- administrative, near-exact, and realization-independent.
 
@@ -632,15 +667,7 @@ def build_schools(path, states, bw, meta):
     and the commute-shed fallback is county adjacency, which carries its own out-of-state
     neighbours where they exist.
     """
-    df = pl.read_csv(path, schema_overrides={"geoid": pl.Utf8, "id": pl.Utf8})
-    df = df.filter(pl.col("geoid").str.slice(0, 2).cast(pl.Int32).is_in(sorted(states)))
-    # Canonical order (geoid, id, level), and each school's ordinal within its geoid. Generation
-    # keys a school on (geoid, ordinal): NCES ids are alphanumeric and not unique nationally, and
-    # a position in a filtered table would shift whenever the filter changed.
-    df = df.sort(["geoid", "id", "level"])
-    df = df.with_columns(pl.int_range(pl.len()).over("geoid").alias("ord"))
-    if len(df) and df["ord"].max() > 32767:
-        raise SystemExit("more than 32767 schools in one block group do not fit schools.ord")
+    df = read_schools(path, states)
     levels = sorted(set(df["level"].to_list()))
     lut = {v: i for i, v in enumerate(levels)}
     bw.add("schools.geoid", df["geoid"].cast(pl.Int64).to_numpy())
@@ -648,11 +675,32 @@ def build_schools(path, states, bw, meta):
     bw.add("schools.teachers", df["teachers"].cast(pl.Int32).to_numpy())
     bw.add("schools.level", df["level"].replace_strict(lut).to_numpy().astype(np.int8))
     bw.add("schools.ord", df["ord"].to_numpy().astype(np.int16))
+    bw.add("schools.level_places", school_level_places(df, path))
     bw.add_strings("schools.level_names", levels)
     bw.add_strings("schools.id", df["id"].to_list())
     meta["schools"] = {"count": len(df), "levels": levels,
                        "capacity": int(df["students"].sum())}
     print(f"  schools: {len(df)} with {int(df['students'].sum())} student places")
+
+
+def upgrade_schools(raw, path, bw):
+    """schools.level_places for an existing bundle's schools, which must be the schools file's rows
+    in the same canonical order (get_schools.py's per-level columns leave the rest unchanged)."""
+    from popgen import bundle as B
+    states = sorted({int(g) // 10**10 for g in raw["schools.geoid"]})
+    df = read_schools(path, states)
+    names = B.strings(raw, "schools.level_names")
+    same = (len(df) == len(raw["schools.geoid"])
+            and np.array_equal(df["geoid"].cast(pl.Int64).to_numpy(), raw["schools.geoid"])
+            and np.array_equal(df["students"].to_numpy(), raw["schools.students"])
+            and np.array_equal(df["teachers"].to_numpy(), raw["schools.teachers"])
+            and df["level"].to_list() == [names[v] for v in raw["schools.level"]]
+            and df["id"].to_list() == B.strings(raw, "schools.id"))
+    if not same:
+        raise SystemExit(f"{path} does not list the bundle's schools -- rebuild the bundle instead")
+    places = school_level_places(df, path)
+    bw.add("schools.level_places", places)
+    print(f"  schools.level_places: {dict(zip(SCHOOL_PLACE_LEVELS, places.sum(axis=0).tolist()))}")
 
 
 def build_adjacency(path, states, bw, meta):
@@ -1171,14 +1219,17 @@ def donor_minutes(b, year, key):
     return out
 
 
-def upgrade(src, out, tract_shapefiles, year, cache_folder):
-    """Rewrite a version-2 bundle as version 3: every section kept byte for byte, plus
-    donors.jwmnp (from PUMS, which needs CENSUS_API_KEY), geo.* and the default commute tables."""
+def upgrade(src, out, tract_shapefiles, schools_file, year, cache_folder):
+    """Rewrite an older bundle as the current version, every section kept byte for byte, plus what
+    it lacks: from version 2, donors.jwmnp (from PUMS, which needs CENSUS_API_KEY), geo.* and the
+    default commute tables (--tract_shapefiles); from version 3, schools.level_places
+    (--schools_file). A version-3 bundle's calibrated commute tables are kept."""
     raw = read_bundle(src)
     meta = json.loads(raw.pop("meta").tobytes().decode())
     bw = BundleWriter()
+    has_commute = "commute.kern" in raw and "geo.xyz" in raw
     for name, arr in raw.items():
-        if name.startswith(("commute.", "geo.")):
+        if name.startswith(("commute.", "geo.")) and not has_commute:
             continue
         bw.add(name, arr)
     if "donors.jwmnp" not in raw:
@@ -1188,8 +1239,15 @@ def upgrade(src, out, tract_shapefiles, year, cache_folder):
         global PUMS_CACHE
         PUMS_CACHE = os.path.join(cache_folder, "pums")
         bw.add("donors.jwmnp", donor_minutes(raw, year, key))
-    geoids = np.r_[raw["bg.geoid"], raw["solve.bg_geoid"]] if "solve.bg_geoid" in raw else raw["bg.geoid"]
-    build_commute(geoids, tract_shapefiles, bw, meta)
+    if not has_commute:
+        if not tract_shapefiles:
+            sys.exit("--tract_shapefiles is required to add the commute geometry")
+        geoids = np.r_[raw["bg.geoid"], raw["solve.bg_geoid"]] if "solve.bg_geoid" in raw else raw["bg.geoid"]
+        build_commute(geoids, tract_shapefiles, bw, meta)
+    if "schools.level_places" not in raw:
+        if not schools_file:
+            sys.exit("--schools_file is required to add the schools' places per level")
+        upgrade_schools(raw, schools_file, bw)
     meta["format_version"] = PRECOMPUTE_FORMAT_VERSION
     meta["upgraded_from"] = os.path.basename(src)
     bw.add_json("meta", meta)
@@ -1208,11 +1266,12 @@ def main():
     ap.add_argument("--county_adjacency_file")
     ap.add_argument("--workgroup_sizes_file")
     ap.add_argument("--establishment_sizes_file")
-    ap.add_argument("--tract_shapefiles", nargs="+", required=True,
+    ap.add_argument("--tract_shapefiles", nargs="+",
                     help="2010 TIGER tract shapefiles covering the bundle's states (tract internal "
                          "points give geo.xyz)")
-    ap.add_argument("--upgrade", default=None, metavar="V2_BUNDLE",
-                    help="instead of building: rewrite this version-2 bundle as version 3")
+    ap.add_argument("--upgrade", default=None, metavar="OLD_BUNDLE",
+                    help="instead of building: rewrite this version-2 or -3 bundle as the current "
+                         "version (needs --tract_shapefiles from 2, --schools_file from 2 or 3)")
     ap.add_argument("--out", required=True, help="output bundle path (.upb)")
     ap.add_argument("--verify", action="store_true",
                     help="read the bundle back and check every section round-trips")
@@ -1243,9 +1302,10 @@ def main():
                          "this MUST NOT be shared with a cache built for a different selection")
     args = ap.parse_args()
     if args.upgrade:
-        return upgrade(args.upgrade, args.out, args.tract_shapefiles, args.acs_year, args.cache_folder)
+        return upgrade(args.upgrade, args.out, args.tract_shapefiles, args.schools_file, args.acs_year,
+                       args.cache_folder)
     for need in ("upop_files", "lodes_files", "schools_file", "county_adjacency_file",
-                 "workgroup_sizes_file", "establishment_sizes_file"):
+                 "workgroup_sizes_file", "establishment_sizes_file", "tract_shapefiles"):
         if not getattr(args, need):
             ap.error(f"--{need} is required (unless --upgrade)")
 

@@ -1346,8 +1346,13 @@ namespace {
 const char* const LEVELS[6] = {"P", "E", "M", "H", "U", "C"};
 constexpr int LEVEL_LO[6] = {4, 5, 11, 14, 18, 3};
 constexpr int LEVEL_HI[6] = {4, 10, 13, 17, 19, 3};
+constexpr int LEVEL_C = 5;
 const std::vector<int> SCALES = {12, 11, 10, 7, 5};
 const std::vector<int> CHILDCARE_SCALES = {12, 11, 10};
+// Columns of schools.level_places (P, E, M, H); the level index keying the pass that places
+// unplaced preschoolers in childcare.
+constexpr int N_PLACE_LEVELS = 4;
+constexpr int PRESCHOOL_IN_CHILDCARE = 6;
 
 std::int64_t prefix (std::int64_t geoid, int s) {
     static const std::int64_t pow10[13] = {1,        10,        100,        1000,        10000,        100000,       1000000,
@@ -1357,7 +1362,8 @@ std::int64_t prefix (std::int64_t geoid, int s) {
 
 struct Schools {
     std::vector<std::int64_t> geoid, ord, students, teachers;
-    std::vector<std::string> level; // level name per school
+    std::vector<std::int64_t> places; // places per level P, E, M, H, N_PLACE_LEVELS per school
+    std::vector<std::string> level;   // level name per school
     std::vector<std::int64_t> county, adj_ptr, adj_ix;
 
     explicit Schools (const PopulationBundle& b) {
@@ -1365,8 +1371,14 @@ struct Schools {
         const auto o = b.get<std::int16_t>("schools.ord");
         const auto s = b.get<std::int32_t>("schools.students");
         const auto t = b.get<std::int32_t>("schools.teachers");
+        const auto lp = b.get<std::int32_t>("schools.level_places");
         const auto lv = b.get<std::int8_t>("schools.level");
         const auto names = b.strings("schools.level_names");
+        if (lp.size() != g.size() * N_PLACE_LEVELS) {
+            throw std::runtime_error("schools.level_places does not hold " + std::to_string(N_PLACE_LEVELS) +
+                                     " levels per school");
+        }
+        places.assign(lp.begin(), lp.end());
         for (std::size_t i = 0; i < g.size(); ++i) {
             geoid.push_back(g[i]);
             ord.push_back(o[i]);
@@ -1475,6 +1487,78 @@ void fillRegion (const std::vector<std::int64_t>& who, const std::vector<std::in
     }
 }
 
+//! students.py, _place: students stud (canonical order) into schools rows, whose remaining places
+//! are updated in place; sets school[] and returns which of stud were placed. spill: overfill at
+//! the last scale; neighbours: then a county-neighbourhood pass, overfilling if neighbour_overflow.
+std::vector<std::uint8_t> placeStudents (const Persons& P, const Schools& S, const std::vector<std::int64_t>& stud,
+                                         const std::vector<std::int64_t>& rows, std::vector<std::int64_t>& remaining, int li,
+                                         const std::vector<int>& scales, bool spill, bool neighbours, bool neighbour_overflow,
+                                         std::int64_t seed, std::int64_t rep, std::vector<std::int64_t>& school) {
+    const std::size_t NR = rows.size();
+    std::vector<std::uint8_t> placed(stud.size(), 0);
+    std::vector<std::int64_t> w_i, c_i;
+    auto assign = [&] (std::vector<std::int64_t>& taken) {
+        for (std::size_t j = 0; j < w_i.size(); ++j) {
+            school[stud[w_i[j]]] = rows[c_i[j]];
+            placed[w_i[j]] = 1;
+            ++taken[c_i[j]];
+        }
+    };
+    // A school squeezed past capacity has nothing left, not negative places.
+    auto take = [&] (const std::vector<std::int64_t>& taken) {
+        for (std::size_t r = 0; r < NR; ++r) {
+            remaining[r] = std::max<std::int64_t>(remaining[r] - taken[r], 0);
+        }
+    };
+    for (int scale : scales) {
+        const bool alloc_all = spill && scale == scales.back();
+        std::vector<std::int64_t> todo;
+        for (std::size_t j = 0; j < stud.size(); ++j) {
+            if (!placed[j]) { todo.push_back(static_cast<std::int64_t>(j)); }
+        }
+        if (todo.empty()) { break; }
+        // Students by region (ascending), each region's in canonical order.
+        std::map<std::int64_t, std::vector<std::int64_t>> who_by;
+        for (auto j : todo) {
+            who_by[prefix(P.bg[stud[j]], scale)].push_back(j);
+        }
+        std::map<std::int64_t, std::vector<std::int64_t>> cand_by;
+        for (std::size_t r = 0; r < NR; ++r) {
+            cand_by[prefix(S.geoid[rows[r]], scale)].push_back(static_cast<std::int64_t>(r));
+        }
+        std::vector<std::int64_t> taken(NR, 0);
+        for (const auto& [region, who] : who_by) {
+            const auto it = cand_by.find(region);
+            if (it == cand_by.end()) { continue; }
+            fillRegion(who, it->second, remaining, rows, S, li, scale, region, alloc_all, seed, rep, w_i, c_i);
+            assign(taken);
+        }
+        take(taken);
+    }
+    if (neighbours) {
+        // Each home county plus its neighbours, counties in ascending FIPS.
+        std::map<std::int64_t, std::vector<std::int64_t>> who_by;
+        for (std::size_t j = 0; j < stud.size(); ++j) {
+            if (!placed[j]) { who_by[prefix(P.bg[stud[j]], 5)].push_back(static_cast<std::int64_t>(j)); }
+        }
+        for (const auto& [cty, who] : who_by) {
+            const auto nb = S.neighbourhood(cty);
+            std::vector<std::int64_t> cand;
+            for (std::size_t r = 0; r < NR; ++r) {
+                if (std::binary_search(nb.begin(), nb.end(), prefix(S.geoid[rows[r]], 5))) {
+                    cand.push_back(static_cast<std::int64_t>(r));
+                }
+            }
+            if (cand.empty()) { continue; }
+            fillRegion(who, cand, remaining, rows, S, li, 0, cty, neighbour_overflow, seed, rep, w_i, c_i);
+            std::vector<std::int64_t> taken(NR, 0);
+            assign(taken);
+            take(taken);
+        }
+    }
+    return placed;
+}
+
 } // namespace
 
 std::vector<std::int64_t> allocateStudents (const PopulationBundle& b, Persons& P, std::vector<std::int64_t>& work,
@@ -1490,92 +1574,70 @@ std::vector<std::int64_t> allocateStudents (const PopulationBundle& b, Persons& 
         in_pop[i] = std::binary_search(ubg.begin(), ubg.end(), S.geoid[i]);
     }
 
-    std::vector<std::int64_t> w_i, c_i;
+    struct Level {
+        bool done = false;
+        std::vector<std::int64_t> stud, rows, remaining;
+        std::vector<std::uint8_t> placed;
+    };
+    Level lv[6];
     for (int li = 0; li < 6; ++li) {
         const std::string L = LEVELS[li];
-        std::vector<std::int64_t> stud;
+        Level& D = lv[li];
         for (std::size_t i = 0; i < n; ++i) {
             if (P.student[i] && P.grade[i] >= LEVEL_LO[li] && P.grade[i] <= LEVEL_HI[li]) {
-                stud.push_back(static_cast<std::int64_t>(i));
+                D.stud.push_back(static_cast<std::int64_t>(i));
             }
         }
-        if (stud.empty()) { continue; }
-        std::vector<std::int64_t> rows, remaining;
+        if (D.stud.empty()) { continue; }
+        // A level's places at each school: P/E/M/H their own column, university and childcare the
+        // school's students.
         for (std::size_t i = 0; i < NS; ++i) {
-            if (S.level[i].find(L) != std::string::npos && in_pop[i]) {
-                const auto nlev = static_cast<std::int64_t>(S.level[i].size());
-                rows.push_back(static_cast<std::int64_t>(i));
-                remaining.push_back((S.students[i] + nlev - 1) / nlev);
+            const std::int64_t cap = li < N_PLACE_LEVELS ? S.places[i * N_PLACE_LEVELS + li] : S.students[i];
+            if (S.level[i].find(L) != std::string::npos && in_pop[i] && cap > 0) {
+                D.rows.push_back(static_cast<std::int64_t>(i));
+                D.remaining.push_back(cap);
             }
         }
-        const std::size_t NR = rows.size();
-        const auto& scales = L == "C" ? CHILDCARE_SCALES : SCALES;
-        std::vector<std::uint8_t> placed(stud.size(), 0);
-        auto assign = [&] (std::vector<std::int64_t>& taken) {
-            for (std::size_t j = 0; j < w_i.size(); ++j) {
-                school[stud[w_i[j]]] = rows[c_i[j]];
-                placed[w_i[j]] = 1;
-                ++taken[c_i[j]];
-            }
-        };
-        for (int scale : scales) {
-            const bool alloc_all = L != "U" && scale == scales.back();
-            std::vector<std::int64_t> todo;
-            for (std::size_t j = 0; j < stud.size(); ++j) {
-                if (!placed[j]) { todo.push_back(static_cast<std::int64_t>(j)); }
-            }
-            if (todo.empty()) { break; }
-            // Students by region (ascending), each region's in canonical order.
-            std::map<std::int64_t, std::vector<std::int64_t>> who_by;
-            for (auto j : todo) {
-                who_by[prefix(P.bg[stud[j]], scale)].push_back(j);
-            }
-            std::map<std::int64_t, std::vector<std::int64_t>> cand_by;
-            for (std::size_t r = 0; r < NR; ++r) {
-                cand_by[prefix(S.geoid[rows[r]], scale)].push_back(static_cast<std::int64_t>(r));
-            }
-            std::vector<std::int64_t> taken(NR, 0);
-            for (const auto& [region, who] : who_by) {
-                const auto it = cand_by.find(region);
-                if (it == cand_by.end()) { continue; }
-                fillRegion(who, it->second, remaining, rows, S, li, scale, region, alloc_all, seed, rep, w_i, c_i);
-                assign(taken);
-            }
-            for (std::size_t r = 0; r < NR; ++r) {
-                remaining[r] = std::max<std::int64_t>(remaining[r] - taken[r], 1);
+        // Only childcare overfills at its last scale, and university in its neighbour pass;
+        // preschool and K-12 students with no place in reach stay home.
+        const bool neighbours = L == "E" || L == "M" || L == "H" || L == "U";
+        D.placed = placeStudents(P, S, D.stud, D.rows, D.remaining, li, L == "C" ? CHILDCARE_SCALES : SCALES, L == "C",
+                                 neighbours, L == "U", seed, rep, school);
+        D.done = true;
+    }
+    // Preschoolers without a school place take the childcare places left over, and become
+    // childcare children there.
+    if (lv[0].done && lv[LEVEL_C].done) {
+        Level &Pre = lv[0], &C = lv[LEVEL_C];
+        std::vector<std::int64_t> todo, who;
+        for (std::size_t j = 0; j < Pre.stud.size(); ++j) {
+            if (!Pre.placed[j]) {
+                todo.push_back(static_cast<std::int64_t>(j));
+                who.push_back(Pre.stud[j]);
             }
         }
-        if (L == "U") {
-            // University: each home county plus its neighbours, counties in ascending FIPS.
-            std::map<std::int64_t, std::vector<std::int64_t>> who_by;
-            for (std::size_t j = 0; j < stud.size(); ++j) {
-                if (!placed[j]) { who_by[prefix(P.bg[stud[j]], 5)].push_back(static_cast<std::int64_t>(j)); }
-            }
-            for (const auto& [cty, who] : who_by) {
-                const auto nb = S.neighbourhood(cty);
-                std::vector<std::int64_t> cand;
-                for (std::size_t r = 0; r < NR; ++r) {
-                    if (std::binary_search(nb.begin(), nb.end(), prefix(S.geoid[rows[r]], 5))) {
-                        cand.push_back(static_cast<std::int64_t>(r));
-                    }
-                }
-                if (cand.empty()) { continue; }
-                fillRegion(who, cand, remaining, rows, S, li, 0, cty, true, seed, rep, w_i, c_i);
-                std::vector<std::int64_t> taken(NR, 0);
-                assign(taken);
-                for (std::size_t r = 0; r < NR; ++r) {
-                    remaining[r] = std::max<std::int64_t>(remaining[r] - taken[r], 1);
+        if (!todo.empty()) {
+            const auto got = placeStudents(P, S, who, C.rows, C.remaining, PRESCHOOL_IN_CHILDCARE, CHILDCARE_SCALES, false, false,
+                                           false, seed, rep, school);
+            for (std::size_t j = 0; j < todo.size(); ++j) {
+                if (got[j]) {
+                    P.grade[who[j]] = static_cast<std::int16_t>(LEVEL_LO[LEVEL_C]);
+                    Pre.placed[todo[j]] = 1;
                 }
             }
         }
+    }
+    for (int li = 0; li < 6; ++li) {
+        const Level& D = lv[li];
+        if (!D.done) { continue; }
         std::int64_t unplaced = 0;
-        for (std::size_t j = 0; j < stud.size(); ++j) {
-            if (!placed[j]) {
-                P.grade[stud[j]] = -1;
+        for (std::size_t j = 0; j < D.stud.size(); ++j) {
+            if (!D.placed[j]) {
+                P.grade[D.stud[j]] = -1;
                 ++unplaced;
             }
         }
-        if (stats) { (*stats)[L] = {static_cast<std::int64_t>(stud.size()), unplaced}; }
+        if (stats) { (*stats)[LEVELS[li]] = {static_cast<std::int64_t>(D.stud.size()), unplaced}; }
     }
     for (std::size_t i = 0; i < n; ++i) {
         if (school[i] >= 0) { work[i] = S.geoid[school[i]]; }

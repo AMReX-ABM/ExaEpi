@@ -1428,9 +1428,9 @@ def alloc_students_region(
                 .alias("remaining_student_places")
             ]
         ).drop("allocated_count")
-        # Clip to minimum of 1
+        # a school squeezed past capacity by an overflow has nothing left, not negative places
         schools_df = schools_df.with_columns(
-            [pl.col("remaining_student_places").clip(lower_bound=1)]
+            [pl.col("remaining_student_places").clip(lower_bound=0)]
         )
     num_allocated = len(students_df.filter(pl.col("school_id") != ""))
     print(
@@ -1490,7 +1490,7 @@ def alloc_students_neighbor_counties(
             ]
         ).drop("allocated_count")
         schools_df = schools_df.with_columns(
-            [pl.col("remaining_student_places").clip(lower_bound=1)]
+            [pl.col("remaining_student_places").clip(lower_bound=0)]
         )
     if all_student_ids:
         updates_df = pl.DataFrame(
@@ -1519,34 +1519,55 @@ def alloc_students_neighbor_counties(
 
 
 @timer
+def level_places(schools_df: pl.DataFrame, level: str) -> pl.DataFrame:
+    """The schools offering `level`, each with remaining_student_places set to its places for that
+    level alone.
+
+    A multi-level school's places come from the schools file's students_<level> columns
+    (get_schools.py), which share its enrollment out by the grades each level actually has
+    there. A file without them falls back to an even split across the school's levels, which
+    badly misstates K-5 against 6-8 and invents preschool places -- see get_schools.py's
+    LEVEL_CAPACITY_COLS."""
+    schools_df = schools_df.filter(pl.col("level").str.contains(level))
+    places_col = f"students_{level}"
+    if places_col in schools_df.columns:
+        places = pl.col(places_col)
+    else:
+        if level in "PEMH":
+            warn(f"Schools file has no {places_col} column, splitting multi-level schools evenly")
+        places = (pl.col("students") / pl.col("level").str.len_chars()).ceil()
+    schools_df = schools_df.with_columns([places.cast(pl.Int32).alias("students")])
+    schools_df = schools_df.filter(pl.col("students") > 0)
+    return schools_df.with_columns([pl.col("students").alias("remaining_student_places")])
+
+
 def alloc_students_level(
     schools_df: pl.DataFrame,
     students_df: pl.DataFrame,
     level: str,
     county_adjacency: dict[str, set[str]],
-) -> pl.DataFrame:
+    overflow: bool,
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Allocate students_df to the schools offering `level`, as close to home as possible.
+
+    Returns the students, with an empty school_id for anyone left unplaced, and the level's
+    schools with their remaining places. schools_df is the full schools list, or a previous
+    call's returned schools to fill what they have left. With overflow, students still unplaced
+    once every place in reach is taken are squeezed in anyway, spread over the schools in
+    proportion to their places; without it they are left unplaced (see alloc_students).
+    """
     ids_before = students_df["id"].to_list()
     print(f"Allocating {len(students_df)} students for level {level}")
     dump_intermediate(students_df.select(["id", "grade"]), "students-" + level)
-    # Get all schools with the required level
-    schools_df = schools_df.filter(pl.col("level").str.contains(level))
-    # Some schools have multiple levels and so students should be allocated proportionately. For
-    # simplicity, we just allocate uniformly among the levels, e.g. a EMH school would have 1/3
-    # students each in elem, middle and high
-    schools_df = schools_df.with_columns(
-        [
-            (pl.col("students") / pl.col("level").str.len_chars())
-            .ceil()
-            .cast(pl.Int32)
-            .alias("students")
-        ]
-    )
-    schools_df = schools_df.with_columns([pl.col("students").alias("remaining_student_places")])
+    if "remaining_student_places" not in schools_df.columns:
+        schools_df = level_places(schools_df, level)
     # for childcare, we assume that it is all close to home
     # for every other level, a student should never be assigned a school outside their home
-    # county, so the "state" scale is dropped entirely -- university is the exception, handled
-    # separately below via alloc_students_neighbor_counties, since many counties have no
-    # university at all and so need a (geographically bounded) cross-county fallback
+    # county or its neighbors, so the "state" scale is dropped entirely. University and K-12
+    # get a final, geographically bounded, neighboring-county pass below: many counties have no
+    # university at all, and K-12 places don't line up with county lines either -- a town can
+    # straddle one (Espanola sits on the Rio Arriba / Santa Fe line), and on NM without this
+    # pass 23% of Rio Arriba's K-12 students found no place in their own county
     if level == "C":
         scales = list(region_scales.keys())[:3]
     else:
@@ -1554,9 +1575,9 @@ def alloc_students_level(
     # pick schools for students from decreasing resolution; the goal is to allocate students as
     # close to home as possible
     for scale in scales:
-        # make sure to allocate all at the final region scale, except for university, whose
+        # with overflow, place everyone at the final region scale, except for university, whose
         # final tier is the neighboring-county pass below
-        alloc_all = level != "U" and scale == scales[-1]
+        alloc_all = overflow and level != "U" and scale == scales[-1]
         unassigned_df = students_df.filter(pl.col("school_id") == "")
         assigned_df, schools_df = alloc_students_region(
             level, unassigned_df, schools_df, scale, alloc_all
@@ -1582,11 +1603,11 @@ def alloc_students_level(
         num_unalloc = len(students_df.filter(pl.col("school_id") == ""))
         if num_unalloc == 0:
             break
-    if level == "U":
+    if level in ("U", "E", "M", "H"):
         unassigned_df = students_df.filter(pl.col("school_id") == "")
         if len(unassigned_df) > 0:
             assigned_df, schools_df = alloc_students_neighbor_counties(
-                level, unassigned_df, schools_df, county_adjacency, alloc_all=True
+                level, unassigned_df, schools_df, county_adjacency, alloc_all=overflow
             )
             update_df = assigned_df.select(["id", "school_id", "work_geoid"])
             students_df = students_df.join(update_df, on="id", how="left", suffix="_new")
@@ -1602,24 +1623,10 @@ def alloc_students_level(
                     .alias("work_geoid"),
                 ]
             ).drop(["school_id_new", "work_geoid_new"])
-    num_unalloc = len(students_df.filter(pl.col("school_id") == ""))
-    if num_unalloc > 0:
-        students_df = students_df.with_columns(
-            [
-                pl.when(pl.col("school_id") == "")
-                .then(pl.col("home_geoid"))
-                .otherwise(pl.col("work_geoid"))
-                .alias("work_geoid"),
-                pl.when(pl.col("school_id") == "")
-                .then(pl.lit(-1, dtype=pl.Int8))
-                .otherwise(pl.col("grade"))
-                .alias("grade"),
-            ]
-        )
     ids_after = students_df["id"].to_list()
     if ids_before != ids_after:
         raise_err(f"mismatched ids: {len(ids_before)} != {len(ids_after)}")
-    return students_df
+    return students_df, schools_df
 
 
 @timer
@@ -1638,19 +1645,48 @@ def alloc_students(
             pl.col("home_geoid").alias("work_geoid"),
         ]
     )
-    dfs = []
-    # allocate students from each level
+    # Allocate each level to its own places. Only childcare and university overflow their
+    # capacity when it runs out; a preschool or K-12 student with no place in reach is left
+    # unenrolled and spends the day at home, standing in for online and home schooling.
+    # Squeezing those students in anyway used to pile each region's shortfall onto the few
+    # schools of the right level there -- on CA, 1,476 schools ended up at over 5x their listed
+    # enrollment.
+    dfs = {}
+    childcare_schools_df = None
     for level in ["P", "E", "M", "H", "U", "C"]:
         level_students_df = students_df.filter(
             (pl.col("grade") >= age_levels[level][0]) & (pl.col("grade") <= age_levels[level][1])
         )
         if len(level_students_df) == 0:
             continue
-        level_students_df = alloc_students_level(
-            schools_df, level_students_df, level=level, county_adjacency=county_adjacency
+        level_students_df, level_schools_df = alloc_students_level(
+            schools_df, level_students_df, level, county_adjacency, overflow=level in ("C", "U")
         )
-        dfs.append(level_students_df)
-    students_df = pl.concat(dfs)
+        dfs[level] = level_students_df
+        if level == "C":
+            childcare_schools_df = level_schools_df
+    # Schools report few preschool places (NCES has no PK counts for some states, CA among
+    # them), so most preschool happens in childcare centers: preschoolers without a school place
+    # take whatever childcare places are left once the childcare children are placed. Those
+    # placed become childcare children (grade 3), so ExaEpi mixes them as daycare, like everyone
+    # else at the center, and they are staffed with it.
+    if "P" in dfs and childcare_schools_df is not None:
+        preschool_df = dfs["P"]
+        unplaced = preschool_df.filter(pl.col("school_id") == "")
+        if len(unplaced) > 0:
+            placed, _ = alloc_students_level(childcare_schools_df, unplaced, "C", county_adjacency, overflow=False)
+            placed = placed.with_columns(
+                [
+                    pl.when(pl.col("school_id") != "")
+                    .then(pl.lit(age_levels["C"][0], dtype=placed["grade"].dtype))
+                    .otherwise(pl.col("grade"))
+                    .alias("grade")
+                ]
+            )
+            dfs["P"] = pl.concat([preschool_df.filter(pl.col("school_id") != ""), placed])
+            n_placed = len(placed.filter(pl.col("school_id") != ""))
+            print(f"Placed {n_placed} of {len(unplaced)} preschoolers without a school place in childcare")
+    students_df = pl.concat(list(dfs.values()))
     num_unique_after = students_df["id"].n_unique()
     if num_unique_before != num_unique_after:
         warn(f"mismatched unique ids: {num_unique_before} != {num_unique_after}")
