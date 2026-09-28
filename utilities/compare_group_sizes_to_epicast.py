@@ -34,6 +34,10 @@ work_geoid, except for a declared work-from-home non-educator, who stays in its 
   - School size: agents with school_id > 0 (both students and staff), grouped by
     (work community, school_id) -- school_id is only unique within a community, like
     workgroup.
+
+The class panel also gets a reference curve straight from the schools data UrbanPop's allocation
+reads: each K-12 school's student-teacher ratio (see load_school_class_sizes). The workgroup panel
+can get real establishment sizes from CBP (--cbp_state).
 """
 
 import argparse
@@ -97,8 +101,9 @@ def outside_flagged_groups(keys, flagged):
 
 
 def exaepi_sizes(urbanpop_file, group_names, exclude_college=False):
-    """{group_name: sizes} for each of group_names, tallied from the UrbanPop .bin the way
-    AgentContainer::computeGroupSizeDistributions does (see the module docstring).
+    """({group_name: sizes} for each of group_names, the state FIPS codes the population covers),
+    tallied from the UrbanPop .bin the way AgentContainer::computeGroupSizeDistributions does (see
+    the module docstring).
 
     Each grouping is packed into one int64 key rather than grouped on several columns: a
     12-digit GEOID fits in 37 bits, naics (< NAICS_COUNT = 251) in 8 and the int16 workgroup /
@@ -118,6 +123,8 @@ def exaepi_sizes(urbanpop_file, group_names, exclude_college=False):
     # everyone else is at their work_geoid's block group, which is one ExaEpi community.
     wfh = (naics != -1) & (school_id == 0) & (cols["travel"] == TRAVEL_WFH)
     community = np.where(wfh, cols["home_geoid"], cols["work_geoid"])
+    # a 12-digit block-group GEOID starts with the 2-digit state FIPS
+    states = sorted(int(s) for s in np.unique(cols["home_geoid"] // 10**10))
     del cols["home_geoid"], cols["work_geoid"]
 
     sizes = {}
@@ -142,7 +149,34 @@ def exaepi_sizes(urbanpop_file, group_names, exclude_college=False):
         sizes["school"] = group_counts(school_keys)
     for name, s in sizes.items():
         print(f"Found {len(s):,} ExaEpi {name} groups in {urbanpop_file}")
-    return sizes
+    return sizes, states
+
+
+def load_school_class_sizes(fname, states):
+    """Class sizes implied by the schools file UrbanPop's allocation reads (get_schools.py's
+    schools_with_geoids.csv), for the K-12 schools in the given states.
+
+    Returns (sizes, class_counts) in the same form as load_cbp_establishment_sizes: each school is
+    one entry, of size students / teachers and standing for `teachers` classes, so weighting by
+    size * count counts each of its students once. The file has already dropped virtual and
+    online schools and records with no usable enrollment or teacher count.
+
+    Childcare and colleges are left out: their teacher counts aren't a faculty headcount
+    (childcare's is imputed at 7 children per adult, a college's is its total employment).
+
+    NOTE this is a student-teacher ratio, which runs somewhat below the average class: the
+    teacher counts include teachers without a homeroom class of their own (specialists, resource
+    teachers), so there are fewer classes than teachers.
+    """
+    import pandas as pd
+
+    df = pd.read_csv(fname, dtype={"geoid": str, "id": str})
+    df = df[df.geoid.str[:2].astype(int).isin(states) & ~df.level.isin(["C", "U"])]
+    df = df[(df.students > 0) & (df.teachers > 0)]
+    if df.empty:
+        sys.exit(f"No K-12 schools for state FIPS {states} in {fname}")
+    print(f"Read {len(df):,} K-12 schools from {fname}")
+    return (df.students / df.teachers).to_numpy(), df.teachers.to_numpy(dtype=float)
 
 
 def log_spaced_integer_bins(vmin, vmax, max_bins=50):
@@ -268,7 +302,9 @@ def load_cbp_establishment_sizes(fname, state_fips, rng_seed=0):
 
 
 def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, weight_noun="member",
-                     logx=False, logy=False, max_integer_bins=200, xlim=None, cbp=None):
+                     logx=False, logy=False, max_integer_bins=200, xlim=None, reference=None):
+    """reference, if given, is a real-data series (sizes, counts, label) drawn as an outline on top of
+    the two models -- see load_cbp_establishment_sizes / load_school_class_sizes for the form."""
     epicast_sizes = np.asarray(epicast_sizes)
     exaepi_sizes = np.asarray(exaepi_sizes)
     overall_min = min(epicast_sizes.min(), exaepi_sizes.min())
@@ -285,7 +321,7 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, weight_
         # both the plot and its summary stats are weighted throughout by weight_noun. Printed
         # rather than shown in the legend -- this figure is only ~3.1in wide in the paper, with no
         # room for it at PLOS's 8-12pt font floor, and the legend should just name the series.
-        # counts lets one entry stand for many real groups (the CBP bands are stored that way);
+        # counts lets one entry stand for many real groups (the reference series are stored that way);
         # without it every entry is one group, which is how both model series are stored.
         n_groups = len(sizes) if counts is None else counts.sum()
         member_w = sizes if counts is None else sizes * counts
@@ -314,11 +350,12 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, weight_
             # distinct color instead of the later-drawn line fully hiding the other
             ax.step(sorted_sizes, cumulative_frac, where="post", color=color, linewidth=1,
                     alpha=0.7, label=label)
-        if cbp is not None:
-            order = np.argsort(cbp[0])
-            s, w = cbp[0][order], (cbp[0] * cbp[1])[order]
-            ax.step(s, np.cumsum(w) / w.sum(), where="post", color="black", linewidth=1,
-                    label="CBP establishments")
+        if reference is not None:
+            ref_sizes, ref_counts, ref_label = reference
+            print_stats(ref_label, ref_sizes, ref_counts)
+            order = np.argsort(ref_sizes)
+            s, w = ref_sizes[order], (ref_sizes * ref_counts)[order]
+            ax.step(s, np.cumsum(w) / w.sum(), where="post", color="black", linewidth=1, label=ref_label)
         ax.set_ylabel(f"Cumulative fraction of {weight_noun}s")
     else:
         # Shared, density-normalized bins (the two models produce very different group counts,
@@ -367,21 +404,22 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, weight_
             bins = np.append(bins[bins < combined_max], combined_max)
         print_stats("Epicast", epicast_sizes)
         print_stats("ExaEpi", exaepi_sizes)
-        if cbp is not None:
-            print_stats("CBP establishments", cbp[0], cbp[1])
+        if reference is not None:
+            print_stats(reference[2], reference[0], reference[1])
         ax.hist(epicast_sizes, bins=bins, weights=epicast_sizes, density=True, color="blue",
                 alpha=0.5, label="Epicast")
         ax.hist(exaepi_sizes, bins=bins, weights=exaepi_sizes, density=True, color="red",
                 alpha=0.5, label="ExaEpi")
-        if cbp is not None:
-            # Outline rather than a third filled patch -- this is a reference curve for what real
-            # workplaces look like, not a third model, and two translucent fills are already
-            # overlapping here. Establishments larger than the last bin fall outside `bins` and
-            # so are dropped by numpy.histogram, which renormalizes this curve over the plotted
-            # range; that is the intended comparison (the models' own groups are capped far
-            # below CBP's tail) but it does mean the curve is conditional on that range.
-            ax.hist(cbp[0], bins=bins, weights=cbp[0] * cbp[1], density=True, histtype="step",
-                    color="black", linewidth=1, label="CBP establishments")
+        if reference is not None:
+            # Outline rather than a third filled patch -- this is a reference curve for what the
+            # real groups look like, not a third model, and two translucent fills are already
+            # overlapping here. Entries larger than the last bin fall outside `bins` and so are
+            # dropped by numpy.histogram, which renormalizes this curve over the plotted range;
+            # that is the intended comparison (the models' own groups are capped far below CBP's
+            # tail) but it does mean the curve is conditional on that range.
+            ref_sizes, ref_counts, ref_label = reference
+            ax.hist(ref_sizes, bins=bins, weights=ref_sizes * ref_counts, density=True, histtype="step",
+                    color="black", linewidth=1, label=ref_label)
         ax.set_ylabel(f"Density ({weight_noun}-weighted)")
 
     if logx:
@@ -464,11 +502,19 @@ def main():
         default=os.path.join(REPO_ROOT, "data", "UrbanPop", "cbp19st_derived.csv"),
         help="CBP derived cache with establishment-size bands (see compute_workgroup_sizes.py)",
     )
+    parser.add_argument(
+        "--schools_file",
+        default=os.path.join(REPO_ROOT, "data", "EducationData", "schools_with_geoids.csv"),
+        help="Schools file UrbanPop's allocation reads (get_schools.py), for the class panel's "
+        "reference curve: each K-12 school's student-teacher ratio, in the states the UrbanPop "
+        "file covers (see load_school_class_sizes). An empty string leaves the curve out.",
+    )
     args = parser.parse_args()
     cdf = not args.histogram
-    cbp = None
+    references = {}
     if args.cbp_state is not None:
-        cbp = load_cbp_establishment_sizes(args.cbp_sizes_file, args.cbp_state)
+        references["workgroup"] = (*load_cbp_establishment_sizes(args.cbp_sizes_file, args.cbp_state),
+                                   "CBP establishments")
 
     epicast_files = {
         "workgroup": args.epicast_workgroup,
@@ -483,14 +529,16 @@ def main():
     if len(args.groups) == 1:
         axes = [axes]
 
-    exaepi_data_by_group = exaepi_sizes(args.urbanpop_file, args.groups, exclude_college=args.no_college)
+    exaepi_data_by_group, states = exaepi_sizes(args.urbanpop_file, args.groups, exclude_college=args.no_college)
+    if "class" in args.groups and args.schools_file:
+        references["class"] = (*load_school_class_sizes(args.schools_file, states), "Schools data")
     for ax, group_name in zip(axes, args.groups):
         info = GROUP_INFO[group_name]
         epicast_data = load_epicast_sizes(epicast_files[group_name])
         exaepi_data = exaepi_data_by_group[group_name]
         plot_comparison(ax, epicast_data, exaepi_data, info["xlabel"], info["title"], cdf,
                          weight_noun=info["weight_noun"], logx=args.logx, logy=args.logy,
-                         xlim=args.xlim, cbp=cbp if group_name == "workgroup" else None)
+                         xlim=args.xlim, reference=references.get(group_name))
 
     plt.savefig(args.output, dpi=300)
     print(f"{'CDF' if cdf else 'Histogram'} comparison saved to {args.output}")
