@@ -46,6 +46,7 @@ def fetch_page(api_key, year, params, page, retries=5):
             if attempt == retries - 1:
                 sys.exit(f"error: page {page}: {e}")
         time.sleep(2 ** attempt)
+    sys.exit(f"error: page {page}: gave up after {retries} attempts")
 
 
 def tract_geoid(ctpp_geoid):

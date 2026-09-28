@@ -370,8 +370,12 @@ def main():
 
     # A log axis can't start at 0 (e.g. --logx --xlim 0 1000, reusing a linear range), so a
     # non-positive lower limit there means "from the shortest nonzero distance".
-    if args.logx and args.xlim and args.xlim[0] <= 0:
-        args.xlim = [min(dist[dist > 0].min() for _, dist, _, _, _ in series), args.xlim[1]]
+    xlim = None
+    if args.xlim:
+        lo, hi = float(args.xlim[0]), float(args.xlim[1])
+        if args.logx and lo <= 0:
+            lo = float(min(dist[dist > 0].min() for _, dist, _, _, _ in series))
+        xlim = (lo, hi)
 
     fig, ax = plt.subplots(figsize=(HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN), layout="constrained")
     if args.cdf:
@@ -383,17 +387,17 @@ def main():
         ax.set_ylim(0, 1)
         ax.set_ylabel("Cumulative fraction of workers")
     else:
-        edges = histogram_edges(series, args.bins, args.logx, args.xlim)
+        edges = histogram_edges(series, args.bins, args.logx, xlim)
         for label, dist, weights, color, reference in series:
             plot_histogram(ax, dist, weights, label, edges, color, reference)
         ax.set_ylim(0, None)
         ax.set_ylabel("Fraction of workers")
     if args.logx:
         ax.set_xscale("log")
-        if args.xlim:
-            ax.set_xlim(args.xlim)
+        if xlim:
+            ax.set_xlim(left=xlim[0], right=xlim[1])
     else:
-        ax.set_xlim(args.xlim if args.xlim else (0, None))
+        ax.set_xlim(left=xlim[0] if xlim else 0, right=xlim[1] if xlim else None)
     ax.set_xlabel("Home-to-work tract distance (km)")
     ax.grid(True, which="major", alpha=0.3)
     # CDF: on a linear axis the curves rise steeply at the left, leaving lower right empty; on a log
