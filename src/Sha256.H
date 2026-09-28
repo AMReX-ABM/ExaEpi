@@ -154,6 +154,22 @@ class Digest {
     Sha256 m_sha;
 };
 
+/*! A population's digest, stored in checkpoints and checked on restart: SHA-256 over the SHA-256
+    (64 hex digits) of each home block group's agent frame, in geoid order, cut to 16 hex digits.
+    Two levels so the frames -- gigabytes at state scale -- can be hashed in parallel. */
+inline std::string frameHash (const void* frame, std::size_t nbytes) {
+    Sha256 s;
+    s.update(frame, nbytes);
+    return s.hex();
+}
+inline std::string populationDigest (const std::vector<std::string>& frame_hashes) {
+    Sha256 s;
+    for (const auto& h : frame_hashes) {
+        s.update(h.data(), h.size());
+    }
+    return s.hex().substr(0, 16);
+}
+
 } // namespace PopGen
 
 #endif

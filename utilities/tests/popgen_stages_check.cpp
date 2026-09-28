@@ -99,26 +99,37 @@ int main (int argc, char** argv) {
             if (it == allocs.end()) { continue; }
             pl.append(PopGen::placePuma(b, prob, it->second, cols, seed, rep));
         }
-        auto secs = [&] (clock::time_point& t) {
-            const auto now = clock::now();
-            const double s = std::chrono::duration<double>(now - t).count();
-            t = now;
-            return s;
+        // A stage's time stops before its digest is taken, and the next stage's starts after.
+        auto timed = [&] (const std::string& stage, auto digest) {
+            const double s = std::chrono::duration<double>(clock::now() - t0).count();
+            check(stage, digest(), s);
+            t0 = clock::now();
         };
-        check("placements", PopGen::placementDigest(pl), secs(t0));
+        timed("placements", [&] {
+            return PopGen::placementDigest(pl);
+        });
         auto P = PopGen::buildPersons(b, pl, seed, rep);
-        check("S0-S2 persons", PopGen::personsDigest(P), secs(t0));
+        timed("S0-S2 persons", [&] {
+            return PopGen::personsDigest(P);
+        });
         const PopGen::SizeTables tables(b);
         PopGen::WorkerStats ws;
         auto work = PopGen::allocateWorkers(b, P, tables, seed, rep, &ws);
-        check("S3 workers", PopGen::Digest().add(work).hex16(), secs(t0));
+        timed("S3 workers", [&] {
+            return PopGen::Digest().add(work).hex16();
+        });
         std::cout << "    workers " << ws.workers << ", fallback " << ws.fallback << ", unplaceable " << ws.unplaceable
                   << ", one-worker cells " << ws.one_worker_cells << " of " << ws.cells << "\n";
         std::map<std::string, std::pair<std::int64_t, std::int64_t>> sst, tst;
+        t0 = clock::now();
         auto school = PopGen::allocateStudents(b, P, work, seed, rep, &sst);
-        check("S4 students", PopGen::Digest().add(school).add(work).add(P.grade).hex16(), secs(t0));
+        timed("S4 students", [&] {
+            return PopGen::Digest().add(school).add(work).add(P.grade).hex16();
+        });
         PopGen::allocateTeachers(b, P, work, school, seed, rep, &tst);
-        check("S5 teachers", PopGen::Digest().add(school).add(work).add(P.grade).hex16(), secs(t0));
+        timed("S5 teachers", [&] {
+            return PopGen::Digest().add(school).add(work).add(P.grade).hex16();
+        });
         std::cout << "    students unplaced:";
         for (const auto& [lv, nu] : sst) {
             std::cout << " " << lv << " " << nu.second << "/" << nu.first;
@@ -129,12 +140,13 @@ int main (int argc, char** argv) {
         }
         std::cout << "\n";
         std::map<std::string, std::string> gd;
+        t0 = clock::now();
         const auto groups = PopGen::assignGroups(b, P, work, school, tables, seed, rep, &gd);
-        const double tg = secs(t0);
+        const double tg = std::chrono::duration<double>(clock::now() - t0).count();
         for (const auto& [stage, d] : gd) {
             check(stage, d, 0.0);
         }
-        std::cout << "    S6-S10 together " << tg << " s\n";
+        std::cout << "    S6-S10 together " << tg << " s (including their digests)\n";
         std::cout << P.size() << " persons; popgen_stages_check " << (ok ? "passed" : "FAILED") << "\n";
         return ok ? 0 : 1;
     } catch (const std::exception& e) {

@@ -22,6 +22,7 @@
 #define POPULATION_GENERATOR_H_
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -92,9 +93,19 @@ struct WorkerStats {
     std::int64_t workers = 0, unplaceable = 0, fallback = 0, repair_final = 0, cells = 0, one_worker_cells = 0;
 };
 
-/*! S3 (workers.py, allocate): work geoid per person -- the home geoid for non-workers. */
+/*! How a stage may split its work over MPI ranks (this file itself knows nothing of MPI): this
+    rank, the rank count, and an all-gather that returns every rank's buffer concatenated in rank
+    order. Collective: every rank must make the same calls. Results never depend on the split. */
+struct Partition {
+    int rank = 0, nranks = 1;
+    std::function<std::vector<std::int64_t>(const std::vector<std::int64_t>&)> allgather;
+};
+
+/*! S3 (workers.py, allocate): work geoid per person -- the home geoid for non-workers. With a
+    Partition, the per-industry fills are split over its ranks (collective). */
 std::vector<std::int64_t> allocateWorkers(const PopulationBundle& b, const Persons& P, const SizeTables& tables,
-                                          std::int64_t seed, std::int64_t rep, WorkerStats* stats = nullptr);
+                                          std::int64_t seed, std::int64_t rep, WorkerStats* stats = nullptr,
+                                          const Partition* part = nullptr);
 
 /*! S4 (students.py, allocate): school row per person (-1 if none). Sets work to the school's
     geoid for placed students; students left unplaced leave school (grade -1). students and

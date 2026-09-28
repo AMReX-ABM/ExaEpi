@@ -9,8 +9,8 @@
 #include <fstream>
 #include <limits>
 #include <numeric>
-#include <set>
 #include <stdexcept>
+#include <unordered_map>
 
 #include <zlib.h>
 
@@ -231,26 +231,47 @@ GeneratedPopulation generatePopulation (const GenerationSettings& settings, int 
     for (const auto& x : per_puma) {
         pl.append(x);
     }
-    out.digests["placements"] = placementDigest(pl);
+    // Per-stage digests (generate_exaepi.py's, for bit-for-bit checks) cost seconds of hashing at
+    // state scale, so only on request.
+    const bool sd = settings.stage_digests;
+    if (sd) { out.digests["placements"] = placementDigest(pl); }
 
-    // Stages S0-S10, identically on every rank.
+    // Stages S0-S10, identically on every rank (S3's industry fills split over the ranks). Each
+    // stage's time stops before its digest, if any, is taken.
+    std::vector<std::pair<const char*, double>> stage_times;
+    auto ts = Clock::now();
+    auto lap = [&] (const char* name) {
+        stage_times.emplace_back(name, since(ts));
+    };
     auto P = buildPersons(b, pl, settings.seed, settings.rep);
-    out.digests["S0-S2 persons"] = personsDigest(P);
+    lap("S0-S2");
+    pl = Placements();
+    if (sd) { out.digests["S0-S2 persons"] = personsDigest(P); }
     const SizeTables tables(b);
-    auto work = allocateWorkers(b, P, tables, settings.seed, settings.rep);
-    out.digests["S3 workers"] = Digest().add(work).hex16();
+    Partition part;
+    part.rank = me;
+    part.nranks = nranks;
+    part.allgather = allGather;
+    ts = Clock::now();
+    auto work = allocateWorkers(b, P, tables, settings.seed, settings.rep, nullptr, &part);
+    lap("S3");
+    if (sd) { out.digests["S3 workers"] = Digest().add(work).hex16(); }
+    ts = Clock::now();
     auto school = allocateStudents(b, P, work, settings.seed, settings.rep);
-    out.digests["S4 students"] = Digest().add(school).add(work).add(P.grade).hex16();
+    lap("S4");
+    if (sd) { out.digests["S4 students"] = Digest().add(school).add(work).add(P.grade).hex16(); }
+    ts = Clock::now();
     allocateTeachers(b, P, work, school, settings.seed, settings.rep);
-    out.digests["S5 teachers"] = Digest().add(school).add(work).add(P.grade).hex16();
-    const auto G = assignGroups(b, P, work, school, tables, settings.seed, settings.rep, &out.digests);
+    lap("S5");
+    if (sd) { out.digests["S5 teachers"] = Digest().add(school).add(work).add(P.grade).hex16(); }
+    ts = Clock::now();
+    const auto G = assignGroups(b, P, work, school, tables, settings.seed, settings.rep, sd ? &out.digests : nullptr);
+    lap(sd ? "S6-S10 (with digests)" : "S6-S10");
     const double t_stages = since(t);
 
     // The .bin's view of it: block-group index and columnar agent frames.
     const std::size_t n = P.size();
     out.num_agents = static_cast<std::int64_t>(n);
-    std::vector<std::int64_t> id(n);
-    std::iota(id.begin(), id.end(), 0);
     checkFits<std::int32_t>(G.school_class_group, "school_class_group");
     checkFits<std::int32_t>(G.work_group, "work_group");
     checkFits<std::int16_t>(P.h, "household_id");
@@ -263,36 +284,71 @@ GeneratedPopulation generatePopulation (const GenerationSettings& settings, int 
     checkFits<std::int8_t>(P.age, "age");
     checkFits<std::int8_t>(P.grade, "grade");
 
-    std::map<std::int64_t, std::vector<int>> work_pops;
+    // Home block groups: the runs of the (sorted) block-group column.
+    std::vector<std::size_t> home_lo;
     for (std::size_t i = 0; i < n; ++i) {
-        auto& wp = work_pops[work[i]];
-        if (wp.empty()) { wp.assign(static_cast<std::size_t>(n_naics) + 1, 0); }
-        if (P.naics[i] != -1) {
-            ++wp[0];
-            ++wp[static_cast<std::size_t>(P.naics[i]) + 1];
-        }
+        if (i == 0 || P.bg[i] != P.bg[i - 1]) { home_lo.push_back(i); }
     }
-    std::set<std::int64_t> homes(P.bg.begin(), P.bg.end());
-    for (const auto& [geoid, wp] : work_pops) {
-        if (homes.count(geoid)) { continue; }
+    const std::size_t n_homes = home_lo.size();
+    home_lo.push_back(n);
+    auto isHome = [&] (std::int64_t geoid) {
+        const auto end = home_lo.begin() + static_cast<std::ptrdiff_t>(n_homes);
+        const auto h = std::lower_bound(home_lo.begin(), end, geoid, [&] (std::size_t lo, std::int64_t g) {
+            return P.bg[lo] < g;
+        });
+        return h != end && P.bg[*h] == geoid;
+    };
+    // Workers per destination and NAICS, destinations in ascending geoid order.
+    const std::size_t nw = static_cast<std::size_t>(n_naics) + 1;
+    std::unordered_map<std::int64_t, std::size_t> dest_ix;
+    std::vector<std::int64_t> dests;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (dest_ix.emplace(work[i], dests.size()).second) { dests.push_back(work[i]); }
+    }
+    std::vector<std::int64_t> sorted_dests(dests);
+    std::sort(sorted_dests.begin(), sorted_dests.end());
+    for (std::size_t k = 0; k < sorted_dests.size(); ++k) {
+        dest_ix[sorted_dests[k]] = k; // now the rank in geoid order
+    }
+    std::vector<int> work_pops(sorted_dests.size() * nw, 0);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (P.naics[i] == -1) { continue; }
+        int* wp = &work_pops[dest_ix.at(work[i]) * nw];
+        ++wp[0];
+        ++wp[static_cast<std::size_t>(P.naics[i]) + 1];
+    }
+    auto workPops = [&] (std::int64_t geoid) {
+        const auto it = std::lower_bound(sorted_dests.begin(), sorted_dests.end(), geoid);
+        if (it == sorted_dests.end() || *it != geoid) { return std::vector<int>(nw, 0); }
+        const auto* wp = &work_pops[static_cast<std::size_t>(it - sorted_dests.begin()) * nw];
+        return std::vector<int>(wp, wp + nw);
+    };
+    // Work-only block groups first (ascending geoid), then the home ones.
+    for (const auto geoid : sorted_dests) {
+        if (isHome(geoid)) { continue; }
         GeneratedBlockGroup bg;
         bg.geoid = geoid;
-        bg.work_populations = wp;
+        bg.work_populations = workPops(geoid);
         out.block_groups.push_back(std::move(bg));
     }
-    Sha256 whole; // over the frames exactly as they are stored
-    for (std::size_t lo = 0; lo < n;) {
-        std::size_t hi = lo;
-        while (hi < n && P.bg[hi] == P.bg[lo]) {
-            ++hi;
-        }
-        GeneratedBlockGroup bg;
+    const std::size_t first_home = out.block_groups.size();
+    out.block_groups.resize(first_home + n_homes);
+    std::vector<std::string> frame_hashes(n_homes);
+    // Frames are independent, so built (and hashed) in parallel.
+    const auto nh64 = static_cast<std::int64_t>(n_homes);
+#ifdef AMREX_USE_OMP
+#pragma omp parallel for schedule(dynamic, 16)
+#endif
+    for (std::int64_t k = 0; k < nh64; ++k) {
+        const std::size_t lo = home_lo[k], hi = home_lo[k + 1];
+        auto& bg = out.block_groups[first_home + static_cast<std::size_t>(k)];
         bg.geoid = P.bg[lo];
         bg.home_population = static_cast<int>(hi - lo);
-        const auto it = work_pops.find(bg.geoid);
-        bg.work_populations = it != work_pops.end() ? it->second : std::vector<int>(static_cast<std::size_t>(n_naics) + 1, 0);
+        bg.work_populations = workPops(bg.geoid);
         auto& f = bg.frame;
-        putColumn<std::int64_t>(f, id, lo, hi);
+        std::vector<std::int64_t> id(hi - lo);
+        std::iota(id.begin(), id.end(), static_cast<std::int64_t>(lo));
+        putColumn<std::int64_t>(f, id, 0, hi - lo);
         putColumn<std::int64_t>(f, P.bg, lo, hi);
         putColumn<std::int64_t>(f, work, lo, hi);
         putColumn<std::int32_t>(f, G.school_class_group, lo, hi);
@@ -311,19 +367,25 @@ GeneratedPopulation generatePopulation (const GenerationSettings& settings, int 
         putColumn<std::int8_t>(f, P.travel, lo, hi);
         putColumn<std::int8_t>(f, P.veh_occ, lo, hi);
         putColumn<std::int8_t>(f, P.grade, lo, hi);
-        whole.update(f.data(), f.size());
-        out.block_groups.push_back(std::move(bg));
-        lo = hi;
+        frame_hashes[static_cast<std::size_t>(k)] = frameHash(f.data(), f.size());
     }
-    out.digest = whole.hex().substr(0, 16);
+    out.digest = populationDigest(frame_hashes);
+    lap("frames");
 
     amrex::Print() << "Generated population from " << settings.bundle << " (seed " << settings.seed << ", rep " << settings.rep
-                   << "): " << n << " agents in " << homes.size() << " block groups; "
+                   << "): " << n << " agents in " << n_homes << " block groups; "
                    << (injected.empty() ? "solve+place " : "injected allocations, place ") << t_solve << " s"
                    << (injected.empty() ? " (" + std::to_string(iterations) + " iterations over " + std::to_string(np) + " PUMAs)"
                                         : "")
                    << ", stages " << t_stages << " s, total " << since(t0) << " s; digest " << out.digest << "\n";
     if (settings.verbose >= 1) {
+        amrex::Print() << "  stage times:";
+        for (const auto& [name, secs] : stage_times) {
+            amrex::Print() << " " << name << " " << secs << " s";
+        }
+        amrex::Print() << "\n";
+    }
+    if (sd) {
         for (const auto& [stage, d] : out.digests) {
             amrex::Print() << "  " << stage << ": " << d << "\n";
         }
@@ -345,18 +407,25 @@ void writePopulationBin (const GeneratedPopulation& pop, const std::string& path
     const std::uint64_t header = 40, entry = 8 + 8 + 4 + 4 + 4 + 4 * static_cast<std::uint64_t>(num_naics);
     const std::uint64_t index_end = header + entry * num_geoids;
     // Frames first (in memory), so the index can carry their offsets.
+    // (Each frame is deflated on its own, so in parallel; the bytes do not depend on it.)
     std::vector<std::vector<unsigned char>> blobs(pop.block_groups.size());
-    for (std::size_t k = 0; k < pop.block_groups.size(); ++k) {
+    const auto nbg = static_cast<std::int64_t>(pop.block_groups.size());
+    int failed = 0;
+#ifdef AMREX_USE_OMP
+#pragma omp parallel for schedule(dynamic, 16) reduction(+ : failed)
+#endif
+    for (std::int64_t k = 0; k < nbg; ++k) {
         const auto& fr = pop.block_groups[k].frame;
         if (fr.empty()) { continue; }
         uLongf len = compressBound(static_cast<uLong>(fr.size()));
         blobs[k].resize(len);
         if (compress2(blobs[k].data(), &len, reinterpret_cast<const Bytef*>(fr.data()), static_cast<uLong>(fr.size()), LEVEL) !=
             Z_OK) {
-            throw std::runtime_error("deflate failed writing " + path);
+            ++failed;
         }
         blobs[k].resize(len);
     }
+    if (failed) { throw std::runtime_error("deflate failed writing " + path); }
     put(MAGIC);
     put(format_version);
     put(num_naics);

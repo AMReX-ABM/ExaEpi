@@ -238,37 +238,83 @@ static std::pair<int, double> getAllLoadBalance (const long num) {
     every rank -- deliberately NOT folded into initAgents()'s per-rank-partial tile loop, since
     that only runs on a fresh start and would leave day_population empty on a restarted run. Pure
     host-side counting (no particle/GPU work), so the redundant per-rank scan is cheap relative to
-    the one-time cost of reading the file at all. */
-static Vector<Real> computeDayPopulation (ifstream& f, uint32_t codec, std::string& digest,
+    the one-time cost of reading the file at all.
+    The block groups are independent, so they are read (each thread with its own stream on fname),
+    counted and hashed in parallel; the counts are whole numbers, exact in Real whatever order they
+    are summed in. digest is PopGen::populationDigest of the home frames (geoid order, as they come
+    in block_groups) unless it is already set, as it is for a generated population. */
+static Vector<Real> computeDayPopulation (const std::string& fname, uint32_t codec, std::string& digest,
                                           const Vector<BlockGroup>& block_groups,
                                           const std::map<int64_t, int>& geoid_to_block_groups) {
     BL_PROFILE("computeDayPopulation");
-    Vector<Real> day_population(block_groups.size(), 0.0_rt);
-    UrbanPopAgent agent;
-    FrameScratch scratch;
-    PopGen::Sha256 sha; // the population digest: every home block group's frame, in geoid order
-    for (int bi = 0; bi < (int)block_groups.size(); ++bi) {
-        const auto& block_group = block_groups[bi];
-        if (block_group.home_population == 0) { continue; }
-        readFrame(f, block_group, codec, scratch);
-        sha.update(scratch.raw.data(), scratch.raw.size());
-        const UrbanPop::AgentFrame frame(scratch.raw.data(), block_group.home_population);
-        for (int i = 0; i < block_group.home_population; ++i) {
-            frame.get(i, agent);
-            // non-workers and work-from-home agents stay at their home block group during the
-            // day; everyone else (including school employees/students, whose work_geoid is the
-            // school's block group) physically goes to their work block group -- mirrors the
-            // work_i/work_j assignment in initAgents' agent-initialization kernel exactly
-            if (agent.naics == -1 || agent.travel == TRAVEL::_wfh) {
-                day_population[bi] += 1.0_rt;
+    const int nbg = static_cast<int>(block_groups.size());
+    const bool want_digest = digest.empty();
+    Vector<Real> day_population(nbg, 0.0_rt);
+    std::vector<std::string> hashes(want_digest ? nbg : 0);
+    int missing = 0;
+#ifdef AMREX_USE_OMP
+#pragma omp parallel reduction(+ : missing)
+#endif
+    {
+        std::vector<Real> mine(nbg, 0.0_rt);
+        ifstream f;
+        UrbanPopAgent agent;
+        FrameScratch scratch;
+#ifdef AMREX_USE_OMP
+#pragma omp for schedule(dynamic, 16)
+#endif
+        for (int bi = 0; bi < nbg; ++bi) {
+            const auto& block_group = block_groups[bi];
+            if (block_group.home_population == 0) { continue; }
+            const char* raw;
+            std::size_t nbytes;
+            if (block_group.mem_frame) { // generated: read it in place
+                raw = block_group.mem_frame->data();
+                nbytes = block_group.mem_frame->size();
             } else {
-                auto it = geoid_to_block_groups.find(agent.work_geoid);
-                if (it == geoid_to_block_groups.end()) { Abort("Cannot find block group for work location"); }
-                day_population[it->second] += 1.0_rt;
+                if (!f.is_open()) {
+                    f.open(fname, std::ios::binary);
+                    if (!f) { Abort("Cannot open " + fname); }
+                }
+                readFrame(f, block_group, codec, scratch);
+                raw = scratch.raw.data();
+                nbytes = scratch.raw.size();
+            }
+            if (want_digest) { hashes[bi] = PopGen::frameHash(raw, nbytes); }
+            const UrbanPop::AgentFrame frame(raw, block_group.home_population);
+            for (int i = 0; i < block_group.home_population; ++i) {
+                frame.get(i, agent);
+                // non-workers and work-from-home agents stay at their home block group during the
+                // day; everyone else (including school employees/students, whose work_geoid is the
+                // school's block group) physically goes to their work block group -- mirrors the
+                // work_i/work_j assignment in initAgents' agent-initialization kernel exactly
+                if (agent.naics == -1 || agent.travel == TRAVEL::_wfh) {
+                    mine[bi] += 1.0_rt;
+                } else {
+                    auto it = geoid_to_block_groups.find(agent.work_geoid);
+                    if (it == geoid_to_block_groups.end()) {
+                        ++missing;
+                    } else {
+                        mine[it->second] += 1.0_rt;
+                    }
+                }
             }
         }
+#ifdef AMREX_USE_OMP
+#pragma omp critical
+#endif
+        for (int bi = 0; bi < nbg; ++bi) {
+            day_population[bi] += mine[bi];
+        }
     }
-    digest = sha.hex().substr(0, 16);
+    if (missing) { Abort("Cannot find block group for work location"); }
+    if (want_digest) {
+        std::vector<std::string> home;
+        for (int bi = 0; bi < nbg; ++bi) {
+            if (block_groups[bi].home_population > 0) { home.push_back(std::move(hashes[bi])); }
+        }
+        digest = PopGen::populationDigest(home);
+    }
     return day_population;
 }
 
@@ -287,6 +333,7 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
         gs.solver.tol_moved = params.popgen_tol_moved;
         gs.solver.max_iter = params.popgen_max_iter;
         gs.gpu_streams = params.popgen_gpu_streams;
+        gs.stage_digests = params.popgen_stage_digests;
         gs.inject_allocations = params.popgen_inject_allocations;
         gs.verbose = params.verbose;
         try {
@@ -422,7 +469,9 @@ void UrbanPopData::init (ExaEpi::TestParams& params, Geometry& geom, BoxArray& b
 
     std::ofstream geoid_coords_ofs;
 
-    day_population = computeDayPopulation(urbanpop_file, codec, population_digest, block_groups, geoid_to_block_groups);
+    population_digest = generated ? generated->digest : std::string(); // generated: already known
+    day_population = computeDayPopulation(generated ? std::string() : params.urbanpop_filename, codec, population_digest,
+                                          block_groups, geoid_to_block_groups);
     Print() << "Population digest " << population_digest << "\n";
 
     fillGridMetadataOnHost();

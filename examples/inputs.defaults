@@ -52,6 +52,9 @@ agent.popgen.max_iter = 6000
 # GPU builds: PUMAs solved at once, each on its own GPU stream (capped by amrex.max_gpu_streams,
 # default 4). Results do not depend on it. CPU builds solve one PUMA per OpenMP thread instead.
 agent.popgen.gpu_streams = 1
+# Compute and print the per-stage digests of the generated population, as generate_exaepi.py
+# writes them, for bit-for-bit checks against it. Off by default: hashing costs seconds per rank.
+agent.popgen.stage_digests = 0
 # Write the generated population to this .bin (readable with agent.population_source = bin).
 # agent.write_population =
 # The UrbanPop data file (.bin). No default; required if agent.population_source = bin.

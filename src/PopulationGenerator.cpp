@@ -10,6 +10,11 @@
 #include <numeric>
 #include <stdexcept>
 #include <tuple>
+#include <unordered_map>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #include "KeyedRNG.H"
 #include "PopGenStages.H"
@@ -43,6 +48,76 @@ void runningSum (const double* w, std::size_t n, std::vector<double>& cum) {
         s += w[i];
         cum[i] = s;
     }
+}
+
+//! Threads for a parallel region here: all of them, unless already inside one.
+int threads () {
+#ifdef _OPENMP
+    return omp_in_parallel() ? 1 : omp_get_max_threads();
+#else
+    return 1;
+#endif
+}
+
+/*! Sort v by less, which must order any two distinct elements (a strict total order up to
+    identical values), so the sorted result is unique: whatever the algorithm and thread count, it
+    is what std::stable_sort would give. On OpenMP builds the range is cut into one chunk per
+    thread, the chunks sorted concurrently, then merged pairwise. */
+template <class T, class Less>
+void totalSort (std::vector<T>& v, Less less) {
+    const std::size_t n = v.size();
+    const int nt = threads();
+    if (nt == 1 || n < (std::size_t(1) << 16)) {
+        std::sort(v.begin(), v.end(), less);
+        return;
+    }
+    const std::size_t nc = static_cast<std::size_t>(nt);
+    std::vector<std::size_t> cut(nc + 1);
+    for (std::size_t c = 0; c <= nc; ++c) {
+        cut[c] = n * c / nc;
+    }
+    const auto at = [&] (std::size_t k) {
+        return v.begin() + static_cast<std::ptrdiff_t>(cut[std::min(k, nc)]);
+    };
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static, 1)
+#endif
+    for (int c = 0; c < nt; ++c) {
+        std::sort(at(static_cast<std::size_t>(c)), at(static_cast<std::size_t>(c) + 1), less);
+    }
+    for (std::size_t w = 1; w < nc; w *= 2) {
+        const auto pairs = static_cast<std::int64_t>((nc + 2 * w - 1) / (2 * w));
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 1)
+#endif
+        for (std::int64_t q = 0; q < pairs; ++q) {
+            const std::size_t lo = 2 * w * static_cast<std::size_t>(q);
+            std::inplace_merge(at(lo), at(lo + w), at(lo + 2 * w), less);
+        }
+    }
+}
+
+//! Start of each run of equal values in v, plus v.size() at the end.
+template <class T>
+std::vector<std::int64_t> runStarts (const std::vector<T>& v) {
+    std::vector<std::int64_t> s;
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        if (i == 0 || !(v[i] == v[i - 1])) { s.push_back(static_cast<std::int64_t>(i)); }
+    }
+    s.push_back(static_cast<std::int64_t>(v.size()));
+    return s;
+}
+
+//! Stable index permutation sorting by a key comparator, as numpy.lexsort (stable): ties go to
+//! the lower index, which makes the order total, so totalSort can do it in parallel.
+template <class Less>
+std::vector<std::int64_t> stableOrder (std::size_t n, Less less) {
+    std::vector<std::int64_t> o(n);
+    std::iota(o.begin(), o.end(), 0);
+    totalSort(o, [&] (std::int64_t x, std::int64_t y) {
+        return less(x, y) || (!less(y, x) && x < y);
+    });
+    return o;
 }
 
 } // namespace
@@ -349,15 +424,6 @@ std::int64_t position (const std::vector<std::int64_t>& v, std::int64_t x) {
     return std::lower_bound(v.begin(), v.end(), x) - v.begin();
 }
 
-//! Stable index permutation sorting by a key comparator, as numpy.lexsort (stable).
-template <class Less>
-std::vector<std::int64_t> stableOrder (std::size_t n, Less less) {
-    std::vector<std::int64_t> o(n);
-    std::iota(o.begin(), o.end(), 0);
-    std::stable_sort(o.begin(), o.end(), less);
-    return o;
-}
-
 struct Fill {
     std::vector<std::int64_t> row_h, col_d, cnt; // home index, destination index, workers
     std::int64_t unplaced = 0;
@@ -447,12 +513,63 @@ Fill fillOne (const Flows& F, const std::vector<std::int64_t>& supply, const std
     }
 
     // IPF, as workers.py: per iteration, scale rows to their targets, then columns, then measure
-    // the row error. Done here in two fused passes rather than five, with each row's and
-    // column's factor formed once: every entry sees the same multiplications in the same order,
-    // every sum accumulates in the same (entry) order, and a factor is the same double whether
-    // formed once or per entry -- so the result is bit for bit the separate-pass one.
+    // the row error; stop once the error is below tol, or after IPF_ITERS iterations. Every entry
+    // must see the same multiplications in the same order and every sum accumulate in the same
+    // (entry) order as there; a row's or column's factor is the same double whether formed once
+    // or per entry.
     const double tol = IPF_TOL * std::max(1.0, seqSum(rt.data(), NR));
     std::vector<double> rs(NR), cs(NC), fr(NR), fc(NC);
+    std::vector<std::int32_t> c32(cols.begin(), cols.end()); // half the index traffic
+    const std::vector<double> v0 = v;
+    auto rowScale = [&] (std::size_t r, double f) {          // v *= f over row r, adding into cs
+        for (std::int64_t e = rptr[r]; e < rptr[r + 1]; ++e) {
+            v[e] = v[e] * f;
+            cs[c32[e]] += v[e];
+        }
+    };
+    auto colScale = [&] (std::size_t r) { // v *= fc over row r; the row's new sum
+        double s = 0.0;
+        for (std::int64_t e = rptr[r]; e < rptr[r + 1]; ++e) {
+            v[e] = v[e] * fc[c32[e]];
+            s += v[e];
+        }
+        return s;
+    };
+    // colScale on rows r .. r+ROWS-1 at once, into rs: each row still summed in its own entry
+    // order, but the independent sums interleave, so one core keeps several add chains in flight
+    // instead of waiting on one.
+    constexpr std::size_t ROWS = 4;
+    auto colScaleRows = [&] (std::size_t r) {
+        std::int64_t at[ROWS], end[ROWS];
+        double s[ROWS];
+        std::int64_t len = 0;
+        for (std::size_t k = 0; k < ROWS; ++k) {
+            at[k] = rptr[r + k];
+            end[k] = rptr[r + k + 1];
+            s[k] = 0.0;
+            len = std::max(len, end[k] - at[k]);
+        }
+        for (std::int64_t j = 0; j < len; ++j) {
+            for (std::size_t k = 0; k < ROWS; ++k) {
+                const std::int64_t e = at[k] + j;
+                if (e < end[k]) {
+                    v[e] = v[e] * fc[c32[e]];
+                    s[k] += v[e];
+                }
+            }
+        }
+        for (std::size_t k = 0; k < ROWS; ++k) {
+            rs[r + k] = s[k];
+        }
+    };
+    auto rowFactor = [&] (std::size_t r) {
+        return rs[r] > 0 ? rt[r] / rs[r] : 0.0;
+    };
+    auto colFactors = [&] () {
+        for (std::size_t c = 0; c < NC; ++c) {
+            fc[c] = cs[c] > 0 ? ct[c] / cs[c] : 0.0;
+        }
+    };
     for (std::size_t r = 0; r < NR; ++r) {
         double s = 0.0;
         for (std::int64_t e = rptr[r]; e < rptr[r + 1]; ++e) {
@@ -460,33 +577,66 @@ Fill fillOne (const Flows& F, const std::vector<std::int64_t>& supply, const std
         }
         rs[r] = s;
     }
+    // The IPF is bound by memory traffic, so each sweep makes one pass over the entries: row by
+    // row, it scales by the column factors, sums the row, and -- while the row is in cache --
+    // applies the next iteration's row scaling. Column sums still accumulate row by row in
+    // ascending order, so every double is what separate passes give. The one difference: a
+    // sweep has already started the next iteration when its error shows convergence, which a
+    // multiplication cannot undo; then the IPF is rerun from the start in separate passes, where
+    // it stops at the same iteration. (It rarely converges: no industry does, in 60 iterations,
+    // for NM or CA.)
+    std::fill(cs.begin(), cs.end(), 0.0);
+    for (std::size_t r = 0; r < NR; ++r) {
+        rowScale(r, rowFactor(r));
+    }
+    colFactors();
+    bool rerun = false;
     for (int it = 0; it < IPF_ITERS; ++it) {
-        for (std::size_t r = 0; r < NR; ++r) {
-            fr[r] = rs[r] > 0 ? rt[r] / rs[r] : 0.0;
-        }
+        const bool last = it + 1 == IPF_ITERS;
+        double err = 0.0;
         std::fill(cs.begin(), cs.end(), 0.0);
-        for (std::size_t r = 0; r < NR; ++r) {
-            const double f = fr[r];
-            for (std::int64_t e = rptr[r]; e < rptr[r + 1]; ++e) {
-                v[e] = v[e] * f;
-                cs[cols[e]] += v[e];
+        for (std::size_t r0 = 0; r0 < NR; r0 += ROWS) {
+            const std::size_t n_r = std::min(ROWS, NR - r0);
+            if (n_r == ROWS) {
+                colScaleRows(r0);
+            } else {
+                for (std::size_t r = r0; r < NR; ++r) {
+                    rs[r] = colScale(r);
+                }
+            }
+            for (std::size_t r = r0; r < r0 + n_r; ++r) { // in row order: err and cs sums as before
+                err += std::abs(rs[r] - rt[r]);
+                if (!last) { rowScale(r, rowFactor(r)); }
             }
         }
-        for (std::size_t c = 0; c < NC; ++c) {
-            fc[c] = cs[c] > 0 ? ct[c] / cs[c] : 0.0;
+        if (err < tol) {
+            rerun = !last;
+            break;
         }
-        // Column scaling, and the row sums it leaves -- which are also the next iteration's.
-        double err = 0.0;
+        if (!last) { colFactors(); }
+    }
+    if (rerun) {
+        v = v0;
         for (std::size_t r = 0; r < NR; ++r) {
             double s = 0.0;
             for (std::int64_t e = rptr[r]; e < rptr[r + 1]; ++e) {
-                v[e] = v[e] * fc[cols[e]];
                 s += v[e];
             }
             rs[r] = s;
-            err += std::abs(s - rt[r]);
         }
-        if (err < tol) { break; }
+        for (int it = 0; it < IPF_ITERS; ++it) {
+            std::fill(cs.begin(), cs.end(), 0.0);
+            for (std::size_t r = 0; r < NR; ++r) {
+                rowScale(r, rowFactor(r));
+            }
+            colFactors();
+            double err = 0.0;
+            for (std::size_t r = 0; r < NR; ++r) {
+                rs[r] = colScale(r);
+                err += std::abs(rs[r] - rt[r]);
+            }
+            if (err < tol) { break; }
+        }
     }
 
     // Column-wise TRS, each column's entries in row (home) order: a stable counting sort of the
@@ -651,7 +801,7 @@ Fill fillOne (const Flows& F, const std::vector<std::int64_t>& supply, const std
 } // namespace
 
 std::vector<std::int64_t> allocateWorkers (const PopulationBundle& b, const Persons& P, const SizeTables& tables,
-                                           std::int64_t seed, std::int64_t rep, WorkerStats* stats_out) {
+                                           std::int64_t seed, std::int64_t rep, WorkerStats* stats_out, const Partition* part) {
     WorkerStats st;
     const std::size_t n_persons = P.size();
     std::vector<std::int64_t> work(P.bg);
@@ -685,27 +835,41 @@ std::vector<std::int64_t> allocateWorkers (const PopulationBundle& b, const Pers
         auto isHome = [&] (std::int64_t g) {
             return std::binary_search(F.homes.begin(), F.homes.end(), g);
         };
-        std::map<std::pair<std::int64_t, std::int64_t>, std::int64_t> pairs; // (home idx, dest geoid)
+        // (home idx, dest geoid, count) entries, sorted, then repeated pairs summed: the pairs come
+        // out in (home, dest) order with the same totals a map accumulating them would hold.
+        std::vector<std::array<std::int64_t, 3>> raw;
         for (std::size_t r = 0; r < lh.size(); ++r) {
             if (!isHome(lh[r])) { continue; }
             const auto h = position(F.homes, lh[r]);
             for (std::int64_t q = ip[r]; q < ip[r + 1]; ++q) {
                 const std::int64_t dg = ld[ix[q]];
-                if (isHome(dg)) { pairs[{h, dg}] += dv[q]; }
+                if (isHome(dg)) { raw.push_back({h, dg, static_cast<std::int64_t>(dv[q])}); }
             }
         }
-        for (const auto& kv : pairs) {
-            F.dests.push_back(kv.first.second);
+        totalSort(raw, std::less<std::array<std::int64_t, 3>>());
+        std::vector<std::array<std::int64_t, 3>> pairs;
+        for (const auto& e : raw) {
+            if (!pairs.empty() && pairs.back()[0] == e[0] && pairs.back()[1] == e[1]) {
+                pairs.back()[2] += e[2];
+            } else {
+                pairs.push_back(e);
+            }
+        }
+        raw = {};
+        for (const auto& e : pairs) {
+            F.dests.push_back(e[1]);
         }
         std::sort(F.dests.begin(), F.dests.end());
         F.dests.erase(std::unique(F.dests.begin(), F.dests.end()), F.dests.end());
         const std::int64_t Dn = static_cast<std::int64_t>(F.dests.size());
         F.hd_ptr.assign(H + 1, 0);
-        std::vector<std::tuple<std::int64_t, std::int64_t, std::int64_t>> ent; // (h, d, count)
-        for (const auto& kv : pairs) {
-            ent.emplace_back(kv.first.first, position(F.dests, kv.first.second), kv.second);
+        // (h, d, count), already in (h, d) order: d is the dest geoid's rank
+        std::vector<std::tuple<std::int64_t, std::int64_t, std::int64_t>> ent;
+        ent.reserve(pairs.size());
+        for (const auto& e : pairs) {
+            ent.emplace_back(e[0], position(F.dests, e[1]), e[2]);
         }
-        std::sort(ent.begin(), ent.end());
+        pairs = {};
         for (const auto& [h, d, c] : ent) {
             ++F.hd_ptr[h + 1];
             F.hd_col.push_back(d);
@@ -714,7 +878,7 @@ std::vector<std::int64_t> allocateWorkers (const PopulationBundle& b, const Pers
         for (std::int64_t h = 0; h < H; ++h) {
             F.hd_ptr[h + 1] += F.hd_ptr[h];
         }
-        std::sort(ent.begin(), ent.end(), [] (const auto& x, const auto& y) {
+        totalSort(ent, [] (const auto& x, const auto& y) { // (h, d) pairs are unique
             return std::get<1>(x) != std::get<1>(y) ? std::get<1>(x) < std::get<1>(y) : std::get<0>(x) < std::get<0>(y);
         });
         F.dh_ptr.assign(Dn + 1, 0);
@@ -741,6 +905,9 @@ std::vector<std::int64_t> allocateWorkers (const PopulationBundle& b, const Pers
         ++home_naics[hidx_w[w] * n_naics + naics_w[w]];
     }
     std::vector<std::int64_t> local(static_cast<std::size_t>(Dn) * n_naics, 0);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 64) num_threads(threads())
+#endif
     for (std::int64_t d = 0; d < Dn; ++d) {
         for (std::int64_t q = F.dh_ptr[d]; q < F.dh_ptr[d + 1]; ++q) {
             const std::int64_t* hn = &home_naics[F.dh_col[q] * n_naics];
@@ -752,17 +919,25 @@ std::vector<std::int64_t> allocateWorkers (const PopulationBundle& b, const Pers
     }
 
     // 3. Establishment slots per destination: industries from its commute shed, CBP sizes.
-    std::map<std::pair<std::int64_t, std::int64_t>, std::int64_t> sn_count;
+    std::map<std::int64_t, std::vector<std::int64_t>> sn_count; // state -> workers per NAICS
     for (std::size_t w = 0; w < NW; ++w) {
-        ++sn_count[{P.bg[W[w]] / 10000000000LL, naics_w[w]}];
+        auto& c = sn_count[P.bg[W[w]] / 10000000000LL];
+        if (c.empty()) { c.assign(n_naics, 0); }
+        ++c[naics_w[w]];
     }
     std::int64_t tsum = 0;
-    for (const auto& kv : sn_count) {
-        tsum += kv.second * tables.target(kv.first.first, kv.first.second);
+    for (const auto& [stt, c] : sn_count) {
+        for (int n = 0; n < n_naics; ++n) {
+            if (c[n] > 0) { tsum += c[n] * tables.target(stt, n); }
+        }
     }
     const double avg = static_cast<double>(tsum) / static_cast<double>(NW);
-    std::vector<std::int64_t> implied(static_cast<std::size_t>(Dn) * n_naics, 0), cum(n_naics);
+    std::vector<std::int64_t> implied(static_cast<std::size_t>(Dn) * n_naics, 0);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 64) num_threads(threads())
+#endif
     for (std::int64_t d = 0; d < Dn; ++d) {
+        std::vector<std::int64_t> cum(n_naics);
         const std::int64_t ns = dest_total[d] > 0 ? std::max<std::int64_t>(1, static_cast<std::int64_t>(std::nearbyint(
                                                                                       static_cast<double>(dest_total[d]) / avg)))
                                                   : 0;
@@ -786,6 +961,9 @@ std::vector<std::int64_t> allocateWorkers (const PopulationBundle& b, const Pers
         ++true_total[n];
     }
     std::vector<std::int64_t> demand(static_cast<std::size_t>(Dn) * n_naics, 0);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 1) num_threads(threads())
+#endif
     for (int n = 0; n < n_naics; ++n) {
         const std::int64_t T = true_total[n];
         std::int64_t S = 0;
@@ -820,7 +998,11 @@ std::vector<std::int64_t> allocateWorkers (const PopulationBundle& b, const Pers
     std::vector<std::uint8_t> assigned(NW, 0);
     std::vector<std::uint64_t> okey(NW);
     const KR64 ka(seed, rep, Stage::WORK_ASSIGN);
-    for (std::size_t w = 0; w < NW; ++w) {
+    const auto nw64 = static_cast<std::int64_t>(NW);
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(threads())
+#endif
+    for (std::int64_t w = 0; w < nw64; ++w) {
         const auto i = W[w];
         okey[w] = ka.with(P.bg[i]).with(P.h[i]).with(P.p[i]).u64(0);
     }
@@ -838,8 +1020,51 @@ std::vector<std::int64_t> allocateWorkers (const PopulationBundle& b, const Pers
     for (int n = 0; n < n_naics; ++n) {
         nb[n + 1] += nb[n];
     }
-    std::vector<std::int64_t> sup(H), dem(Dn);
-    for (int n = 0; n < n_naics; ++n) {
+    // Industries are independent -- each fills and deals out only its own workers -- so they run
+    // concurrently: over MPI ranks when the caller gives a Partition (largest first, by the
+    // entries each fill can see), and over threads within a rank. An industry's result is the
+    // destination of each of its workers in wsort order (-1: not placed), which every rank then
+    // applies in industry order; the stats are integer counts. None of it depends on the split.
+    std::vector<std::int64_t> cost(n_naics, 0);
+    for (std::int64_t h = 0; h < H; ++h) {
+        const std::int64_t row = F.hd_ptr[h + 1] - F.hd_ptr[h];
+        for (int n = 0; n < n_naics; ++n) {
+            if (home_naics[h * n_naics + n] > 0) { cost[n] += row; }
+        }
+    }
+    std::vector<int> by_size(n_naics);
+    std::iota(by_size.begin(), by_size.end(), 0);
+    std::stable_sort(by_size.begin(), by_size.end(), [&] (int x, int y) {
+        return cost[x] > cost[y];
+    });
+    const int nranks = (part && part->nranks > 1) ? part->nranks : 1, me = nranks > 1 ? part->rank : 0;
+    std::vector<int> owner(n_naics, 0);
+    {
+        std::vector<std::int64_t> load(nranks, 0);
+        for (int n : by_size) {
+            const int r = static_cast<int>(std::min_element(load.begin(), load.end()) - load.begin());
+            owner[n] = r;
+            load[r] += cost[n];
+        }
+    }
+    std::vector<int> mine;
+    for (int n : by_size) {
+        if (owner[n] == me) { mine.push_back(n); }
+    }
+    std::vector<std::vector<std::int64_t>> dest(n_naics);
+    std::vector<WorkerStats> ist(n_naics);
+    std::vector<std::string> errors(n_naics);
+    const auto n_mine = static_cast<int>(mine.size());
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 1) num_threads(threads())
+#endif
+    for (int q = 0; q < n_mine; ++q) {
+        const int n = mine[q];
+        const std::int64_t* wn = wsort.data() + nb[n];
+        const std::int64_t nwn = nb[n + 1] - nb[n];
+        auto& dn = dest[n];
+        dn.assign(static_cast<std::size_t>(nwn), -1);
+        std::vector<std::int64_t> sup(H), dem(Dn);
         std::int64_t dsum = 0;
         for (std::int64_t d = 0; d < Dn; ++d) {
             dsum += (dem[d] = demand[d * n_naics + n]);
@@ -848,36 +1073,78 @@ std::vector<std::int64_t> allocateWorkers (const PopulationBundle& b, const Pers
         for (std::int64_t h = 0; h < H; ++h) {
             sup[h] = home_naics[h * n_naics + n];
         }
-        const Fill f = fillOne(F, sup, dem, n, seed, rep, st);
-        st.unplaceable += f.unplaced;
+        WorkerStats& sn = ist[n];
+        Fill f;
+        try {
+            f = fillOne(F, sup, dem, n, seed, rep, sn);
+        } catch (const std::exception& e) { // must not leave the parallel region
+            errors[n] = e.what();
+            continue;
+        }
+        sn.unplaceable += f.unplaced;
         if (f.cnt.empty()) { continue; }
-        st.cells += static_cast<std::int64_t>(f.cnt.size());
-        // cells by (home, destination geoid): fillOne emits them in that order already (homes
-        // ascending, destinations ascending within a home, and F.dests is sorted)
-        std::vector<std::int64_t> co(f.cnt.size());
-        std::iota(co.begin(), co.end(), 0);
-        const std::int64_t* wn = wsort.data() + nb[n];
-        const std::int64_t nwn = nb[n + 1] - nb[n];
-        for (std::size_t a = 0; a < co.size();) {
+        sn.cells += static_cast<std::int64_t>(f.cnt.size());
+        // cells come by (home, destination geoid) already: homes ascending, destinations
+        // ascending within a home, and F.dests is sorted
+        const std::size_t nc = f.cnt.size();
+        for (std::size_t a = 0; a < nc;) {
             std::size_t z = a;
-            while (z < co.size() && f.row_h[co[z]] == f.row_h[co[a]]) {
+            while (z < nc && f.row_h[z] == f.row_h[a]) {
                 ++z;
             }
-            const std::int64_t h = f.row_h[co[a]];
-            const std::int64_t lo = std::lower_bound(wn, wn + nwn, h,
-                                                     [&] (std::int64_t w, std::int64_t hh) {
-                                                         return hidx_w[w] < hh;
-                                                     }) -
-                                    wn;
-            std::int64_t k = lo;
+            const std::int64_t h = f.row_h[a];
+            std::int64_t k = std::lower_bound(wn, wn + nwn, h,
+                                              [&] (std::int64_t w, std::int64_t hh) {
+                                                  return hidx_w[w] < hh;
+                                              }) -
+                             wn;
             for (std::size_t c = a; c < z; ++c) {
-                for (std::int64_t r = 0; r < f.cnt[co[c]]; ++r, ++k) {
-                    work[W[wn[k]]] = F.dests[f.col_d[co[c]]];
-                    assigned[wn[k]] = 1;
+                for (std::int64_t r = 0; r < f.cnt[c]; ++r, ++k) {
+                    dn[k] = f.col_d[c];
                 }
             }
             a = z;
         }
+    }
+    // Every rank's results, in rank order: a header [failed industries, the four stats], then
+    // its industries' destinations in ascending industry order.
+    std::vector<std::int64_t> buf(5, 0);
+    for (int n : mine) {
+        buf[0] += errors[n].empty() ? 0 : 1;
+        buf[1] += ist[n].unplaceable;
+        buf[2] += ist[n].cells;
+        buf[3] += ist[n].repair_final;
+        buf[4] += ist[n].one_worker_cells;
+    }
+    for (int n = 0; n < n_naics; ++n) {
+        if (owner[n] == me) { buf.insert(buf.end(), dest[n].begin(), dest[n].end()); }
+    }
+    dest = {};
+    const std::vector<std::int64_t> all = nranks > 1 ? part->allgather(buf) : std::move(buf);
+    std::int64_t failed = 0;
+    std::size_t pos = 0;
+    for (int r = 0; r < nranks; ++r) {
+        failed += all[pos];
+        st.unplaceable += all[pos + 1];
+        st.cells += all[pos + 2];
+        st.repair_final += all[pos + 3];
+        st.one_worker_cells += all[pos + 4];
+        pos += 5;
+        for (int n = 0; n < n_naics; ++n) {
+            if (owner[n] != r) { continue; }
+            for (std::int64_t k = nb[n]; k < nb[n + 1]; ++k, ++pos) {
+                const std::int64_t d = all[pos];
+                if (d < 0) { continue; }
+                work[W[wsort[k]]] = F.dests[d];
+                assigned[wsort[k]] = 1;
+            }
+        }
+    }
+    if (failed > 0) {
+        for (int n : mine) {
+            if (!errors[n].empty()) { throw std::runtime_error(errors[n]); }
+        }
+        throw std::runtime_error("worker allocation failed for " + std::to_string(failed) + " industries on another rank");
     }
 
     // Fallback: a draw over the home's own LODES row; no row, work at home.
@@ -1393,15 +1660,21 @@ Groups assignGroups (const PopulationBundle& b, const Persons& P, const std::vec
         for (std::int64_t i = 0; i < n; ++i) {
             if (school[i] >= 0 && P.grade[i] != -1) { used.emplace_back(sg[school[i]], so[school[i]]); }
         }
-        std::sort(used.begin(), used.end());
+        totalSort(used, std::less<std::pair<std::int64_t, std::int64_t>>());
         used.erase(std::unique(used.begin(), used.end()), used.end());
-        std::map<std::pair<std::int64_t, std::int64_t>, std::int64_t> local;
+        std::vector<std::int64_t> local(used.size());
         for (std::size_t j = 0; j < used.size(); ++j) {
             const bool first = j == 0 || used[j].first != used[j - 1].first;
-            local[used[j]] = first ? 1 : local[used[j - 1]] + 1;
+            local[j] = first ? 1 : local[j - 1] + 1;
         }
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(threads())
+#endif
         for (std::int64_t i = 0; i < n; ++i) {
-            if (school[i] >= 0 && P.grade[i] != -1) { R.school_id[i] = local.at({sg[school[i]], so[school[i]]}); }
+            if (school[i] >= 0 && P.grade[i] != -1) {
+                const std::pair<std::int64_t, std::int64_t> key(sg[school[i]], so[school[i]]);
+                R.school_id[i] = local[std::lower_bound(used.begin(), used.end(), key) - used.begin()];
+            }
         }
     }
     if (digests) { (*digests)["S6 school ids"] = Digest().add(R.school_id).hex16(); }
@@ -1411,11 +1684,16 @@ Groups assignGroups (const PopulationBundle& b, const Persons& P, const std::vec
     R.hh_cluster.assign(n, 0);
     {
         const KR64 k(seed, rep, Stage::HOME_NB);
-        for (std::int64_t a = 0; a < n;) {
-            std::int64_t z = a, n_hh = 0;
-            while (z < n && P.bg[z] == P.bg[a]) {
-                n_hh = std::max(n_hh, P.h[z] + 1);
-                ++z;
+        const auto bgs = runStarts(P.bg); // persons are in block-group order
+        const auto n_bgs = static_cast<std::int64_t>(bgs.size()) - 1;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 64) num_threads(threads())
+#endif
+        for (std::int64_t g = 0; g < n_bgs; ++g) {
+            const std::int64_t a = bgs[g], z = bgs[g + 1];
+            std::int64_t n_hh = 0;
+            for (std::int64_t i = a; i < z; ++i) {
+                n_hh = std::max(n_hh, P.h[i] + 1);
             }
             const std::int64_t pop = z - a;
             const std::int64_t max_nb = std::max<std::int64_t>(1, (2 * pop + NBORHOOD_SIZE) / (2 * NBORHOOD_SIZE));
@@ -1424,7 +1702,6 @@ Groups assignGroups (const PopulationBundle& b, const Persons& P, const std::vec
                 R.nborhood[i] = index(k.with(P.bg[i]).with(P.h[i]).u64(0), max_nb);
                 R.hh_cluster[i] = P.h[i] % clusters;
             }
-            a = z;
         }
     }
     if (digests) { (*digests)["S7 home groups"] = Digest().add(R.nborhood).add(R.hh_cluster).hex16(); }
@@ -1439,7 +1716,11 @@ Groups assignGroups (const PopulationBundle& b, const Persons& P, const std::vec
         }
         const KR64 ko(seed, rep, Stage::WG_ORDER);
         std::vector<std::uint64_t> ok(el.size());
-        for (std::size_t j = 0; j < el.size(); ++j) {
+        const auto n_el = static_cast<std::int64_t>(el.size());
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(threads())
+#endif
+        for (std::int64_t j = 0; j < n_el; ++j) {
             const auto i = el[j];
             ok[j] = ko.with(work[i]).with(P.naics[i]).with(P.bg[i]).with(P.h[i]).with(P.p[i]).u64(0);
         }
@@ -1455,13 +1736,22 @@ Groups assignGroups (const PopulationBundle& b, const Persons& P, const std::vec
         for (std::size_t j = 0; j < el.size(); ++j) {
             s[j] = el[o[j]];
         }
-        std::vector<std::int64_t> starts, team_count;
-        const KR64 ke(seed, rep, Stage::WG_EST_SIZE);
-        for (std::size_t lo = 0; lo < s.size();) {
-            std::size_t hi = lo;
-            while (hi < s.size() && work[s[hi]] == work[s[lo]] && P.naics[s[hi]] == P.naics[s[lo]]) {
-                ++hi;
+        // groups: runs of equal (work geoid, NAICS) in s; each independent, so they run in parallel
+        std::vector<std::int64_t> starts;
+        for (std::size_t j = 0; j < s.size(); ++j) {
+            if (j == 0 || work[s[j]] != work[s[j - 1]] || P.naics[s[j]] != P.naics[s[j - 1]]) {
+                starts.push_back(static_cast<std::int64_t>(j));
             }
+        }
+        const auto n_groups = static_cast<std::int64_t>(starts.size());
+        starts.push_back(static_cast<std::int64_t>(s.size()));
+        std::vector<std::int64_t> team_count(n_groups);
+        const KR64 ke(seed, rep, Stage::WG_EST_SIZE);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 256) num_threads(threads())
+#endif
+        for (std::int64_t gi = 0; gi < n_groups; ++gi) {
+            const auto lo = static_cast<std::size_t>(starts[gi]), hi = static_cast<std::size_t>(starts[gi + 1]);
             const std::int64_t pop = static_cast<std::int64_t>(hi - lo);
             const std::int64_t geo = work[s[lo]], nai = P.naics[s[lo]], state = geo / 10000000000LL;
             const std::int64_t target = std::max<std::int64_t>(1, tables.target(state, nai));
@@ -1498,19 +1788,20 @@ Groups assignGroups (const PopulationBundle& b, const Persons& P, const std::vec
                     R.workgroup[s[lo + m]] = team_base[e] + pos % n_teams[e] + 1;
                 }
             }
-            starts.push_back(static_cast<std::int64_t>(lo));
-            team_count.push_back(tb);
-            lo = hi;
+            team_count[gi] = tb;
         }
         // dense ids: exclusive scan of team counts over groups in (geoid, NAICS) order
-        std::int64_t base = 0;
-        for (std::size_t gi = 0; gi < starts.size(); ++gi) {
-            const std::int64_t lo = starts[gi];
-            const std::int64_t hi = gi + 1 < starts.size() ? starts[gi + 1] : static_cast<std::int64_t>(s.size());
-            for (std::int64_t j = lo; j < hi; ++j) {
-                R.work_group[s[j]] = base + R.workgroup[s[j]] - 1;
+        std::vector<std::int64_t> base(n_groups + 1, 0);
+        for (std::int64_t gi = 0; gi < n_groups; ++gi) {
+            base[gi + 1] = base[gi] + team_count[gi];
+        }
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 256) num_threads(threads())
+#endif
+        for (std::int64_t gi = 0; gi < n_groups; ++gi) {
+            for (std::int64_t j = starts[gi]; j < starts[gi + 1]; ++j) {
+                R.work_group[s[j]] = base[gi] + R.workgroup[s[j]] - 1;
             }
-            base += team_count[gi];
         }
     }
     if (digests) { (*digests)["S8 work groups"] = Digest().add(R.workgroup).add(R.work_group).hex16(); }
@@ -1523,21 +1814,29 @@ Groups assignGroups (const PopulationBundle& b, const Persons& P, const std::vec
         for (std::int64_t i = 0; i < n; ++i) {
             if (R.school_id[i] > 0) { en.push_back(i); }
         }
-        std::stable_sort(en.begin(), en.end(), [&] (std::int64_t i, std::int64_t j) {
+        totalSort(en, [&] (std::int64_t i, std::int64_t j) {
             if (work[i] != work[j]) { return work[i] < work[j]; }
             if (R.school_id[i] != R.school_id[j]) { return R.school_id[i] < R.school_id[j]; }
             if (P.grade[i] != P.grade[j]) { return P.grade[i] < P.grade[j]; }
             return i < j;
         });
-        const KR64 ks(seed, rep, Stage::CLASS_SMEAR);
-        std::vector<std::int64_t> local(n, 0), cls;
-        std::int64_t base = 0;
-        for (std::size_t lo = 0; lo < en.size();) {
-            std::size_t hi = lo;
-            while (hi < en.size() && work[en[hi]] == work[en[lo]] && R.school_id[en[hi]] == R.school_id[en[lo]] &&
-                   P.grade[en[hi]] == P.grade[en[lo]]) {
-                ++hi;
+        // groups: runs of equal (work geoid, school, grade) in en; independent, so in parallel
+        std::vector<std::int64_t> starts;
+        for (std::size_t j = 0; j < en.size(); ++j) {
+            if (j == 0 || work[en[j]] != work[en[j - 1]] || R.school_id[en[j]] != R.school_id[en[j - 1]] ||
+                P.grade[en[j]] != P.grade[en[j - 1]]) {
+                starts.push_back(static_cast<std::int64_t>(j));
             }
+        }
+        const auto n_groups = static_cast<std::int64_t>(starts.size());
+        starts.push_back(static_cast<std::int64_t>(en.size()));
+        const KR64 ks(seed, rep, Stage::CLASS_SMEAR);
+        std::vector<std::int64_t> local(en.size(), 0), n_grp(n_groups); // local: by position in en
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 256) num_threads(threads())
+#endif
+        for (std::int64_t gi = 0; gi < n_groups; ++gi) {
+            const auto lo = static_cast<std::size_t>(starts[gi]), hi = static_cast<std::size_t>(starts[gi + 1]);
             std::int64_t n_st = 0;
             for (std::size_t j = lo; j < hi; ++j) {
                 n_st += P.naics[en[j]] == -1 ? 1 : 0;
@@ -1568,13 +1867,22 @@ Groups assignGroups (const PopulationBundle& b, const Persons& P, const std::vec
                     c = r < CLASS_MIN * n_classes ? r % n_classes : index(kc.with(r).u64(0), n_classes);
                 }
                 R.school_class[i] = c;
-                local[i] = c >= 0 ? c : n_classes + (-2 - c);
+                local[j] = c >= 0 ? c : n_classes + (-2 - c);
             }
-            for (std::size_t j = lo; j < hi; ++j) {
-                R.school_class_group[en[j]] = base + local[en[j]];
+            n_grp[gi] = n_classes + n_admin;
+        }
+        // dense ids: exclusive scan of class and admin group counts in (geoid, school, grade) order
+        std::vector<std::int64_t> base(n_groups + 1, 0);
+        for (std::int64_t gi = 0; gi < n_groups; ++gi) {
+            base[gi + 1] = base[gi] + n_grp[gi];
+        }
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 256) num_threads(threads())
+#endif
+        for (std::int64_t gi = 0; gi < n_groups; ++gi) {
+            for (std::int64_t j = starts[gi]; j < starts[gi + 1]; ++j) {
+                R.school_class_group[en[j]] = base[gi] + local[j];
             }
-            base += n_classes + n_admin;
-            lo = hi;
         }
     }
     if (digests) { (*digests)["S9 school groups"] = Digest().add(R.school_class).add(R.school_class_group).hex16(); }
@@ -1583,12 +1891,16 @@ Groups assignGroups (const PopulationBundle& b, const Persons& P, const std::vec
     R.work_nborhood.assign(n, 0);
     {
         std::vector<std::int64_t> day(n), kind(n), a(n, 0), bb(n, 0), c(n, 0);
-        std::map<std::int64_t, std::int64_t> school_size; // (day geoid * 100000 + school id) -> members
+        // (day geoid * 100000 + school id) -> members; only ever looked up, so a hash map
+        std::unordered_map<std::int64_t, std::int64_t> school_size;
         for (std::int64_t i = 0; i < n; ++i) {
             const bool at_school = R.school_id[i] != 0, at_work = R.workgroup[i] > 0;
             day[i] = (!at_school && !at_work) ? P.bg[i] : work[i];
             if (at_school) { ++school_size[day[i] * 100000 + R.school_id[i]]; }
         }
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(threads())
+#endif
         for (std::int64_t i = 0; i < n; ++i) {
             const bool at_school = R.school_id[i] != 0, at_work = R.workgroup[i] > 0;
             if (at_work) {
@@ -1611,24 +1923,96 @@ Groups assignGroups (const PopulationBundle& b, const Persons& P, const std::vec
                 a[i] = P.h[i];
             }
         }
-        // atoms = distinct (day, kind, a, b, c), sorted
+        // atoms = distinct (day, kind, a, b, c), sorted, and each person's atom. Persons in the
+        // order of (atom, index): the day geoid leads, so they are bucketed by day first (a stable
+        // counting sort), then each day's few thousand sorted by the rest on their own, in cache
+        // and in parallel -- the same order one sort of everyone would give.
         using Atom = std::array<std::int64_t, 5>;
-        std::map<Atom, std::int64_t> atom_size;
+        std::unordered_map<std::int64_t, std::int64_t> day_ix;
+        std::vector<std::int64_t> days;
         for (std::int64_t i = 0; i < n; ++i) {
-            ++atom_size[{day[i], kind[i], a[i], bb[i], c[i]}];
+            if (day_ix.emplace(day[i], 0).second) { days.push_back(day[i]); }
         }
-        const std::size_t NA = atom_size.size();
-        std::vector<Atom> atoms;
-        std::vector<std::int64_t> asize;
-        atoms.reserve(NA);
-        for (const auto& [at, sz] : atom_size) {
-            atoms.push_back(at);
-            asize.push_back(sz);
+        std::sort(days.begin(), days.end());
+        const auto n_day = static_cast<std::int64_t>(days.size());
+        for (std::int64_t d = 0; d < n_day; ++d) {
+            day_ix[days[d]] = d;
         }
+        std::vector<std::int64_t> dstart(n_day + 1, 0), by_atom(n);
+        {
+            std::vector<std::int32_t> dr(n);
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(threads())
+#endif
+            for (std::int64_t i = 0; i < n; ++i) {
+                dr[i] = static_cast<std::int32_t>(day_ix.at(day[i]));
+            }
+            for (std::int64_t i = 0; i < n; ++i) {
+                ++dstart[dr[i] + 1];
+            }
+            for (std::int64_t d = 0; d < n_day; ++d) {
+                dstart[d + 1] += dstart[d];
+            }
+            std::vector<std::int64_t> fill(dstart.begin(), dstart.end() - 1);
+            for (std::int64_t i = 0; i < n; ++i) {
+                by_atom[fill[dr[i]]++] = i;
+            }
+        }
+        struct Member {
+            std::int64_t kind, a, b, c, i;
+            bool operator<(const Member& o) const { return std::tie(kind, a, b, c, i) < std::tie(o.kind, o.a, o.b, o.c, o.i); }
+        };
+        std::vector<std::int64_t> day_atoms(n_day, 0);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 16) num_threads(threads())
+#endif
+        for (std::int64_t d = 0; d < n_day; ++d) {
+            std::vector<Member> m;
+            m.reserve(static_cast<std::size_t>(dstart[d + 1] - dstart[d]));
+            for (std::int64_t j = dstart[d]; j < dstart[d + 1]; ++j) {
+                const auto i = by_atom[j];
+                m.push_back({kind[i], a[i], bb[i], c[i], i});
+            }
+            std::sort(m.begin(), m.end());
+            std::int64_t na = 0;
+            for (std::size_t k = 0; k < m.size(); ++k) {
+                by_atom[dstart[d] + static_cast<std::int64_t>(k)] = m[k].i;
+                const auto& x = m[k];
+                if (k == 0 || std::tie(x.kind, x.a, x.b, x.c) != std::tie(m[k - 1].kind, m[k - 1].a, m[k - 1].b, m[k - 1].c)) {
+                    ++na;
+                }
+            }
+            day_atoms[d] = na;
+        }
+        std::vector<std::int64_t> atom_base(n_day + 1, 0);
+        for (std::int64_t d = 0; d < n_day; ++d) {
+            atom_base[d + 1] = atom_base[d] + day_atoms[d];
+        }
+        std::vector<Atom> atoms(static_cast<std::size_t>(atom_base[n_day]));
+        std::vector<std::int64_t> asize(atoms.size(), 0), atom_of(n);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 16) num_threads(threads())
+#endif
+        for (std::int64_t d = 0; d < n_day; ++d) {
+            std::int64_t id = atom_base[d] - 1;
+            for (std::int64_t j = dstart[d]; j < dstart[d + 1]; ++j) {
+                const auto i = by_atom[j];
+                const Atom t{day[i], kind[i], a[i], bb[i], c[i]};
+                if (j == dstart[d] || atoms[static_cast<std::size_t>(id)] != t) { atoms[static_cast<std::size_t>(++id)] = t; }
+                ++asize[static_cast<std::size_t>(id)];
+                atom_of[i] = id;
+            }
+        }
+        by_atom = {};
+        const std::size_t NA = atoms.size();
         const KR64 kd(seed, rep, Stage::DAY_NB);
         std::vector<std::uint64_t> dk(NA);
         std::vector<std::uint8_t> over(NA);
-        for (std::size_t j = 0; j < NA; ++j) {
+        const auto na64 = static_cast<std::int64_t>(NA);
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(threads())
+#endif
+        for (std::int64_t j = 0; j < na64; ++j) {
             const auto& t = atoms[j];
             dk[j] = kd.with(t[0]).with(t[1]).with(t[2]).with(t[3]).with(t[4]).u64(0);
             over[j] = asize[j] > NBORHOOD_SIZE;
@@ -1641,11 +2025,17 @@ Groups assignGroups (const PopulationBundle& b, const Persons& P, const std::vec
             return std::lexicographical_compare(X.begin() + 1, X.end(), Y.begin() + 1, Y.end());
         });
         std::vector<std::int64_t> atom_bin(NA);
-        for (std::size_t lo = 0; lo < NA;) {
-            std::size_t hi = lo;
-            while (hi < NA && atoms[order[hi]][0] == atoms[order[lo]][0]) {
-                ++hi;
-            }
+        std::vector<std::int64_t> day_starts; // runs of one day geoid in order; independent
+        for (std::size_t j = 0; j < NA; ++j) {
+            if (j == 0 || atoms[order[j]][0] != atoms[order[j - 1]][0]) { day_starts.push_back(static_cast<std::int64_t>(j)); }
+        }
+        const auto n_days = static_cast<std::int64_t>(day_starts.size());
+        day_starts.push_back(na64);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 64) num_threads(threads())
+#endif
+        for (std::int64_t gi = 0; gi < n_days; ++gi) {
+            const auto lo = static_cast<std::size_t>(day_starts[gi]), hi = static_cast<std::size_t>(day_starts[gi + 1]);
             std::int64_t n_over = 0, total = 0;
             for (std::size_t j = lo; j < hi; ++j) {
                 if (over[order[j]]) {
@@ -1667,12 +2057,12 @@ Groups assignGroups (const PopulationBundle& b, const Persons& P, const std::vec
                 atom_bin[at] = dense;
                 ex += packed;
             }
-            lo = hi;
         }
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(threads())
+#endif
         for (std::int64_t i = 0; i < n; ++i) {
-            const Atom key = {day[i], kind[i], a[i], bb[i], c[i]};
-            const auto j = std::lower_bound(atoms.begin(), atoms.end(), key) - atoms.begin();
-            R.work_nborhood[i] = atom_bin[j];
+            R.work_nborhood[i] = atom_bin[atom_of[i]];
         }
     }
     if (digests) { (*digests)["S10 day neighbourhoods"] = Digest().add(R.work_nborhood).hex16(); }
