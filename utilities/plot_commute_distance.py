@@ -368,6 +368,11 @@ def main():
     for label, dist, weights, _, _ in series:
         print_stats(label, dist, weights)
 
+    # A log axis can't start at 0 (e.g. --logx --xlim 0 1000, reusing a linear range), so a
+    # non-positive lower limit there means "from the shortest nonzero distance".
+    if args.logx and args.xlim and args.xlim[0] <= 0:
+        args.xlim = [min(dist[dist > 0].min() for _, dist, _, _, _ in series), args.xlim[1]]
+
     fig, ax = plt.subplots(figsize=(HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN), layout="constrained")
     if args.cdf:
         for label, dist, weights, color, reference in series:
