@@ -328,6 +328,23 @@ def get_args():
         "the industry average instead makes destination populations pile up at multiples of that "
         "average, so a missing file is a hard error rather than a silent fallback.",
     )
+    parser.add_argument(
+        "--fill_decay_km",
+        default=DEFAULT_FILL_DECAY_KM,
+        help="Length scale (km) of the exp(-distance / L) factor alloc_workers' fill multiplies each "
+        "candidate home's LODES flow weight by. Without it, destinations filled late find nearby "
+        "workers already taken and pull them from far away (NM: 1.6x the LODES share of commutes "
+        "over 100 km). 'auto' (the default) calibrates L per run so that share matches LODES; a "
+        "number fixes L; 0 disables the decay. Needs --blockgroup_points_files unless 0.",
+    )
+    parser.add_argument(
+        "--blockgroup_points_files",
+        nargs="+",
+        default=[],
+        help="CSV(s) of block-group internal points (GEOID10, INTPTLAT10, INTPTLON10), e.g. "
+        "../US_2010_Census_BlockGroups/tl_2010_35_bg10.shp.csv, for the distances "
+        "--fill_decay_km uses",
+    )
     # --- group-structure targets ---
     # These used to be ExaEpi runtime options (agent.nborhood_size and friends in Utils.H). The
     # groups they size are now built here and stored in the .bin, so they are properties of the
@@ -829,6 +846,133 @@ def load_county_adjacency(fname: str) -> dict[str, set[str]]:
     return adjacency
 
 
+# Length scale (km) of the distance decay alloc_workers' fill applies on top of LODES flow weights
+# -- see alloc_workers step 4. "auto" calibrates it per run (choose_fill_decay), because no one
+# length fits every state: ~24-30 km suits NM, but pulls CA's commutes far below LODES.
+DEFAULT_FILL_DECAY_KM = "auto"
+# The calibration target: the allocation's share of workers commuting further than this matches
+# LODES' own share, to within FILL_DECAY_TOLERANCE, searching lengths in FILL_DECAY_RANGE_KM.
+FILL_DECAY_FAR_KM = 100.0
+FILL_DECAY_TOLERANCE = 0.001
+FILL_DECAY_RANGE_KM = (1.0, 10000.0)
+FILL_DECAY_MAX_TRIALS = 12
+
+EARTH_RADIUS_KM = 6371.0088
+
+
+def load_blockgroup_points(fnames: list[str]) -> dict[str, tuple[float, float]]:
+    """Loads block-group internal points (GEOID10, INTPTLAT10, INTPTLON10 CSVs, e.g.
+    data/US_2010_Census_BlockGroups/tl_2010_35_bg10.shp.csv) as {12-digit geoid: (lat, lon)}."""
+    points = {}
+    for fname in fnames:
+        printgreen(f"Loading block group points from {fname}")
+        df = pl.read_csv(fname, schema_overrides={"GEOID10": pl.Utf8})
+        for g, lat, lon in zip(df["GEOID10"].str.zfill(12), df["INTPTLAT10"], df["INTPTLON10"]):
+            points[g] = (float(lat), float(lon))
+    print(f"Loaded {len(points)} block group points")
+    return points
+
+
+def haversine_km(lat1, lon1, lat2, lon2):
+    lat1, lon1, lat2, lon2 = (np.radians(a) for a in (lat1, lon1, lat2, lon2))
+    a = np.sin((lat2 - lat1) / 2) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin((lon2 - lon1) / 2) ** 2
+    return 2 * EARTH_RADIUS_KM * np.arcsin(np.sqrt(a))
+
+
+def parse_fill_decay(value) -> float | None:
+    """--fill_decay_km: "auto" (None: calibrate against LODES), 0 (off) or a fixed length in km."""
+    if isinstance(value, str) and value.strip().lower() == "auto":
+        return None
+    decay = float(value)
+    if decay < 0:
+        raise_err(f"--fill_decay_km must be 'auto', 0 or a positive length, not {value}")
+    return decay
+
+
+def choose_fill_decay(fill, flow, flow_km, decay_km, home_idx_of_worker, dest_pts, home_pts) -> np.ndarray:
+    """Run alloc_workers' fill with the distance decay of its step 4, and return each worker's
+    destination index (-1 = left for the fallback).
+
+    decay_km 0 runs the fill on the plain LODES flow weights, and a positive decay_km with them
+    times exp(-km / decay_km). None calibrates the length instead, because the one that makes
+    the allocation match LODES varies a lot between states: 30 km on NM, several hundred km on
+    CA, where the excess is milder and destinations are closer together, so a short length pulls
+    commutes well below LODES. The calibration bisects log(length) over FILL_DECAY_RANGE_KM until
+    the share of workers commuting over FILL_DECAY_FAR_KM matches what LODES implies for these
+    workers: the share they would have if each drew a destination from its own home's LODES row
+    (the fallback's sampling, applied to everyone). That share rises with the length, since a
+    longer length decays less. LODES' share by jobs is not the target: the synthetic workers'
+    homes are distributed differently from LODES residences (NM: 12.3% vs 11.6%), and the
+    unreachable lower target drives the search to the shortest length, which wrecks the flow
+    pattern (NM: LODES flow correlation 0.56 instead of 0.82).
+
+    Each trial reruns the fill from the same RNG state, so trials differ only in their weights;
+    the trial closest to the target is kept, and the RNG continues from where that trial left it,
+    so the output is still a deterministic function of the seed. A trial is scored on the workers
+    it fills plus, for the ones it leaves, the far share of their own home's LODES row -- the
+    expected result of the fallback sampling that follows, without running it every trial.
+    """
+    if decay_km == 0:
+        return fill(flow.data, "")
+    if decay_km is not None:
+        print(f"Fill weights decayed with distance, length scale {decay_km:g} km")
+        return fill(flow.data * np.exp(-flow_km / decay_km), "")
+
+    num_workers = len(home_idx_of_worker)
+    far_flow = flow.data * (flow_km > FILL_DECAY_FAR_KM)
+    home_out = np.bincount(flow.indices, weights=flow.data, minlength=flow.shape[1])
+    home_far_out = np.bincount(flow.indices, weights=far_flow, minlength=flow.shape[1])
+    home_far_share = np.divide(home_far_out, home_out, out=np.zeros_like(home_out), where=home_out > 0)
+    target = home_far_share[home_idx_of_worker].mean()
+    lodes_share = far_flow.sum() / flow.data.sum()
+
+    def far_share(dest_of_worker):
+        filled = dest_of_worker >= 0
+        d, h = dest_of_worker[filled], home_idx_of_worker[filled]
+        km = haversine_km(dest_pts[d, 0], dest_pts[d, 1], home_pts[h, 0], home_pts[h, 1])
+        far_filled = np.count_nonzero(np.nan_to_num(km) > FILL_DECAY_FAR_KM)
+        far_left = home_far_share[home_idx_of_worker[~filled]].sum()
+        return (far_filled + far_left) / num_workers, 100.0 * (~filled).mean()
+
+    rng_start = np.random.get_state()
+
+    def trial(length_km):
+        np.random.set_state(rng_start)
+        weights = flow.data if length_km is None else flow.data * np.exp(-flow_km / length_km)
+        label = " (no decay)" if length_km is None else f" (decay {length_km:.1f} km)"
+        dest_of_worker = fill(weights, label)
+        share, left_pct = far_share(dest_of_worker)
+        print(f"  far (>{FILL_DECAY_FAR_KM:g} km) share {100 * share:.2f}% vs target {100 * target:.2f}%, "
+              f"{left_pct:.1f}% left for the fallback")
+        return share, length_km, dest_of_worker, np.random.get_state()
+
+    printgreen(f"Calibrating the fill's distance decay to {100 * target:.2f}%% of workers commuting over "
+               f"{FILL_DECAY_FAR_KM:g} km, as their homes' LODES rows imply ({100 * lodes_share:.2f}%% of LODES "
+               f"jobs)")
+    best = trial(None)
+    if best[0] > target + FILL_DECAY_TOLERANCE:
+        lo, hi = np.log(FILL_DECAY_RANGE_KM[0]), np.log(FILL_DECAY_RANGE_KM[1])
+        for _ in range(FILL_DECAY_MAX_TRIALS):
+            mid = (lo + hi) / 2
+            result = trial(float(np.exp(mid)))
+            if abs(result[0] - target) < abs(best[0] - target):
+                best = result
+            if abs(result[0] - target) <= FILL_DECAY_TOLERANCE:
+                break
+            if result[0] > target:
+                hi = mid  # too many far commutes: decay harder, i.e. a shorter length
+            else:
+                lo = mid
+    share, length_km, dest_of_worker, rng_after = best
+    np.random.set_state(rng_after)
+    chosen = "no decay" if length_km is None else f"decay length {length_km:.1f} km"
+    print(f"Fill distance decay: chose {chosen} (far share {100 * share:.2f}% vs target {100 * target:.2f}%)")
+    if length_km is not None and not (FILL_DECAY_RANGE_KM[0] * 1.5 < length_km < FILL_DECAY_RANGE_KM[1] / 1.5):
+        warn(f"the fill decay length ended at the edge of its search range {FILL_DECAY_RANGE_KM} km -- the "
+             f"target far share is probably not reachable; check the commute-distance distribution")
+    return dest_of_worker
+
+
 DEFAULT_WORKGROUP_TARGET = 20  # matches Utils.H's workgroup_size default
 
 # Both tables are national (every state in one file) and generated into the repo by
@@ -957,7 +1101,8 @@ def load_establishment_size_dists(fname: str) -> dict[tuple[int, str], tuple[np.
 @timer
 def alloc_workers(
     lodes_df: pl.DataFrame, workers_df: pl.DataFrame, workgroup_sizes_file: str = "",
-    establishment_sizes_file: str = "",
+    establishment_sizes_file: str = "", blockgroup_points: dict[str, tuple[float, float]] | None = None,
+    fill_decay_km: float | str = DEFAULT_FILL_DECAY_KM,
 ) -> pl.DataFrame:
     """Destination-driven worker allocation.
 
@@ -995,8 +1140,20 @@ def alloc_workers(
          relocated, not invented or dropped).
       4. (destination, NAICS) pairs are filled in descending order of that pair's own demand,
          pulling workers from that pair's still-unassigned local pool weighted by their own
-         home's real flow to that destination -- never a destination a worker's home has zero
-         real flow to.
+         home's real flow to that destination times exp(-distance / fill_decay_km) -- never a
+         destination a worker's home has zero real flow to. The distance factor is needed
+         because steps 2-3 concentrate each NAICS into a few destinations: filling the biggest
+         demands first uses up the nearby workers of each NAICS, so without it the pairs filled
+         later draw on LODES' long tail of 1-2-job home geoids hundreds of km away, and ExaEpi
+         ended up with ~1.6x the LODES share of commutes over 100 km (NM: 18.9% vs 11.6%, p90
+         223 vs 115 km). The length is calibrated per run by default (see choose_fill_decay),
+         since the one that works varies a lot between states; on NM it comes out near 24 km
+         and gives 12.3% (p90 120 km) with the same workplace sizes. Measured before settling
+         on this: capping each (destination,
+         NAICS) demand at a multiple of its LODES-expected local supply barely moves the tail,
+         since those destinations' combined supply can't absorb the NAICS total; a hard radius
+         or dropping far small LODES pairs overshoots, and pushes 7-16% of workers into the
+         scattered fallback below.
       5. Any worker left over (implausible demand, or a destination's real local supply ran out)
          falls back to plain per-worker home-flow sampling, same as the original algorithm.
     """
@@ -1046,6 +1203,26 @@ def alloc_workers(
         shape=(n_dest, n_home),
     )
     dest_total = np.asarray(flow.sum(axis=1)).ravel()
+
+    # --- distance of every (destination, home) flow entry, aligned with flow.data, for the fill's
+    # distance decay (step 4). ---
+    decay_km = parse_fill_decay(fill_decay_km)  # None = calibrate, 0 = off
+    flow_km = dest_pts = home_pts = None
+    if decay_km != 0:
+        if not blockgroup_points:
+            raise_err("--fill_decay_km other than 0 needs block group points (--blockgroup_points_files)")
+        points = blockgroup_points or {}  # raise_err never returns, but isn't typed NoReturn
+        nan_pt = (np.nan, np.nan)
+        dest_pts = np.array([points.get(g, nan_pt) for g in dest_geoids])
+        home_pts = np.array([points.get(g, nan_pt) for g in home_geoids])
+        flow_dest = np.repeat(np.arange(n_dest), np.diff(flow.indptr))
+        flow_km = haversine_km(dest_pts[flow_dest, 0], dest_pts[flow_dest, 1],
+                               home_pts[flow.indices, 0], home_pts[flow.indices, 1])
+        no_pt = np.isnan(flow_km)
+        if no_pt.any():
+            warn(f"{int(no_pt.sum())} of {len(flow_km)} LODES pairs have a block group with no internal "
+                 f"point; treating them as 0 km apart")
+            flow_km[no_pt] = 0.0
 
     # --- (home x naics) real population matrix, from the synthetic agents themselves -- this
     # is what makes a destination's random NAICS specialization respect actual local supply
@@ -1164,22 +1341,19 @@ def alloc_workers(
     # per-home Python loop) uses the standard vectorized ragged-arange trick: cumsum of group
     # sizes gives each group's offset into a flat arange, so a single np.repeat/indexing pass
     # produces the concatenated candidate rows and their (per-home-constant) weights.
-    work_geoid_arr = np.empty(num_workers, dtype=object)
-    assigned = np.zeros(num_workers, dtype=bool)
-
     valid_worker = np.where(naics_arr >= 0)[0]
     combo = home_idx_of_worker[valid_worker].astype(np.int64) * n_naics + naics_arr[valid_worker].astype(
         np.int64
     )
     rand_keys = np.random.random(len(valid_worker))
     combo_order = np.lexsort((rand_keys, combo))  # groups by combo, randomized within each group
-    pool_rows = valid_worker[combo_order]
+    pool_rows_init = valid_worker[combo_order]
     sorted_combo = combo[combo_order]
     uniq_combo, combo_start, combo_count = np.unique(sorted_combo, return_index=True, return_counts=True)
     pool_start = np.zeros(n_home * n_naics, dtype=np.int64)
-    pool_count = np.zeros(n_home * n_naics, dtype=np.int64)
+    pool_count_init = np.zeros(n_home * n_naics, dtype=np.int64)
     pool_start[uniq_combo] = combo_start
-    pool_count[uniq_combo] = combo_count
+    pool_count_init[uniq_combo] = combo_count
 
     # Visit (destination, NAICS) pairs in descending order of that pair's own demand -- mirrors
     # the original per-NAICS loop's "largest demand first" ordering, but globally, so one huge
@@ -1192,54 +1366,68 @@ def alloc_workers(
     pair_dest = pair_dest[pair_order]
     pair_naics = pair_naics[pair_order]
 
-    ticker = ProgressTicker(f"Filling {len(pair_dest)} (destination, NAICS) pairs: ", len(pair_dest))
-    for pi in range(len(pair_dest)):
-        ticker.update(pi)
-        d = int(pair_dest[pi])
-        ni = int(pair_naics[pi])
-        d_homes = flow.indices[flow.indptr[d] : flow.indptr[d + 1]]
-        if len(d_homes) == 0:
-            continue
-        d_weights = flow.data[flow.indptr[d] : flow.indptr[d + 1]]
-        target_count = int(demand_int[d, ni])
-        combo_idx = d_homes * n_naics + ni
-        counts = pool_count[combo_idx]
-        hit = counts > 0
-        if not hit.any():
-            continue
-        starts_m = pool_start[combo_idx[hit]]
-        counts_m = counts[hit]
-        weights_m = d_weights[hit]
-        total = int(counts_m.sum())
-        group_off = np.cumsum(counts_m) - counts_m
-        local_idx = np.arange(total) - np.repeat(group_off, counts_m)
-        offsets = np.repeat(starts_m, counts_m) + local_idx
-        cand_rows = pool_rows[offsets]
-        cand_weights = np.repeat(weights_m, counts_m)
-        k_pull = min(target_count, total)
-        if k_pull <= 0:
-            continue
-        chosen_local = np.random.choice(
-            total, size=k_pull, replace=False, p=cand_weights / cand_weights.sum()
-        )
-        chosen_rows = cand_rows[chosen_local]
-        work_geoid_arr[chosen_rows] = dest_geoids[d]
-        assigned[chosen_rows] = True
-        # compact only the (home, NAICS) pools actually drawn from, so future lookups never
-        # see an already-assigned worker
-        for h in np.unique(home_idx_of_worker[chosen_rows]).tolist():
-            cidx = h * n_naics + ni
-            s = pool_start[cidx]
-            c = pool_count[cidx]
-            block = pool_rows[s : s + c]
-            keep = block[~assigned[block]]
-            pool_rows[s : s + len(keep)] = keep
-            pool_count[cidx] = len(keep)
-    ticker.finish()
+    def fill(weights: np.ndarray, label: str) -> np.ndarray:
+        """Run the fill once with per-flow-entry candidate weights (aligned with flow.data), on
+        fresh copies of the pools so it can be rerun. Returns each worker's destination index,
+        -1 for a worker left for the fallback."""
+        pool_rows = pool_rows_init.copy()
+        pool_count = pool_count_init.copy()
+        assigned = np.zeros(num_workers, dtype=bool)
+        dest_of_worker = np.full(num_workers, -1, dtype=np.int64)
+        ticker = ProgressTicker(f"Filling {len(pair_dest)} (destination, NAICS) pairs{label}: ", len(pair_dest))
+        for pi in range(len(pair_dest)):
+            ticker.update(pi)
+            d = int(pair_dest[pi])
+            ni = int(pair_naics[pi])
+            d_homes = flow.indices[flow.indptr[d] : flow.indptr[d + 1]]
+            if len(d_homes) == 0:
+                continue
+            d_weights = weights[flow.indptr[d] : flow.indptr[d + 1]]
+            target_count = int(demand_int[d, ni])
+            combo_idx = d_homes * n_naics + ni
+            counts = pool_count[combo_idx]
+            hit = counts > 0
+            if not hit.any():
+                continue
+            starts_m = pool_start[combo_idx[hit]]
+            counts_m = counts[hit]
+            weights_m = d_weights[hit]
+            total = int(counts_m.sum())
+            group_off = np.cumsum(counts_m) - counts_m
+            local_idx = np.arange(total) - np.repeat(group_off, counts_m)
+            offsets = np.repeat(starts_m, counts_m) + local_idx
+            cand_rows = pool_rows[offsets]
+            cand_weights = np.repeat(weights_m, counts_m)
+            k_pull = min(target_count, total)
+            if k_pull <= 0:
+                continue
+            chosen_local = np.random.choice(
+                total, size=k_pull, replace=False, p=cand_weights / cand_weights.sum()
+            )
+            chosen_rows = cand_rows[chosen_local]
+            dest_of_worker[chosen_rows] = d
+            assigned[chosen_rows] = True
+            # compact only the (home, NAICS) pools actually drawn from, so future lookups never
+            # see an already-assigned worker
+            for h in np.unique(home_idx_of_worker[chosen_rows]).tolist():
+                cidx = h * n_naics + ni
+                s = pool_start[cidx]
+                c = pool_count[cidx]
+                block = pool_rows[s : s + c]
+                keep = block[~assigned[block]]
+                pool_rows[s : s + len(keep)] = keep
+                pool_count[cidx] = len(keep)
+        ticker.finish()
+        return dest_of_worker
+
+    dest_of_worker = choose_fill_decay(fill, flow, flow_km, decay_km, home_idx_of_worker, dest_pts, home_pts)
+    work_geoid_arr = np.empty(num_workers, dtype=object)
+    filled = dest_of_worker >= 0
+    work_geoid_arr[filled] = np.array(dest_geoids, dtype=object)[dest_of_worker[filled]]
 
     # --- leftover fallback: implausible demand or exhausted local supply -- same plain
     # home-flow sampling the original algorithm used for everyone. ---
-    leftover = np.where(~assigned)[0]
+    leftover = np.where(~filled)[0]
     missing_geoid_set = set()
     if len(leftover) > 0:
         warn(f"{len(leftover)} of {num_workers} workers ({100.0 * len(leftover) / num_workers:.1f}%%) "
@@ -1790,6 +1978,8 @@ def generate_nt_dt(
     county_adjacency: dict[str, set[str]],
     workgroup_sizes_file: str = "",
     establishment_sizes_file: str = "",
+    blockgroup_points: dict[str, tuple[float, float]] | None = None,
+    fill_decay_km: float | str = DEFAULT_FILL_DECAY_KM,
 ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     # randomly allocate some young agents to childcare
     upop_df = set_childcare(upop_df, seed)
@@ -1828,7 +2018,8 @@ def generate_nt_dt(
             pl.lit(-1, dtype=pl.Int16).alias("naics"),
         ]
     )
-    workers_nt_dt_df = alloc_workers(lodes_df, workers_df, workgroup_sizes_file, establishment_sizes_file)
+    workers_nt_dt_df = alloc_workers(lodes_df, workers_df, workgroup_sizes_file, establishment_sizes_file,
+                                     blockgroup_points, fill_decay_km)
     if num_unique_ids != (len(workers_nt_dt_df) + len(students_df) + len(unemp_df)):
         raise_err(f"Incorrect number of unique IDS after worker allocation")
     students_nt_dt_df = alloc_students(schools_df, students_df, county_adjacency)
@@ -2912,9 +3103,11 @@ def main():
     # filter out those schools that don't have the same geoid as the home geoids
     schools_df = schools_df.filter(pl.col("geoid").is_in(upop_df["home_geoid"].unique().to_list()))
     county_adjacency = load_county_adjacency(args.county_adjacency_file)
+    fill_decay = parse_fill_decay(args.fill_decay_km)
+    blockgroup_points = load_blockgroup_points(args.blockgroup_points_files) if fill_decay != 0 else None
     workers_df, students_df, schools_df, unemp_df = generate_nt_dt(
         schools_df, upop_df, lodes_df, args.rseed, county_adjacency, args.workgroup_sizes_file,
-        args.establishment_sizes_file
+        args.establishment_sizes_file, blockgroup_points, args.fill_decay_km
     )
     check_flows_correlation(workers_df, lodes_df)
     # workers_df.write_ipc("workers_df.feather")

@@ -20,6 +20,8 @@ usage: upop_to_exaepi.py [-h] [-c FILE] [--output OUTPUT] --upop_files
                          [--county_adjacency_file COUNTY_ADJACENCY_FILE]
                          [--workgroup_sizes_file WORKGROUP_SIZES_FILE]
                          [--establishment_sizes_file ESTABLISHMENT_SIZES_FILE]
+                         [--fill_decay_km FILL_DECAY_KM]
+                         [--blockgroup_points_files BLOCKGROUP_POINTS_FILES [BLOCKGROUP_POINTS_FILES ...]]
                          [--nborhood_size NBORHOOD_SIZE]
                          [--workgroup_size WORKGROUP_SIZE]
                          [--school_class_size SCHOOL_CLASS_SIZE]
@@ -61,11 +63,27 @@ options:
                         makes destination populations pile up at multiples of
                         that average, so a missing file is a hard error rather
                         than a silent fallback.
+  --fill_decay_km FILL_DECAY_KM
+                        Length scale (km) of the exp(-distance / L) factor
+                        alloc_workers' fill multiplies each candidate home's
+                        LODES flow weight by. Without it, destinations filled
+                        late find nearby workers already taken and pull them
+                        from far away (NM: 1.6x the LODES share of commutes
+                        over 100 km). 'auto' (the default) calibrates L per
+                        run so that share matches LODES; a number fixes L; 0
+                        disables the decay. Needs --blockgroup_points_files
+                        unless 0.
+  --blockgroup_points_files BLOCKGROUP_POINTS_FILES [BLOCKGROUP_POINTS_FILES ...]
+                        CSV(s) of block-group internal points (GEOID10,
+                        INTPTLAT10, INTPTLON10), e.g.
+                        ../US_2010_Census_BlockGroups/tl_2010_35_bg10.shp.csv,
+                        for the distances --fill_decay_km uses
   --nborhood_size NBORHOOD_SIZE
-                        Target residents per neighborhood. Sets how many home
-                        neighborhoods a block group is split into, and how
-                        many work neighborhoods a work block group is split
-                        into
+                        Target members per neighborhood, by night and by day
+                        alike. Sets how many home neighborhoods a block
+                        group's residents are split into, and the size the
+                        daytime neighborhoods are packed to wherever the day
+                        is spent
   --workgroup_size WORKGROUP_SIZE
                         Fallback target work-group size, used for any (state,
                         NAICS) pair missing from --workgroup_sizes_file, and
@@ -99,6 +117,7 @@ schools_file=../EducationData/schools_with_geoids.csv
 county_adjacency_file=county_adjacency.csv
 output=urbanpop_nm
 rseed=29
+blockgroup_points_files=../US_2010_Census_BlockGroups/tl_2010_35_bg10.shp.csv
 ```
 
 This is `data/UrbanPop/nm.cfg`, which ships with the repo alongside `ca.cfg`; both are meant to be
@@ -117,6 +136,16 @@ It also requires the two per-(state, NAICS) size tables written by `compute_work
 default to the copies in `data/UrbanPop/`, resolved from the script's own location rather than the
 working directory, so they are found wherever the run starts and normally neither needs to be
 given. A missing or mismatched pair is a hard error rather than a silent fallback.
+
+The worker allocation also needs the internal point of every block group (`--blockgroup_points_files`,
+set in both shipped configs), for the distance decay its fill applies on top of the LODES flow
+weights (`--fill_decay_km`). Without the decay, the industry concentration the allocation builds
+in sends workers far beyond what LODES implies -- on NM, 18.9% of commutes are over 100 km against
+LODES' 11.6%. By default (`auto`) the decay length is calibrated on every run, so that the share of
+workers commuting over 100 km matches what their homes' LODES rows imply; a fixed length in km, or
+0 for no decay, can be given instead. The right length varies a lot between states (about 24 km on
+NM, several hundred on CA), which is why it isn't a constant. The calibration reruns the fill several
+times, adding a few minutes on CA; see `alloc_workers` and `choose_fill_decay` for the measurements.
 
 `upop_to_exaepi.py` will generate a single binary output file, `<output>.bin`, containing both the
 per-agent data and the block-group index (used for reading in parallel) in one combined format --
