@@ -285,6 +285,50 @@ def read_events_records(path: str) -> tuple[np.memmap, pd.DataFrame]:
     return records, demog_df
 
 
+def urbanpop_agent_index(agent_id, demog_df: pd.DataFrame, home_geoid: np.ndarray) -> np.ndarray:
+    """
+    Map raw Epicast agent ids to agents of the UrbanPop .bin the Epicast run was built from -- the
+    same population ExaEpi reads.
+
+    Epicast numbers its agents consecutively tract by tract, in the order of the events file's
+    per-tract population table, and within each tract in the order UrbanPop lists them. The .bin
+    stores agents sorted by home block group, which is the same order, so an agent id with its
+    home_state bits stripped is simply the agent's row in the .bin: index any column read from it
+    (e.g. plot_commute_distance.read_urbanpop_columns) with the result.
+
+    The tract-level half of that is checked here, and a mismatched .bin is refused: its agents'
+    home tracts must run in exactly the table's order and counts. The within-tract order can't be
+    checked from the header, but the infection contexts confirm it: on the CA p01 and NM p007 runs,
+    99.98% and 100% of Epicast's school infections map to UrbanPop students (school_id > 0, no
+    NAICS code), against ~26% by chance. Work infections map to employed agents 93% of the time;
+    nearly all the rest are university-age students, whom Epicast evidently also sends to work.
+
+    Parameters
+    ----------
+    agent_id : array of uint64
+        Raw agent_id values, e.g. read_events_records(...)[0]["agent_id"].
+    demog_df : pd.DataFrame
+        The events file's per-tract table, as returned by read_events_records / read_events_bin;
+        needs its "total" column.
+    home_geoid : np.ndarray
+        Every .bin agent's home block-group GEOID, in file order.
+
+    Returns
+    -------
+    np.ndarray of int64, one .bin row index per agent_id.
+    """
+    if "total" not in demog_df.columns:
+        raise ValueError(f"events file has no per-tract 'total' column (columns: {list(demog_df.columns)})")
+    expected_tracts = np.repeat(demog_df["fips"].to_numpy().astype(np.int64),
+                                demog_df["total"].to_numpy().astype(np.int64))
+    # 12-digit block group -> 11-digit tract
+    if len(expected_tracts) != len(home_geoid) or not np.array_equal(expected_tracts, home_geoid // 10):
+        raise ValueError(f"UrbanPop agents ({len(home_geoid):,}) don't follow the events file's tract order and "
+                         f"counts ({len(expected_tracts):,} agents), so it wasn't built from this population")
+    id_mask = ~(np.uint64(0b111111) << np.uint64(58))  # strip the home_state bits
+    return (np.asarray(agent_id, dtype=np.uint64) & id_mask).astype(np.int64)
+
+
 def aggregate_events(events_df: pd.DataFrame, split_day_night: bool = False) -> pd.DataFrame:
     """
     Aggregate event counts by day (pairs of timesteps), disease_state, and context.
