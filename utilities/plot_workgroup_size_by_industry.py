@@ -15,13 +15,11 @@ mean compare_group_sizes_to_epicast.py prints is a different, larger number.)
   - Epicast: Epicast reads the same UrbanPop population, but its workgroup-sizes dump
     (<state>_workgroup_sizes.txt, one size per line) does not say which industry each group is
     in, so on its own it only gives the all-industries mean. Pass --epicast_by_industry, a dump
-    with a NAICS code next to each group's size, to plot Epicast per sector as well. Neither of
-    the obvious substitutes works. The per-industry target Epicast sizes groups from (Epicast 2.0
-    sec. 2.8.3) is far from what it builds: its groups average 5.95 workers on CA, against 14.8
-    for the target, since every industry in every community is split separately. And an
-    events.bin gives the NAICS code of each worker infected at work (Epicast agent ids index the
-    UrbanPop agents in .bin order within each tract), but records no workgroup id, so the
-    sizes of the groups they were infected in are unknown.
+    with a NAICS code next to each group's size, to plot Epicast per sector as well --
+    estimate_epicast_workgroups.py writes an estimate of one from an events file (label it with
+    --epicast_label). The per-industry target Epicast sizes groups from (Epicast 2.0 sec. 2.8.3)
+    is no substitute on its own: its groups average 5.95 workers on CA, against 14.8 for the
+    target, since every industry in every community is split separately.
   - CBP: employment / establishments for the state's 2-digit sector rows in the CBP derived cache
     (data/UrbanPop/cbp19st_derived.csv, written by compute_workgroup_sizes.py). These are
     WORKPLACES, not workgroups -- a hospital is one establishment but many co-worker teams -- and
@@ -168,9 +166,11 @@ def cbp_means(cbp_file, state_fips):
 
 
 def print_table(rows, series):
-    print(f"\n{'Sector':<30}" + "".join(f"{label:>10}" for label, _means, _style in series))
+    widths = [max(10, len(label) + 2) for label, _means, _style in series]
+    print(f"\n{'Sector':<30}" + "".join(f"{label:>{w}}" for (label, _m, _s), w in zip(series, widths)))
     for key, name in rows:
-        vals = "".join(f"{means[key]:>10.1f}" if key in means else f"{'-':>10}" for _l, means, _s in series)
+        vals = "".join(f"{means[key]:>{w}.1f}" if key in means else f"{'-':>{w}}"
+                       for (_l, means, _s), w in zip(series, widths))
         print(f"{name:<30}{vals}")
 
 
@@ -190,7 +190,9 @@ def main():
                         "data/results/emerge-paper/epicast/<state>/<state>_workgroup_sizes.txt)")
     parser.add_argument("--epicast_by_industry", default=None,
                         help="Epicast workgroups as 'naics size' pairs, one per line, to plot Epicast per sector "
-                        "(replaces --epicast_sizes)")
+                        "(replaces --epicast_sizes), e.g. as written by estimate_epicast_workgroups.py")
+    parser.add_argument("--epicast_label", default="Epicast",
+                        help="Legend label for the Epicast series, e.g. 'Epicast (est.)' for an estimate")
     parser.add_argument("--cbp_file", default=os.path.join(REPO_ROOT, "data", "UrbanPop", "cbp19st_derived.csv"),
                         help="CBP derived cache (see compute_workgroup_sizes.py)")
     parser.add_argument("--output", "-o", default="workgroup_size_by_industry.png", help="Output image file")
@@ -208,7 +210,7 @@ def main():
     # different marker for each so the series are not told apart by color alone.
     series = [
         ("ExaEpi", exaepi, dict(color="red", marker="o")),
-        ("Epicast", epicast, dict(color="blue", marker="s")),
+        (args.epicast_label, epicast, dict(color="blue", marker="s")),
         ("CBP", cbp, dict(color="black", marker="D", markerfacecolor="none")),
     ]
 
