@@ -5,7 +5,13 @@ school size for the CA run used in the emerge paper.
 
 Epicast side: data/results/emerge-paper/epicast/ca/ca_{workgroup,schoolgroup,school}_sizes.txt
 -- plain text, one integer (group size) per line. "workgroup" is a workplace peer group,
-"schoolgroup" is a classroom-level cohort, "school" is a whole school.
+"schoolgroup" is a classroom-level cohort, "school" is a whole school. Epicast's schools run
+from preschool (UrbanPop's own preschoolers) to 12th grade, with no childcare or colleges
+(Epicast 2.0 sec. 2.4.1). Its school-groups appear to count staff as well as students: every
+school member is in exactly one of them (both files total 8.51M on CA, 461k on NM), about 1.3M more
+than UrbanPop's preschool-12 students on CA -- roughly its NAICS 611 workers, whom Epicast makes
+the teachers, one per school-group, pooling the rest into an administrative school-group per
+school. ExaEpi's class sizes count students only (see below).
 
 ExaEpi side: computed straight from the UrbanPop .bin ExaEpi reads its agents from (default
 data/UrbanPop/urbanpop_ca.bin), so no ExaEpi run -- and so no cases file -- is needed. The
@@ -35,9 +41,10 @@ work_geoid, except for a declared work-from-home non-educator, who stays in its 
     (work community, school_id) -- school_id is only unique within a community, like
     workgroup.
 
-The class panel also gets a reference curve straight from the schools data UrbanPop's allocation
-reads: each K-12 school's student-teacher ratio (see load_school_class_sizes). The workgroup panel
-can get real establishment sizes from CBP (--cbp_state).
+The class and school panels also get a reference curve straight from the schools data UrbanPop's
+allocation reads: each K-12 school's student-teacher ratio (load_school_class_sizes), and each
+school's listed students plus staff (load_school_sizes). The workgroup panel can get real
+establishment sizes from CBP (--cbp_state).
 """
 
 import argparse
@@ -56,6 +63,11 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Highest pre-college grade code in the .bin: grades there run 3..19, with 18 and 19 undergrad and
 # grad -- the same is_college test UrbanPop-scripts/group_assignment.py sizes classes with.
 COLLEGE_GRADE_MAX = 17
+# Grade code of childcare children in the .bin (and of their staff, who carry the grade they
+# teach). upop_to_exaepi.py's set_childcare imputes them from the under-5s UrbanPop has not in
+# school, and preschoolers placed at a childcare center are given it too; Epicast has no
+# equivalent, only preschools for UrbanPop's own preschoolers.
+CHILDCARE_GRADE = 3
 EPICAST_DIR = os.path.join(REPO_ROOT, "data", "results", "emerge-paper", "epicast", "ca")
 
 # Per --group-name: default Epicast sizes file, the ExaEpi field(s) needed, and axis/label text.
@@ -100,7 +112,7 @@ def outside_flagged_groups(keys, flagged):
     return ~np.isin(keys, np.unique(keys[flagged]))
 
 
-def exaepi_sizes(urbanpop_file, group_names, exclude_college=False):
+def exaepi_sizes(urbanpop_file, group_names, exclude_college=False, exclude_childcare=False):
     """({group_name: sizes} for each of group_names, the state FIPS codes the population covers),
     tallied from the UrbanPop .bin the way AgentContainer::computeGroupSizeDistributions does (see
     the module docstring).
@@ -112,11 +124,17 @@ def exaepi_sizes(urbanpop_file, group_names, exclude_college=False):
     exclude_college drops every school and class with a member (student or staff -- educators
     carry the grade they teach) above COLLEGE_GRADE_MAX. Whole groups go rather than just those
     members, though in practice no school or class mixes college with lower grades. Workgroups
-    are unaffected: educators are never in one.
+    are unaffected: educators are never in one. exclude_childcare does the same for childcare
+    centers and their classes (CHILDCARE_GRADE).
     """
     cols = read_urbanpop_columns(urbanpop_file, ["home_geoid", "work_geoid", "naics", "school_id",
                                                  "workgroup", "school_class_group", "travel", "grade"])
-    college = cols["grade"] > COLLEGE_GRADE_MAX
+    # members of the schools and classes to leave out
+    excluded = np.zeros(len(cols["grade"]), dtype=bool)
+    if exclude_college:
+        excluded |= cols["grade"] > COLLEGE_GRADE_MAX
+    if exclude_childcare:
+        excluded |= cols["grade"] == CHILDCARE_GRADE
     naics = cols["naics"].astype(np.int64)
     school_id = cols["school_id"].astype(np.int64)
     # Declared work-from-home non-educators spend the day at home (UrbanPopData::initAgents);
@@ -137,15 +155,15 @@ def exaepi_sizes(urbanpop_file, group_names, exclude_college=False):
         in_class = scg >= 0
         scg = scg[in_class]
         student = (naics == -1)[in_class]
-        if exclude_college:
+        if excluded.any():
             # flagged on every member, homeroom teachers included, not just the students counted
-            student &= outside_flagged_groups(scg, college[in_class])
+            student &= outside_flagged_groups(scg, excluded[in_class])
         sizes["class"] = group_counts(scg[student])
     if "school" in group_names:
         in_school = school_id > 0
         school_keys = (community[in_school] << 15) | school_id[in_school]
-        if exclude_college:
-            school_keys = school_keys[outside_flagged_groups(school_keys, college[in_school])]
+        if excluded.any():
+            school_keys = school_keys[outside_flagged_groups(school_keys, excluded[in_school])]
         sizes["school"] = group_counts(school_keys)
     for name, s in sizes.items():
         print(f"Found {len(s):,} ExaEpi {name} groups in {urbanpop_file}")
@@ -168,15 +186,42 @@ def load_school_class_sizes(fname, states):
     teacher counts include teachers without a homeroom class of their own (specialists, resource
     teachers), so there are fewer classes than teachers.
     """
+    df = read_schools(fname, states, exclude_levels=["C", "U"])
+    return (df.students / df.teachers).to_numpy(), df.teachers.to_numpy(dtype=float)
+
+
+def load_school_sizes(fname, states, include_childcare=True, include_college=True):
+    """School sizes from the same schools file as load_school_class_sizes: each school's listed
+    students plus teachers, since ExaEpi's school size counts staff too. Public and private K-12
+    schools always; childcare centers and colleges unless left out, to match ExaEpi's panel.
+    Returns (sizes, counts) with every count 1 -- each entry is one school.
+
+    Childcare sizes are HIFLD's licensed capacity, and their staff is imputed at 7 children per
+    adult. HIFLD reports no capacity at all for some states' centers (every NM one, for
+    instance), and get_schools.py then samples each from the national distribution, so a
+    childcare curve for such a state is that distribution rather than data about the state.
+    A college's staff is its total employment, hospitals and all.
+    """
+    exclude = ([] if include_childcare else ["C"]) + ([] if include_college else ["U"])
+    df = read_schools(fname, states, exclude_levels=exclude)
+    sizes = (df.students + df.teachers).to_numpy(dtype=float)
+    return sizes, np.ones(len(sizes))
+
+
+def read_schools(fname, states, exclude_levels):
+    """The schools in `states` from a get_schools.py schools file, without those at the given
+    levels, keeping only records with both students and teachers."""
     import pandas as pd
 
     df = pd.read_csv(fname, dtype={"geoid": str, "id": str})
-    df = df[df.geoid.str[:2].astype(int).isin(states) & ~df.level.isin(["C", "U"])]
+    df = df[df.geoid.str[:2].astype(int).isin(states) & ~df.level.isin(exclude_levels)]
     df = df[(df.students > 0) & (df.teachers > 0)]
     if df.empty:
-        sys.exit(f"No K-12 schools for state FIPS {states} in {fname}")
-    print(f"Read {len(df):,} K-12 schools from {fname}")
-    return (df.students / df.teachers).to_numpy(), df.teachers.to_numpy(dtype=float)
+        sys.exit(f"No schools for state FIPS {states} in {fname}")
+    counts = ", ".join(f"{n:,} {lv}" for lv, n in df.level.map(lambda lv: {"C": "childcare", "U": "college"}.get(lv, "K-12"))
+                       .value_counts().items())
+    print(f"Read {len(df):,} schools from {fname} ({counts})")
+    return df
 
 
 def log_spaced_integer_bins(vmin, vmax, max_bins=50):
@@ -456,6 +501,12 @@ def main():
         "comparison; ExaEpi's workgroups contain no educators, so that panel is unchanged.",
     )
     parser.add_argument(
+        "--no_childcare", action="store_true",
+        help="Leave childcare centers out of ExaEpi's class and school panels. Epicast has no "
+        "equivalent (only preschools, for the children UrbanPop has in preschool), and the schools "
+        "data line leaves them out too, so with --no_college this is the like-for-like comparison.",
+    )
+    parser.add_argument(
         "--groups", "-g", nargs="+", choices=list(GROUP_INFO), default=list(GROUP_INFO),
         help="Which group-size distributions to plot (default: all three)",
     )
@@ -505,9 +556,11 @@ def main():
     parser.add_argument(
         "--schools_file",
         default=os.path.join(REPO_ROOT, "data", "EducationData", "schools_with_geoids.csv"),
-        help="Schools file UrbanPop's allocation reads (get_schools.py), for the class panel's "
-        "reference curve: each K-12 school's student-teacher ratio, in the states the UrbanPop "
-        "file covers (see load_school_class_sizes). An empty string leaves the curve out.",
+        help="Schools file UrbanPop's allocation reads (get_schools.py), for the reference curves "
+        "on the class and school panels, in the states the UrbanPop file covers: each K-12 school's "
+        "student-teacher ratio (load_school_class_sizes), and each school's listed students plus "
+        "staff -- public, private, and childcare and colleges unless --no_childcare/--no_college "
+        "(load_school_sizes). An empty string leaves both curves out.",
     )
     args = parser.parse_args()
     cdf = not args.histogram
@@ -529,9 +582,13 @@ def main():
     if len(args.groups) == 1:
         axes = [axes]
 
-    exaepi_data_by_group, states = exaepi_sizes(args.urbanpop_file, args.groups, exclude_college=args.no_college)
+    exaepi_data_by_group, states = exaepi_sizes(args.urbanpop_file, args.groups, exclude_college=args.no_college,
+                                                exclude_childcare=args.no_childcare)
     if "class" in args.groups and args.schools_file:
         references["class"] = (*load_school_class_sizes(args.schools_file, states), "Schools data")
+    if "school" in args.groups and args.schools_file:
+        references["school"] = (*load_school_sizes(args.schools_file, states, include_childcare=not args.no_childcare,
+                                                   include_college=not args.no_college), "Schools data")
     for ax, group_name in zip(axes, args.groups):
         info = GROUP_INFO[group_name]
         epicast_data = load_epicast_sizes(epicast_files[group_name])
