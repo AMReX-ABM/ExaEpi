@@ -1,20 +1,22 @@
 #!/usr/bin/env python
 
 """Compare Epicast vs. ExaEpi distributions of workgroup size, school-class size, and
-school size for the NM run used in the emerge paper.
+school size for the CA run used in the emerge paper.
 
-Epicast side: data/results/emerge-paper/epicast/epicast_nm_{workgroup,schoolgroup,school}_sizes.txt
+Epicast side: data/results/emerge-paper/epicast/ca/ca_{workgroup,schoolgroup,school}_sizes.txt
 -- plain text, one integer (group size) per line. "workgroup" is a workplace peer group,
 "schoolgroup" is a classroom-level cohort, "school" is a whole school.
 
-ExaEpi side: reads <prefix>_workgroup_sizes.txt / _class_sizes.txt / _school_sizes.txt, the
-static, once-per-run group-size distributions ExaEpi writes when --aggregated_diag_int is
-enabled (see ExaEpi::IO::writeStaticAggregatedData in src/IO.cpp), in the same plain
-one-integer-per-line format as the Epicast files below -- computed by ExaEpi itself from
-agents' work_i/work_j/naics/workgroup/school_id/school_class_group attributes:
+ExaEpi side: computed straight from the UrbanPop .bin ExaEpi reads its agents from (default
+data/UrbanPop/urbanpop_ca.bin), so no ExaEpi run -- and so no cases file -- is needed. The
+group structure is all in the file (see UrbanPopData::initAgents in src/UrbanPopData.cpp), and
+this reproduces the tally ExaEpi itself does in AgentContainer::computeGroupSizeDistributions
+(the <prefix>_workgroup_sizes.txt / _class_sizes.txt / _school_sizes.txt it writes when
+--aggregated_diag_int is enabled). An agent's work community is the block group of its
+work_geoid, except for a declared work-from-home non-educator, who stays in its home block group:
 
   - Workgroup size: agents with workgroup > 0 (0 means not assigned to a workgroup --
-    not working, or working from home), grouped by (work_i, work_j, naics, workgroup).
+    not working, or working from home), grouped by (work community, naics, workgroup).
     Workgroup IDs are only unique within a (work community, naics) pair -- see
     InteractionModWork.H's max_workgroup * max_naics sizing -- so all three keys are
     needed to recover each actual workgroup.
@@ -30,7 +32,7 @@ agents' work_i/work_j/naics/workgroup/school_id/school_class_group attributes:
     "School class size" log histogram reports.
 
   - School size: agents with school_id > 0 (both students and staff), grouped by
-    (work_i, work_j, school_id) -- school_id is only unique within a community, like
+    (work community, school_id) -- school_id is only unique within a community, like
     workgroup.
 """
 
@@ -43,31 +45,33 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
 from plos_compbio_style import apply_style, HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN
+from plot_commute_distance import read_urbanpop_columns, TRAVEL_WFH
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EPICAST_DIR = os.path.join(REPO_ROOT, "data", "results", "emerge-paper", "epicast")
+
+# Highest pre-college grade code in the .bin: grades there run 3..19, with 18 and 19 undergrad and
+# grad -- the same is_college test UrbanPop-scripts/group_assignment.py sizes classes with.
+COLLEGE_GRADE_MAX = 17
+EPICAST_DIR = os.path.join(REPO_ROOT, "data", "results", "emerge-paper", "epicast", "ca")
 
 # Per --group-name: default Epicast sizes file, the ExaEpi field(s) needed, and axis/label text.
 GROUP_INFO = {
     "workgroup": {
-        "epicast_file": os.path.join(EPICAST_DIR, "epicast_nm_workgroup_sizes.txt"),
+        "epicast_file": os.path.join(EPICAST_DIR, "ca_workgroup_sizes.txt"),
         "xlabel": "Workgroup size (number of agents)",
         "title": "Workgroup size",
-        "basename": "workgroup_sizes",
         "weight_noun": "worker",
     },
     "class": {
-        "epicast_file": os.path.join(EPICAST_DIR, "epicast_nm_schoolgroup_sizes.txt"),
+        "epicast_file": os.path.join(EPICAST_DIR, "ca_schoolgroup_sizes.txt"),
         "xlabel": "Class size (number of students)",
         "title": "School class size",
-        "basename": "class_sizes",
         "weight_noun": "student",
     },
     "school": {
-        "epicast_file": os.path.join(EPICAST_DIR, "epicast_nm_school_sizes.txt"),
+        "epicast_file": os.path.join(EPICAST_DIR, "ca_school_sizes.txt"),
         "xlabel": "School size (number of agents)",
         "title": "School size",
-        "basename": "school_sizes",
         # school size includes both students and staff (see exaepi_school_sizes' docstring
         # note above), but students dominate the headcount, so "student-weighted" is the more
         # intuitive label here even though it's not literally students-only.
@@ -82,12 +86,62 @@ def load_epicast_sizes(fname):
     return sizes
 
 
-def exaepi_sizes(prefix, group_name):
-    """Read <prefix>_<basename>.txt (see GROUP_INFO), the group-size distribution ExaEpi itself
-    computed and wrote -- same plain one-integer-per-line format load_epicast_sizes reads."""
-    fname = f"{prefix}_{GROUP_INFO[group_name]['basename']}.txt"
-    sizes = np.loadtxt(fname, dtype=int)
-    print(f"Read {len(sizes):,} ExaEpi {group_name}s from {fname}")
+def group_counts(keys):
+    """Size of each distinct group: how many agents share each value of keys."""
+    return np.unique(keys, return_counts=True)[1]
+
+
+def outside_flagged_groups(keys, flagged):
+    """Mask of the members of keys whose group has no flagged member."""
+    return ~np.isin(keys, np.unique(keys[flagged]))
+
+
+def exaepi_sizes(urbanpop_file, group_names, exclude_college=False):
+    """{group_name: sizes} for each of group_names, tallied from the UrbanPop .bin the way
+    AgentContainer::computeGroupSizeDistributions does (see the module docstring).
+
+    Each grouping is packed into one int64 key rather than grouped on several columns: a
+    12-digit GEOID fits in 37 bits, naics (< NAICS_COUNT = 251) in 8 and the int16 workgroup /
+    school_id in 15, so (geoid, naics, workgroup) takes 60 bits and nothing collides.
+
+    exclude_college drops every school and class with a member (student or staff -- educators
+    carry the grade they teach) above COLLEGE_GRADE_MAX. Whole groups go rather than just those
+    members, though in practice no school or class mixes college with lower grades. Workgroups
+    are unaffected: educators are never in one.
+    """
+    cols = read_urbanpop_columns(urbanpop_file, ["home_geoid", "work_geoid", "naics", "school_id",
+                                                 "workgroup", "school_class_group", "travel", "grade"])
+    college = cols["grade"] > COLLEGE_GRADE_MAX
+    naics = cols["naics"].astype(np.int64)
+    school_id = cols["school_id"].astype(np.int64)
+    # Declared work-from-home non-educators spend the day at home (UrbanPopData::initAgents);
+    # everyone else is at their work_geoid's block group, which is one ExaEpi community.
+    wfh = (naics != -1) & (school_id == 0) & (cols["travel"] == TRAVEL_WFH)
+    community = np.where(wfh, cols["home_geoid"], cols["work_geoid"])
+    del cols["home_geoid"], cols["work_geoid"]
+
+    sizes = {}
+    if "workgroup" in group_names:
+        workgroup = cols["workgroup"].astype(np.int64)
+        in_wg = workgroup > 0
+        sizes["workgroup"] = group_counts((community[in_wg] << 23) | (naics[in_wg] << 15) | workgroup[in_wg])
+    if "class" in group_names:
+        scg = cols["school_class_group"]
+        in_class = scg >= 0
+        scg = scg[in_class]
+        student = (naics == -1)[in_class]
+        if exclude_college:
+            # flagged on every member, homeroom teachers included, not just the students counted
+            student &= outside_flagged_groups(scg, college[in_class])
+        sizes["class"] = group_counts(scg[student])
+    if "school" in group_names:
+        in_school = school_id > 0
+        school_keys = (community[in_school] << 15) | school_id[in_school]
+        if exclude_college:
+            school_keys = school_keys[outside_flagged_groups(school_keys, college[in_school])]
+        sizes["school"] = group_counts(school_keys)
+    for name, s in sizes.items():
+        print(f"Found {len(s):,} ExaEpi {name} groups in {urbanpop_file}")
     return sizes
 
 
@@ -353,10 +407,15 @@ def main():
     apply_style()
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
-        "--prefix", "-p", required=True,
-        help="ExaEpi's --aggregated_diag_prefix (matching the run's <prefix>_workgroup_sizes.txt / "
-        "_class_sizes.txt / _school_sizes.txt files, written when --aggregated_diag_int is enabled "
-        "-- see ExaEpi::IO::writeStaticAggregatedData in src/IO.cpp)",
+        "--urbanpop_file", "-u", default=os.path.join(REPO_ROOT, "data", "UrbanPop", "urbanpop_ca.bin"),
+        help="UrbanPop .bin ExaEpi reads its agents from; the ExaEpi group sizes are computed from it "
+        "directly (see the module docstring)",
+    )
+    parser.add_argument(
+        "--no_college", action="store_true",
+        help="Leave colleges and universities out of ExaEpi's class and school panels (any school "
+        "or class with undergrad or grad members). Epicast has none, so this is the like-for-like "
+        "comparison; ExaEpi's workgroups contain no educators, so that panel is unchanged.",
     )
     parser.add_argument(
         "--groups", "-g", nargs="+", choices=list(GROUP_INFO), default=list(GROUP_INFO),
@@ -424,10 +483,11 @@ def main():
     if len(args.groups) == 1:
         axes = [axes]
 
+    exaepi_data_by_group = exaepi_sizes(args.urbanpop_file, args.groups, exclude_college=args.no_college)
     for ax, group_name in zip(axes, args.groups):
         info = GROUP_INFO[group_name]
         epicast_data = load_epicast_sizes(epicast_files[group_name])
-        exaepi_data = exaepi_sizes(args.prefix, group_name)
+        exaepi_data = exaepi_data_by_group[group_name]
         plot_comparison(ax, epicast_data, exaepi_data, info["xlabel"], info["title"], cdf,
                          weight_noun=info["weight_noun"], logx=args.logx, logy=args.logy,
                          xlim=args.xlim, cbp=cbp if group_name == "workgroup" else None)
