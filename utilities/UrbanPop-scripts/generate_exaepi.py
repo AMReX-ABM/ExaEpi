@@ -14,7 +14,9 @@ Stages (popgen/):
     place       livelike-style synthesis: household reweighting, TRS by household type x size,
                 donor draws per (block group, type); expansion to persons (bg, h, p)
     S1-S2       childcare and the worker/student split (persons.py)
-    S3          worker destinations: CBP-sized establishment slots, IPF fill (workers.py)
+    S3          worker destinations: CBP-sized establishment slots, a soft IPF fill over
+                (home, commute-time band) rows on the CTPP-corrected LODES prior (workers.py,
+                commute.py); workers who work from home stay home
     S4-S5       student and teacher school assignment (students.py, teachers.py)
     S6-S10      dense ids, home and work groups, school classes, day neighbourhoods (groups.py)
 

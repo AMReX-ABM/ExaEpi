@@ -22,7 +22,13 @@ The split it encodes:
 Format version 2 ships the solver's inputs (build_solve_inputs) rather than solved allocation
 matrices, so every run can draw a fresh, calibrated population instead of picking from a fixed set
 of replicates. `--laplace` still writes the version-1 allocation matrices (build_almats) for
-comparison. popgen/ holds the reference generator that consumes a version-2 bundle.
+comparison. popgen/ holds the reference generator that consumes the bundle.
+
+Format version 3 adds what the commute-aware worker placement (popgen/workers.py, commute.py)
+needs: each donor's reported travel time to work (donors.jwmnp, PUMS JWMNP), block-group
+coordinates (geo.geoid, geo.xyz, from --tract_shapefiles) and the commute.* tables. This script writes those
+tables uncalibrated; calibrate_commute.py then fits them against CTPP. `--upgrade V2_BUNDLE` turns
+an existing version-2 bundle into version 3 without rebuilding it.
 
 With --pumas, donor attributes come from the household-level PUMS (build_donors_pums), which needs
 a Census API key: the delivered feathers only contain donors that one realization happened to use
@@ -59,10 +65,12 @@ import upop_to_exaepi as U  # noqa: E402
 
 # Bumped whenever the section set or any section's layout changes. ExaEpi refuses a mismatch,
 # the same way readBlockGroupsFile checks FORMAT_VERSION against the .bin header.
-PRECOMPUTE_FORMAT_VERSION = 2
+PRECOMPUTE_FORMAT_VERSION = 3
 # Versions read_bundle still accepts. Version 1 bundles (allocation matrices only) are read by the
 # experiments and generate_population.py; ExaEpi itself requires PRECOMPUTE_FORMAT_VERSION.
-READABLE_VERSIONS = (1, 2)
+# Version 3 adds what the commute-aware S3 needs (build_commute): donors.jwmnp, geo.* and the
+# commute.* tables; --upgrade turns a version-2 bundle into one.
+READABLE_VERSIONS = (1, 2, 3)
 MAGIC = 0x42505055  # "UPPB"
 
 CODEC_RAW = 0
@@ -93,6 +101,16 @@ class BundleWriter:
             bad = int((~np.isfinite(arr)).sum())
             raise ValueError(f"section {name}: {bad} of {arr.size} values are not finite")
         self.sections.append((name, arr.dtype.str, arr.shape, arr.tobytes()))
+
+    def has(self, name: str) -> bool:
+        return any(n == name for n, *_ in self.sections)
+
+    def get(self, name: str) -> np.ndarray:
+        """A section added earlier, as an array."""
+        for n, dtype, shape, raw in self.sections:
+            if n == name:
+                return np.frombuffer(raw, dtype=np.dtype(dtype)).reshape(shape)
+        raise KeyError(name)
 
     def add_bytes(self, name: str, blob: bytes) -> None:
         self.sections.append((name, "|u1", (len(blob),), blob))
@@ -265,6 +283,7 @@ def build_donors(feathers, bw, meta):
         frames.append(pl.read_ipc(p, columns=[
             "p_id", "pums_id", "h_id", "hh_size", "hh_type",
             "pr_age", "pr_sex", "pr_race", "pr_naics", "pr_travel", "pr_veh_occ", "pr_grade",
+            "pr_commute",
         ]))
     df = pl.concat(frames)
     print(f"  read {len(df)} synthetic persons from {len(feathers)} feathers")
@@ -296,6 +315,8 @@ def build_donors(feathers, bw, meta):
     bw.add("donors.veh_occ", encode_categorical(don["pr_veh_occ"], "pr_veh_occ").astype(np.int8))
     bw.add("donors.grade", encode_categorical(don["pr_grade"], "pr_grade").astype(np.int8))
     bw.add("donors.naics", naics_to_index(don["pr_naics"].cast(pl.Utf8).to_list()))
+    bw.add("donors.jwmnp", don["pr_commute"].cast(pl.Float64).fill_null(0).clip(0, 32767)
+           .cast(pl.Int16).to_numpy())
     bw.add_strings("donors.pums_id", hh_ids.to_list())
 
     meta["donors"] = {"households": len(hh_ids), "persons": len(don)}
@@ -383,6 +404,8 @@ def recode_pums(d):
         "veh_occ": veh.astype(np.int8),
         "grade": grade.astype(np.int8),
         "naics": naics.astype(np.int16),
+        # travel time to work in minutes (JWMNP; 0 when not reported), for S3's time bands
+        "jwmnp": np.clip(num("JWMNP").to_numpy(), 0, 32767).astype(np.int16),
     }
 
 
@@ -409,7 +432,10 @@ def build_donors_pums(pumas, year, key, bw, meta, validate_feathers=None):
     hframes, pframes = [], []
     for fips in pumas:
         hframes.append(acs_extract_household(fips, year, key))
-        pframes.append(acs_extract(fips, year, key))
+        p = acs_extract(fips, year, key).copy()
+        p["SERIALNO"] = p["SERIALNO"].astype(str)
+        p["SPORDER"] = pd.to_numeric(p["SPORDER"])
+        pframes.append(p.merge(acs_extract_minutes(fips, year, key), on=["SERIALNO", "SPORDER"], how="left"))
     h = pd.concat(hframes, ignore_index=True)
     h["SERIALNO"] = h["SERIALNO"].astype(str)
     h = h.drop_duplicates(subset=["SERIALNO"])
@@ -488,6 +514,15 @@ def acs_extract(fips, year, key):
     return _pums(fips, "person", PUMS_FEATURES, year, key)
 
 
+def acs_extract_minutes(fips, year, key):
+    """Travel time to work (JWMNP) per person. A separate extract, so the cached person extracts
+    (keyed by their feature list) stay valid; joined on (SERIALNO, SPORDER)."""
+    d = _pums(fips, "person", ["JWMNP"], year, key)[["SERIALNO", "SPORDER", "JWMNP"]].copy()
+    d["SERIALNO"] = d["SERIALNO"].astype(str)
+    d["SPORDER"] = pd.to_numeric(d["SPORDER"])
+    return d.drop_duplicates(subset=["SERIALNO", "SPORDER"])
+
+
 def acs_extract_household(fips, year, key):
     """Household-level PUMS: the authoritative donor row set, vacant units included."""
     return _pums(fips, "household", ["NP"], year, key)
@@ -503,7 +538,7 @@ def validate_donor_recode(d, cols, feathers):
     """
     ref = pl.concat([
         pl.read_ipc(p, columns=["pums_id", "p_id", "pr_age", "pr_sex", "pr_race", "pr_naics",
-                                "pr_travel", "pr_veh_occ", "pr_grade"])
+                                "pr_travel", "pr_veh_occ", "pr_grade", "pr_commute"])
         for p in feathers])
     ref = ref.with_columns(
         pl.col("p_id").str.split("-").list.last().cast(pl.Int32).mod(100).alias("sporder")
@@ -534,6 +569,7 @@ def validate_donor_recode(d, cols, feathers):
         # Through naics_to_index, the converter's own digit-run rule: comparing against a raw
         # lookup of the feather string is exactly how a wrong recode once validated at 1.0000.
         ("naics", j["naics"], pl.Series(naics_to_index(j["pr_naics"].cast(pl.Utf8).to_list()))),
+        ("jwmnp", j["jwmnp"], j["pr_commute"].cast(pl.Float64).fill_null(0).cast(pl.Int64)),
     ]
     print(f"  VALIDATION against {len(j)} overlapping donor persons:")
     worst = 1.0
@@ -1096,16 +1132,87 @@ def _single_puma_sections(fips, constraints, one):
     return b
 
 
+def build_commute(bg_geoids, tract_shapefiles, bw, meta):
+    """geo.geoid / geo.xyz (every block group the bundle names -- bg.geoid and solve.bg_geoid, which
+    can differ: CA's P-MEDM places people in 2 block groups the delivered feathers never use) and
+    the default commute.* tables of popgen/commute.py -- what the commute-aware S3
+    needs beyond LODES. They give LODES plus a short-range background with no distance correction
+    and no time kernel; calibrate_commute.py then fits commute.r and commute.kern against CTPP."""
+    from popgen import commute
+    pts = commute.tract_points(tract_shapefiles)
+    geo = np.unique(np.asarray(bg_geoids, dtype=np.int64))
+    bw.add("geo.geoid", geo)
+    bw.add("geo.xyz", commute.tract_xyz(pts, geo // 10))
+    for name, arr in commute.default_tables().items():
+        bw.add(name, arr)
+    meta["commute"] = {"calibrated": False}
+    print(f"  geo.xyz for {len(geo)} block groups; default commute tables")
+
+
+def donor_minutes(b, year, key):
+    """donors.jwmnp for an existing bundle's donors: household i is SERIALNO donors.pums_id[i], its
+    persons that household's PUMS persons in SPORDER order (as build_donors_pums lays them out)."""
+    from popgen import bundle as B
+    ids, off = B.strings(b, "donors.pums_id"), b["donors.hh_offset"]
+    d = pd.concat([acs_extract_minutes(p, year, key) for p in B.strings(b, "solve.puma")], ignore_index=True)
+    d = d.drop_duplicates(subset=["SERIALNO", "SPORDER"]).sort_values(["SERIALNO", "SPORDER"], kind="stable")
+    by_hh = {s: x for s, x in d.groupby("SERIALNO", sort=False)}
+    out = np.zeros(int(off[-1]), dtype=np.int16)
+    for i, s in enumerate(ids):
+        a, z = int(off[i]), int(off[i + 1])
+        if z == a:
+            continue
+        x = by_hh.get(s)
+        if x is None or len(x) != z - a:
+            raise SystemExit(f"donor household {s}: {z - a} persons, PUMS has "
+                             f"{0 if x is None else len(x)} -- not the bundle's donors")
+        out[a:z] = np.clip(pd.to_numeric(x["JWMNP"], errors="coerce").fillna(0).to_numpy(), 0, 32767)
+    print(f"  donors.jwmnp: {len(ids)} households, {(out > 0).sum()} persons with a reported time")
+    return out
+
+
+def upgrade(src, out, tract_shapefiles, year, cache_folder):
+    """Rewrite a version-2 bundle as version 3: every section kept byte for byte, plus
+    donors.jwmnp (from PUMS, which needs CENSUS_API_KEY), geo.* and the default commute tables."""
+    raw = read_bundle(src)
+    meta = json.loads(raw.pop("meta").tobytes().decode())
+    bw = BundleWriter()
+    for name, arr in raw.items():
+        if name.startswith(("commute.", "geo.")):
+            continue
+        bw.add(name, arr)
+    if "donors.jwmnp" not in raw:
+        key = os.environ.get("CENSUS_API_KEY") or None
+        if not key:
+            sys.exit("CENSUS_API_KEY is required to add the donors' travel times (PUMS JWMNP)")
+        global PUMS_CACHE
+        PUMS_CACHE = os.path.join(cache_folder, "pums")
+        bw.add("donors.jwmnp", donor_minutes(raw, year, key))
+    geoids = np.r_[raw["bg.geoid"], raw["solve.bg_geoid"]] if "solve.bg_geoid" in raw else raw["bg.geoid"]
+    build_commute(geoids, tract_shapefiles, bw, meta)
+    meta["format_version"] = PRECOMPUTE_FORMAT_VERSION
+    meta["upgraded_from"] = os.path.basename(src)
+    bw.add_json("meta", meta)
+    bw.write(out)
+    print(f"wrote {out} (format {PRECOMPUTE_FORMAT_VERSION}, from {src})")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--upop_files", required=True,
+    ap.add_argument("--upop_files",
                     help="glob for the delivered UrbanPop feathers, e.g. 'base/35_NM/syp*.feather'")
-    ap.add_argument("--lodes_files", required=True, nargs="+")
-    ap.add_argument("--schools_file", required=True)
-    ap.add_argument("--county_adjacency_file", required=True)
-    ap.add_argument("--workgroup_sizes_file", required=True)
-    ap.add_argument("--establishment_sizes_file", required=True)
+    ap.add_argument("--lodes_files", nargs="+")
+    ap.add_argument("--schools_file")
+    ap.add_argument("--county_adjacency_file")
+    ap.add_argument("--workgroup_sizes_file")
+    ap.add_argument("--establishment_sizes_file")
+    ap.add_argument("--tract_shapefiles", nargs="+", required=True,
+                    help="2010 TIGER tract shapefiles covering the bundle's states (tract internal "
+                         "points give geo.xyz)")
+    ap.add_argument("--upgrade", default=None, metavar="V2_BUNDLE",
+                    help="instead of building: rewrite this version-2 bundle as version 3")
     ap.add_argument("--out", required=True, help="output bundle path (.upb)")
     ap.add_argument("--verify", action="store_true",
                     help="read the bundle back and check every section round-trips")
@@ -1135,6 +1242,12 @@ def main():
                     help="livelike's ACS cache. Its cache key ignores constraints_selection, so "
                          "this MUST NOT be shared with a cache built for a different selection")
     args = ap.parse_args()
+    if args.upgrade:
+        return upgrade(args.upgrade, args.out, args.tract_shapefiles, args.acs_year, args.cache_folder)
+    for need in ("upop_files", "lodes_files", "schools_file", "county_adjacency_file",
+                 "workgroup_sizes_file", "establishment_sizes_file"):
+        if not getattr(args, need):
+            ap.error(f"--{need} is required (unless --upgrade)")
 
     feathers = sorted(glob.glob(args.upop_files))
     if not feathers:
@@ -1174,6 +1287,7 @@ def main():
     U.printgreen("LODES")
     build_lodes(args.lodes_files, set(geoids), bw, meta)
 
+
     U.printgreen("CBP size tables")
     build_cbp(args.workgroup_sizes_file, args.establishment_sizes_file, set(states), bw, meta)
 
@@ -1200,6 +1314,11 @@ def main():
                      oversample=args.oversample)
     else:
         meta["almat"] = None
+
+    U.printgreen("Commute geometry")
+    solve_bgs = bw.get("solve.bg_geoid") if bw.has("solve.bg_geoid") else np.zeros(0, np.int64)
+    build_commute(np.r_[np.array([int(g) for g in geoids], dtype=np.int64), solve_bgs],
+                  args.tract_shapefiles, bw, meta)
 
     bw.add_strings("naics.codes", list(U.categ_types["pr_naics"].categories))
     bw.add_json("meta", meta)

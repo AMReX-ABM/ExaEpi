@@ -40,6 +40,7 @@ def build(b, pers, seed, rep):
         "race": b["donors.race"][src].astype(np.int8),
         "naics": b["donors.naics"][src].astype(np.int16),
         "travel": b["donors.travel"][src].astype(np.int8),
+        "jwmnp": b["donors.jwmnp"][src].astype(np.int16),
         "veh_occ": b["donors.veh_occ"][src].astype(np.int8),
         "grade": grade,
     }

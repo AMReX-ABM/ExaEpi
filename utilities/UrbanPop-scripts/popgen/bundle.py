@@ -16,7 +16,7 @@ import zlib
 import numpy as np
 
 MAGIC = 0x42505055
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
 _HEADER = struct.Struct("<4I Q")
 
 

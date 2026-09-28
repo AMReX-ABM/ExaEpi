@@ -102,7 +102,7 @@ struct BundleSection {
 class PopulationBundle {
   public:
     static constexpr std::uint32_t MAGIC = 0x42505055; // "UPPB"
-    static constexpr std::uint32_t FORMAT_VERSION = 2;
+    static constexpr std::uint32_t FORMAT_VERSION = 3;
 
     PopulationBundle() = default;
 

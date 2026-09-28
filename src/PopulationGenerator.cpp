@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <numeric>
 #include <stdexcept>
 #include <tuple>
@@ -266,6 +267,7 @@ Persons buildPersons (const PopulationBundle& b, const Placements& pl, std::int6
     const auto race = b.get<std::int8_t>("donors.race");
     const auto naics = b.get<std::int16_t>("donors.naics");
     const auto travel = b.get<std::int8_t>("donors.travel");
+    const auto jwmnp = b.get<std::int16_t>("donors.jwmnp");
     const auto veh = b.get<std::int8_t>("donors.veh_occ");
     const auto grade = b.get<std::int8_t>("donors.grade");
     Persons P;
@@ -280,6 +282,7 @@ Persons buildPersons (const PopulationBundle& b, const Placements& pl, std::int6
             P.race.push_back(race[s]);
             P.naics.push_back(naics[s]);
             P.travel.push_back(travel[s]);
+            P.jwmnp.push_back(jwmnp[s]);
             P.veh_occ.push_back(veh[s]);
             P.grade.push_back(static_cast<std::int16_t>(grade[s] >= 0 ? grade[s] + GRADE_SHIFT : -1));
         }
@@ -403,20 +406,34 @@ double SizeTables::mean (std::int64_t state, std::int64_t naics) const {
 }
 
 // ---------------------------------------------------------------------------------------------
-// S3 workers (workers.py: allocate, _fill_one)
+// S3 workers (workers.py: allocate, _fill_one; commute.py: background, prior)
 // ---------------------------------------------------------------------------------------------
 
 namespace {
 
-constexpr int IPF_ITERS = 60;
+constexpr int SOFT_ITERS = 200;
 constexpr double IPF_TOL = 1e-9;
 constexpr int REPAIR_SWEEPS = 12;
+constexpr int TRAVEL_WFH = 7;
+constexpr double W_SCALE = 65536.0; // commute.W_SCALE: quantised prior weight per job
 
-//! Home x destination LODES flows between worker home block groups, as CSR in both directions.
+//! Index i with edges[i] <= x < edges[i + 1], as numpy.searchsorted(edges, x, "right") - 1.
+std::int64_t binOf (const ArrayView<double>& edges, double x) {
+    return static_cast<std::int64_t>(std::upper_bound(edges.begin(), edges.end(), x) - edges.begin()) - 1;
+}
+
+//! Squared chord distance (km^2) between two points of geo.xyz, summed as commute.chord2.
+double chord2 (const double* a, const double* b) {
+    const double dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+    return (dx * dx + dy * dy) + dz * dz;
+}
+
+/*! The corrected prior between worker home block groups (commute.prior), as CSR in both
+    directions: quantised weights, and each pair's kernel-distance bin. */
 struct Flows {
-    std::vector<std::int64_t> homes, dests;           // sorted geoids
-    std::vector<std::int64_t> hd_ptr, hd_col, hd_val; // home rows, destination indices ascending
-    std::vector<std::int64_t> dh_ptr, dh_col, dh_val; // destination rows, home indices ascending
+    std::vector<std::int64_t> homes, dests;                  // sorted geoids
+    std::vector<std::int64_t> hd_ptr, hd_col, hd_val, hd_kb; // home rows, destination indices ascending
+    std::vector<std::int64_t> dh_ptr, dh_col, dh_val;        // destination rows, home indices ascending
 };
 
 //! Index of x in a sorted vector known to contain it.
@@ -424,16 +441,161 @@ std::int64_t position (const std::vector<std::int64_t>& v, std::int64_t x) {
     return std::lower_bound(v.begin(), v.end(), x) - v.begin();
 }
 
+/*! F.hd_* and F.dh_* from the LODES pairs (home index, destination index, jobs), sorted by (home,
+    destination) and unique: the background of commute.background joined to them, both weighted
+    by r(distance), rescaled to the pairs' total, quantised by W_SCALE with pairs rounding to 0
+    dropped (commute.prior). */
+void correctedPrior (const PopulationBundle& b, const std::vector<std::array<std::int64_t, 3>>& lodes, Flows& F) {
+    const auto H = static_cast<std::int64_t>(F.homes.size()), Dn = static_cast<std::int64_t>(F.dests.size());
+    const auto bgg = b.get<std::int64_t>("geo.geoid");
+    const auto xyz = b.get<double>("geo.xyz");
+    auto xyzOf = [&] (std::int64_t g) {
+        const auto it = std::lower_bound(bgg.begin(), bgg.end(), g);
+        if (it == bgg.end() || *it != g) { throw std::runtime_error("block group " + std::to_string(g) + " has no geo.xyz"); }
+        return xyz.data() + 3 * (it - bgg.begin());
+    };
+    std::vector<const double*> xh(H), xd(Dn);
+    for (std::int64_t h = 0; h < H; ++h) {
+        xh[h] = xyzOf(F.homes[h]);
+    }
+    for (std::int64_t d = 0; d < Dn; ++d) {
+        xd[d] = xyzOf(F.dests[d]);
+    }
+    const auto params = b.get<double>("commute.params");
+    const double alpha = params[0], radius = params[1], floor_km = params[3];
+    const auto kmax = static_cast<std::size_t>(params[2]);
+    const double r2 = radius * radius, f2 = floor_km * floor_km;
+    const auto kern_edges = b.get<double>("commute.kern_edges");
+    const auto decay = b.get<double>("commute.decay");
+    const auto dist_edges = b.get<double>("commute.dist_edges");
+    const auto rel = b.get<double>("commute.r");
+
+    // Jobs at each destination and from each home, summed in pair order (whole numbers).
+    std::vector<double> J(Dn, 0.0), Hs(H, 0.0);
+    std::vector<std::int64_t> lptr(H + 1, 0);
+    for (const auto& e : lodes) {
+        J[e[1]] += static_cast<double>(e[2]);
+        Hs[e[0]] += static_cast<double>(e[2]);
+        ++lptr[e[0] + 1];
+    }
+    for (std::int64_t h = 0; h < H; ++h) {
+        lptr[h + 1] += lptr[h];
+    }
+
+    // Background per home: the k nearest destinations within the radius, by (distance, index),
+    // weight (alpha H_h) g_d / S with g_d = J_d decay(bin), S summed in distance order.
+    std::vector<std::vector<std::pair<std::int64_t, double>>> bgp(H);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 16) num_threads(threads())
+#endif
+    for (std::int64_t h = 0; h < H; ++h) {
+        if (Hs[h] == 0.0) { continue; }
+        std::vector<std::pair<double, std::int64_t>> cand;
+        for (std::int64_t d = 0; d < Dn; ++d) {
+            const double d2 = chord2(xh[h], xd[d]);
+            if (d2 <= r2) { cand.emplace_back(d2, d); }
+        }
+        std::sort(cand.begin(), cand.end());
+        if (cand.size() > kmax) { cand.resize(kmax); }
+        if (cand.empty()) { continue; }
+        std::vector<double> g(cand.size());
+        double s = 0.0;
+        for (std::size_t i = 0; i < cand.size(); ++i) {
+            g[i] = J[cand[i].second] * decay[binOf(kern_edges, std::sqrt(cand[i].first + f2))];
+            s += g[i];
+        }
+        if (s <= 0.0) { continue; }
+        auto& out = bgp[h];
+        for (std::size_t i = 0; i < cand.size(); ++i) {
+            out.emplace_back(cand[i].second, ((alpha * Hs[h]) * g[i]) / s);
+        }
+        std::sort(out.begin(), out.end());
+    }
+
+    // Union with LODES per home in destination order; weight c = jobs (+ background) times
+    // r(distance); f rescales the total to sum(c); quantised.
+    struct Pair {
+        std::int64_t h, d;
+        double c, w, d2;
+    };
+    std::vector<Pair> u;
+    u.reserve(lodes.size());
+    for (std::int64_t h = 0; h < H; ++h) {
+        std::int64_t a = lptr[h];
+        const std::int64_t z = lptr[h + 1];
+        std::size_t k = 0;
+        const auto& bh = bgp[h];
+        while (a < z || k < bh.size()) {
+            const std::int64_t dl = a < z ? lodes[a][1] : Dn, db = k < bh.size() ? bh[k].first : Dn;
+            const std::int64_t d = std::min(dl, db);
+            double c = dl == d ? static_cast<double>(lodes[a][2]) : 0.0;
+            if (db == d) { c += bh[k].second; }
+            if (dl == d) { ++a; }
+            if (db == d) { ++k; }
+            u.push_back({h, d, c, 0.0, chord2(xh[h], xd[d])});
+        }
+        bgp[h] = {};
+    }
+    double sc = 0.0, sw = 0.0;
+    for (auto& p : u) {
+        p.w = p.c * rel[binOf(dist_edges, std::sqrt(p.d2))];
+        sc += p.c;
+        sw += p.w;
+    }
+    const double f = sc / sw;
+    F.hd_ptr.assign(H + 1, 0);
+    std::vector<std::tuple<std::int64_t, std::int64_t, std::int64_t>> ent;
+    for (const auto& p : u) {
+        const auto q = static_cast<std::int64_t>(std::floor((p.w * f) * W_SCALE + 0.5));
+        if (q <= 0) { continue; }
+        ++F.hd_ptr[p.h + 1];
+        F.hd_col.push_back(p.d);
+        F.hd_val.push_back(q);
+        F.hd_kb.push_back(binOf(kern_edges, std::sqrt(p.d2 + f2)));
+        ent.emplace_back(p.h, p.d, q);
+    }
+    u = {};
+    for (std::int64_t h = 0; h < H; ++h) {
+        F.hd_ptr[h + 1] += F.hd_ptr[h];
+    }
+    totalSort(ent, [] (const auto& x, const auto& y) { // (h, d) pairs are unique
+        return std::get<1>(x) != std::get<1>(y) ? std::get<1>(x) < std::get<1>(y) : std::get<0>(x) < std::get<0>(y);
+    });
+    F.dh_ptr.assign(Dn + 1, 0);
+    for (const auto& [h, d, c] : ent) {
+        ++F.dh_ptr[d + 1];
+        F.dh_col.push_back(h);
+        F.dh_val.push_back(c);
+    }
+    for (std::int64_t d = 0; d < Dn; ++d) {
+        F.dh_ptr[d + 1] += F.dh_ptr[d];
+    }
+}
+
 struct Fill {
-    std::vector<std::int64_t> row_h, col_d, cnt; // home index, destination index, workers
+    std::vector<std::int64_t> row, col_d, cnt; // row (index into the rows given), destination index, workers
     std::int64_t unplaced = 0;
 };
 
-//! IPF + column TRS + row repair for industry n.
-Fill fillOne (const Flows& F, const std::vector<std::int64_t>& supply, const std::vector<std::int64_t>& demand, int n,
-              std::int64_t seed, std::int64_t rep, WorkerStats& st) {
+/*! Soft IPF + column TRS + row repair for industry n over rows (home row_h, time band row_b)
+    with the given supply; demand is per destination index.
+
+    As workers._fill_one, whose entries are (row, demanded destination of the row's home) in
+    row-major order. All of a home's rows share its destination list, so the entries are not
+    stored: entry j of row r is pair j of its home's list, its prior q = weight x kern(band,
+    distance bin) and its IPF value v = (q a_r) b_c are recomputed where needed -- the same
+    doubles workers.py stores -- and only the counts and two index arrays are kept per entry.
+    Every column sum runs over its entries in row order and every row sum in entry order, so the
+    loops over rows or columns can run on threads (when called outside a parallel region)
+    without changing a bit. */
+Fill fillOne (const Flows& F, const ArrayView<double>& kern, const std::vector<std::int64_t>& row_h,
+              const std::vector<std::int64_t>& row_b, const std::vector<std::int64_t>& supply,
+              const std::vector<std::int64_t>& demand, std::int64_t nrb, int n, std::int64_t seed, std::int64_t rep,
+              WorkerStats& st) {
     Fill out;
-    const std::int64_t H = static_cast<std::int64_t>(F.homes.size()), Dn = static_cast<std::int64_t>(F.dests.size());
+    const int nt = threads();
+    const std::int64_t Dn = static_cast<std::int64_t>(F.dests.size());
+    const std::size_t nk = kern.shape[1];
     std::vector<std::int64_t> col_pos(Dn, -1); // demanded destination -> position in ci
     std::vector<std::int64_t> ci;
     for (std::int64_t d = 0; d < Dn; ++d) {
@@ -442,52 +604,76 @@ Fill fillOne (const Flows& F, const std::vector<std::int64_t>& supply, const std
             ci.push_back(d);
         }
     }
-    // Rows with supply and at least one demanded destination; columns reached by some such row.
-    std::vector<std::int64_t> ri;
-    std::vector<std::uint8_t> col_used(ci.size(), 0);
-    for (std::int64_t h = 0; h < H; ++h) {
-        if (supply[h] <= 0) { continue; }
-        bool any = false;
-        for (std::int64_t q = F.hd_ptr[h]; q < F.hd_ptr[h + 1]; ++q) {
-            const auto c = col_pos[F.hd_col[q]];
-            if (c >= 0) {
-                any = true;
-                col_used[c] = 1;
-            }
+    // Each home's demanded destinations, once: position in ci, weight, kernel bin. Rows of a
+    // home are adjacent (rows come sorted by (home, band)).
+    std::vector<std::int32_t> pc, pkb;
+    std::vector<double> pq;
+    std::vector<std::int64_t> hp; // list start per distinct home, plus the end
+    std::vector<std::int64_t> row_list(row_h.size());
+    for (std::size_t r = 0; r < row_h.size(); ++r) {
+        if (r > 0 && row_h[r] == row_h[r - 1]) {
+            row_list[r] = row_list[r - 1];
+            continue;
         }
-        if (any) {
-            ri.push_back(h);
-        } else {
-            out.unplaced += supply[h];
-        }
-    }
-    std::vector<std::int64_t> col_final(ci.size(), -1), ci2;
-    for (std::size_t c = 0; c < ci.size(); ++c) {
-        if (col_used[c]) {
-            col_final[c] = static_cast<std::int64_t>(ci2.size());
-            ci2.push_back(ci[c]);
-        }
-    }
-    // Entries in CSR order: rows in ri order, columns ascending.
-    std::vector<std::int64_t> rows, cols;
-    std::vector<double> v;
-    for (std::size_t r = 0; r < ri.size(); ++r) {
-        const auto h = ri[r];
+        row_list[r] = static_cast<std::int64_t>(hp.size());
+        hp.push_back(static_cast<std::int64_t>(pc.size()));
+        const auto h = row_h[r];
         for (std::int64_t q = F.hd_ptr[h]; q < F.hd_ptr[h + 1]; ++q) {
             const auto c = col_pos[F.hd_col[q]];
             if (c < 0) { continue; }
-            rows.push_back(static_cast<std::int64_t>(r));
-            cols.push_back(col_final[c]);
-            v.push_back(static_cast<double>(F.hd_val[q]));
+            pc.push_back(static_cast<std::int32_t>(c));
+            pq.push_back(static_cast<double>(F.hd_val[q]));
+            pkb.push_back(static_cast<std::int32_t>(F.hd_kb[q]));
         }
     }
-    const std::size_t NR = ri.size(), NC = ci2.size(), NZ = v.size();
+    hp.push_back(static_cast<std::int64_t>(pc.size()));
+    // Rows with at least one demanded destination; columns reached by some such row.
+    std::vector<std::int64_t> ri;
+    for (std::size_t r = 0; r < row_h.size(); ++r) {
+        if (hp[row_list[r] + 1] > hp[row_list[r]]) {
+            ri.push_back(static_cast<std::int64_t>(r));
+        } else {
+            out.unplaced += supply[r];
+        }
+    }
+    std::vector<std::uint8_t> col_used(ci.size(), 0);
+    for (auto c : pc) { // every list belongs to some row, and a non-empty list to a kept one
+        col_used[c] = 1;
+    }
+    std::vector<std::int32_t> col_final(ci.size(), -1);
+    std::vector<std::int64_t> ci2;
+    for (std::size_t c = 0; c < ci.size(); ++c) {
+        if (col_used[c]) {
+            col_final[c] = static_cast<std::int32_t>(ci2.size());
+            ci2.push_back(ci[c]);
+        }
+    }
+    for (auto& c : pc) {
+        c = col_final[c];
+    }
+    const std::size_t NR = ri.size(), NC = ci2.size();
+    // Fill row r: list start ls[r], length through rptr, kernel row kr[r].
+    std::vector<std::int64_t> rptr(NR + 1, 0), ls(NR);
+    std::vector<const double*> kr(NR);
+    for (std::size_t r = 0; r < NR; ++r) {
+        const auto l = row_list[ri[r]];
+        ls[r] = hp[l];
+        rptr[r + 1] = rptr[r] + (hp[l + 1] - hp[l]);
+        kr[r] = kern.data() + static_cast<std::size_t>(row_b[ri[r]]) * nk;
+    }
+    const std::int64_t NZ = rptr[NR];
     if (NZ == 0) {
-        for (auto h : ri) {
-            out.unplaced += supply[h];
+        for (auto r : ri) {
+            out.unplaced += supply[r];
         }
         return out;
     }
+    if (NZ >= std::numeric_limits<std::int32_t>::max()) {
+        throw std::runtime_error("industry " + std::to_string(n) + ": too many fill entries");
+    }
+    auto qOf = [&] (std::size_t r, std::int64_t p) { // entry prior, as workers.py's v0
+        return pq[p] * kr[r][pkb[p]];
+    };
     std::vector<double> rt(NR), ct(NC);
     std::int64_t ssum = 0, dsum = 0;
     for (std::size_t r = 0; r < NR; ++r) {
@@ -501,299 +687,268 @@ Fill fillOne (const Flows& F, const std::vector<std::int64_t>& supply, const std
     for (std::size_t c = 0; c < NC; ++c) {
         ct[c] = static_cast<double>(demand[ci2[c]]) * scale;
     }
-
-    // Entries are in CSR order: each row's entries contiguous, rows ascending, columns ascending
-    // within a row. rptr[r] is row r's first entry.
-    std::vector<std::int64_t> rptr(NR + 1, 0);
-    for (std::size_t e = 0; e < NZ; ++e) {
-        ++rptr[rows[e] + 1];
-    }
+    // Entries by column, row order within a column (a stable counting sort), and each entry's row.
+    std::vector<std::int64_t> cp(NC + 1, 0);
     for (std::size_t r = 0; r < NR; ++r) {
-        rptr[r + 1] += rptr[r];
-    }
-
-    // IPF, as workers.py: per iteration, scale rows to their targets, then columns, then measure
-    // the row error; stop once the error is below tol, or after IPF_ITERS iterations. Every entry
-    // must see the same multiplications in the same order and every sum accumulate in the same
-    // (entry) order as there; a row's or column's factor is the same double whether formed once
-    // or per entry.
-    const double tol = IPF_TOL * std::max(1.0, seqSum(rt.data(), NR));
-    std::vector<double> rs(NR), cs(NC), fr(NR), fc(NC);
-    std::vector<std::int32_t> c32(cols.begin(), cols.end()); // half the index traffic
-    const std::vector<double> v0 = v;
-    auto rowScale = [&] (std::size_t r, double f) {          // v *= f over row r, adding into cs
         for (std::int64_t e = rptr[r]; e < rptr[r + 1]; ++e) {
-            v[e] = v[e] * f;
-            cs[c32[e]] += v[e];
-        }
-    };
-    auto colScale = [&] (std::size_t r) { // v *= fc over row r; the row's new sum
-        double s = 0.0;
-        for (std::int64_t e = rptr[r]; e < rptr[r + 1]; ++e) {
-            v[e] = v[e] * fc[c32[e]];
-            s += v[e];
-        }
-        return s;
-    };
-    // colScale on rows r .. r+ROWS-1 at once, into rs: each row still summed in its own entry
-    // order, but the independent sums interleave, so one core keeps several add chains in flight
-    // instead of waiting on one.
-    constexpr std::size_t ROWS = 4;
-    auto colScaleRows = [&] (std::size_t r) {
-        std::int64_t at[ROWS], end[ROWS];
-        double s[ROWS];
-        std::int64_t len = 0;
-        for (std::size_t k = 0; k < ROWS; ++k) {
-            at[k] = rptr[r + k];
-            end[k] = rptr[r + k + 1];
-            s[k] = 0.0;
-            len = std::max(len, end[k] - at[k]);
-        }
-        for (std::int64_t j = 0; j < len; ++j) {
-            for (std::size_t k = 0; k < ROWS; ++k) {
-                const std::int64_t e = at[k] + j;
-                if (e < end[k]) {
-                    v[e] = v[e] * fc[c32[e]];
-                    s[k] += v[e];
-                }
-            }
-        }
-        for (std::size_t k = 0; k < ROWS; ++k) {
-            rs[r + k] = s[k];
-        }
-    };
-    auto rowFactor = [&] (std::size_t r) {
-        return rs[r] > 0 ? rt[r] / rs[r] : 0.0;
-    };
-    auto colFactors = [&] () {
-        for (std::size_t c = 0; c < NC; ++c) {
-            fc[c] = cs[c] > 0 ? ct[c] / cs[c] : 0.0;
-        }
-    };
-    for (std::size_t r = 0; r < NR; ++r) {
-        double s = 0.0;
-        for (std::int64_t e = rptr[r]; e < rptr[r + 1]; ++e) {
-            s += v[e];
-        }
-        rs[r] = s;
-    }
-    // The IPF is bound by memory traffic, so each sweep makes one pass over the entries: row by
-    // row, it scales by the column factors, sums the row, and -- while the row is in cache --
-    // applies the next iteration's row scaling. Column sums still accumulate row by row in
-    // ascending order, so every double is what separate passes give. The one difference: a
-    // sweep has already started the next iteration when its error shows convergence, which a
-    // multiplication cannot undo; then the IPF is rerun from the start in separate passes, where
-    // it stops at the same iteration. (It rarely converges: no industry does, in 60 iterations,
-    // for NM or CA.)
-    std::fill(cs.begin(), cs.end(), 0.0);
-    for (std::size_t r = 0; r < NR; ++r) {
-        rowScale(r, rowFactor(r));
-    }
-    colFactors();
-    bool rerun = false;
-    for (int it = 0; it < IPF_ITERS; ++it) {
-        const bool last = it + 1 == IPF_ITERS;
-        double err = 0.0;
-        std::fill(cs.begin(), cs.end(), 0.0);
-        for (std::size_t r0 = 0; r0 < NR; r0 += ROWS) {
-            const std::size_t n_r = std::min(ROWS, NR - r0);
-            if (n_r == ROWS) {
-                colScaleRows(r0);
-            } else {
-                for (std::size_t r = r0; r < NR; ++r) {
-                    rs[r] = colScale(r);
-                }
-            }
-            for (std::size_t r = r0; r < r0 + n_r; ++r) { // in row order: err and cs sums as before
-                err += std::abs(rs[r] - rt[r]);
-                if (!last) { rowScale(r, rowFactor(r)); }
-            }
-        }
-        if (err < tol) {
-            rerun = !last;
-            break;
-        }
-        if (!last) { colFactors(); }
-    }
-    if (rerun) {
-        v = v0;
-        for (std::size_t r = 0; r < NR; ++r) {
-            double s = 0.0;
-            for (std::int64_t e = rptr[r]; e < rptr[r + 1]; ++e) {
-                s += v[e];
-            }
-            rs[r] = s;
-        }
-        for (int it = 0; it < IPF_ITERS; ++it) {
-            std::fill(cs.begin(), cs.end(), 0.0);
-            for (std::size_t r = 0; r < NR; ++r) {
-                rowScale(r, rowFactor(r));
-            }
-            colFactors();
-            double err = 0.0;
-            for (std::size_t r = 0; r < NR; ++r) {
-                rs[r] = colScale(r);
-                err += std::abs(rs[r] - rt[r]);
-            }
-            if (err < tol) { break; }
+            ++cp[pc[ls[r] + (e - rptr[r])] + 1];
         }
     }
-
-    // Column-wise TRS, each column's entries in row (home) order: a stable counting sort of the
-    // entries by column, as entry order is already row order.
-    std::vector<std::int64_t> cnt(NZ);
-    for (std::size_t e = 0; e < NZ; ++e) {
-        cnt[e] = static_cast<std::int64_t>(std::floor(v[e]));
+    for (std::size_t c = 0; c < NC; ++c) {
+        cp[c + 1] += cp[c];
     }
-    std::vector<std::int64_t> oc(NZ);
+    std::vector<std::int32_t> oce(NZ), erow(NZ);
     {
-        std::vector<std::int64_t> cp(NC + 1, 0);
-        for (std::size_t e = 0; e < NZ; ++e) {
-            ++cp[cols[e] + 1];
-        }
-        for (std::size_t c = 0; c < NC; ++c) {
-            cp[c + 1] += cp[c];
-        }
-        for (std::size_t e = 0; e < NZ; ++e) {
-            oc[cp[cols[e]]++] = static_cast<std::int64_t>(e);
+        std::vector<std::int64_t> at(cp.begin(), cp.end() - 1);
+        for (std::size_t r = 0; r < NR; ++r) {
+            for (std::int64_t e = rptr[r]; e < rptr[r + 1]; ++e) {
+                oce[at[pc[ls[r] + (e - rptr[r])]]++] = static_cast<std::int32_t>(e);
+                erow[e] = static_cast<std::int32_t>(r);
+            }
         }
     }
-    std::vector<double> frac, cum;
-    std::vector<std::int64_t> idx;
-    for (std::size_t a = 0; a < NZ;) {
-        std::size_t z = a;
-        while (z < NZ && cols[oc[z]] == cols[oc[a]]) {
-            ++z;
+    auto pairOf = [&] (std::int64_t e, std::size_t r) {
+        return ls[r] + (e - rptr[r]);
+    };
+
+    // Soft IPF, as workers.py: v = q a_i b_j; b_j = sqrt(ct_j / S_j) with S_j = sum_i q_ij a_i,
+    // then a_i = rt_i / sum_j q_ij b_j; stop once the column sums move less than tol.
+    const double tol = IPF_TOL * std::max(1.0, seqSum(rt.data(), NR));
+    std::vector<double> a(NR, 1.0), S(NC), bc(NC), cs(NC), prev(NC);
+    // Column sums over each column's entries in row order -- row by row on one thread, column by
+    // column on several: S[c] = sum q a_r (the next iteration's prior sums) and, when bcp is
+    // given, cs[c] = sum (q a_r) b_c in the same pass, both from the current a.
+    auto colSums = [&] (const double* bcp) {
+        if (nt == 1) {
+            std::fill(S.begin(), S.end(), 0.0);
+            if (bcp) { std::fill(cs.begin(), cs.end(), 0.0); }
+            for (std::size_t r = 0; r < NR; ++r) {
+                const double ar = a[r];
+                for (std::int64_t p = ls[r]; p < ls[r] + (rptr[r + 1] - rptr[r]); ++p) {
+                    const double t = qOf(r, p) * ar;
+                    S[pc[p]] += t;
+                    if (bcp) { cs[pc[p]] += t * bcp[pc[p]]; }
+                }
+            }
+            return;
         }
-        idx.assign(oc.begin() + a, oc.begin() + z);
-        const auto cj = cols[idx[0]];
+        const auto nc = static_cast<std::int64_t>(NC);
+#ifdef _OPENMP
+#pragma omp parallel for if (nt > 1) schedule(dynamic, 256) num_threads(nt)
+#endif
+        for (std::int64_t c = 0; c < nc; ++c) {
+            double s = 0.0, v = 0.0;
+            for (std::int64_t k = cp[c]; k < cp[c + 1]; ++k) {
+                const std::int64_t e = oce[k];
+                const auto r = static_cast<std::size_t>(erow[e]);
+                const double t = qOf(r, pairOf(e, r)) * a[r];
+                s += t;
+                if (bcp) { v += t * bcp[c]; }
+            }
+            S[c] = s;
+            if (bcp) { cs[c] = v; }
+        }
+    };
+    bool have_prev = false;
+    const auto nr64 = static_cast<std::int64_t>(NR);
+    colSums(nullptr);
+    for (int it = 0; it < SOFT_ITERS; ++it) {
+        for (std::size_t c = 0; c < NC; ++c) {
+            bc[c] = std::sqrt(S[c] > 0 ? ct[c] / S[c] : 1.0);
+        }
+#ifdef _OPENMP
+#pragma omp parallel for if (nt > 1) schedule(dynamic, 1024) num_threads(nt)
+#endif
+        for (std::int64_t r = 0; r < nr64; ++r) {
+            double t = 0.0;
+            for (std::int64_t p = ls[r]; p < ls[r] + (rptr[r + 1] - rptr[r]); ++p) {
+                t += qOf(r, p) * bc[pc[p]];
+            }
+            a[r] = t > 0 ? rt[r] / t : 0.0;
+        }
+        colSums(bc.data()); // cs for this iteration, S for the next
+        if (have_prev) {
+            double moved = 0.0;
+            for (std::size_t c = 0; c < NC; ++c) {
+                moved += std::abs(cs[c] - prev[c]);
+            }
+            if (moved < tol) { break; }
+        }
+        prev = cs;
+        have_prev = true;
+    }
+    auto vOf = [&] (std::int64_t e) { // the final IPF value of entry e
+        const auto r = static_cast<std::size_t>(erow[e]);
+        const auto p = pairOf(e, r);
+        return (qOf(r, p) * a[r]) * bc[pc[p]];
+    };
+
+    // Integer column targets: the soft column sums, largest remainder (ties by destination
+    // geoid) up to the supply total.
+    std::vector<std::int64_t> ct_i(NC);
+    std::int64_t have_ct = 0;
+    for (std::size_t c = 0; c < NC; ++c) {
+        ct_i[c] = static_cast<std::int64_t>(std::floor(cs[c]));
+        have_ct += ct_i[c];
+    }
+    if (ssum > have_ct) {
+        const auto o = stableOrder(NC, [&] (std::int64_t x, std::int64_t y) {
+            const double fx = -(cs[x] - std::floor(cs[x])), fy = -(cs[y] - std::floor(cs[y]));
+            return fx != fy ? fx < fy : F.dests[ci2[x]] < F.dests[ci2[y]];
+        });
+        for (std::int64_t i = 0; i < ssum - have_ct; ++i) {
+            ++ct_i[o[i]];
+        }
+    }
+
+    std::vector<std::int32_t> cnt(NZ);
+    const auto nz64 = static_cast<std::int64_t>(NZ);
+#ifdef _OPENMP
+#pragma omp parallel for if (nt > 1) schedule(static) num_threads(nt)
+#endif
+    for (std::int64_t e = 0; e < nz64; ++e) {
+        cnt[e] = static_cast<std::int32_t>(std::floor(vOf(e)));
+    }
+    auto homeOf = [&] (std::size_t r) {
+        return F.homes[row_h[ri[r]]];
+    };
+    auto bandOf = [&] (std::size_t r) {
+        return row_b[ri[r]];
+    };
+
+    // Column-wise TRS, each column's entries in row order; columns touch only their own entries.
+    const auto nc64 = static_cast<std::int64_t>(NC);
+#ifdef _OPENMP
+#pragma omp parallel for if (nt > 1) schedule(dynamic, 64) num_threads(nt)
+#endif
+    for (std::int64_t cj = 0; cj < nc64; ++cj) {
+        const std::int64_t k0 = cp[cj], m = cp[cj + 1] - cp[cj];
         const std::int64_t dg = F.dests[ci2[cj]];
         std::int64_t have = 0;
-        for (auto e : idx) {
-            have += cnt[e];
+        for (std::int64_t k = k0; k < k0 + m; ++k) {
+            have += cnt[oce[k]];
         }
-        const std::int64_t shortfall = static_cast<std::int64_t>(std::nearbyint(ct[cj])) - have;
-        if (shortfall > 0) {
-            frac.resize(idx.size());
-            for (std::size_t i = 0; i < idx.size(); ++i) {
-                frac[i] = v[idx[i]] - std::floor(v[idx[i]]);
+        const std::int64_t need = ct_i[cj] - have;
+        if (need > 0) {
+            std::vector<double> frac(m), cum;
+            for (std::int64_t i = 0; i < m; ++i) {
+                const double v = vOf(oce[k0 + i]);
+                frac[i] = v - std::floor(v);
             }
             if (seqSum(frac.data(), frac.size()) > 0) {
                 runningSum(frac.data(), frac.size(), cum);
                 const KR64 k = KR64(seed, rep, Stage::IPF_TRS_ADD).with(n).with(dg);
-                for (std::int64_t j = 0; j < shortfall; ++j) {
-                    ++cnt[idx[floatCdf(cum.data(), static_cast<std::int64_t>(cum.size()), k.with(j).u64(0))]];
+                for (std::int64_t j = 0; j < need; ++j) {
+                    ++cnt[oce[k0 + floatCdf(cum.data(), m, k.with(j).u64(0))]];
                 }
             }
-        } else if (shortfall < 0) {
+        } else if (need < 0) {
             std::vector<std::int64_t> nz;
-            for (auto e : idx) {
-                if (cnt[e] > 0) { nz.push_back(e); }
+            for (std::int64_t k = k0; k < k0 + m; ++k) {
+                if (cnt[oce[k]] > 0) { nz.push_back(oce[k]); }
             }
-            std::vector<std::int64_t> hg(nz.size());
+            std::vector<std::int64_t> id(nz.size());
             std::vector<std::uint64_t> dr(nz.size());
             const KR64 k = KR64(seed, rep, Stage::IPF_TRS_TRIM).with(n).with(dg);
             for (std::size_t i = 0; i < nz.size(); ++i) {
-                hg[i] = F.homes[ri[rows[nz[i]]]];
-                dr[i] = k.with(hg[i]).u64(0);
+                const auto r = static_cast<std::size_t>(erow[nz[i]]);
+                id[i] = homeOf(r) * nrb + bandOf(r);
+                dr[i] = k.with(homeOf(r)).with(bandOf(r)).u64(0);
             }
-            const auto o = stableOrder(nz.size(), [&] (std::int64_t x, std::int64_t y) {
-                return dr[x] != dr[y] ? dr[x] < dr[y] : hg[x] < hg[y];
+            std::vector<std::int64_t> o(nz.size());
+            std::iota(o.begin(), o.end(), 0);
+            std::sort(o.begin(), o.end(), [&] (std::int64_t x, std::int64_t y) { // (draw, identity): total
+                return dr[x] != dr[y] ? dr[x] < dr[y] : id[x] < id[y];
             });
-            const std::size_t take = std::min<std::size_t>(static_cast<std::size_t>(-shortfall), nz.size());
+            const std::size_t take = std::min<std::size_t>(static_cast<std::size_t>(-need), nz.size());
             for (std::size_t i = 0; i < take; ++i) {
                 --cnt[nz[o[i]]];
             }
         }
-        a = z;
     }
 
-    // Row repair: moves stay inside a row, whose cells are in destination order -- entry order,
-    // so orr (entries by row, then column) is the identity.
-    std::vector<std::int64_t> orr(NZ);
-    std::iota(orr.begin(), orr.end(), 0);
-    auto rowDelta = [&] () {
-        std::vector<std::int64_t> got(NR, 0);
-        for (std::size_t e = 0; e < NZ; ++e) {
-            got[rows[e]] += cnt[e];
+    // Row repair: moves stay inside a row, whose cells are in destination order -- entry order.
+    // Additions follow the IPF values; removals the counts. Rows touch only their own entries.
+    auto rowDelta = [&] (std::size_t r) {
+        std::int64_t got = 0;
+        for (std::int64_t e = rptr[r]; e < rptr[r + 1]; ++e) {
+            got += cnt[e];
         }
-        std::vector<std::int64_t> delta(NR);
-        for (std::size_t r = 0; r < NR; ++r) {
-            delta[r] = supply[ri[r]] - got[r];
-        }
-        return delta;
+        return supply[ri[r]] - got;
     };
-    std::vector<std::int64_t> w, wc;
+    std::vector<std::int64_t> delta(NR);
     for (int sweep = 0; sweep < REPAIR_SWEEPS; ++sweep) {
-        const auto delta = rowDelta();
-        bool bad = false;
-        for (std::size_t r = 0; r < NR; ++r) {
+        std::int64_t bad = 0;
+#ifdef _OPENMP
+#pragma omp parallel for if (nt > 1) schedule(dynamic, 1024) num_threads(nt) reduction(+ : bad)
+#endif
+        for (std::int64_t r = 0; r < nr64; ++r) {
+            delta[r] = rowDelta(r);
+            bad += delta[r] != 0 ? 1 : 0;
+        }
+        if (bad == 0) { break; }
+#ifdef _OPENMP
+#pragma omp parallel for if (nt > 1) schedule(dynamic, 256) num_threads(nt)
+#endif
+        for (std::int64_t r = 0; r < nr64; ++r) {
             const std::int64_t d = delta[r];
             if (d == 0) { continue; }
-            bad = true;
-            const std::int64_t* cells = orr.data() + rptr[r];
-            const std::int64_t m = rptr[r + 1] - rptr[r];
-            const std::int64_t hg = F.homes[ri[r]];
-            const KR64 k = KR64(seed, rep, Stage::IPF_REPAIR).with(n).with(hg).with(sweep);
+            const std::int64_t c0 = rptr[r], m = rptr[r + 1] - rptr[r];
+            const KR64 k = KR64(seed, rep, Stage::IPF_REPAIR).with(n).with(homeOf(r)).with(bandOf(r)).with(sweep);
             if (d > 0) {
-                wc.resize(m);
-                std::int64_t s = 0;
+                std::vector<double> vr(m), cum;
                 for (std::int64_t i = 0; i < m; ++i) {
-                    wc[i] = (s += 2 * cnt[cells[i]] + 1);
+                    vr[i] = vOf(c0 + i);
                 }
+                runningSum(vr.data(), static_cast<std::size_t>(m), cum);
                 std::vector<std::int64_t> add(m, 0);
                 for (std::int64_t j = 0; j < d; ++j) {
-                    ++add[intCdf(wc.data(), m, k.with(j).u64(0))];
+                    ++add[floatCdf(cum.data(), m, k.with(j).u64(0))];
                 }
                 for (std::int64_t i = 0; i < m; ++i) {
-                    cnt[cells[i]] += add[i];
+                    cnt[c0 + i] += static_cast<std::int32_t>(add[i]);
                 }
             } else {
-                wc.resize(m);
+                std::vector<std::int64_t> wc(m);
                 std::int64_t s = 0;
                 for (std::int64_t i = 0; i < m; ++i) {
-                    wc[i] = (s += cnt[cells[i]]);
+                    wc[i] = (s += cnt[c0 + i]);
                 }
                 if (s == 0) { continue; }
                 const std::int64_t take = std::min(-d, s);
                 for (std::int64_t j = 0; j < take; ++j) {
                     const auto i = intCdf(wc.data(), m, k.with(j).u64(0));
-                    if (cnt[cells[i]] > 0) { --cnt[cells[i]]; }
+                    if (cnt[c0 + i] > 0) { --cnt[c0 + i]; }
                 }
             }
         }
-        if (!bad) { break; }
     }
     // Deterministic final pass: settle what repair left on the row's largest cells.
-    {
-        const auto delta = rowDelta();
-        for (std::size_t r = 0; r < NR; ++r) {
-            std::int64_t d = delta[r];
-            if (d == 0) { continue; }
-            ++st.repair_final;
-            const std::int64_t* cells = orr.data() + rptr[r];
-            const std::int64_t m = rptr[r + 1] - rptr[r];
-            while (d != 0) {
-                std::int64_t j = cells[0];
-                for (std::int64_t i = 1; i < m; ++i) {
-                    if (cnt[cells[i]] > cnt[j]) { j = cells[i]; }
-                }
-                const std::int64_t step = d > 0 ? 1 : -1;
-                if (step < 0 && cnt[j] == 0) { break; }
-                cnt[j] += step;
-                d -= step;
+    for (std::size_t r = 0; r < NR; ++r) {
+        std::int64_t d = rowDelta(r);
+        if (d == 0) { continue; }
+        ++st.repair_final;
+        const std::int64_t c0 = rptr[r], m = rptr[r + 1] - rptr[r];
+        while (d != 0) {
+            std::int64_t j = c0;
+            for (std::int64_t i = 1; i < m; ++i) {
+                if (cnt[c0 + i] > cnt[j]) { j = c0 + i; }
             }
+            const std::int64_t step = d > 0 ? 1 : -1;
+            if (step < 0 && cnt[j] == 0) { break; }
+            cnt[j] += static_cast<std::int32_t>(step);
+            d -= step;
         }
-        for (auto d : rowDelta()) {
-            if (d != 0) { throw std::runtime_error("industry " + std::to_string(n) + ": row sums not exact after repair"); }
-        }
+        if (rowDelta(r) != 0) { throw std::runtime_error("industry " + std::to_string(n) + ": row sums not exact after repair"); }
     }
-    for (std::size_t e = 0; e < NZ; ++e) {
-        if (cnt[e] <= 0) { continue; }
-        if (cnt[e] == 1) { ++st.one_worker_cells; }
-        out.row_h.push_back(ri[rows[e]]);
-        out.col_d.push_back(ci2[cols[e]]);
-        out.cnt.push_back(cnt[e]);
+    for (std::size_t r = 0; r < NR; ++r) {
+        for (std::int64_t e = rptr[r]; e < rptr[r + 1]; ++e) {
+            if (cnt[e] <= 0) { continue; }
+            if (cnt[e] == 1) { ++st.one_worker_cells; }
+            out.row.push_back(ri[r]);
+            out.col_d.push_back(ci2[pc[pairOf(e, r)]]);
+            out.cnt.push_back(cnt[e]);
+        }
     }
     return out;
 }
@@ -805,9 +960,10 @@ std::vector<std::int64_t> allocateWorkers (const PopulationBundle& b, const Pers
     WorkerStats st;
     const std::size_t n_persons = P.size();
     std::vector<std::int64_t> work(P.bg);
+    // Commuters only: a worker who works from home keeps the home block group.
     std::vector<std::int64_t> W;
     for (std::size_t i = 0; i < n_persons; ++i) {
-        if (P.employed[i]) { W.push_back(static_cast<std::int64_t>(i)); }
+        if (P.employed[i] && P.travel[i] != TRAVEL_WFH) { W.push_back(static_cast<std::int64_t>(i)); }
     }
     const std::size_t NW = W.size();
     const int n_naics = static_cast<int>(b.get<std::int64_t>("naics.codes.offsets").size()) - 1;
@@ -825,7 +981,8 @@ std::vector<std::int64_t> allocateWorkers (const PopulationBundle& b, const Pers
     }
     const std::int64_t H = static_cast<std::int64_t>(F.homes.size());
 
-    // 1. LODES pairs with both ends at worker homes; summed if repeated, as scipy's CSR does.
+    // 1. The corrected prior: LODES pairs with both ends at worker homes (summed if repeated, as
+    //    scipy's CSR does), plus the background, weighted and quantised (commute.prior).
     {
         const auto lh = b.get<std::int64_t>("lodes.home_geoid");
         const auto ld = b.get<std::int64_t>("lodes.dest_geoid");
@@ -861,35 +1018,10 @@ std::vector<std::int64_t> allocateWorkers (const PopulationBundle& b, const Pers
         }
         std::sort(F.dests.begin(), F.dests.end());
         F.dests.erase(std::unique(F.dests.begin(), F.dests.end()), F.dests.end());
-        const std::int64_t Dn = static_cast<std::int64_t>(F.dests.size());
-        F.hd_ptr.assign(H + 1, 0);
-        // (h, d, count), already in (h, d) order: d is the dest geoid's rank
-        std::vector<std::tuple<std::int64_t, std::int64_t, std::int64_t>> ent;
-        ent.reserve(pairs.size());
-        for (const auto& e : pairs) {
-            ent.emplace_back(e[0], position(F.dests, e[1]), e[2]);
+        for (auto& e : pairs) { // dest geoid -> index; still in (home, dest) order
+            e[1] = position(F.dests, e[1]);
         }
-        pairs = {};
-        for (const auto& [h, d, c] : ent) {
-            ++F.hd_ptr[h + 1];
-            F.hd_col.push_back(d);
-            F.hd_val.push_back(c);
-        }
-        for (std::int64_t h = 0; h < H; ++h) {
-            F.hd_ptr[h + 1] += F.hd_ptr[h];
-        }
-        totalSort(ent, [] (const auto& x, const auto& y) { // (h, d) pairs are unique
-            return std::get<1>(x) != std::get<1>(y) ? std::get<1>(x) < std::get<1>(y) : std::get<0>(x) < std::get<0>(y);
-        });
-        F.dh_ptr.assign(Dn + 1, 0);
-        for (const auto& [h, d, c] : ent) {
-            ++F.dh_ptr[d + 1];
-            F.dh_col.push_back(h);
-            F.dh_val.push_back(c);
-        }
-        for (std::int64_t d = 0; d < Dn; ++d) {
-            F.dh_ptr[d + 1] += F.dh_ptr[d];
-        }
+        correctedPrior(b, pairs, F);
     }
     const std::int64_t Dn = static_cast<std::int64_t>(F.dests.size());
     std::vector<std::int64_t> dest_total(Dn, 0);
@@ -938,9 +1070,9 @@ std::vector<std::int64_t> allocateWorkers (const PopulationBundle& b, const Pers
 #endif
     for (std::int64_t d = 0; d < Dn; ++d) {
         std::vector<std::int64_t> cum(n_naics);
-        const std::int64_t ns = dest_total[d] > 0 ? std::max<std::int64_t>(1, static_cast<std::int64_t>(std::nearbyint(
-                                                                                      static_cast<double>(dest_total[d]) / avg)))
-                                                  : 0;
+        const double jobs = static_cast<double>(dest_total[d]) / W_SCALE;
+        const std::int64_t ns =
+                dest_total[d] > 0 ? std::max<std::int64_t>(1, static_cast<std::int64_t>(std::nearbyint(jobs / avg))) : 0;
         std::int64_t s = 0;
         for (int n = 0; n < n_naics; ++n) {
             cum[n] = (s += local[d * n_naics + n]);
@@ -993,8 +1125,21 @@ std::vector<std::int64_t> allocateWorkers (const PopulationBundle& b, const Pers
         }
     }
 
-    // 5. IPF fill per industry; each home's workers, in keyed order, dealt to its cells in
-    //    destination order.
+    // 5. Soft IPF fill per industry over (home, time band) rows; each row's workers, in keyed
+    //    order, dealt to its cells in destination order.
+    const auto kern = b.get<double>("commute.kern");
+    const auto band_tab = b.get<std::int8_t>("commute.band");
+    const auto nrb = static_cast<std::int64_t>(kern.shape[0]);
+    const auto n_modes = static_cast<std::int64_t>(band_tab.shape[0]), n_min = static_cast<std::int64_t>(band_tab.shape[1]);
+    std::vector<std::int64_t> rowid_w(NW);
+    for (std::size_t w = 0; w < NW; ++w) {
+        const std::int64_t t = P.travel[W[w]];
+        const std::int64_t band =
+                t < 0 ? nrb - 1
+                      : band_tab(static_cast<std::size_t>(std::min(t, n_modes - 1)),
+                                 static_cast<std::size_t>(std::clamp<std::int64_t>(P.jwmnp[W[w]], 0, n_min - 1)));
+        rowid_w[w] = hidx_w[w] * nrb + band;
+    }
     std::vector<std::uint8_t> assigned(NW, 0);
     std::vector<std::uint64_t> okey(NW);
     const KR64 ka(seed, rep, Stage::WORK_ASSIGN);
@@ -1008,7 +1153,7 @@ std::vector<std::int64_t> allocateWorkers (const PopulationBundle& b, const Pers
     }
     const auto wsort = stableOrder(NW, [&] (std::int64_t x, std::int64_t y) {
         if (naics_w[x] != naics_w[y]) { return naics_w[x] < naics_w[y]; }
-        if (hidx_w[x] != hidx_w[y]) { return hidx_w[x] < hidx_w[y]; }
+        if (rowid_w[x] != rowid_w[y]) { return rowid_w[x] < rowid_w[y]; }
         if (okey[x] != okey[y]) { return okey[x] < okey[y]; }
         const auto i = W[x], j = W[y];
         return P.h[i] != P.h[j] ? P.h[i] < P.h[j] : P.p[i] < P.p[j];
@@ -1054,50 +1199,50 @@ std::vector<std::int64_t> allocateWorkers (const PopulationBundle& b, const Pers
     std::vector<std::vector<std::int64_t>> dest(n_naics);
     std::vector<WorkerStats> ist(n_naics);
     std::vector<std::string> errors(n_naics);
-    const auto n_mine = static_cast<int>(mine.size());
-#ifdef _OPENMP
-#pragma omp parallel for schedule(dynamic, 1) num_threads(threads())
-#endif
-    for (int q = 0; q < n_mine; ++q) {
-        const int n = mine[q];
+    auto fillIndustry = [&] (int n) {
         const std::int64_t* wn = wsort.data() + nb[n];
         const std::int64_t nwn = nb[n + 1] - nb[n];
         auto& dn = dest[n];
         dn.assign(static_cast<std::size_t>(nwn), -1);
-        std::vector<std::int64_t> sup(H), dem(Dn);
+        std::vector<std::int64_t> dem(Dn);
         std::int64_t dsum = 0;
         for (std::int64_t d = 0; d < Dn; ++d) {
             dsum += (dem[d] = demand[d * n_naics + n]);
         }
-        if (true_total[n] == 0 || dsum == 0) { continue; }
-        for (std::int64_t h = 0; h < H; ++h) {
-            sup[h] = home_naics[h * n_naics + n];
+        if (true_total[n] == 0 || dsum == 0) { return; }
+        // rows: the industry's distinct (home, band), ascending, with their worker counts; each
+        // row's workers are contiguous in wn, starting at row_first
+        std::vector<std::int64_t> row_h, row_b, sup, row_first;
+        for (std::int64_t k = 0; k < nwn; ++k) {
+            const auto id = rowid_w[wn[k]];
+            if (k == 0 || id != rowid_w[wn[k - 1]]) {
+                row_h.push_back(id / nrb);
+                row_b.push_back(id % nrb);
+                sup.push_back(0);
+                row_first.push_back(k);
+            }
+            ++sup.back();
         }
         WorkerStats& sn = ist[n];
         Fill f;
         try {
-            f = fillOne(F, sup, dem, n, seed, rep, sn);
+            f = fillOne(F, kern, row_h, row_b, sup, dem, nrb, n, seed, rep, sn);
         } catch (const std::exception& e) { // must not leave the parallel region
             errors[n] = e.what();
-            continue;
+            return;
         }
         sn.unplaceable += f.unplaced;
-        if (f.cnt.empty()) { continue; }
+        if (f.cnt.empty()) { return; }
         sn.cells += static_cast<std::int64_t>(f.cnt.size());
-        // cells come by (home, destination geoid) already: homes ascending, destinations
-        // ascending within a home, and F.dests is sorted
+        // cells come by (row, destination) already: rows ascending, destinations ascending
+        // within a row, and F.dests is sorted
         const std::size_t nc = f.cnt.size();
         for (std::size_t a = 0; a < nc;) {
             std::size_t z = a;
-            while (z < nc && f.row_h[z] == f.row_h[a]) {
+            while (z < nc && f.row[z] == f.row[a]) {
                 ++z;
             }
-            const std::int64_t h = f.row_h[a];
-            std::int64_t k = std::lower_bound(wn, wn + nwn, h,
-                                              [&] (std::int64_t w, std::int64_t hh) {
-                                                  return hidx_w[w] < hh;
-                                              }) -
-                             wn;
+            std::int64_t k = row_first[f.row[a]];
             for (std::size_t c = a; c < z; ++c) {
                 for (std::int64_t r = 0; r < f.cnt[c]; ++r, ++k) {
                     dn[k] = f.col_d[c];
@@ -1105,6 +1250,27 @@ std::vector<std::int64_t> allocateWorkers (const PopulationBundle& b, const Pers
             }
             a = z;
         }
+    };
+    // An industry bigger than an even share of this rank's work runs alone on all threads (its
+    // fill parallelises over rows and columns); the rest run concurrently, one per thread.
+    const int nt = threads();
+    std::int64_t mine_cost = 0;
+    for (int n : mine) {
+        mine_cost += cost[n];
+    }
+    std::vector<int> big, small;
+    for (int n : mine) {
+        (nt > 1 && cost[n] * nt >= mine_cost ? big : small).push_back(n);
+    }
+    for (int n : big) {
+        fillIndustry(n);
+    }
+    const auto n_small = static_cast<int>(small.size());
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 1) num_threads(nt)
+#endif
+    for (int q = 0; q < n_small; ++q) {
+        fillIndustry(small[q]);
     }
     // Every rank's results, in rank order: a header [failed industries, the four stats], then
     // its industries' destinations in ascending industry order.
@@ -1147,7 +1313,7 @@ std::vector<std::int64_t> allocateWorkers (const PopulationBundle& b, const Pers
         throw std::runtime_error("worker allocation failed for " + std::to_string(failed) + " industries on another rank");
     }
 
-    // Fallback: a draw over the home's own LODES row; no row, work at home.
+    // Fallback: a draw over the home's own prior row; no row, work at home.
     const KR64 kf(seed, rep, Stage::WORK_FALLBACK);
     std::vector<std::int64_t> rc;
     for (std::size_t w = 0; w < NW; ++w) {
@@ -1608,7 +1774,6 @@ constexpr std::int64_t NBORHOOD_SIZE = 500;
 constexpr std::int64_t WORKGROUP_SIZE = 20;
 constexpr std::int64_t CLASS_SIZE = 20, CLASS_MIN = 5, CLASS_MAX = 50;
 constexpr double COLLEGE_INSTRUCTIONAL_FRACTION = 0.1;
-constexpr int TRAVEL_WFH = 7;
 
 //! ceil(a / b) for a >= 0, b > 0, as Python's -(-a // b).
 std::int64_t ceilDiv (std::int64_t a, std::int64_t b) {

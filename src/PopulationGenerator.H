@@ -3,9 +3,9 @@
     households, and stages S0-S10 (persons, destinations, groups).
 
     A bit-for-bit port of utilities/UrbanPop-scripts/popgen/ (placement.py, persons.py,
-    workers.py, cbp.py, students.py, teachers.py, groups.py), which are normative. Given the same
-    allocations, every stage's output must equal the Python reference generator's exactly; the
-    check compares per-stage digests with generate_exaepi.py's <bin>.digests.json
+    workers.py, commute.py, cbp.py, students.py, teachers.py, groups.py), which are normative.
+    Given the same allocations, every stage's output must equal the Python reference generator's
+    exactly; the check compares per-stage digests with generate_exaepi.py's <bin>.digests.json
     (utilities/tests/popgen_stages_check.cpp, with allocations injected via --save-alloc).
 
     What makes bit-for-bit possible, and must be kept when changing this file:
@@ -14,7 +14,9 @@
       * float sums that affect results run sequentially in the same order as numpy.cumsum /
         numpy.bincount (never pairwise), and the file is compiled with -ffp-contract=off;
       * ties in sorts are broken as numpy's stable lexsort breaks them;
-      * counts, roundings and grid cuts are integer arithmetic.
+      * counts, roundings and grid cuts are integer arithmetic;
+      * the only non-arithmetic operations are floor and sqrt (correctly rounded): anything that
+        needs exp, log or trigonometry is tabulated in the bundle (commute.*, geo.xyz).
 
     Host-only and AMReX-free, so the stage check builds standalone with a plain compiler.
 */
@@ -52,8 +54,8 @@ Placements placePuma(const PopulationBundle& b, const PmedmProblem& prob, const 
 
 /*! The person table, in canonical order: sorted by (bg, h, p), agent id = position. */
 struct Persons {
-    std::vector<std::int64_t> bg, h, p, src; /*!< identity; src = row in donors.* person columns */
-    std::vector<std::int16_t> age, naics, grade;
+    std::vector<std::int64_t> bg, h, p, src;            /*!< identity; src = row in donors.* person columns */
+    std::vector<std::int16_t> age, naics, grade, jwmnp; /*!< jwmnp: reported travel time to work, minutes */
     std::vector<std::int8_t> sex, race, travel, veh_occ;
     std::vector<std::uint8_t> employed, student;
 
@@ -101,8 +103,9 @@ struct Partition {
     std::function<std::vector<std::int64_t>(const std::vector<std::int64_t>&)> allgather;
 };
 
-/*! S3 (workers.py, allocate): work geoid per person -- the home geoid for non-workers. With a
-    Partition, the per-industry fills are split over its ranks (collective). */
+/*! S3 (workers.py, allocate): work geoid per person -- the home geoid for non-workers and for
+    workers who work from home. With a Partition, the per-industry fills are split over its ranks
+    (collective). */
 std::vector<std::int64_t> allocateWorkers(const PopulationBundle& b, const Persons& P, const SizeTables& tables,
                                           std::int64_t seed, std::int64_t rep, WorkerStats* stats = nullptr,
                                           const Partition* part = nullptr);

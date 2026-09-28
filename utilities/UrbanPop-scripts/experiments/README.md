@@ -97,8 +97,9 @@ Paired by population seed, the two generators give populations within ~150 agent
 within 1.6 standard errors. F's wider peak spread is a variance ratio of 2.65 on 9/9 degrees of
 freedom, short of the one-sided 5% point (3.18).
 
-**California.** `ca_v2.upb` (54.4 MB; committed via git-lfs as `data/UrbanPop/ca_popgen.upb`,
-as `nm_v2.upb` is committed plainly as `data/UrbanPop/nm_popgen.upb`) is built like `nm_v2.upb` with
+**California.** `ca_v2.upb` (54.4 MB; its format-3 upgrade is committed via git-lfs as
+`data/UrbanPop/ca_popgen.upb`, and `nm_v2.upb`'s plainly as `data/UrbanPop/nm_popgen.upb` -- see
+Commutes below) is built like `nm_v2.upb` with
 `--pumas $(python ../../utilities/UrbanPop-scripts/state_pumas.py 'base/06_CA/*.feather')` (265
 PUMAs) and the CA feathers and LODES file; 3.2 h, almost all of it Census downloads. The donor recode
 validates at 1.0000 on every field against the feathers (1.88 M overlapping persons). With the Python
@@ -110,6 +111,68 @@ population, `compare_bins.py` agrees within ~0.5% on every measure except the in
 one-person work groups (5.1% vs 14.1%). One 120-day run of `examples/inputs.ca` on each (same
 disease seed): attack rate 0.9449 delivered vs 0.9454 generated, peak 17.14 M vs 17.19 M, peak day
 32 both, deaths +0.6%.
+
+**Commutes (bundle format 3).** LODES links jobs to residences from administrative records, not
+daily commutes, and its long-distance tail is ~10x CTPP's: 11.7% of NM LODES jobs are > 100 km
+from home against 0.8% of CTPP commuters (CA 11.4% vs 1.2%), 99.5% of them in 1-2-job block pairs.
+The IPF fill of the version-2 bundle sent 20.4% of NM commuters > 100 km, and a worker's distance
+ignored their reported travel time (0-5-minute commuters: median 13 km). What it took, measured one
+change at a time on NM seed 1 with a scratch copy of `workers.allocate` (bit-identical to it with
+every change off):
+
+- A distance reliability r(d) on the LODES prior alone, iterated against CTPP, stalls at ~11%
+  > 100 km: the CBP-sized slot demand is a hard column total, and IPF scales tiny far priors back up
+  to fill slots nearby workers cannot reach. Soft column totals (unbalanced Sinkhorn: the column
+  scale is sqrt(target / prior sum) rather than a damped running factor, whose fixed point is the
+  hard total again) release that demand: 27% of it moves.
+- Row repair added workers with weight 2 cnt + 1, near-uniform over a row's LODES cells. Harmless
+  with LODES-shaped rows, but with rows split by commute-time band (mostly one worker each) it sent
+  6% of 0-6-minute commuters > 100 km. Adding in proportion to the IPF values fixed it.
+- A background over the 300 nearest destinations within 50 km (weight jobs x exp(-d / 10 km))
+  covers destinations LODES never recorded: ~1.5% of commuters had no destination demanding their
+  industry within 100 km in their home's LODES row.
+- Workers who work from home (5.4% of NM's) are left out of the fill; ExaEpi keeps them home.
+- CTPP county-to-county flows as further soft targets fought the distance fit and were dropped.
+
+`calibrate_commute.py` fits the result per bundle (NM: speed kernel v50 30 km/h, sigma 0.9; r(d)
+converged in 14 iterations to a profile TVD of 0.003). Scored on NM, seed 1; seed 7 rep 2, which
+the calibration never saw, matches it to within 0.006 on every share and correlation below:
+
+| measure | version 2 | version 3 | CTPP |
+|---|---|---|---|
+| commuters > 100 km | 20.4% | 1.10% | 0.89% |
+| median / p90 distance | 17.2 / 235 km | 8.8 / 35 km | 8.8 / 34 km |
+| commuters leaving their county | 37.9% | 13.7% | 12.4% |
+| county-to-county TVD vs CTPP (LODES: 0.186) | 0.262 | 0.106 | — |
+| tract-to-tract TVD vs CTPP (LODES: 0.468) | 0.532 | 0.423 | — |
+| LODES block-group-pair correlation | 0.861 | 0.874 | — |
+| implied straight-line speed > 60 km/h | 51% | 25% | — |
+| time-distance rank correlation | 0.007 | 0.40 | — |
+| walkers' median distance | 19.2 km | 3.2 km | — |
+| workers in (dest, NAICS) cells of 20+ | 0.903 | 0.884 | — |
+| work-group members in teams of <= 2 | 5.5% | 5.2% | — |
+
+On the same seed-1 allocations, a 120-day NM epidemic (`nm-july4.cases`, disease seeds 3-5, CUDA
+build): attack rate 0.5666 -> 0.5553 (seed-to-seed range 0.0012 -> 0.0028), peak 261 k -> 240 k,
+peak day 71 -> 71-74, deaths -4.6%: with fewer long links, the epidemic spreads more slowly.
+
+California (kernel v50 30 km/h, sigma 0.8; r(d) converged in 4 iterations to TVD 0.002), scored
+from the `.bin` files as ExaEpi moves agents (educators at their schools), seed 1:
+
+| measure | delivered | version 2 | version 3 | CTPP |
+|---|---|---|---|---|
+| commuters > 100 km | 11.3% | 15.0% | 1.35% | 1.31% |
+| median / p90 distance | 19.0 / 111 km | 21.0 / 146 km | 11.6 / 43 km | — |
+| commuters leaving their county | 36.6% | 40.1% | 21.3% | 18.0% |
+| county-to-county TVD vs CTPP | 0.188 | 0.225 | 0.050 | — |
+| county-to-county log-share correlation | 0.848 | 0.823 | 0.938 | — |
+| LODES block-group-pair correlation | 0.736 | 0.760 | 0.864 | — |
+| work-group members in teams of <= 2 | 5.0% | 3.5% | 3.2% | — |
+
+The time kernel holds up (time-distance rank correlation 0.63, walkers' median 1.8 km). Cost: S3 is
+~1.5x slower than version 2 (C++, CA, 20 threads: 25.8 vs 19.0 s; one thread 96 vs 58 s) with
+peak memory 13.1 vs 10.3 GB -- each commuter's fill row now carries its home's LODES and
+background destinations for its own time band. The Python oracle's S3 takes ~11 min for CA.
 
 `arm_d/` holds the population-perturbation experiment (arm D of `utilities/compare_realizations.py`)
 as patches against `upop_to_exaepi.py`, which apply cleanly to the commit they were written on,
