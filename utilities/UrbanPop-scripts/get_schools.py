@@ -115,6 +115,76 @@ def get_level_from_age(start_age, end_age):
     return levels
 
 
+# How a school's enrollment is shared among the levels it teaches, one students_<level> column
+# each, so upop_to_exaepi.py can fill each level to its own capacity. Splitting evenly by the
+# number of levels instead gives K-5's six grades the same places as 6-8's three and hands a
+# PK-8 school a third of its enrollment as preschool places -- on CA that left elementary with
+# ~576k fewer places than students, middle school ~507k more, and dumped the shortfall into a
+# few schools -- 1,476 at over 5x their listed enrollment.
+LEVEL_CAPACITY_COLS = {level: f"students_{level}" for level in LEVEL_KEYS.values()}
+# Ages each level's grades span, for sharing out a total that has no per-grade breakdown: the
+# level tags' own ranges, except preschool, which counts only ages 3-4 -- the ages UrbanPop
+# enrolls in preschool -- so a school taking infants from age 1 doesn't get most of its
+# enrollment as preschool places. High school stops at 17, the age of 12th grade.
+LEVEL_WEIGHT_AGES = {"P": (3, 4), "E": tuple(ELEM_SCHOOL_AGES), "M": tuple(MID_SCHOOL_AGES), "H": (14, 17)}
+# NCES per-grade enrollment columns making up each level (G13 is the rare 13th grade)
+NCES_LEVEL_GRADE_COLS = {
+    "P": ["PK"],
+    "E": ["KG", "G01", "G02", "G03", "G04", "G05"],
+    "M": ["G06", "G07", "G08"],
+    "H": ["G09", "G10", "G11", "G12", "G13"],
+}
+
+
+def apportion(totals, weights):
+    """Split each totals[i] into integer parts proportional to weights[i] (largest remainder), so
+    each row's parts sum to exactly its total. Rows whose weights sum to zero get all zeros."""
+    weights = np.asarray(weights, dtype=float)
+    totals = np.asarray(totals, dtype=np.int64)
+    row_sums = weights.sum(axis=1, keepdims=True)
+    shares = np.divide(weights, row_sums, out=np.zeros_like(weights), where=row_sums > 0) * totals[:, None]
+    parts = np.floor(shares).astype(np.int64)
+    short = totals - parts.sum(axis=1)
+    short[row_sums[:, 0] == 0] = 0
+    # hand the remaining units to the largest fractional remainders, one each
+    order = np.argsort(-(shares - parts), axis=1)
+    for i in np.flatnonzero(short > 0):
+        parts[i, order[i, : short[i]]] += 1
+    return parts
+
+
+def add_level_capacities(df, level_weights=None, start_age_col=None, end_age_col=None):
+    """Add a students_<level> column per level (see LEVEL_CAPACITY_COLS), sharing out each school's
+    `students` among the levels in its `level` tag.
+
+    level_weights, if given, is an (n, 4) array of per-level enrollment (P, E, M, H) -- NCES's
+    per-grade counts. Otherwise, or for a row where those are all zero, the weights are how many
+    of the level's ages (LEVEL_WEIGHT_AGES) the school's [start_age_col, end_age_col] range
+    covers; failing that, the levels in the tag share equally. Levels outside the tag always get
+    nothing, since upop_to_exaepi.py only offers a school to the levels it is tagged with.
+    """
+    levels = list(LEVEL_CAPACITY_COLS)
+    in_tag = np.array([[lv in tag for lv in levels] for tag in df["level"].astype(str)], dtype=float)
+    weights = np.zeros((len(df), len(levels)))
+    if level_weights is not None:
+        weights = np.clip(np.nan_to_num(np.asarray(level_weights, dtype=float)), 0, None) * in_tag
+    if start_age_col is not None:
+        start = pd.to_numeric(df[start_age_col], errors="coerce").to_numpy(dtype=float)
+        end = pd.to_numeric(df[end_age_col], errors="coerce").to_numpy(dtype=float)
+        span = np.stack(
+            [np.minimum(end, hi) - np.maximum(start, lo) + 1 for lo, hi in LEVEL_WEIGHT_AGES.values()], axis=1
+        )
+        span = np.clip(np.nan_to_num(span), 0, None) * in_tag
+        missing = weights.sum(axis=1) == 0
+        weights[missing] = span[missing]
+    missing = weights.sum(axis=1) == 0
+    weights[missing] = in_tag[missing]
+    parts = apportion(df["students"].fillna(0).clip(lower=0).to_numpy(), weights)
+    for j, level in enumerate(levels):
+        df[LEVEL_CAPACITY_COLS[level]] = parts[:, j]
+    return df
+
+
 def get_age_from_grade(grade_str):
     try:
         return int(grade_str) + 5
@@ -210,7 +280,10 @@ def get_hifld_public_schools(args, census_bgs_df):
             "Full Time Teachers": "teachers",
             "GEOID10": "geoid",
         }
-    )[["id", "students", "teachers", "level", "geoid", "Name"]]
+    )[["id", "students", "teachers", "level", "geoid", "Name", "Start Grade", "End Grade"]]
+    # HIFLD has only a total, so it is shared out by grade span (the grades are ages by now)
+    schools_with_geoids = add_level_capacities(schools_with_geoids, start_age_col="Start Grade", end_age_col="End Grade")
+    schools_with_geoids = schools_with_geoids.drop(columns=["Start Grade", "End Grade"])
     schools_with_geoids = drop_virtual_schools(schools_with_geoids, "Name")
     schools_with_geoids = invalidate_bad_teacher_ratios(schools_with_geoids)
     schools_with_geoids = get_complete(schools_with_geoids)
@@ -242,7 +315,10 @@ def get_hifld_private_schools(args, census_bgs_df):
             "Full Time Teachers": "teachers",
             "GEOID10": "geoid",
         }
-    )[["id", "students", "teachers", "level", "geoid", "Name"]]
+    )[["id", "students", "teachers", "level", "geoid", "Name", "Start Grade", "End Grade"]]
+    # only a total here too, so shared out by grade span, as for HIFLD public schools
+    schools_with_geoids = add_level_capacities(schools_with_geoids, start_age_col="Start Grade", end_age_col="End Grade")
+    schools_with_geoids = schools_with_geoids.drop(columns=["Start Grade", "End Grade"])
     schools_with_geoids = drop_virtual_schools(schools_with_geoids, "Name")
     schools_with_geoids = invalidate_bad_teacher_ratios(schools_with_geoids)
     schools_with_geoids = get_complete(schools_with_geoids)
@@ -375,8 +451,9 @@ def get_hifld_colleges(args):
 def get_nces_public_schools(args, census_bgs_df):
     print(f"Reading from {args.public_nces_school_file}: ", end="")
     t = time.time()
+    grade_cols = [col for cols in NCES_LEVEL_GRADE_COLS.values() for col in cols]
     df = pd.read_csv(args.public_nces_school_file)[
-        ["NCESSCH", "TOTAL", "STUTERATIO", "LATCOD", "LONCOD", "GSLO", "GSHI", "VIRTUAL"]
+        ["NCESSCH", "TOTAL", "STUTERATIO", "LATCOD", "LONCOD", "GSLO", "GSHI", "VIRTUAL"] + grade_cols
     ]
     print(len(df.index), "records in % .3f s" % (time.time() - t))
     # exclude statewide virtual/cyber schools -- their enrollment is real, but they don't
@@ -419,6 +496,17 @@ def get_nces_public_schools(args, census_bgs_df):
     geoids_df["GSLO"] = list(map(get_age_from_grade, geoids_df["GSLO"]))
     geoids_df["GSHI"] = list(map(get_age_from_grade, geoids_df["GSHI"]))
     geoids_df["level"] = list(map(get_level_from_age, geoids_df["GSLO"], geoids_df["GSHI"]))
+    # NCES counts every grade, so each level's places come from its own grades' enrollment (NCES
+    # codes a missing count as negative). Ungraded students have no level and are shared out with
+    # the rest. Some states report no PK counts at all -- CA among them, whose TOTAL is exactly its
+    # K-12 grades -- so a PK-tagged school there gets no preschool places.
+    level_weights = np.stack(
+        [
+            geoids_df[cols].apply(pd.to_numeric, errors="coerce").clip(lower=0).fillna(0).sum(axis=1)
+            for cols in NCES_LEVEL_GRADE_COLS.values()
+        ],
+        axis=1,
+    )
 
     geoids_df = geoids_df.rename(
         columns={
@@ -426,9 +514,9 @@ def get_nces_public_schools(args, census_bgs_df):
             "TOTAL": "students",
             "GEOID10": "geoid",
         }
-    )[
-        ["id", "students", "teachers", "level", "geoid"]
-    ]  # , "GSLO", "GSHI"]]
+    )
+    geoids_df = add_level_capacities(geoids_df, level_weights=level_weights, start_age_col="GSLO", end_age_col="GSHI")
+    geoids_df = geoids_df[["id", "students", "teachers", "level", "geoid"] + list(LEVEL_CAPACITY_COLS.values())]
     geoids_df = get_complete(geoids_df)
     geoids_df.to_csv("non_college_schools_with_geoids.csv", index=False)
     print("Wrote", len(geoids_df), "schools to non_college_schools_with_geoids.csv")
@@ -505,6 +593,9 @@ def main():
     schools_geoids_df = pd.concat(
         [public_schools_geoids_df, private_schools_geoids_df, colleges_geoids_df, childcare_geoids_df], ignore_index=True
     )
+    # colleges and childcare have a single level, so all their places are in `students`
+    capacity_cols = list(LEVEL_CAPACITY_COLS.values())
+    schools_geoids_df[capacity_cols] = schools_geoids_df[capacity_cols].fillna(0).astype(int)
     schools_geoids_df.to_csv("schools_with_geoids.csv", index=False)
     print("Wrote", len(schools_geoids_df), "schools to schools_with_geoids.csv")
 

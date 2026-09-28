@@ -131,6 +131,16 @@ file.
 Worker, student, and teacher flows are generated from the LODES flows input and the schools input
 (the LODES and schools files are required).
 
+Students are placed level by level (preschool, elementary, middle, high, university, childcare), each
+into its own places at the schools offering it -- the schools file's `students_<level>` columns (see
+`get_schools.py` below). A K-12 student is placed as close to home as possible, within their home
+county or a neighboring one. Childcare and university fill past capacity when it runs out, but
+preschool and K-12 do not: a student with no place in reach is left unenrolled and spends the day at
+home, standing in for online and home schooling. Preschoolers without a school place first take any
+childcare places left over, and become childcare children there. On CA, filling past capacity used to
+put 1,476 schools at over 5x their listed enrollment (Santa Monica High at 4x, a 365-student preK-8
+school at 37x).
+
 It also requires the two per-(state, NAICS) size tables written by `compute_workgroup_sizes.py`
 (see below), which decide how many workplaces each destination has and how big each one is. Both
 default to the copies in `data/UrbanPop/`, resolved from the script's own location rather than the
@@ -220,6 +230,12 @@ any issues.
 
 Public schools can also be taken from NCES rather than HIFLD, via `--public_nces_school_file`, which
 is the recommended source of the two.
+
+Besides each school's total `students`, the file has `students_P`, `students_E`, `students_M` and
+`students_H` columns: how many of those students are in each level it teaches. For NCES schools they
+come from the per-grade enrollment counts. HIFLD has only a total, so it is shared out by how many of
+each level's ages the school's grade range covers (only ages 3-4 count as preschool). NCES reports no
+preschool counts for some states, CA among them, so a PK-tagged school there has no preschool places.
 
 ### `compute_county_adjacency.py`
 
