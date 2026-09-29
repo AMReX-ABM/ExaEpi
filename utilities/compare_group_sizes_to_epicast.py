@@ -243,21 +243,21 @@ def read_schools(fname, states, category):
 
 
 def log_spaced_integer_bins(vmin, vmax, max_bins=50):
-    """Log-spaced bin edges from vmin to vmax, capped so no bin is narrower than 1 unit.
+    """Log-spaced bin edges covering vmin to vmax, snapped to half-integers.
 
     Log-spaced bins are the right choice for a log-x histogram since equal *ratio* renders as
-    equal visual width -- but for integer count data, too many bins makes the ones near vmin
-    narrower than a single unit, which then look like huge density spikes purely from having a
-    tiny bin_width denominator (count / bin_width), not from the data. Rather than patch that by
-    flooring individual bin widths after the fact (which breaks the constant-ratio property and
-    makes bars render at visibly different widths), this picks a small enough bin count up front
-    that every bin -- including the narrowest, at vmin -- stays >= 1 unit wide on its own.
+    equal visual width -- but for integer count data, bins near vmin come out narrower than a
+    single unit, and one holding no integer at all is empty next to a neighbor with the whole
+    count, which reads as a spike. Snapping every edge to a half-integer (and dropping the
+    duplicates that makes) gives the small sizes one bin per integer and leaves the larger ones
+    at full log resolution. Capping the bin count instead, so the narrowest bin stays a unit wide,
+    left sizes from 1 to 6,560 with 12 bins.
     """
-    if vmin <= 0 or vmax <= vmin:
+    lo, hi = max(vmin - 0.5, 0.5), vmax + 0.5
+    if hi <= lo:
         return max_bins
-    max_n_for_resolution = int(np.floor(np.log(vmax / vmin) / np.log(1 + 1.0 / vmin)))
-    n_bins = max(1, min(max_bins, max_n_for_resolution))
-    return np.logspace(np.log10(vmin), np.log10(vmax), n_bins + 1)
+    edges = np.floor(np.logspace(np.log10(lo), np.log10(hi), max_bins + 1)) + 0.5
+    return np.unique(np.concatenate([[lo], edges[(edges > lo) & (edges < hi)], [hi]]))
 
 
 # How many bins the narrowest distribution on a panel has to be resolved into, whatever the
