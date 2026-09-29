@@ -27,9 +27,9 @@ def load_epicast(fname):
     if fname.endswith(EPICAST_SUMMARY_SUFFIX):
         # Pre-extracted by extract_epicast_data.py: already the small per-day summary, so skip
         # the (often multi-GB, tens-of-seconds) raw events.bin parse entirely.
-        print(f"Reading pre-extracted Epicast summary {fname} ...")
+        #print(f"Reading pre-extracted Epicast summary {fname} ...")
         df = pd.read_csv(fname)
-        print(f"Epicast has {len(df)} days (from pre-extracted summary)")
+        #print(f"Epicast has {len(df)} days (from pre-extracted summary)")
         return df
     return read_epicast_summary(fname)
 
@@ -92,7 +92,7 @@ def _exaepi_population(df):
 
 def load_exaepi(fname):
     df = pd.read_csv(fname, sep="\\s+")
-    print(f"Read {len(df)} lines from the ExaEpi file {fname}")
+    #print(f"Read {len(df)} lines from the ExaEpi file {fname}")
     df = _add_exaepi_source_fractions(df)
 
     df["in_hospital"] = df[["H/NI", "H/I"]].sum(axis=1)
@@ -107,7 +107,7 @@ def load_exaepi(fname):
     df["delta_recovered"] = delta_recovered
     df["cum_exposed"] = df.NewI.cumsum()
 
-    print(f"ExaEpi total infected/exposed {df.NewI.sum()}")
+    #print(f"ExaEpi total infected/exposed {df.NewI.sum()}")
 
     #print(f"ExaEpi hospitalized by age:")
     ages = ["U5", "5to17", "18to29", "30to49", "50to64", "O64"]
@@ -1623,8 +1623,8 @@ def _load_grouped(file_specs, load_fn, extra_csv_fn=None):
         fnames = [fname for fname, _, _ in expanded]
         is_wc = len(fnames) > 1
 
-        for fname in fnames:
-            print(f"{fname}")
+        #for fname in fnames:
+        #    print(f"{fname}")
         if is_wc:
             max_workers = _safe_max_workers(fnames)
             if max_workers < len(fnames):
