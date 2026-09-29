@@ -17,7 +17,7 @@ from scipy.integrate import solve_ivp
 
 sys.path.insert(0, os.path.dirname(__file__))
 from read_epicast_events import read_epicast_summary, EPICAST_SUMMARY_SUFFIX
-from plos_compbio_style import apply_style, FULL_PAGE_WIDTH_IN, FONT_TICK, AXES_LINEWIDTH
+from plos_compbio_style import apply_style, FULL_PAGE_WIDTH_IN, FONT_TICK, AXES_LINEWIDTH, PAGE_WIDTHS_IN
 import seirhd_params
 
 apply_style()
@@ -1327,6 +1327,18 @@ parser.add_argument(
          "presymptomatic/hospitalized/dead/recovered value >= 10 (default: 250)",
 )
 parser.add_argument(
+    "--title", default=None,
+    help="Replace the (single) panel's title; an empty string removes it. Useful when the panel is a "
+    "sub-figure whose own caption already names it, and a narrow one has no room for a long title",
+)
+parser.add_argument(
+    "--width", choices=["grid"] + list(PAGE_WIDTHS_IN), default="grid",
+    help="Panel size (see plos_compbio_style.py). 'grid' (default) gives every panel half the page "
+    "width, laid out two across; 'half' or 'third' size a single panel for a sub-figure placed at "
+    "0.48 or 0.32 \\linewidth -- a panel drawn at half width and shown three across would have its "
+    "text shrunk to 2/3 of its size, below PLOS's 8pt floor",
+)
+parser.add_argument(
     "--ylimit", "-y", type=float, default=None, help="Y-axis maximum for all plots (default: auto)"
 )
 def _shift_type(value):
@@ -1752,8 +1764,13 @@ nrows = (n + ncols - 1) // ncols
 # grid (the common case) spans the paper's full page width, a 1-column grid spans half; adding
 # more panels only grows the number of ROWS, not each panel's own size. panel_height preserves
 # this script's original 6x3.5 panel aspect ratio, just at the new PLOS scale.
-panel_width = FULL_PAGE_WIDTH_IN / 2
-panel_height = panel_width * (3.5 / 6)
+if args.width == "grid":
+    panel_width = FULL_PAGE_WIDTH_IN / 2
+    panel_height = panel_width * (3.5 / 6)
+else:
+    if n > 1:
+        sys.exit(f"--width {args.width} sizes a single panel, but {n} plots were selected")
+    panel_width, panel_height = PAGE_WIDTHS_IN[args.width]
 fig, axes_grid = plt.subplots(
     nrows, ncols, figsize=(ncols * panel_width, nrows * panel_height), squeeze=False, layout="constrained"
 )
@@ -1777,6 +1794,11 @@ for i, plot_name in enumerate(selected_plots):
                            plot_name)
     else:
         plot_series(axes[i], epicast_data, exaepi_data, plot_name, seir_dfs=seir_dfs)
+
+if args.title is not None:
+    if n > 1:
+        sys.exit(f"--title replaces a single panel's title, but {n} plots were selected")
+    axes[0].set_title(args.title)
 
 for i in range(n, len(axes)):
     axes[i].set_visible(False)

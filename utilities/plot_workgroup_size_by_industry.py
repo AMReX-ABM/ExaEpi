@@ -45,7 +45,7 @@ import numpy as np  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "UrbanPop-scripts"))
 from compute_workgroup_sizes import load_cbp_cache, parse_naics_descriptions  # noqa: E402
-from plos_compbio_style import apply_style, HALF_PAGE_HEIGHT_IN, HALF_PAGE_WIDTH_IN  # noqa: E402
+from plos_compbio_style import apply_style, FONT_TICK, HALF_PAGE_HEIGHT_IN, HALF_PAGE_WIDTH_IN  # noqa: E402
 from plot_commute_distance import read_urbanpop_columns  # noqa: E402
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -81,9 +81,15 @@ SECTOR_ALIASES = {"32": "31", "33": "31", "45": "44", "49": "48", "3": "31", "4"
 
 ALL_INDUSTRIES = "All industries"
 
-# Font size of the sector names on the y axis, in points. Smaller than the shared style's 8pt
-# tick labels so ~21 rows fit in a standard half-page figure's height.
-SECTOR_LABEL_FONT = 6
+# Font size of the sector names on the y axis, in points: the shared style's tick size, which is
+# also PLOS's 8pt floor. ~22 rows don't fit a standard half-page figure's height at this size, so
+# the figure is made taller instead (see ROW_HEIGHT_IN).
+SECTOR_LABEL_FONT = FONT_TICK
+# Vertical space per sector row: a little under the label's point size -- as tight as the 8pt labels
+# go without touching, to keep the figure close to the height of the half-page plot beside it.
+ROW_HEIGHT_IN = SECTOR_LABEL_FONT * 0.9 / 72
+# Everything that isn't sector rows: the x tick labels and x axis label below the axes, and padding.
+FIXED_HEIGHT_IN = 0.55
 
 # Two-letter postal abbreviation -> state FIPS code, as CBP's fipstate column uses.
 STATE_FIPS = {
@@ -220,9 +226,10 @@ def main():
     rows = [(ALL_INDUSTRIES, ALL_INDUSTRIES)] + [(s, SECTOR_NAMES[s]) for s in sectors]
     print_table(rows, series)
 
-    # Same height as the other half-page figures, which leaves ~6.5pt per sector row -- hence sector
-    # labels and markers below the shared style's sizes.
-    fig, ax = plt.subplots(figsize=(HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN), layout="constrained")
+    # Half-page width, but tall enough for every sector row at the 8pt label size -- never shorter
+    # than the other half-page figures.
+    height = max(HALF_PAGE_HEIGHT_IN, len(rows) * ROW_HEIGHT_IN + FIXED_HEIGHT_IN)
+    fig, ax = plt.subplots(figsize=(HALF_PAGE_WIDTH_IN, height), layout="constrained")
     y = {key: i for i, (key, _name) in enumerate(rows)}
     for label, means, style in series:
         keys = [key for key, _name in rows if key in means]

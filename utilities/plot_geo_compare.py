@@ -48,7 +48,7 @@ from plot_geo import (  # noqa: E402
 )
 from read_epicast_events import read_events_bin  # noqa: E402
 from geo_agg_utils import aggregate_to_county  # noqa: E402
-from plos_compbio_style import apply_style, HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN  # noqa: E402
+from plos_compbio_style import apply_style, HALF_PAGE_WIDTH_IN, PAGE_WIDTHS_IN  # noqa: E402
 
 
 def _fmt(r):
@@ -127,6 +127,11 @@ def main():
         "n_county,rho,pval,pearson_r,rmse,rmse_people,r_log,rmse_log,n table to as CSV (the "
         "un-suffixed rho/pearson_r/rmse/etc. columns are the --county_level-selected level, "
         "matching the console output and scatter plot)",
+    )
+    parser.add_argument(
+        "--width", choices=list(PAGE_WIDTHS_IN), default="half",
+        help="Figure size for the slot it is placed in in the paper (see plos_compbio_style.py): "
+        "'half' for 0.48\\linewidth, 'third' for three sub-figures across at 0.32\\linewidth",
     )
     parser.add_argument(
         "--scatter_output",
@@ -248,7 +253,7 @@ def main():
     # Labels are kept short (the "infection-weighted" detail belongs in the figure caption, not the
     # plot itself) since this whole figure is only ~3.1in wide in the paper -- a long label/legend
     # string simply has no room to fit at PLOS's 8-12pt font floor, regardless of layout engine.
-    fig, ax = plt.subplots(figsize=(HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN), layout="constrained")
+    fig, ax = plt.subplots(figsize=PAGE_WIDTHS_IN[args.width], layout="constrained")
     ax.plot(result_df.day, result_df.pearson_r_tract, label="Tract", lw=1, color="#eb6834")
     ax.plot(result_df.day, result_df.pearson_r_county, label="County", lw=1, color="#4a3aa7")
     ax.set_xlabel("Day")

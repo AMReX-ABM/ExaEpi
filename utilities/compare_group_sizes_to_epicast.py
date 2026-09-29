@@ -116,11 +116,13 @@ SCHOOL_CATEGORIES = ("k12", "childcare", "college")
 # (ExaEpi series, schools-data series) label and color for each category; the workgroup panel's
 # ExaEpi series uses the K-12 one
 SERIES_STYLE = {
-    "k12": ({"label": "ExaEpi", "color": "red"}, {"label": "Schools data", "color": "black"}),
+    # Short labels: with childcare and colleges on these make a 7-entry legend on a ~3.1in panel.
+    # "Data" is the schools file, which the caption should name.
+    "k12": ({"label": "ExaEpi", "color": "red"}, {"label": "Data", "color": "black"}),
     "childcare": ({"label": "ExaEpi childcare", "color": "tab:green"},
-                  {"label": "Schools data childcare", "color": "darkgreen"}),
-    "college": ({"label": "ExaEpi colleges", "color": "tab:orange"},
-                {"label": "Schools data colleges", "color": "saddlebrown"}),
+                  {"label": "Data childcare", "color": "darkgreen"}),
+    "college": ({"label": "ExaEpi college", "color": "tab:orange"},
+                {"label": "Data college", "color": "saddlebrown"}),
 }
 
 
@@ -497,7 +499,9 @@ def plot_comparison(ax, series, xlabel, title, cdf, weight_noun="member",
                 else:
                     ax.stairs(density, bins, fill=True, color=s["color"], alpha=0.5, label=s["label"])
         left_edge = min(left_edges)
-        ax.set_ylabel(f"Density per decade\n({weight_noun}-weighted)" if logx else f"Density ({weight_noun}-weighted)")
+        # Two lines either way: on one line the label is taller than the axes once a legend sits
+        # below them, and gets clipped at the top of the figure.
+        ax.set_ylabel(f"Density per decade\n({weight_noun}-weighted)" if logx else f"Density\n({weight_noun}-weighted)")
 
     if logx:
         ax.set_xscale("log")
@@ -518,7 +522,8 @@ def plot_comparison(ax, series, xlabel, title, cdf, weight_noun="member",
     if len(series) > 4:
         # with childcare and colleges on, there are too many entries to fit over the data, and
         # beside it they squeeze the axes at the paper's half-page width
-        ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.3), ncol=2, fontsize="small")
+        # at the shared legend size -- "small" would put it below PLOS's 8pt floor
+        ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.3), ncol=2, handlelength=1.5, columnspacing=1.0)
     else:
         ax.legend()
 
