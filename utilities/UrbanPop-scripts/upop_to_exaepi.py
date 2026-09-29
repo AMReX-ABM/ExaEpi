@@ -385,12 +385,11 @@ def get_args():
         help="Cap on a school group's average class size (bounds its class count from below)",
     )
     parser.add_argument(
-        "--college_instructional_fraction",
-        default=0.1,
-        type=float,
-        help="Fraction of a college's employment treated as instructional staff. College teacher "
-        "counts come from total college employment, not a faculty-specific count, so they are "
-        "scaled by this before being used as a homeroom-instructor headcount",
+        "--college_class_size",
+        default=30,
+        type=int,
+        help="Target students per college class. College classes are sized by this rather than by "
+        "staff, since a college's staff count is its total employment, not a faculty headcount",
     )
 
     main_args = {}
@@ -765,56 +764,105 @@ def get_lodes_groups(lodes_fnames: list[str]) -> pl.DataFrame:
     return df
 
 
+# Share of all children of each age in center-based care (day care centers, preschool, pre-K,
+# Head Start), among those not yet in kindergarten: NCES Digest table 202.30, 2019. NCES's
+# Early Childhood Program Participation report (2020-075REV, table 1) gives 32% / 47% / 83%,
+# but those are shares of only the children already in some weekly nonparental care; used as
+# the rate for all children they put 1.3-2.3x too many in care.
+CENTER_CARE_RATES = {0: 0.141, 1: 0.265, 2: 0.265, 3: 0.625, 4: 0.625}
+# How much likelier a child is to be in center-based care when every adult in the household works
+# than when one of them does not: 49.2% with a mother employed full time against 24.9% with one
+# not in the labor force (same NCES table). UrbanPop has no parent-child links, so any
+# non-working adult at home (a retired grandparent included) stands in for the mother.
+WORKING_HOUSEHOLD_CARE_RATIO = 2.0
+
+
+def care_scale(eligible_weights: np.ndarray, wanted: float) -> float:
+    """The scale k for which sum(min(1, k * w)) over the eligible children's weights w comes to
+    `wanted` children (all of them, if that is more than there are)."""
+    if wanted <= 0 or len(eligible_weights) == 0:
+        return 0.0
+    if wanted >= len(eligible_weights):
+        return 1.0 / eligible_weights.min()
+    lo, hi = 0.0, 1.0 / eligible_weights.min()
+    for _ in range(60):
+        k = (lo + hi) / 2
+        if np.minimum(1.0, k * eligible_weights).sum() < wanted:
+            lo = k
+        else:
+            hi = k
+    return (lo + hi) / 2
+
+
 @timer
 def set_childcare(upop_df: pl.DataFrame, seed: int) -> pl.DataFrame:
     printgreen("Setting childcare")
-    # UrbanPop doesn't have allocations to childcare outside of PK in schools, so we randomly
-    # assign agents under age 5 not in PK to childcare. According to NCES, 32% of under 1 year,
-    # 47% of 1-2 yrs and 83 of 3-5 yrs are in center-based care
-
-    # Create a probability column based on age
-    upop_df = upop_df.with_columns(
-        [
-            pl.when(pl.col("age") == 0)
-            .then(pl.lit(0.32))
-            .when(pl.col("age") == 1)
-            .then(pl.lit(0.47))
-            .when(pl.col("age") == 2)
-            .then(pl.lit(0.47))
-            .when(pl.col("age") == 3)
-            .then(pl.lit(0.83))
-            .when(pl.col("age") == 4)
-            .then(pl.lit(0.83))
-            .otherwise(pl.lit(0.0))
-            .alias("childcare_prob")
-        ]
+    # UrbanPop has no childcare, only the children it has in preschool, so under-5s not in school
+    # are randomly put in childcare (grade 3) until each age's share in center-based care matches
+    # CENTER_CARE_RATES. The rate covers preschool too, so preschoolers count toward it and only
+    # the rest is topped up with childcare. Within an age, a child in a household where every
+    # adult works is WORKING_HOUSEHOLD_CARE_RATIO times as likely to be picked. Kindergartners and
+    # up are left out of the count, as NCES's rate leaves them out.
+    grade = pl.col("grade")
+    age = pl.col("age")
+    household = ["home_geoid", "household_id"]
+    adults_all_work = (
+        upop_df.group_by(household)
+        .agg(((age >= 18) & (pl.col("naics") == -1)).any().not_().alias("adults_all_work"))
     )
-    # Filter eligible candidates (grade == -1 and age < 5)
-    eligible_mask = (pl.col("grade") == -1) & (pl.col("age") < 5)
+    # row order must hold: the childcare draw below is matched to rows by position
+    upop_df = upop_df.join(adults_all_work, on=household, how="left", maintain_order="left")
+    weight = pl.when(pl.col("adults_all_work")).then(pl.lit(WORKING_HOUSEHOLD_CARE_RATIO)).otherwise(pl.lit(1.0))
+    upop_df = upop_df.with_columns(weight.alias("care_weight"))
+    not_in_kindergarten = (grade < age_levels["E"][0]) & (age < 5)
+    counts = (
+        upop_df.filter(not_in_kindergarten)
+        .group_by("age")
+        .agg(pl.len().alias("n"), (grade == age_levels["P"][0]).sum().alias("preschool"))
+    )
+    scale = {}
+    for row in counts.iter_rows(named=True):
+        weights = upop_df.filter((age == row["age"]) & (grade == -1))["care_weight"].to_numpy()
+        wanted = CENTER_CARE_RATES.get(row["age"], 0.0) * row["n"] - row["preschool"]
+        scale[row["age"]] = care_scale(weights, wanted)
+    upop_df = upop_df.with_columns(
+        (age.replace_strict(scale, default=0.0, return_dtype=pl.Float64) * pl.col("care_weight"))
+        .clip(upper_bound=1.0)
+        .alias("childcare_prob")
+    )
+    eligible_mask = (grade == -1) & (age < 5)
     # Generate random values for all rows
     random_vals = np.random.uniform(size=len(upop_df))
     upop_df = upop_df.with_columns([pl.Series("random_val", random_vals)])
-    # Update grade to 3 (childcare) based on probability
     upop_df = upop_df.with_columns(
         [
             pl.when(eligible_mask & (pl.col("random_val") < pl.col("childcare_prob")))
-            .then(pl.lit(3, dtype=pl.Int8))
-            .otherwise(pl.col("grade"))
+            .then(pl.lit(age_levels["C"][0], dtype=pl.Int8))
+            .otherwise(grade)
             .alias("grade")
         ]
     )
     # Print statistics per age
-    for age in range(5):
-        # the total includes those without schools, and those that were allocated to childcare
-        total = len(upop_df.filter((pl.col("grade").is_in([-1, 3])) & (pl.col("age") == age)))
-        in_childcare = len(upop_df.filter((pl.col("grade") == 3) & (pl.col("age") == age)))
-        if total > 0:
-            print(
-                f"  Age {age} set {in_childcare} out of {total} ({in_childcare / total * 100:.0f}%)"
-            )
+    for a in range(5):
+        at_age = upop_df.filter((age == a) & (grade < age_levels["E"][0]))
+        if len(at_age) == 0:
+            continue
+        in_childcare = len(at_age.filter(grade == age_levels["C"][0]))
+        in_preschool = len(at_age.filter(grade == age_levels["P"][0]))
+        print(
+            f"  Age {a}: {in_childcare} in childcare + {in_preschool} in preschool out of {len(at_age)} "
+            f"({(in_childcare + in_preschool) / len(at_age) * 100:.0f}% in care, target "
+            f"{CENTER_CARE_RATES.get(a, 0.0) * 100:.0f}%)"
+        )
+    for all_work in (True, False):
+        kids = upop_df.filter((age < 5) & (grade < age_levels["E"][0]) & (pl.col("adults_all_work") == all_work))
+        if len(kids):
+            in_care = len(kids.filter(grade.is_in([age_levels["C"][0], age_levels["P"][0]])))
+            print(f"  {'every adult works' if all_work else 'an adult at home'}: {100 * in_care / len(kids):.0f}% of "
+                  f"{len(kids)} under-5s in care")
     # Clean up temporary columns
-    upop_df = upop_df.drop(["childcare_prob", "random_val"])
-    print(f"Set {len(upop_df.filter(pl.col('grade') == 3))} agents to childcare")
+    upop_df = upop_df.drop(["childcare_prob", "random_val", "care_weight", "adults_all_work"])
+    print(f"Set {len(upop_df.filter(grade == age_levels['C'][0]))} agents to childcare")
     dump_intermediate(upop_df, "childcare")
     return upop_df
 
@@ -3147,7 +3195,7 @@ def assign_groups(df: pl.DataFrame, args) -> pl.DataFrame:
         school_class_size=args.school_class_size,
         school_class_size_min=args.school_class_size_min,
         school_class_size_max=args.school_class_size_max,
-        college_instructional_fraction=args.college_instructional_fraction,
+        college_class_size=args.college_class_size,
     )
     # its own stream, so the group structure does not shift when unrelated allocation code above
     # changes how many draws it makes
