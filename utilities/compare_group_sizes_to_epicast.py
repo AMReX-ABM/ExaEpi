@@ -41,9 +41,11 @@ work_geoid, except for a declared work-from-home non-educator, who stays in its 
     (work community, school_id) -- school_id is only unique within a community, like
     workgroup.
 
-The class and school panels also get a reference curve straight from the schools data UrbanPop's
-allocation reads: each K-12 school's student-teacher ratio (load_school_class_sizes), and each
-school's listed students plus staff (load_school_sizes). The workgroup panel can get real
+The class and school panels show K-12 (with preschool) by default, matching Epicast, which has no
+childcare or colleges; --childcare and --colleges add each as a series of its own. They also get a
+reference curve straight from the schools data UrbanPop's allocation reads: each K-12 school's
+student-teacher ratio (load_school_class_sizes), and each school's listed students plus staff
+(load_school_sizes), for childcare and colleges too when shown. The workgroup panel can get real
 establishment sizes from CBP (--cbp_state).
 """
 
@@ -107,34 +109,46 @@ def group_counts(keys):
     return np.unique(keys, return_counts=True)[1]
 
 
-def outside_flagged_groups(keys, flagged):
-    """Mask of the members of keys whose group has no flagged member."""
-    return ~np.isin(keys, np.unique(keys[flagged]))
+# The kinds of school the class and school panels tell apart. K-12 (with preschool) is always
+# shown; childcare and colleges only on request (--childcare, --colleges), since Epicast has
+# neither.
+SCHOOL_CATEGORIES = ("k12", "childcare", "college")
+# (ExaEpi series, schools-data series) label and color for each category; the workgroup panel's
+# ExaEpi series uses the K-12 one
+SERIES_STYLE = {
+    "k12": ({"label": "ExaEpi", "color": "red"}, {"label": "Schools data", "color": "black"}),
+    "childcare": ({"label": "ExaEpi childcare", "color": "tab:green"},
+                  {"label": "Schools data childcare", "color": "darkgreen"}),
+    "college": ({"label": "ExaEpi colleges", "color": "tab:orange"},
+                {"label": "Schools data colleges", "color": "saddlebrown"}),
+}
 
 
-def exaepi_sizes(urbanpop_file, group_names, exclude_college=False, exclude_childcare=False):
+def sizes_by_category(keys, counted, grade):
+    """{category: group sizes} for the groups identified by keys, each group sized by its members
+    with `counted` set and put in a category (SCHOOL_CATEGORIES) by its members' grades -- all of
+    them, so a class's homeroom teacher counts too, since educators carry the grade they teach.
+    A group with a college member is a college one, else one with a childcare member is
+    childcare; in practice no school or class mixes them with other grades."""
+    is_college = np.isin(keys, np.unique(keys[grade > COLLEGE_GRADE_MAX]))
+    is_childcare = np.isin(keys, np.unique(keys[grade == CHILDCARE_GRADE])) & ~is_college
+    members = {"k12": ~is_college & ~is_childcare, "childcare": is_childcare, "college": is_college}
+    return {category: group_counts(keys[counted & members[category]]) for category in SCHOOL_CATEGORIES}
+
+
+def exaepi_sizes(urbanpop_file, group_names):
     """({group_name: sizes} for each of group_names, the state FIPS codes the population covers),
     tallied from the UrbanPop .bin the way AgentContainer::computeGroupSizeDistributions does (see
-    the module docstring).
+    the module docstring). Workgroup sizes are one array; class and school sizes are split by
+    category ({category: array}, see sizes_by_category).
 
     Each grouping is packed into one int64 key rather than grouped on several columns: a
     12-digit GEOID fits in 37 bits, naics (< NAICS_COUNT = 251) in 8 and the int16 workgroup /
     school_id in 15, so (geoid, naics, workgroup) takes 60 bits and nothing collides.
-
-    exclude_college drops every school and class with a member (student or staff -- educators
-    carry the grade they teach) above COLLEGE_GRADE_MAX. Whole groups go rather than just those
-    members, though in practice no school or class mixes college with lower grades. Workgroups
-    are unaffected: educators are never in one. exclude_childcare does the same for childcare
-    centers and their classes (CHILDCARE_GRADE).
     """
     cols = read_urbanpop_columns(urbanpop_file, ["home_geoid", "work_geoid", "naics", "school_id",
                                                  "workgroup", "school_class_group", "travel", "grade"])
-    # members of the schools and classes to leave out
-    excluded = np.zeros(len(cols["grade"]), dtype=bool)
-    if exclude_college:
-        excluded |= cols["grade"] > COLLEGE_GRADE_MAX
-    if exclude_childcare:
-        excluded |= cols["grade"] == CHILDCARE_GRADE
+    grade = cols["grade"]
     naics = cols["naics"].astype(np.int64)
     school_id = cols["school_id"].astype(np.int64)
     # Declared work-from-home non-educators spend the day at home (UrbanPopData::initAgents);
@@ -153,20 +167,18 @@ def exaepi_sizes(urbanpop_file, group_names, exclude_college=False, exclude_chil
     if "class" in group_names:
         scg = cols["school_class_group"]
         in_class = scg >= 0
-        scg = scg[in_class]
-        student = (naics == -1)[in_class]
-        if excluded.any():
-            # flagged on every member, homeroom teachers included, not just the students counted
-            student &= outside_flagged_groups(scg, excluded[in_class])
-        sizes["class"] = group_counts(scg[student])
+        # classes are sized by their students only
+        sizes["class"] = sizes_by_category(scg[in_class], (naics == -1)[in_class], grade[in_class])
     if "school" in group_names:
         in_school = school_id > 0
         school_keys = (community[in_school] << 15) | school_id[in_school]
-        if excluded.any():
-            school_keys = school_keys[outside_flagged_groups(school_keys, excluded[in_school])]
-        sizes["school"] = group_counts(school_keys)
+        sizes["school"] = sizes_by_category(school_keys, np.ones(len(school_keys), dtype=bool), grade[in_school])
     for name, s in sizes.items():
-        print(f"Found {len(s):,} ExaEpi {name} groups in {urbanpop_file}")
+        if isinstance(s, dict):
+            print(f"Found ExaEpi {name} groups in {urbanpop_file}: "
+                  + ", ".join(f"{len(v):,} {category}" for category, v in s.items()))
+        else:
+            print(f"Found {len(s):,} ExaEpi {name} groups in {urbanpop_file}")
     return sizes, states
 
 
@@ -179,22 +191,23 @@ def load_school_class_sizes(fname, states):
     size * count counts each of its students once. The file has already dropped virtual and
     online schools and records with no usable enrollment or teacher count.
 
-    Childcare and colleges are left out: their teacher counts aren't a faculty headcount
-    (childcare's is imputed at 7 children per adult, a college's is its total employment).
+    K-12 only: childcare and college teacher counts aren't a faculty headcount (childcare's is
+    imputed at 7 children per adult, a college's is its total employment), so their ratios say
+    nothing about class size.
 
     NOTE this is a student-teacher ratio, which runs somewhat below the average class: the
     teacher counts include teachers without a homeroom class of their own (specialists, resource
     teachers), so there are fewer classes than teachers.
     """
-    df = read_schools(fname, states, exclude_levels=["C", "U"])
+    df = read_schools(fname, states, "k12")
     return (df.students / df.teachers).to_numpy(), df.teachers.to_numpy(dtype=float)
 
 
-def load_school_sizes(fname, states, include_childcare=True, include_college=True):
-    """School sizes from the same schools file as load_school_class_sizes: each school's listed
-    students plus teachers, since ExaEpi's school size counts staff too. Public and private K-12
-    schools always; childcare centers and colleges unless left out, to match ExaEpi's panel.
-    Returns (sizes, counts) with every count 1 -- each entry is one school.
+def load_school_sizes(fname, states, category):
+    """School sizes for one category (SCHOOL_CATEGORIES) from the same schools file as
+    load_school_class_sizes: each school's listed students plus teachers, since ExaEpi's school
+    size counts staff too. K-12 is public and private schools. Returns (sizes, counts) with every
+    count 1 -- each entry is one school.
 
     Childcare sizes are HIFLD's licensed capacity, and their staff is imputed at 7 children per
     adult. HIFLD reports no capacity at all for some states' centers (every NM one, for
@@ -202,25 +215,30 @@ def load_school_sizes(fname, states, include_childcare=True, include_college=Tru
     childcare curve for such a state is that distribution rather than data about the state.
     A college's staff is its total employment, hospitals and all.
     """
-    exclude = ([] if include_childcare else ["C"]) + ([] if include_college else ["U"])
-    df = read_schools(fname, states, exclude_levels=exclude)
+    df = read_schools(fname, states, category)
     sizes = (df.students + df.teachers).to_numpy(dtype=float)
     return sizes, np.ones(len(sizes))
 
 
-def read_schools(fname, states, exclude_levels):
-    """The schools in `states` from a get_schools.py schools file, without those at the given
-    levels, keeping only records with both students and teachers."""
+# get_schools.py's level tags for each SCHOOL_CATEGORIES entry other than K-12, which is the rest
+CATEGORY_LEVELS = {"childcare": ["C"], "college": ["U"]}
+
+
+def read_schools(fname, states, category):
+    """The schools in `states` and one category (SCHOOL_CATEGORIES) from a get_schools.py schools
+    file, keeping only records with both students and teachers."""
     import pandas as pd
 
     df = pd.read_csv(fname, dtype={"geoid": str, "id": str})
-    df = df[df.geoid.str[:2].astype(int).isin(states) & ~df.level.isin(exclude_levels)]
+    if category == "k12":
+        at_level = ~df.level.isin([lv for levels in CATEGORY_LEVELS.values() for lv in levels])
+    else:
+        at_level = df.level.isin(CATEGORY_LEVELS[category])
+    df = df[df.geoid.str[:2].astype(int).isin(states) & at_level]
     df = df[(df.students > 0) & (df.teachers > 0)]
     if df.empty:
-        sys.exit(f"No schools for state FIPS {states} in {fname}")
-    counts = ", ".join(f"{n:,} {lv}" for lv, n in df.level.map(lambda lv: {"C": "childcare", "U": "college"}.get(lv, "K-12"))
-                       .value_counts().items())
-    print(f"Read {len(df):,} schools from {fname} ({counts})")
+        sys.exit(f"No {category} schools for state FIPS {states} in {fname}")
+    print(f"Read {len(df):,} {category} schools from {fname}")
     return df
 
 
@@ -346,126 +364,140 @@ def load_cbp_establishment_sizes(fname, state_fips, rng_seed=0):
     return np.concatenate(sizes), np.concatenate(counts)
 
 
-def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, weight_noun="member",
-                     logx=False, logy=False, max_integer_bins=200, xlim=None, reference=None):
-    """reference, if given, is a real-data series (sizes, counts, label) drawn as an outline on top of
-    the two models -- see load_cbp_establishment_sizes / load_school_class_sizes for the form."""
-    epicast_sizes = np.asarray(epicast_sizes)
-    exaepi_sizes = np.asarray(exaepi_sizes)
-    overall_min = min(epicast_sizes.min(), exaepi_sizes.min())
+def histogram_bins(models, logx, xlim, max_integer_bins):
+    """(bin edges, left edge for the view) shared by the given series: one bin per integer when the
+    combined span is small enough to stay readable, else "nice" linear or log-spaced bins,
+    matching plot_group_size_histogram.py's convention."""
+    combined_max = max(s["sizes"].max() for s in models)
+    combined_min = min(s["sizes"].min() for s in models)
+    left_edge = combined_min if logx else 0
+    # When zooming with xlim, size the bins for the zoomed-in range rather than the full
+    # data range -- otherwise a few extreme outliers (e.g. a university) set a bin width
+    # so wide that only one or two giant bins are even visible in the zoomed view. A final
+    # catch-all bin (invisible once xlim clips the view) keeps all the data -- including
+    # the outliers -- in the density normalization.
+    bin_max = min(combined_max, xlim) if xlim is not None else combined_max
+    if logx:
+        # Linear (equal-width) bins would render as ever-narrower, unreadable slivers
+        # once the x axis is log-scaled, since most of them get squeezed into the
+        # rightmost decade. Log-spaced bins keep them visually even instead.
+        bins = log_spaced_integer_bins(combined_min, bin_max)
+    else:
+        span = int(bin_max - combined_min)
+        bins = (
+            np.arange(combined_min - 0.5, bin_max + 1.5, 1.0)
+            if span <= max_integer_bins
+            # Sized so the tightest of the distributions is resolved too, not just the
+            # combined range, and no finer than the sparsest one can support -- see
+            # nice_linear_bins.
+            else nice_linear_bins(
+                combined_min, bin_max,
+                resolve_span=min(core_span(s["sizes"]) for s in models),
+                sparsest_count=min((s["sizes"] <= bin_max).sum() for s in models),
+            )
+        )
+        # nice_linear_bins() anchors bin centers to global multiples of the bin width (so
+        # they land on the same "nice" values matplotlib's tick locator picks -- see its
+        # docstring), which can put a bin's center at/near 0 even though the data's own
+        # minimum is well above it. Forcing the view to start exactly at 0 would then clip
+        # that bin in half; starting it at the bin's own left edge instead always shows the
+        # full first bar, at the cost of a little empty margin left of 0 when this happens.
+        left_edge = bins[0]
+    if bin_max < combined_max and not isinstance(bins, int):
+        # nice_linear_bins() (and the integer scheme) can both overshoot bin_max by up to
+        # one bin width, which -- for an xlim close enough to the true max -- can already
+        # exceed combined_max. Drop any such edges before appending it, or the result isn't
+        # monotonically increasing and numpy.histogram rejects it outright.
+        bins = np.append(bins[bins < combined_max], combined_max)
+    return bins, left_edge
+
+
+def plot_comparison(ax, series, xlabel, title, cdf, weight_noun="member",
+                     logx=False, logy=False, max_integer_bins=200, xlim=None):
+    """Draw each of `series` on ax, as density histograms or (cdf) cumulative curves, all weighted
+    by weight_noun.
+
+    Each series is a dict: sizes, label, color, `reference` (True for real data, drawn as an
+    outline over the model fills rather than as another fill) and optionally counts, letting one
+    entry stand for many real groups (see load_cbp_establishment_sizes / load_school_class_sizes),
+    and bin_group: series with the same bin_group share histogram bins, sized from that group's
+    model series.
+    """
+    series = [s for s in series if len(s["sizes"])]
+    for s in series:
+        s["sizes"] = np.asarray(s["sizes"], dtype=float)
+        s["weights"] = s["sizes"] * s["counts"] if s.get("counts") is not None else s["sizes"]
+    models = [s for s in series if not s.get("reference")]
+    overall_min = min(s["sizes"].min() for s in models)
     left_edge = overall_min if logx else 0
 
-    if logx and (epicast_sizes.min() <= 0 or exaepi_sizes.min() <= 0):
-        sys.exit(f"--logx requires strictly positive sizes, but {title} has a minimum of "
-                 f"{min(epicast_sizes.min(), exaepi_sizes.min())}")
+    if logx and overall_min <= 0:
+        sys.exit(f"--logx requires strictly positive sizes, but {title} has a minimum of {overall_min}")
 
-    def print_stats(name, sizes, counts=None):
+    def print_stats(s):
         # Weighted by size (each group of size s stands in for s members who experience that
         # group size) rather than one point per group -- a plain per-group histogram makes the
         # many small groups look dominant even when most members are actually in a big one, so
         # both the plot and its summary stats are weighted throughout by weight_noun. Printed
         # rather than shown in the legend -- this figure is only ~3.1in wide in the paper, with no
         # room for it at PLOS's 8-12pt font floor, and the legend should just name the series.
-        # counts lets one entry stand for many real groups (the reference series are stored that way);
-        # without it every entry is one group, which is how both model series are stored.
-        n_groups = len(sizes) if counts is None else counts.sum()
-        member_w = sizes if counts is None else sizes * counts
+        sizes, member_w = s["sizes"], s["weights"]
+        n_groups = len(sizes) if s.get("counts") is None else s["counts"].sum()
         weighted_mean = np.average(sizes, weights=member_w)
         order = np.argsort(sizes)
         sorted_sizes, cum_members = sizes[order], np.cumsum(member_w[order])
         weighted_median = sorted_sizes[np.searchsorted(cum_members, cum_members[-1] / 2)]
         print(
-            f"{title} -- {name}: n={n_groups:,.0f}, mean={weighted_mean:.1f}, "
+            f"{title} -- {s['label']}: n={n_groups:,.0f}, mean={weighted_mean:.1f}, "
             f"median={weighted_median:.1f}, max={sizes.max():,.0f}"
         )
 
+    for s in series:
+        print_stats(s)
     if cdf:
-        for sizes, color, label in (
-            (epicast_sizes, "blue", "Epicast"),
-            (exaepi_sizes, "red", "ExaEpi"),
-        ):
-            print_stats(label, sizes)
-            sorted_sizes = np.sort(sizes)
-            # Weighted cumulative fraction: cumsum(sorted_sizes) at position i is exactly "how
-            # many workers are in a group of size <= sorted_sizes[i]" (each group's own size is
-            # both its x-value and its worker-count contribution), divided by the total worker
-            # count to normalize to a fraction.
-            cumulative_frac = np.cumsum(sorted_sizes) / sorted_sizes.sum()
-            # alpha<1, like the histogram's fill, so an overlapping segment blends to a visibly
-            # distinct color instead of the later-drawn line fully hiding the other
-            ax.step(sorted_sizes, cumulative_frac, where="post", color=color, linewidth=1,
-                    alpha=0.7, label=label)
-        if reference is not None:
-            ref_sizes, ref_counts, ref_label = reference
-            print_stats(ref_label, ref_sizes, ref_counts)
-            order = np.argsort(ref_sizes)
-            s, w = ref_sizes[order], (ref_sizes * ref_counts)[order]
-            ax.step(s, np.cumsum(w) / w.sum(), where="post", color="black", linewidth=1, label=ref_label)
+        for s in series:
+            # Weighted cumulative fraction: the cumulative weight at position i is exactly "how
+            # many members are in a group of size <= sorted_sizes[i]", divided by the total to
+            # normalize to a fraction.
+            order = np.argsort(s["sizes"])
+            w = s["weights"][order]
+            # the models at alpha<1, like the histogram's fill, so an overlapping segment blends
+            # to a visibly distinct color instead of the later-drawn line fully hiding the other
+            ax.step(s["sizes"][order], np.cumsum(w) / w.sum(), where="post", color=s["color"], linewidth=1,
+                    alpha=1.0 if s.get("reference") else 0.7, label=s["label"])
         ax.set_ylabel(f"Cumulative fraction of {weight_noun}s")
     else:
-        # Shared, density-normalized bins (the two models produce very different group counts,
-        # so only a density comparison is fair) -- one bin per integer when the combined span is
-        # small enough to stay readable, else a fixed bin count, matching
-        # plot_group_size_histogram.py's convention.
-        combined_max = max(epicast_sizes.max(), exaepi_sizes.max())
-        combined_min = overall_min
-        # When zooming with xlim, size the bins for the zoomed-in range rather than the full
-        # data range -- otherwise a few extreme outliers (e.g. a university) set a bin width
-        # so wide that only one or two giant bins are even visible in the zoomed view. A final
-        # catch-all bin (invisible once xlim clips the view) keeps all the data -- including
-        # the outliers -- in the density normalization.
-        bin_max = min(combined_max, xlim) if xlim is not None else combined_max
-        if logx:
-            # Linear (equal-width) bins would render as ever-narrower, unreadable slivers
-            # once the x axis is log-scaled, since most of them get squeezed into the
-            # rightmost decade. Log-spaced bins keep them visually even instead.
-            bins = log_spaced_integer_bins(combined_min, bin_max)
-        else:
-            span = int(bin_max - combined_min)
-            bins = (
-                np.arange(combined_min - 0.5, bin_max + 1.5, 1.0)
-                if span <= max_integer_bins
-                # Sized so the tighter of the two distributions is resolved too, not just the
-                # combined range, and no finer than the sparser one can support -- see
-                # nice_linear_bins.
-                else nice_linear_bins(
-                    combined_min, bin_max,
-                    resolve_span=min(core_span(epicast_sizes), core_span(exaepi_sizes)),
-                    sparsest_count=min((epicast_sizes <= bin_max).sum(), (exaepi_sizes <= bin_max).sum()),
-                )
-            )
-            # nice_linear_bins() anchors bin centers to global multiples of the bin width (so
-            # they land on the same "nice" values matplotlib's tick locator picks -- see its
-            # docstring), which can put a bin's center at/near 0 even though the data's own
-            # minimum is well above it. Forcing the view to start exactly at 0 would then clip
-            # that bin in half; starting it at the bin's own left edge instead always shows the
-            # full first bar, at the cost of a little empty margin left of 0 when this happens.
-            left_edge = bins[0]
-        if bin_max < combined_max and not isinstance(bins, int):
-            # nice_linear_bins() (and the integer scheme) can both overshoot bin_max by up to
-            # one bin width, which -- for an xlim close enough to the true max -- can already
-            # exceed combined_max. Drop any such edges before appending it, or the result isn't
-            # monotonically increasing and numpy.histogram rejects it outright.
-            bins = np.append(bins[bins < combined_max], combined_max)
-        print_stats("Epicast", epicast_sizes)
-        print_stats("ExaEpi", exaepi_sizes)
-        if reference is not None:
-            print_stats(reference[2], reference[0], reference[1])
-        ax.hist(epicast_sizes, bins=bins, weights=epicast_sizes, density=True, color="blue",
-                alpha=0.5, label="Epicast")
-        ax.hist(exaepi_sizes, bins=bins, weights=exaepi_sizes, density=True, color="red",
-                alpha=0.5, label="ExaEpi")
-        if reference is not None:
-            # Outline rather than a third filled patch -- this is a reference curve for what the
-            # real groups look like, not a third model, and two translucent fills are already
-            # overlapping here. Entries larger than the last bin fall outside `bins` and so are
-            # dropped by numpy.histogram, which renormalizes this curve over the plotted range;
-            # that is the intended comparison (the models' own groups are capped far below CBP's
-            # tail) but it does mean the curve is conditional on that range.
-            ref_sizes, ref_counts, ref_label = reference
-            ax.hist(ref_sizes, bins=bins, weights=ref_sizes * ref_counts, density=True, histtype="step",
-                    color="black", linewidth=1, label=ref_label)
-        ax.set_ylabel(f"Density ({weight_noun}-weighted)")
+        # Density-normalized (the models produce very different group counts, so only a density
+        # comparison is fair), with bins shared within each bin_group -- a model series and its
+        # schools-data outline, say -- but sized separately for each group. A single set of bins
+        # across a school panel with colleges on it took its width from the colleges: 369 of them
+        # spread over 0-70,000 agents allowed nothing finer than ~5,000-agent bins
+        # (MIN_SAMPLES_PER_BIN), which left K-12 and childcare as one or two bars each.
+        groups = list(dict.fromkeys(s.get("bin_group") for s in series))
+        left_edges = []
+        for group in groups:
+            members = [s for s in series if s.get("bin_group") == group]
+            group_models = [s for s in members if not s.get("reference")] or members
+            bins, group_left = histogram_bins(group_models, logx, xlim, max_integer_bins)
+            left_edges.append(group_left)
+            # Drawn from np.histogram so that on a log axis the height can be density per decade
+            # rather than per agent: per agent, the wide bins at large sizes come out so low that a
+            # college's is invisible next to a classroom's. Each series is normalized over the
+            # values inside its bins, as density=True would; entries past the last bin are
+            # dropped, which only happens to a reference's tail beyond its models' range.
+            widths = np.diff(np.log10(bins)) if logx else np.diff(bins)
+            for s in sorted(members, key=lambda s: bool(s.get("reference"))):
+                weights, _ = np.histogram(s["sizes"], bins=bins, weights=s["weights"])
+                density = weights / weights.sum() / widths
+                if s.get("reference"):
+                    # Outline rather than another filled patch -- a reference curve for what the
+                    # real groups look like, not another model, and the translucent fills already
+                    # overlap here.
+                    ax.stairs(density, bins, color=s["color"], linewidth=1, label=s["label"])
+                else:
+                    ax.stairs(density, bins, fill=True, color=s["color"], alpha=0.5, label=s["label"])
+        left_edge = min(left_edges)
+        ax.set_ylabel(f"Density per decade\n({weight_noun}-weighted)" if logx else f"Density ({weight_noun}-weighted)")
 
     if logx:
         ax.set_xscale("log")
@@ -483,7 +515,12 @@ def plot_comparison(ax, epicast_sizes, exaepi_sizes, xlabel, title, cdf, weight_
 
     ax.set_xlabel(xlabel)
     ax.grid(True, alpha=0.3, linewidth=0.5)
-    ax.legend()
+    if len(series) > 4:
+        # with childcare and colleges on, there are too many entries to fit over the data, and
+        # beside it they squeeze the axes at the paper's half-page width
+        ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.3), ncol=2, fontsize="small")
+    else:
+        ax.legend()
 
 
 def main():
@@ -495,16 +532,15 @@ def main():
         "directly (see the module docstring)",
     )
     parser.add_argument(
-        "--no_college", action="store_true",
-        help="Leave colleges and universities out of ExaEpi's class and school panels (any school "
-        "or class with undergrad or grad members). Epicast has none, so this is the like-for-like "
-        "comparison; ExaEpi's workgroups contain no educators, so that panel is unchanged.",
+        "--childcare", action="store_true",
+        help="Add ExaEpi's childcare centers to the class and school panels as their own series, "
+        "with the schools data's on the school panel. Epicast has no childcare (only preschools, for "
+        "the children UrbanPop has in preschool), so by default these panels show K-12 only.",
     )
     parser.add_argument(
-        "--no_childcare", action="store_true",
-        help="Leave childcare centers out of ExaEpi's class and school panels. Epicast has no "
-        "equivalent (only preschools, for the children UrbanPop has in preschool), and the schools "
-        "data line leaves them out too, so with --no_college this is the like-for-like comparison.",
+        "--colleges", action="store_true",
+        help="Likewise for colleges and universities (any school or class with undergrad or grad "
+        "members), which Epicast has none of either.",
     )
     parser.add_argument(
         "--groups", "-g", nargs="+", choices=list(GROUP_INFO), default=list(GROUP_INFO),
@@ -559,15 +595,12 @@ def main():
         help="Schools file UrbanPop's allocation reads (get_schools.py), for the reference curves "
         "on the class and school panels, in the states the UrbanPop file covers: each K-12 school's "
         "student-teacher ratio (load_school_class_sizes), and each school's listed students plus "
-        "staff -- public, private, and childcare and colleges unless --no_childcare/--no_college "
-        "(load_school_sizes). An empty string leaves both curves out.",
+        "staff -- public and private K-12, and childcare and colleges with --childcare/--colleges "
+        "(load_school_sizes). An empty string leaves the curves out.",
     )
     args = parser.parse_args()
     cdf = not args.histogram
-    references = {}
-    if args.cbp_state is not None:
-        references["workgroup"] = (*load_cbp_establishment_sizes(args.cbp_sizes_file, args.cbp_state),
-                                   "CBP establishments")
+    categories = ["k12"] + (["childcare"] if args.childcare else []) + (["college"] if args.colleges else [])
 
     epicast_files = {
         "workgroup": args.epicast_workgroup,
@@ -582,20 +615,35 @@ def main():
     if len(args.groups) == 1:
         axes = [axes]
 
-    exaepi_data_by_group, states = exaepi_sizes(args.urbanpop_file, args.groups, exclude_college=args.no_college,
-                                                exclude_childcare=args.no_childcare)
-    if "class" in args.groups and args.schools_file:
-        references["class"] = (*load_school_class_sizes(args.schools_file, states), "Schools data")
-    if "school" in args.groups and args.schools_file:
-        references["school"] = (*load_school_sizes(args.schools_file, states, include_childcare=not args.no_childcare,
-                                                   include_college=not args.no_college), "Schools data")
+    exaepi_data_by_group, states = exaepi_sizes(args.urbanpop_file, args.groups)
     for ax, group_name in zip(axes, args.groups):
         info = GROUP_INFO[group_name]
-        epicast_data = load_epicast_sizes(epicast_files[group_name])
-        exaepi_data = exaepi_data_by_group[group_name]
-        plot_comparison(ax, epicast_data, exaepi_data, info["xlabel"], info["title"], cdf,
-                         weight_noun=info["weight_noun"], logx=args.logx, logy=args.logy,
-                         xlim=args.xlim, reference=references.get(group_name))
+        # Epicast is K-12 only, so it shares the K-12 series' bins (see plot_comparison)
+        series = [{"sizes": load_epicast_sizes(epicast_files[group_name]), "label": "Epicast", "color": "blue",
+                   "bin_group": "k12"}]
+        if group_name == "workgroup":
+            series.append({"sizes": exaepi_data_by_group[group_name], **SERIES_STYLE["k12"][0], "bin_group": "k12"})
+            if args.cbp_state is not None:
+                sizes, counts = load_cbp_establishment_sizes(args.cbp_sizes_file, args.cbp_state)
+                series.append({"sizes": sizes, "counts": counts, "label": "CBP establishments", "color": "black",
+                               "reference": True, "bin_group": "k12"})
+        else:
+            for category in categories:
+                exaepi_style, data_style = SERIES_STYLE[category]
+                series.append({"sizes": exaepi_data_by_group[group_name][category], **exaepi_style, "bin_group": category})
+                if not args.schools_file:
+                    continue
+                # the schools data's class sizes are only meaningful for K-12 (see
+                # load_school_class_sizes)
+                if group_name == "class" and category == "k12":
+                    sizes, counts = load_school_class_sizes(args.schools_file, states)
+                elif group_name == "school":
+                    sizes, counts = load_school_sizes(args.schools_file, states, category)
+                else:
+                    continue
+                series.append({"sizes": sizes, "counts": counts, **data_style, "reference": True, "bin_group": category})
+        plot_comparison(ax, series, info["xlabel"], info["title"], cdf, weight_noun=info["weight_noun"],
+                        logx=args.logx, logy=args.logy, xlim=args.xlim)
 
     plt.savefig(args.output, dpi=300)
     print(f"{'CDF' if cdf else 'Histogram'} comparison saved to {args.output}")
