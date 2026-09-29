@@ -240,8 +240,24 @@ Placements placePuma (const PopulationBundle& b, const PmedmProblem& prob, const
 
 namespace {
 constexpr std::int16_t CHILDCARE_GRADE = 3;
+constexpr std::int16_t PRESCHOOL_GRADE = 4;
+constexpr std::int16_t KINDERGARTEN_GRADE = 5;
 constexpr std::int16_t GRADE_SHIFT = 3;
-constexpr double CHILDCARE_PROB[5] = {0.32, 0.47, 0.47, 0.83, 0.83};
+// Share of all children of each age (0-4) in center-based care: NCES Digest table 202.30, 2019.
+// A child in a household where every adult works is twice as likely to be picked.
+constexpr double CENTER_CARE_RATE[5] = {0.141, 0.265, 0.265, 0.625, 0.625};
+
+//! Probabilities {p1, p2} for children of weight 1 and 2, p_w = min(1, k w), with k such that
+//! n1 p1 + n2 p2 = wanted, or everyone (persons._care_probs).
+std::pair<double, double> careProbs (double wanted, std::int64_t n1, std::int64_t n2) {
+    if (wanted <= 0) { return {0.0, 0.0}; }
+    if (wanted >= static_cast<double>(n1 + n2)) { return {1.0, 1.0}; }
+    if (2.0 * wanted <= static_cast<double>(n1 + 2 * n2)) {
+        const double k = wanted / static_cast<double>(n1 + 2 * n2);
+        return {k, 2.0 * k};
+    }
+    return {(wanted - static_cast<double>(n2)) / static_cast<double>(n1), 1.0};
+}
 } // namespace
 
 Persons buildPersons (const PopulationBundle& b, const Placements& pl, std::int64_t seed, std::int64_t rep) {
@@ -289,12 +305,37 @@ Persons buildPersons (const PopulationBundle& b, const Placements& pl, std::int6
     }
     const std::size_t n = P.size();
 
-    // S1 childcare: under-5s not in school, one keyed Bernoulli each.
+    // S1 childcare: under-5s not in school, one keyed Bernoulli each, at the probability that
+    // brings each age's share in care (preschoolers included) to CENTER_CARE_RATE. Households are
+    // runs of equal (bg, h); weight 2 where no adult lacks an industry.
+    std::vector<std::uint8_t> all_work(n, 1);
+    for (std::size_t lo = 0, hi; lo < n; lo = hi) {
+        bool idle = false;
+        for (hi = lo; hi < n && P.bg[hi] == P.bg[lo] && P.h[hi] == P.h[lo]; ++hi) {
+            idle = idle || (P.age[hi] >= 18 && P.naics[hi] == -1);
+        }
+        if (idle) { std::fill(all_work.begin() + lo, all_work.begin() + hi, 0); }
+    }
+    constexpr int NA = 5;
+    std::array<std::int64_t, NA> at_age{}, preschool{}, n1{}, n2{};
+    for (std::size_t i = 0; i < n; ++i) {
+        const int a = P.age[i];
+        if (a < 0 || a >= NA) { continue; }
+        if (P.grade[i] < KINDERGARTEN_GRADE) { ++at_age[a]; }
+        if (P.grade[i] == PRESCHOOL_GRADE) { ++preschool[a]; }
+        if (P.grade[i] == -1) { ++(all_work[i] ? n2 : n1)[a]; }
+    }
+    std::array<std::pair<double, double>, NA> prob;
+    for (int a = 0; a < NA; ++a) {
+        prob[a] =
+                careProbs(CENTER_CARE_RATE[a] * static_cast<double>(at_age[a]) - static_cast<double>(preschool[a]), n1[a], n2[a]);
+    }
     const KR64 kc(seed, rep, Stage::CHILDCARE);
     for (std::size_t i = 0; i < n; ++i) {
         const int a = P.age[i];
-        if (P.grade[i] == -1 && a >= 0 && a < 5) {
-            if (kc.with(P.bg[i]).with(P.h[i]).with(P.p[i]).u01(0) < CHILDCARE_PROB[a]) { P.grade[i] = CHILDCARE_GRADE; }
+        if (P.grade[i] == -1 && a >= 0 && a < NA) {
+            const double p = all_work[i] ? prob[a].second : prob[a].first;
+            if (kc.with(P.bg[i]).with(P.h[i]).with(P.p[i]).u01(0) < p) { P.grade[i] = CHILDCARE_GRADE; }
         }
     }
     // S2 split: employed = has an industry and (not in school or older than 26); students lose
@@ -1824,6 +1865,75 @@ void allocateTeachers (const PopulationBundle& b, Persons& P, std::vector<std::i
             (*stats)[ty.name] = {required, got};
         }
     }
+
+    // Each preschool/K-12 school's teachers dealt out over its grades by enrollment
+    // (teachers._share_grades): T teachers, n_g of N students in grade g get floor(T n_g / N), the
+    // rest one each to the largest remainders, lower grade first on ties; grades ascending go to
+    // the school's teachers in keyed order.
+    const int glo = levelRange("P").first, ghi = levelRange("H").second, NG = ghi - glo + 1;
+    const auto k12 = [&] (std::size_t i) {
+        return school[i] >= 0 && P.grade[i] >= glo && P.grade[i] <= ghi;
+    };
+    std::vector<std::int64_t> cnt(NS * NG, 0), T(NS, 0), tch;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (!k12(i)) { continue; }
+        if (P.student[i]) { ++cnt[school[i] * NG + (P.grade[i] - glo)]; }
+        if (P.employed[i]) {
+            ++T[school[i]];
+            tch.push_back(static_cast<std::int64_t>(i));
+        }
+    }
+    {
+        const KR64 kd(seed, rep, Stage::TCH_GRADE_SHARE);
+        std::vector<std::uint64_t> dr(tch.size());
+        for (std::size_t t = 0; t < tch.size(); ++t) {
+            const auto i = tch[t];
+            dr[t] = kd.with(P.bg[i]).with(P.h[i]).with(P.p[i]).u64(0);
+        }
+        const auto o = stableOrder(tch.size(), [&] (std::int64_t x, std::int64_t y) {
+            const auto i = tch[x], j = tch[y];
+            if (school[i] != school[j]) { return school[i] < school[j]; }
+            if (dr[x] != dr[y]) { return dr[x] < dr[y]; }
+            if (P.bg[i] != P.bg[j]) { return P.bg[i] < P.bg[j]; }
+            return P.h[i] != P.h[j] ? P.h[i] < P.h[j] : P.p[i] < P.p[j];
+        });
+        std::vector<std::int64_t> sorted(tch.size());
+        for (std::size_t t = 0; t < tch.size(); ++t) {
+            sorted[t] = tch[o[t]];
+        }
+        tch.swap(sorted);
+    }
+    std::int64_t dealt = 0;
+    std::vector<std::int64_t> share(NG), rem(NG);
+    for (std::size_t lo = 0, hi; lo < tch.size(); lo = hi) {
+        const std::int64_t s = school[tch[lo]];
+        for (hi = lo; hi < tch.size() && school[tch[hi]] == s; ++hi) {}
+        const std::int64_t* c = &cnt[s * NG];
+        std::int64_t N = 0, have = 0;
+        for (int g = 0; g < NG; ++g) {
+            N += c[g];
+        }
+        if (N == 0) { continue; }
+        for (int g = 0; g < NG; ++g) {
+            share[g] = T[s] * c[g] / N;
+            rem[g] = T[s] * c[g] % N;
+            have += share[g];
+        }
+        const auto o = stableOrder(NG, [&] (std::int64_t x, std::int64_t y) {
+            return rem[x] > rem[y];
+        });
+        for (std::int64_t k = 0; k < T[s] - have; ++k) {
+            ++share[o[k]];
+        }
+        std::size_t q = lo;
+        for (int g = 0; g < NG; ++g) {
+            for (std::int64_t k = 0; k < share[g]; ++k) {
+                P.grade[tch[q++]] = static_cast<std::int16_t>(glo + g);
+            }
+        }
+        dealt += static_cast<std::int64_t>(hi - lo);
+    }
+    if (stats) { (*stats)["by grade"] = {static_cast<std::int64_t>(tch.size()), dealt}; }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1835,7 +1945,7 @@ namespace {
 constexpr std::int64_t NBORHOOD_SIZE = 500;
 constexpr std::int64_t WORKGROUP_SIZE = 20;
 constexpr std::int64_t CLASS_SIZE = 20, CLASS_MIN = 5, CLASS_MAX = 50;
-constexpr double COLLEGE_INSTRUCTIONAL_FRACTION = 0.1;
+constexpr std::int64_t COLLEGE_CLASS_SIZE = 30;
 
 //! ceil(a / b) for a >= 0, b > 0, as Python's -(-a // b).
 std::int64_t ceilDiv (std::int64_t a, std::int64_t b) {
@@ -2072,11 +2182,10 @@ Groups assignGroups (const PopulationBundle& b, const Persons& P, const std::vec
             const std::int64_t m0 = en[lo];
             std::int64_t n_classes = 0;
             if (n_st > 0) {
-                const bool college = P.grade[m0] > 17;
-                const double eff =
-                        college ? static_cast<double>(n_te) * COLLEGE_INSTRUCTIONAL_FRACTION : static_cast<double>(n_te);
-                const std::int64_t raw = eff > 0.0 ? std::max<std::int64_t>(1, static_cast<std::int64_t>(eff))
-                                                   : std::max<std::int64_t>(1, ceilDiv(n_st, CLASS_SIZE));
+                // college classes by size, since a college's staff is its total employment
+                const std::int64_t raw = P.grade[m0] > 17 ? std::max<std::int64_t>(1, ceilDiv(n_st, COLLEGE_CLASS_SIZE))
+                                         : n_te > 0       ? n_te
+                                                          : std::max<std::int64_t>(1, ceilDiv(n_st, CLASS_SIZE));
                 n_classes = std::max(ceilDiv(n_st, CLASS_MAX), std::min(raw, std::max<std::int64_t>(1, n_st / CLASS_MIN)));
             }
             const std::int64_t excess = n_te - n_classes;

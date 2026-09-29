@@ -37,6 +37,7 @@ STAGES = {
     "TRS_TRIM": (22, 1, "bg, donor_row  -- superseded by HH_TYPE_TRS / HH_DRAW; id reserved"),
     "HH_TYPE_TRS": (23, 1, "puma, k"),
     "HH_DRAW": (24, 1, "bg, category, k"),
+    "TCH_GRADE_SHARE": (25, 1, "bg, h, p"),
 }
 
 

@@ -25,7 +25,7 @@ usage: upop_to_exaepi.py [-h] [-c FILE] [--output OUTPUT] --upop_files
                          [--school_class_size SCHOOL_CLASS_SIZE]
                          [--school_class_size_min SCHOOL_CLASS_SIZE_MIN]
                          [--school_class_size_max SCHOOL_CLASS_SIZE_MAX]
-                         [--college_instructional_fraction COLLEGE_INSTRUCTIONAL_FRACTION]
+                         [--college_class_size COLLEGE_CLASS_SIZE]
 
 options:
   -h, --help            show this help message and exit
@@ -80,12 +80,11 @@ options:
   --school_class_size_max SCHOOL_CLASS_SIZE_MAX
                         Cap on a school group's average class size (bounds its
                         class count from below)
-  --college_instructional_fraction COLLEGE_INSTRUCTIONAL_FRACTION
-                        Fraction of a college's employment treated as
-                        instructional staff. College teacher counts come from
-                        total college employment, not a faculty-specific
-                        count, so they are scaled by this before being used as
-                        a homeroom-instructor headcount
+  --college_class_size COLLEGE_CLASS_SIZE
+                        Target students per college class. College classes
+                        are sized by this rather than by staff, since a
+                        college's staff count is its total employment, not a
+                        faculty headcount
 ```
 
 When using the config file option, specify configurations as section `main`, as shown in this
@@ -112,13 +111,19 @@ file.
 Worker, student, and teacher flows are generated from the LODES flows input and the schools input
 (the LODES and schools files are required).
 
+UrbanPop has no childcare, so under-5s not in school are put in it at random until each age's share
+in center-based care, preschool included, matches NCES's 2019 rates (14.1% under 1, 26.5% at 1-2,
+62.5% at 3-5); a child in a household where every adult works is twice as likely to be picked.
+
 Students are placed level by level (preschool, elementary, middle, high, university, childcare), each
 into its own places at the schools offering it -- the schools file's `students_<level>` columns (see
 `get_schools.py` below). A K-12 student is placed as close to home as possible, within their home
 county or a neighboring one. Childcare and university fill past capacity when it runs out, but
 preschool and K-12 do not: a student with no place in reach is left unenrolled and spends the day at
 home, standing in for online and home schooling. Preschoolers without a school place first take any
-childcare places left over, and become childcare children there. On CA, filling past capacity used to
+childcare places left over, and become childcare children there. Once teachers are placed, each
+preschool/K-12 school's teachers are shared across its grades in proportion to its students, since
+each (school, grade) gets one class per teacher. On CA, filling past capacity used to
 put 1,476 schools at over 5x their listed enrollment (Santa Monica High at 4x, a 365-student preK-8
 school at 37x).
 

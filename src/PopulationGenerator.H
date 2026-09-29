@@ -63,7 +63,7 @@ struct Persons {
 };
 
 /*! Expansion to persons and stages S0-S2 (placement.expand, persons.build): attributes from the
-    donors, childcare (S1), worker/student split (S2). */
+    donors, childcare to NCES's center-based care rates (S1), worker/student split (S2). */
 Persons buildPersons(const PopulationBundle& b, const Placements& pl, std::int64_t seed, std::int64_t rep);
 
 /*! CBP reference tables (cbp.py, SizeTables): workgroup-size targets and deterministic
@@ -120,7 +120,9 @@ std::vector<std::int64_t> allocateStudents(const PopulationBundle& b, Persons& P
                                            std::map<std::string, std::pair<std::int64_t, std::int64_t>>* stats = nullptr);
 
 /*! S5 (teachers.py, allocate): teachers to schools that received students; updates school, work
-    and grade for the chosen workers. stats, if given, receives (required, placed) per type. */
+    and grade for the chosen workers, then shares each preschool/K-12 school's teachers across its
+    grades by enrollment. stats, if given, receives (required, placed) per type, and under "by
+    grade" (preschool/K-12 teachers, teachers dealt a grade). */
 void allocateTeachers(const PopulationBundle& b, Persons& P, std::vector<std::int64_t>& work, std::vector<std::int64_t>& school,
                       std::int64_t seed, std::int64_t rep,
                       std::map<std::string, std::pair<std::int64_t, std::int64_t>>* stats = nullptr);

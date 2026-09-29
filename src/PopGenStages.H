@@ -35,6 +35,7 @@ constexpr std::int64_t DAY_NB = 5377;          // id 21 v1: day_geoid, kind, a, 
 constexpr std::int64_t TRS_TRIM = 5633;        // id 22 v1: bg, donor_row  -- superseded by HH_TYPE_TRS / HH_DRAW; id reserved
 constexpr std::int64_t HH_TYPE_TRS = 5889;     // id 23 v1: puma, k
 constexpr std::int64_t HH_DRAW = 6145;         // id 24 v1: bg, category, k
+constexpr std::int64_t TCH_GRADE_SHARE = 6401; // id 25 v1: bg, h, p
 } // namespace Stage
 } // namespace PopGen
 

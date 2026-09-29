@@ -21,6 +21,13 @@ Same rules as the converter, with keyed draws:
   * A teacher's grade: uniform in the school level's grade range (TCH_GRADE draw 0), and a
     graduate-level (19) teacher becomes undergraduate (18) with probability 1/2 (draw 1). The
     teacher's work location becomes the school's.
+  * Then (assign_teacher_grades) each preschool/K-12 school's teachers are shared out across its
+    grades in proportion to the students placed in each, since S9 gives each (school, grade) one
+    class per teacher: T teachers and n_g of the school's N students in grade g give
+    floor(T n_g / N) each, and the T - sum left over go one each to the largest remainders
+    (T n_g mod N), lower grade first on ties. Grades ascending, each repeated by its share, are
+    dealt to the school's teachers in keyed order (TCH_GRADE_SHARE). Teachers at a school with no
+    such students keep their drawn grade; university and childcare teachers are untouched.
 """
 
 import numpy as np
@@ -110,7 +117,38 @@ def allocate(b, P, work, school, seed, rep):
                 free[pick] = False
                 np.subtract.at(need, slots, 1)
         stats[name] = (required, int((~free).sum()))
+    stats["by grade"] = _share_grades(P, school, len(sg), seed, rep)
     return stats
+
+
+def _share_grades(P, school, n_schools, seed, rep):
+    """Deal each preschool/K-12 school's teachers out over its grades by enrollment, in place;
+    returns (preschool/K-12 teachers, how many of them were dealt)."""
+    lo, hi = LEVEL_RANGE["P"][0], LEVEL_RANGE["H"][1]
+    ng = hi - lo + 1
+    g = P["grade"]
+    k12 = (school >= 0) & (g >= lo) & (g <= hi)
+    stu = np.flatnonzero(k12 & P["student"])
+    tch = np.flatnonzero(k12 & P["employed"])
+    cnt = np.zeros((n_schools, ng), dtype=np.int64)
+    np.add.at(cnt, (school[stu], g[stu] - lo), 1)
+    T = np.bincount(school[tch], minlength=n_schools).astype(np.int64)
+    N = cnt.sum(axis=1)
+    has = (T > 0) & (N > 0)
+    q = T[:, None] * cnt
+    Nd = np.maximum(N, 1)[:, None]
+    share, rem = q // Nd, q % Nd
+    short = T - share.sum(axis=1)
+    rank = np.empty_like(rem)
+    np.put_along_axis(rank, np.argsort(-rem, axis=1, kind="stable"), np.arange(ng)[None, :], axis=1)
+    share = np.where(has[:, None], share + (rank < short[:, None]), 0)
+    # teachers by school, in keyed order; slots by school, grade by grade
+    k = kr64.draw(kr64.key(seed, rep, stages.TCH_GRADE_SHARE, P["bg"][tch], P["h"][tch], P["p"][tch]), 0)
+    ts = tch[np.lexsort((P["p"][tch], P["h"][tch], P["bg"][tch], k, school[tch]))]
+    ts = ts[has[school[ts]]]
+    grades = np.repeat(np.tile(np.arange(lo, hi + 1, dtype=np.int16), n_schools), share.ravel())
+    P["grade"][ts] = grades
+    return len(tch), len(ts)
 
 
 def _grades(P, who, levels, seed, rep):

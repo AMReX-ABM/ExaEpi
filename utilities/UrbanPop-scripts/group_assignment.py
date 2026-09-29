@@ -75,7 +75,7 @@ class GroupParams:
     school_class_size: int = 20
     school_class_size_min: int = 5
     school_class_size_max: int = 50
-    college_instructional_fraction: float = 0.1
+    college_class_size: int = 30
 
 
 def _round_half_up(x):
@@ -654,10 +654,15 @@ def assign_school_groups(df: pl.DataFrame, params: GroupParams) -> pl.DataFrame:
     unique within a block group, which is why the location is part of the key. Each raw group gets:
 
       * One class per teacher actually present, at most, clamped so no class averages fewer than
-        school_class_size_min or more than school_class_size_max students. College raw groups
-        first scale their headcount by college_instructional_fraction, because that headcount
-        comes from total college employment rather than a faculty-specific count. A raw group with
+        school_class_size_min or more than school_class_size_max students. A raw group with
         students but no identified teachers falls back to ceil(students / school_class_size).
+        College raw groups instead get ceil(students / college_class_size) classes: their staff
+        is the college's total employment, not a faculty headcount, and deriving classes from it
+        (10% of it as instructors) put ~86 students per instructor on CA, so every college class
+        sat at the school_class_size_max cap of 50. The default of 30 is about the size of the
+        sections a student meets repeatedly -- UC Berkeley's discussion and lab sections average 32
+        students per student, its 17:1 student-faculty ratio with ~4 courses per student and 2-3
+        sections per instructor implies 25-35 -- rather than a large lecture.
 
       * Teachers beyond one per class pooled into "admin" groups sized like a regular work-group,
         marked school_class -2, -3, -4, ... -- one sentinel per admin group. The school
@@ -719,9 +724,10 @@ def assign_school_groups(df: pl.DataFrame, params: GroupParams) -> pl.DataFrame:
         if student_count > 0:
             # grade is part of the raw-group key, so it is constant across the group
             is_college = s_grade[lo] > 17
-            eff_teachers = teacher_count * params.college_instructional_fraction if is_college else float(teacher_count)
-            if eff_teachers > 0.0:
-                raw_n_classes = max(1, int(eff_teachers))
+            if is_college:
+                raw_n_classes = max(1, -(-student_count // params.college_class_size))
+            elif teacher_count > 0:
+                raw_n_classes = teacher_count
             else:
                 raw_n_classes = max(1, -(-student_count // params.school_class_size))
             lower = -(-student_count // params.school_class_size_max)

@@ -8,8 +8,11 @@ S0  Person attributes from the donor records, sorted into canonical order (bg, h
     grad 16, from PUMS SCHG), and process_upop shifts it by 3, so childcare = 3, preschool = 4,
     kindergarten = 5, 1st = 6 ... 12th = 17, undergraduate = 18, graduate = 19.
 S1  Childcare (upop_to_exaepi.set_childcare): children under 5 not already in school go to
-    center-based care with probability 0.32 at age 0, 0.47 at 1-2, 0.83 at 3-4 (NCES). One keyed
-    Bernoulli per person, key CHILDCARE (bg, h, p).
+    center-based care until each age's share in care, preschoolers included, matches NCES's 2019
+    rate (14.1% at age 0, 26.5% at 1-2, 62.5% at 3-4; kindergartners are left out of the count).
+    A child in a household where every adult (18+) has an industry is twice as likely to be
+    picked. The converter finds its scale by bisection; with weights of only 1 and 2 it has a
+    closed form (_care_probs). One keyed Bernoulli per person, key CHILDCARE (bg, h, p).
 S2  Split (upop_to_exaepi.generate_nt_dt): employed = has an industry and is either not in school
     or older than 26 (as coded; the original comment says 25). Students are the rest of those
     with a grade, and lose their industry. Everyone else stays home.
@@ -21,7 +24,12 @@ from . import kr64, stages
 
 CHILDCARE_GRADE = 3
 GRADE_SHIFT = 3
-CHILDCARE_PROB = np.array([0.32, 0.47, 0.47, 0.83, 0.83])
+PRESCHOOL_GRADE = 4
+KINDERGARTEN_GRADE = 5
+# share of all children of each age (0-4) in center-based care: NCES Digest table 202.30, 2019
+CENTER_CARE_RATE = np.array([0.141, 0.265, 0.265, 0.625, 0.625])
+# a child in a household where every adult works is this many times as likely to be picked
+WORKING_HOUSEHOLD_CARE_RATIO = 2
 
 
 def build(b, pers, seed, rep):
@@ -50,13 +58,40 @@ def build(b, pers, seed, rep):
     return P
 
 
+def _care_probs(wanted, n1, n2):
+    """Probabilities (p1, p2) for children of weight 1 and 2, p_w = min(1, k * w), with k such that
+    n1 * p1 + n2 * p2 = wanted (everyone, if wanted is more than there are)."""
+    if wanted <= 0:
+        return 0.0, 0.0
+    if wanted >= n1 + n2:
+        return 1.0, 1.0
+    if 2.0 * wanted <= n1 + 2 * n2:  # k <= 1/2: nobody capped
+        k = wanted / (n1 + 2 * n2)
+        return k, 2.0 * k
+    return (wanted - n2) / n1, 1.0  # weight-2 children all in care
+
+
 def childcare(P, seed, rep):
-    age = P["age"]
-    elig = (P["grade"] == -1) & (age >= 0) & (age < 5)
-    idx = np.flatnonzero(elig)
+    age, grade = P["age"], P["grade"]
+    # households where every adult has an industry; rows are sorted by (bg, h, p)
+    new = np.ones(len(age), dtype=bool)
+    new[1:] = (P["bg"][1:] != P["bg"][:-1]) | (P["h"][1:] != P["h"][:-1])
+    hh = np.cumsum(new) - 1
+    idle = np.zeros(int(hh[-1]) + 1 if len(hh) else 0, dtype=bool)
+    idle[hh[(age >= 18) & (P["naics"] == -1)]] = True
+    all_work = ~idle[hh]
+    prob = np.zeros(len(age))
+    for a in range(len(CENTER_CARE_RATE)):
+        at_age = (age == a) & (grade < KINDERGARTEN_GRADE)
+        wanted = CENTER_CARE_RATE[a] * int(at_age.sum()) - int((at_age & (grade == PRESCHOOL_GRADE)).sum())
+        elig = (age == a) & (grade == -1)
+        n2 = int((elig & all_work).sum())
+        p1, p2 = _care_probs(wanted, int(elig.sum()) - n2, n2)
+        prob[elig] = np.where(all_work[elig], p2, p1)
+    idx = np.flatnonzero((grade == -1) & (age >= 0) & (age < len(CENTER_CARE_RATE)))
     u = kr64.u01(kr64.draw(kr64.key(seed, rep, stages.CHILDCARE, P["bg"][idx], P["h"][idx],
                                     P["p"][idx]), 0))
-    P["grade"][idx[u < CHILDCARE_PROB[age[idx]]]] = CHILDCARE_GRADE
+    P["grade"][idx[u < prob[idx]]] = CHILDCARE_GRADE
 
 
 def split(P):

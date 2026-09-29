@@ -57,6 +57,7 @@ All results are New Mexico, 2019 ACS 5-year, unless stated.
 | `batch_draws.py` | batch draws of one PUMA into one vmapped `lbfgs_incremental` solve | at most 1.1–1.4x; GPU saturates (30 → ~88 W) by 8 draws; worse past 16. Batched and solo solves of the same draw differ by 0.3–1.8% at 1,000 iterations (0.07% / 1.2% on 3500804 / 3500300 at 2,000): capped results depend on rounding order |
 | `solver_options.py` | line search (all 12 candidates vs full step first) and a per-PUMA stopping rule vs fixed 2,000, all 18 NM PUMAs against float64 converged | full step accepted 90–95% of iterations; trying it first gives identical results 8–20% faster. Stop when moved <0.1% per 250 iterations: 1,250–4,500 iterations, worst PUMA 0.38% → 0.05% from converged, statewide 0.070% → 0.038%, NM realization 8.7 → 9.2 s |
 | `compare_bins.py` | structural comparison of two `.bin` populations (delivered vs generated) | tool; NM seed 1 after livelike-style placement: workers 837,006 vs 836,778, one-person work groups 6.7% vs 16.3%, 65+ 368,375 vs 365,883 |
+| `class_scores.py LABEL=X.bin ...` | class sizes by level, teacherless grades, under-5s in care, childcare-center size, side by side | tool; results in "Classes and childcare" below |
 | `concurrent_pumas.py` | different PUMAs solved concurrently in separate processes, each alone at its own shape | bit-identical to solo solves (8 of 8), but slower without MPS: 0.80–0.88x (the driver time-slices contexts). MPS would not start in this container (needs `--ipc=host`) |
 | `gpu_sequential.py` | all 18 PUMAs to convergence, one at a time | GPU 75 s, CPU 174 s (2.3x); 3,048–12,143 iterations; pymedm's 500-iteration cap misplaces 1.19% of NM households |
 
@@ -201,6 +202,38 @@ commute tables. Seed 1, same S0-S3, old vs new S4:
 CA's preschoolers mostly stay home because NCES has no PK counts for CA and childcare demand
 already exceeds its capacity; CA's high schools have 2.02 M places for 2.13 M students. Childcare
 and university still overfill as before.
+
+**Classes and childcare.** Three later converter fixes from vs-epicast (dfddb1c, 5cce68a), ported
+to S1, S5 and S9 in both the Python oracle and the C++ (no bundle change):
+- **Teachers by grade (S5).** A teacher's grade was drawn uniformly over the school's grade range,
+  whatever its students, and S9 gives each (school, grade) one class per teacher, so grades got
+  classes of 40-50 or none at all. Each preschool/K-12 school's teachers are now dealt out over its
+  grades in proportion to their students (integer largest remainder; which teacher gets which grade
+  is keyed, stage `TCH_GRADE_SHARE`).
+- **Childcare (S1).** The old rates (32% / 47% / 83%) were NCES's shares of children already in some
+  nonparental care; for all children NCES gives 14.1% / 26.5% / 62.5%, which now include
+  preschoolers, and a child in a household where every adult works is twice as likely to be picked.
+  The converter bisects for the scale; with weights of 1 and 2 the oracle solves it exactly.
+- **College classes (S9)** are ceil(students / 30), not 10% of the college's total employment.
+
+Seed 1, same S0 placements (`class_scores.py`; class sizes student-weighted mean / median):
+
+| measure | NM old | NM new | CA old | CA new |
+|---|---|---|---|---|
+| elementary class | 21.9 / 19 | 15.4 / 15 | 28.2 / 27 | 23.9 / 24 |
+| high school class | 20.4 / 19 | 17.5 / 18 | 25.5 / 24 | 23.0 / 23 |
+| elementary students in classes over 35 | 17.1% | 0.0% | 31.4% | 2.8% |
+| college class | 46.6 / 48 | 30.5 / 30 | 48.7 / 50 | 30.7 / 31 |
+| K-12 students with no teacher in their grade | 13,553 | 2,446 | 262,770 | 41,521 |
+| under-1s / 3-year-olds in care | 29.5% / 77.8% | 12.9% / 57.9% | 29.4% / 61.0% | 12.9% / 42.8% |
+| childcare centers, mean agents | 63 | 44 | 82 | 53 |
+
+NM's columns are the oracle; CA's "old" is the old converter, which the old oracle tracked closely
+on NM (elementary classes 21.9 vs 21.7). The new oracle and the new converter agree to within 0.1
+on every class size above, on both states. CA's 3- and 4-year-olds fall
+short of NCES's rate because 294 k of its 575 k preschoolers still find no place within reach
+(childcare's leftover places only reach as far as the county subdivision). Students left without a
+teacher are in schools with fewer teachers than grades.
 
 `arm_d/` holds the population-perturbation experiment (arm D of `utilities/compare_realizations.py`)
 as patches against `upop_to_exaepi.py`, which apply cleanly to the commit they were written on,

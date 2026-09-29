@@ -15,7 +15,9 @@ S8  Work groups (assign_work_groups) for agents who go to a workplace -- employe
     among them by integer largest remainder, each establishment split into teams at the industry's
     target size. work_group = the team's position in a scan over groups sorted by (geoid, NAICS).
 S9  School groups (assign_school_groups): per (work block group, school, grade) raw group, classes
-    by teacher count clamped to 5-50 students each, excess teachers in admin groups of 20, students
+    by teacher count (college: ceil(students / 30), since a college's staff is its total
+    employment, not a faculty headcount) clamped to 5-50 students each, excess teachers in admin
+    groups of 20, students
     round-robin up to the floor and then smeared with a keyed draw (CLASS_SMEAR) instead of a hash
     of the global group index. school_class_group = scan over raw groups.
 S10 Day neighbourhoods (assign_day_neighborhoods): atoms (a work group, a whole school, a class of a
@@ -34,7 +36,7 @@ from . import kr64, stages, units
 NBORHOOD_SIZE = 500
 WORKGROUP_SIZE = 20
 CLASS_SIZE, CLASS_MIN, CLASS_MAX = 20, 5, 50
-COLLEGE_INSTRUCTIONAL_FRACTION = 0.1
+COLLEGE_CLASS_SIZE = 30
 TRAVEL_WFH = 7
 
 
@@ -160,9 +162,12 @@ def school_groups(b, P, work, school, sid, seed, rep):
         n_te = len(members) - n_st
         n_classes = 0
         if n_st > 0:
-            college = grade[members[0]] > 17
-            eff = n_te * COLLEGE_INSTRUCTIONAL_FRACTION if college else float(n_te)
-            raw = max(1, int(eff)) if eff > 0.0 else max(1, -(-n_st // CLASS_SIZE))
+            if grade[members[0]] > 17:  # college
+                raw = max(1, -(-n_st // COLLEGE_CLASS_SIZE))
+            elif n_te > 0:
+                raw = n_te
+            else:
+                raw = max(1, -(-n_st // CLASS_SIZE))
             n_classes = max(-(-n_st // CLASS_MAX), min(raw, max(1, n_st // CLASS_MIN)))
         excess = n_te - n_classes
         n_admin = -(-excess // WORKGROUP_SIZE) if excess > 0 else 0
