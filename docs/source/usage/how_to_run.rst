@@ -120,7 +120,7 @@ The following are inputs for the overall simulation:
     Fraction of agents that comply with shelter-in-place order.
 * ``agent.symptomatic_withdraw_compliance_day_0`` (`list of float`, default: ``0.3 0.3 0.3 0.3 0.3 0.3``)
     Compliance rate for agents withdrawing on day 0 when they have symptoms, per age group
-    (u5, 5-17, 18-29, 30-49, 50-64, 65+). Should be 0.0 to 1.0. Set to 0 to disable withdrawal.
+    (u6, 6-17, 18-29, 30-49, 50-64, 65+). Should be 0.0 to 1.0. Set to 0 to disable withdrawal.
 * ``agent.symptomatic_withdraw_compliance_day_1`` (`list of float`, default: ``0.8 0.6 0.5 0.5 0.5 0.5``)
     Compliance rate for agents withdrawing on day 1 when they have symptoms, per age group.
 * ``agent.symptomatic_withdraw_compliance_day_2`` (`list of float`, default: ``0.9 0.8 0.7 0.7 0.7 0.7``)
@@ -209,7 +209,7 @@ The following inputs specify the disease parameters:
     of that distribution depending on age. These parameters are set by ``disease.hospitalization_days_alpha``
     and ``disease.hospitalization_days_beta``.
 * ``disease.hospitalization_days`` (`list of float`, default ``3 3 3 3 8 7``)
-    Number of hospitalization days, by age group (u5, 5-17, 18-29, 30-49, 50-64, 65+).
+    Number of hospitalization days, by age group (u6, 6-17, 18-29, 30-49, 50-64, 65+).
     This parameter is only used if ``disease.hospital_stay_type`` is ``constant``.
 * ``disease.hospitalization_days_alpha`` (`list of float`, default ``3 3 3 3 8 7``)
     Alpha parameter for the Gamma distribution for hospital stay length, by age group. For a
@@ -222,7 +222,7 @@ The following inputs specify the disease parameters:
     Transmission probability within a workgroup.
 * ``disease.xmit_comm`` (`list of float`, default ``0.000021 0.000062 0.000165 0.000165 0.000165 0.000247``)
     Transmission probabilities at the community level, for both work and home locations,
-    given the age group of the susceptible agent (u5, 5-17, 18-29, 30-49, 50-64, 65+).
+    given the age group of the susceptible agent (u6, 6-17, 18-29, 30-49, 50-64, 65+).
 * ``disease.xmit_comm_scale`` (`float`, default ``1``)
     Overall magnitude of community transmission, applied on top of the population-size scaling
     from ``agent.size_scale_enabled``. Does not affect ``disease.xmit_hood``.

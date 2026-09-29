@@ -1572,8 +1572,8 @@ void AgentContainer::printAgeGroupCounts () const {
             total_agents += counts[i];
         }
         Print() << std::fixed << std::setprecision(1) << "Age group counts (percentage):\n"
-                << "  under 5   " << counts[0] << " " << 100.0 * (Real)counts[0] / total_agents << "\n"
-                << "  5 to 17    " << counts[1] << " " << 100.0 * (Real)counts[1] / total_agents << "\n"
+                << "  under 6   " << counts[0] << " " << 100.0 * (Real)counts[0] / total_agents << "\n"
+                << "  6 to 17    " << counts[1] << " " << 100.0 * (Real)counts[1] / total_agents << "\n"
                 << "  18 to 29   " << counts[2] << " " << 100.0 * (Real)counts[2] / total_agents << "\n"
                 << "  30 to 49   " << counts[3] << " " << 100.0 * (Real)counts[3] / total_agents << "\n"
                 << "  50 to 64   " << counts[4] << " " << 100.0 * (Real)counts[4] / total_agents << "\n"

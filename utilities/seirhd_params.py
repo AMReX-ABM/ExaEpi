@@ -53,8 +53,8 @@ import numpy as np
 
 # Age groups, in the order ExaEpi's AgeGroups enum (AgentDefinitions.H) and every
 # per-age-group input array use.  The upper bounds match UrbanPopData.cpp.
-AGE_GROUP_NAMES = ["0-4", "5-17", "18-29", "30-49", "50-64", "65+"]
-AGE_GROUP_UPPER = [5, 18, 30, 50, 65, 128]
+AGE_GROUP_NAMES = ["0-5", "6-17", "18-29", "30-49", "50-64", "65+"]
+AGE_GROUP_UPPER = [6, 18, 30, 50, 65, 128]
 N_AGE = len(AGE_GROUP_NAMES)
 
 # Defaults for every parameter read below, copied from DiseaseParm.H.  An .ini only
@@ -297,8 +297,11 @@ def resolve_age_fractions(ini_path, raw, urbanpop=None, age_fractions=None,
             if os.path.getmtime(cache) >= os.path.getmtime(bin_path):
                 with open(cache) as f:
                     cached = json.load(f)
-                return (np.array(cached["fractions"]), cached["population"],
-                        f"{bin_path} (cached)")
+                # a cache from before the age bands changed (e.g. 0-4/5-17 rather than 0-5/6-17)
+                # holds fractions for different groups, and is recomputed
+                if cached.get("age_group_upper") == AGE_GROUP_UPPER:
+                    return (np.array(cached["fractions"]), cached["population"],
+                            f"{bin_path} (cached)")
         except (OSError, ValueError, KeyError):
             pass  # a stale or corrupt cache is not worth failing over
 
@@ -306,7 +309,8 @@ def resolve_age_fractions(ini_path, raw, urbanpop=None, age_fractions=None,
     if use_cache:
         try:
             with open(cache, "w") as f:
-                json.dump({"fractions": list(fractions), "population": population}, f)
+                json.dump({"fractions": list(fractions), "population": population,
+                           "age_group_upper": AGE_GROUP_UPPER}, f)
         except OSError:
             pass  # read-only data directory; just recompute next time
     return fractions, population, bin_path

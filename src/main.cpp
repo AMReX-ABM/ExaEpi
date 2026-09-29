@@ -144,7 +144,7 @@ void printHelp (const char* prog) {
     line("symptomatic_withdraw_compliance_day_1", fmtArr(AgentContainer::default_symptomatic_withdraw_compliance_day_1), "");
     line("symptomatic_withdraw_compliance_day_2", fmtArr(AgentContainer::default_symptomatic_withdraw_compliance_day_2), "");
     desc_line("symptomatic-withdrawal compliance rate on the 1st/2nd/3rd+ day");
-    desc_line("of symptoms, by age group (u5, 5-17, 18-29, 30-49, 50-64, 65+)");
+    desc_line("of symptoms, by age group (u6, 6-17, 18-29, 30-49, 50-64, 65+)");
     out << "\n";
 
     out << "Recognized \"diag.*\" parameters (name, default, description):\n";
@@ -972,7 +972,7 @@ void runAgent () {
     }
     const std::array<Long, AgeGroups::total> population_by_age = pc.getPopulationByAge();
 
-    static const std::array<std::string, AgeGroups::total> age_group_names = {"0-4", "5-17", "18-29", "30-49", "50-64", "65+"};
+    static const std::array<std::string, AgeGroups::total> age_group_names = {"0-5", "6-17", "18-29", "30-49", "50-64", "65+"};
 
     auto print_age_breakdown = [&] (const std::string& indent, const std::array<Long, AgeGroups::total>& counts,
                                     Long total_for_pct = -1) {

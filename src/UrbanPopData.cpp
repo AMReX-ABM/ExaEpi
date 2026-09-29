@@ -645,11 +645,11 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             IntVect iv2 = assignor(p, plo, dxi, domain);
             AMREX_ASSERT(tilebox.contains(iv2));
 #endif
-            // Age group (under 5, 5-17, 18-29, 30-64, 65+)
-            if (agent.age < 5) {
-                age_group_ptr[i] = AgeGroups::u5;
+            // Age group (under 6, 6-17, 18-29, 30-49, 50-64, 65+) -- Epicast's bands, split at 50
+            if (agent.age < 6) {
+                age_group_ptr[i] = AgeGroups::u6;
             } else if (agent.age < 18) {
-                age_group_ptr[i] = AgeGroups::a5to17;
+                age_group_ptr[i] = AgeGroups::a6to17;
             } else if (agent.age < 30) {
                 age_group_ptr[i] = AgeGroups::a18to29;
             } else if (agent.age < 50) {

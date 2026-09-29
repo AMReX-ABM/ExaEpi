@@ -17,7 +17,7 @@ disease-specific field below is repeated once per disease, prefixed with the dis
 
   - Int data:
 
-    - ``age_group``: Age group of agent (see ``AgeGroups`` in ``AgentDefinitions.H``): 0=under 5, 1=5-17, 2=18-29, 3=30-49, 4=50-64, 5=65+.
+    - ``age_group``: Age group of agent (see ``AgeGroups`` in ``AgentDefinitions.H``): 0=under 6, 1=6-17, 2=18-29, 3=30-49, 4=50-64, 5=65+.
 
     - ``family``: ID of family/household of agent.
 
