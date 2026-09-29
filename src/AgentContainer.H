@@ -200,7 +200,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
             {0.9_rt, 0.8_rt, 0.7_rt, 0.7_rt, 0.7_rt, 0.7_rt};
     static constexpr amrex::Real default_shelter_compliance = 0.95_rt; /*!< Shelter-in-place compliance rate */
 
-    /*!< Symptomatic withdrawal compliance rate, day 0, AgeGroups u5, 5-17, 18-29, 30-49, 50-64, 65+*/
+    /*!< Symptomatic withdrawal compliance rate, day 0, AgeGroups u6, 6-17, 18-29, 30-49, 50-64, 65+*/
     amrex::GpuArray<amrex::Real, AgeGroups::total> m_symptomatic_withdraw_compliance_day_0 =
             default_symptomatic_withdraw_compliance_day_0;
     /*!< Symptomatic withdrawal compliance rate, day 1 */

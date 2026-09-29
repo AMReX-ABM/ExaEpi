@@ -45,7 +45,7 @@ struct DiseaseParm {
         FIPS code, current number of cases, and cumulative number of cases till date. */
     char case_filename[255];
 
-    // Transmission probabilities based on age group of receiver (0-4, 5-17, 18-29, 30-49, 50-64, 65+)
+    // Transmission probabilities based on age group of receiver (0-5, 6-17, 18-29, 30-49, 50-64, 65+)
     /*! community transmission, both home and work */
     Real xmit_comm[AgeGroups::total] = {Real(0.000021), Real(0.000062), Real(0.000165),
                                         Real(0.000165), Real(0.000165), Real(0.000247)};

@@ -38,7 +38,7 @@ struct RealIdxDisease {
 /*! \brief Integer-type SoA attributes of agent */
 struct IntIdx {
     enum {
-        age_group = 0, /*!< Age group (see #AgeGroups: under 5, 5-17, 18-29, 30-49, 50-64, 65+) */
+        age_group = 0, /*!< Age group (see #AgeGroups: under 6, 6-17, 18-29, 30-49, 50-64, 65+) */
         family,        /*!< Family ID */
         home_i,        /*!< home location index */
         home_j /*!< home location index */,
@@ -108,8 +108,9 @@ struct SchoolType {
 /*! \brief Age Group */
 struct AgeGroups {
     enum {
-        u5 = 0,  /*!< Under 5 */
-        a5to17,  /*!< 5-17 */
+        u6 = 0,  /*!< Under 6 -- Epicast's youngest group is 0-5, and ExaEpi's default
+                     per-age parameters are Epicast's */
+        a6to17,  /*!< 6-17 */
         a18to29, /*!< 18-29 */
         a30to49, /*!< 30-49 */
         a50to64,
@@ -400,7 +401,7 @@ template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 bool isAnAdult (const int a_idx, /*!< Agent index */
                 const PTDType& a_ptd /*!< Particle tile data */) {
-    return a_ptd.m_idata[IntIdx::age_group][a_idx] > AgeGroups::a5to17;
+    return a_ptd.m_idata[IntIdx::age_group][a_idx] > AgeGroups::a6to17;
 }
 
 // School grade is actually age of student

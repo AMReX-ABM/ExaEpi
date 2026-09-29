@@ -118,7 +118,7 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                         if (isSusceptible(i, ptd, d) && isCandidate(i, ptd)) {
                             int pos = school_class_group_ptr[i];
                             if (getSchoolType(school_grade_ptr[i]) == SchoolType::daycare) {
-                                if (adults && age_group_ptr[i] > AgeGroups::a5to17) { // adults-adults interaction accounted for
+                                if (adults && age_group_ptr[i] > AgeGroups::a6to17) { // adults-adults interaction accounted for
                                                                                       // in InteractionModWork.H
                                     // do nothing!
                                 } else {
@@ -136,7 +136,7 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                                 int num_infected_school_asymp = infected_school_asymp_d_ptr[pos];
                                 Real xmit = 0.0_rt;
                                 if (adults) {                                    // transmitters are adults
-                                    if (age_group_ptr[i] <= AgeGroups::a5to17) { // Adult teacher/staff -> child student
+                                    if (age_group_ptr[i] <= AgeGroups::a6to17) { // Adult teacher/staff -> child student
                                         xmit = lparm->xmit_school_a2c[getSchoolType(school_grade_ptr[i])];
                                     } else if (school_class_ptr[i] <= -2) {
                                         // receiver is in one of the raw group's admin (non-classroom)
@@ -156,7 +156,7 @@ void InteractionModSchool<PCType, PTDType, PType>::fastInteractSchool (PCType& a
                                         // do nothing!
                                     }
                                 } else {                                         // transmitters are children
-                                    if (age_group_ptr[i] <= AgeGroups::a5to17) { // Receiver j is a child
+                                    if (age_group_ptr[i] <= AgeGroups::a6to17) { // Receiver j is a child
                                         xmit = lparm->xmit_school[getSchoolType(school_grade_ptr[i])];
                                     } else { // Child student -> adult teacher/staff transmission
                                         xmit = lparm->xmit_school_c2a[getSchoolType(school_grade_ptr[i])];
