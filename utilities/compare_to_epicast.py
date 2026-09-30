@@ -13,6 +13,7 @@ import pandas as pd
 import numpy as np
 import argparse
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
 from scipy.integrate import solve_ivp
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -350,6 +351,27 @@ def _get_group_y(entry, col, xlimit):
     return entry["dfs"][0][col].values[:xlimit]
 
 
+def _run_total(entry, col, xlimit):
+    """Total of `col` over the WHOLE run of a group's representative file (the same one
+    _get_group_y picks, which is chosen over the first xlimit days), not just the plotted days:
+    the final value for a cumulative column, the sum over every day for a per-day one."""
+    df = entry["dfs"][0]
+    if entry["is_wildcard"] and len(entry["dfs"]) > 1:
+        df = entry["dfs"][_medoid_index(_align_arrays(entry["dfs"], col, xlimit))]
+    y = df[col].to_numpy(dtype=float)
+    if len(y) == 0:
+        return float("nan")
+    return float(np.max(y)) if col.startswith("cum") else float(np.sum(y))
+
+
+def _total_diff_pct(ref_total, total):
+    """How much higher (positive) or lower (negative) `total` is than `ref_total`, as a
+    percentage of `ref_total`; NaN if either is missing or the reference is zero."""
+    if ref_total is None or total is None or not ref_total:
+        return float("nan")
+    return 100.0 * (total - ref_total) / ref_total
+
+
 def _shift_array(y, shift, n):
     """Shift array y by `shift` days (same convention as --shift: positive delays it) and
     pad/truncate the result to length n, so it lines up day-for-day with an unshifted reference.
@@ -384,14 +406,19 @@ def _goodness_of_fit(ref_y, y):
     return r2, nrmse, peak_diff_pct
 
 
-def _format_gof(gof):
+def _format_gof(gof, total_diff_pct=None):
     """'R²=... NRMSE=... peak=+x.x%' for a _goodness_of_fit result, N/A for any value that isn't
-    computable."""
+    computable, followed by 'total=+x.x%' when a whole-run total difference is given (see
+    _total_diff_pct)."""
     r2, nrmse, peak_diff_pct = gof
     r2_str = f"{r2:.3f}" if np.isfinite(r2) else "N/A"
     nrmse_str = f"{nrmse:.3f}" if np.isfinite(nrmse) else "N/A"
     peak_str = f"{peak_diff_pct:+.1f}%" if np.isfinite(peak_diff_pct) else "N/A"
-    return f"R²={r2_str}  NRMSE={nrmse_str}  peak={peak_str}"
+    text = f"R²={r2_str}  NRMSE={nrmse_str}  peak={peak_str}"
+    if total_diff_pct is not None:
+        total_str = f"{total_diff_pct:+.1f}%" if np.isfinite(total_diff_pct) else "N/A"
+        text += f"  total={total_str}"
+    return text
 
 
 def _peak_day(y, smooth_window=5):
@@ -655,6 +682,21 @@ def _mark_exaepi_start(ax, shifts, colors=None):
             _mark_day_zero(ax, shift, "ExaEpi day 0", color, _format_shift(shift))
 
 
+def _format_count(value, _pos=None):
+    """Tick label for a count axis, with its magnitude spelled out on every tick ("250k", "1.5M")
+    rather than left to matplotlib's "1e7" offset text. That offset floats above the axes' top-left
+    corner, where constrained_layout has to make room for it (so the panel comes out a different
+    size from its neighbours), and it is easy to miss that it scales the whole axis."""
+    for scale, suffix in ((1e9, "B"), (1e6, "M"), (1e3, "k")):
+        if abs(value) >= scale:
+            return f"{value / scale:g}{suffix}"
+    return f"{value:g}"
+
+
+def _use_count_ticks(ax):
+    ax.yaxis.set_major_formatter(FuncFormatter(_format_count))
+
+
 _CONTEXT_COLS = {
     "EWork":   ("Work",                "tab:blue"),
     "EHosp":   ("Hospital",            "tab:cyan"),
@@ -675,6 +717,7 @@ def plot_context(ax, exaepi_data):
     ax.set_title("Infections by context (ExaEpi)")
     ax.set_xlabel("Days")
     ax.set_ylabel("Expected new infections")
+    _use_count_ticks(ax)
     ax.set_xlim([0, args.xlimit])
     ax.grid(True, which="major", linewidth=AXES_LINEWIDTH)
     ax.grid(True, which="minor", alpha=0.3, linewidth=AXES_LINEWIDTH)
@@ -765,6 +808,7 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
     # Reference curve for goodness-of-fit: Epicast's (day-aligned, post-shift) curve, compared
     # against ExaEpi's below -- same convention as plot_series's reference_y.
     reference_y = None
+    reference_total = None
 
     if epicast_data:
         entry = epicast_data[0]
@@ -795,6 +839,7 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
                         transform=ax.transAxes, ha="right", va="top", fontsize=FONT_TICK, color="blue")
                 row += 1
             reference_y = _shift_array(y, epicast_shift, args.xlimit)
+            reference_total = _run_total(entry, col, args.xlimit)
 
     if exaepi_data:
         entry = exaepi_data[0]
@@ -823,7 +868,8 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
             if reference_y is not None:
                 gof = _goodness_of_fit(reference_y, _shift_array(y, shift, args.xlimit))
                 if gof is not None:
-                    gof_str = f"  {_format_gof(gof)}"
+                    total_diff = _total_diff_pct(reference_total, _run_total(entry, col, args.xlimit))
+                    gof_str = f"  {_format_gof(gof, total_diff)}"
             print(f"  ExaEpi AUC: {auc:.3f}{gof_str}")
             if legend_label is not None:
                 text = f"{legend_label} AUC: {auc:.3f}" if args.show_auc else legend_label
@@ -1070,6 +1116,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None):
         _shift_array(_get_group_y(epicast_data[0], col_name, args.xlimit), epicast_shift, args.xlimit)
         if epicast_data else None
     )
+    reference_total = _run_total(epicast_data[0], col_name, args.xlimit) if epicast_data else None
 
     # Second reference for SEIRHD curves specifically: the first ExaEpi group's curve, shifted
     # by that group's own shift, so SEIRHD overlays can be scored against both models.
@@ -1122,14 +1169,16 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None):
     for i, entry in enumerate(epicast_data):
         lbl, auc, color, is_wc, y_for_gof = _plot_group(entry, i, epicast_colors, col_name,
                                               x_col="day", x_shift=epicast_shift)
-        auc_lines.append((lbl, auc, color, is_wc, y_for_gof, i == 0, False))
+        auc_lines.append((lbl, auc, color, is_wc, y_for_gof, i == 0, False,
+                          _run_total(entry, col_name, args.xlimit)))
 
     # Plot each ExaEpi group, each shifted by its OWN group-level shift (from matching that
     # group's exposed/NewI peak -- see _auto_shift_per_exaepi_group).
     for i, entry in enumerate(exaepi_data):
         lbl, auc, color, is_wc, y_for_gof = _plot_group(entry, i, exaepi_colors, exaepi_col,
                                               x_col="Day", x_shift=shift_by_group[i])
-        auc_lines.append((lbl, auc, color, is_wc, y_for_gof, False, False))
+        auc_lines.append((lbl, auc, color, is_wc, y_for_gof, False, False,
+                          _run_total(entry, exaepi_col, args.xlimit)))
 
     # Plot each SEIRHD curve (one per --seir_from_ini curve; see _resolve_seir_params)
     if seir_dfs and seir_col is not None:
@@ -1145,13 +1194,16 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None):
                 color=color, linewidth=1.5, linestyle="-",
             )
             auc_lines.append((short_lbl, np.sum(seir_y), color, False,
-                               _shift_array(seir_y, 0, args.xlimit), False, True))
+                               _shift_array(seir_y, 0, args.xlimit), False, True,
+                               # no whole-run total: the ODE is only integrated to --xlimit
+                               None))
 
     # Shortened from "Number of " + label (e.g. "Number of Cumulative Exposed") -- doesn't fit at
     # PLOS's 8-12pt font floor on this panel's now-much-smaller width; the plot's own title
     # already names the series, so the axis label doesn't need to restate it in full.
     ax.set_xlabel("Days")
     ax.set_ylabel(label)
+    _use_count_ticks(ax)
     ax.set_xlim([0, args.xlimit])
 
     if epicast_shift:
@@ -1204,12 +1256,12 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None):
             where there is no population to divide by (see --population).
 
             The console keeps the count alongside the rate; the panel does not, since it is a
-            summary line on an already-busy plot and the curve itself shows the count."""
+            summary line on an already-busy plot and the curve itself shows the count. The console
+            count has no thousands separators, so it can be pasted straight into a script."""
             if not pop:
-                text = f"Max {max_val:,.0f}"
-                return text, text
+                return f"Max {max_val:,.0f}", f"Max {max_val:.0f}"
             rate = f"attack rate {100.0 * max_val / pop:.1f}%"
-            return rate, f"{rate} ({max_val:,.0f})"
+            return rate, f"{rate} ({max_val:.0f})"
 
         for i, entry in enumerate(epicast_data):
             legend_label = entry["label"]
@@ -1255,14 +1307,16 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None):
                     transform=ax.transAxes, ha="right", va="bottom", fontsize=FONT_TICK, color=color)
     else:
         row = 0
-        for lbl, auc, color, is_wildcard, y_for_gof, is_reference, is_seir in auc_lines:
+        for lbl, auc, color, is_wildcard, y_for_gof, is_reference, is_seir, total in auc_lines:
             lbl_str = lbl if lbl is not None else "(unlabelled)"
             gof_str = ""
             if not is_reference and reference_y is not None:
                 gof = _goodness_of_fit(reference_y, y_for_gof)
                 if gof is not None:
-                    gof_str = f"  {_format_gof(gof)}"
-            print(f"  {lbl_str} AUC: {auc:,.0f}{gof_str}")
+                    total_diff = None if total is None else _total_diff_pct(reference_total, total)
+                    gof_str = f"  {_format_gof(gof, total_diff)}"
+            # no thousands separators, so the value can be pasted straight into a script
+            print(f"  {lbl_str} AUC: {auc:.0f}{gof_str}")
             if is_seir and exaepi_reference_y is not None:
                 gof_x = _goodness_of_fit(exaepi_reference_y, y_for_gof)
                 if gof_x is not None:
