@@ -5,11 +5,18 @@ import os
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 from scipy.stats import gamma, pearsonr
 from scipy.optimize import minimize, differential_evolution
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from plos_compbio_style import apply_style, FULL_PAGE_WIDTH_IN, FONT_TICK, AXES_LINEWIDTH  # noqa: E402
+from plos_compbio_style import (  # noqa: E402
+    apply_style,
+    FULL_PAGE_WIDTH_IN,
+    FONT_TICK,
+    AXES_LINEWIDTH,
+    PAGE_WIDTHS_IN,
+)
 
 apply_style()
 
@@ -23,21 +30,35 @@ incubation.extend(exposed_to_presymp)
 infectious = [0.0] * 4
 infectious.extend([0.1, 0.3, 0.5, 0.7, 0.85, 0.95, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
 
-transitions = [
-    # (exposed_to_presymp, 2.82, 1.36, 0.0, "Latent Period"),
-    (exposed_to_presymp, 2.77, 1.5, 0.0, "Latent Period"),
-    # (exposed_to_presymp, 1.95, 2.53, 0.0, "Latent Period"),
-    # (exposed_to_presymp, 6, 0.73, 0, "Latent Period"),
-    # (exposed_to_presymp, 2.55, 1.34, 0.0, "Latent Period"),
-    # (exposed_to_presymp, 1.5, 3.0, 0.0, "Latent Period"),
-    # (infectious, 1.5, 3, 3.0, "Infectious Period"),
-    # (infectious, 5.221, 0.946, 2.24, "Infectious Period"),
-    (infectious, 3.54, 1.22, 2.75, "Infectious Period"),
-    # (infectious, 2.5, 1.3, 3.0, "Infectious Period"),
-    # (infectious, 11.95, 0.51, 1.0, "Infectious Period"),
-    # (incubation, 2.82, 1.36, 1.0, "Incubation Period"),
-    # (incubation, 2.55, 1.34, 1.0, "Incubation Period"),
-]
+# Epicast cumulative table and plot title for each period name accepted by --transitions.
+PERIODS = {
+    "latent": (exposed_to_presymp, "Latent Period"),
+    "infectious": (infectious, "Infectious Period"),
+    "incubation": (incubation, "Incubation Period"),
+}
+
+DEFAULT_TRANSITIONS = ["latent:2.77:1.5:0.0", "infectious:3.54:1.22:2.75"]
+
+
+def parse_transition(spec):
+    """Parse a PERIOD:SHAPE:SCALE:LOC spec into a (cumulative array, shape, scale, loc, title)
+    entry. Colon-separated so that a negative loc doesn't read as an option to argparse."""
+    parts = spec.split(":")
+    if len(parts) != 4:
+        raise argparse.ArgumentTypeError(
+            f"'{spec}' is not of the form PERIOD:SHAPE:SCALE:LOC"
+        )
+    period = parts[0].lower()
+    if period not in PERIODS:
+        raise argparse.ArgumentTypeError(
+            f"unknown period '{parts[0]}' (expected one of {', '.join(PERIODS)})"
+        )
+    try:
+        shape, scale, loc = (float(p) for p in parts[1:])
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"non-numeric gamma parameter in '{spec}'")
+    cum_probs, title = PERIODS[period]
+    return (cum_probs, shape, scale, loc, title)
 
 
 def cumulative_to_pmf(cum_probs):
@@ -164,7 +185,40 @@ parser.add_argument(
     "overlay the result. Off by default because the global differential-evolution "
     "search it runs per group is slow.",
 )
+parser.add_argument(
+    "--transitions",
+    "-t",
+    nargs="+",
+    type=parse_transition,
+    default=[parse_transition(s) for s in DEFAULT_TRANSITIONS],
+    metavar="PERIOD:SHAPE:SCALE:LOC",
+    help="Manually-tuned gamma distributions to compare against Epicast, one per spec. PERIOD "
+    f"is one of {', '.join(PERIODS)}; entries with the same PERIOD share a subplot. "
+    f"Default: {' '.join(DEFAULT_TRANSITIONS)}",
+)
+parser.add_argument(
+    "--output",
+    "-o",
+    default="epicast_transitions_comparison.png",
+    help="Output image file name (default: %(default)s)",
+)
+parser.add_argument(
+    "--title",
+    default=None,
+    help="Replace the (single) panel's title; an empty string removes it (from every panel). "
+    "Useful when the panel is a sub-figure whose own caption already names it",
+)
+parser.add_argument(
+    "--width",
+    choices=["full"] + list(PAGE_WIDTHS_IN),
+    default=None,
+    help="Figure size for the slot it is placed in in the paper (see plos_compbio_style.py): "
+    "'half' for 0.48\\linewidth, 'third' for three sub-figures across at 0.32\\linewidth, "
+    "'full' for one row of panels (one per period) spanning \\linewidth. 'half' and 'third' "
+    "size a single panel. Default: 'half' for a single period, 'full' otherwise",
+)
 args = parser.parse_args()
+transitions = args.transitions
 
 # Colors cycled through the series within a single group, so each manually-tuned gamma
 # plotted against the same Epicast curve is distinguishable.
@@ -172,12 +226,21 @@ SERIES_COLORS = ["red", "green", "darkorange", "purple", "brown", "magenta", "ol
 
 groups = group_transitions(transitions)
 
-# Total width fixed at the paper's full-page width regardless of how many groups there are --
-# each panel just gets narrower as more groups are added, rather than the whole figure growing
-# past the page (see plos_compbio_style.py). Height matches the same 4:3-ish aspect used for
-# every other ordinary (non-map) plot in the paper.
-panel_width = FULL_PAGE_WIDTH_IN / len(groups)
-figsize = (FULL_PAGE_WIDTH_IN, panel_width * 0.75)
+width = args.width or ("half" if len(groups) == 1 else "full")
+if width == "full":
+    # Total width fixed at the paper's full-page width regardless of how many groups there are --
+    # each panel just gets narrower as more groups are added, rather than the whole figure growing
+    # past the page (see plos_compbio_style.py). Height matches the same 4:3-ish aspect used for
+    # every other ordinary (non-map) plot in the paper.
+    panel_width = FULL_PAGE_WIDTH_IN / len(groups)
+    figsize = (FULL_PAGE_WIDTH_IN, panel_width * 0.75)
+else:
+    if len(groups) > 1:
+        sys.exit(f"--width {width} sizes a single panel, but {len(groups)} periods were given")
+    figsize = PAGE_WIDTHS_IN[width]
+
+if args.title and len(groups) > 1:
+    sys.exit(f"--title replaces a single panel's title, but {len(groups)} periods were given")
 
 fig, axes = plt.subplots(1, len(groups), figsize=figsize, squeeze=False, layout="constrained")
 
@@ -292,11 +355,13 @@ for idx, group in enumerate(groups):
 
     ax.set_xlim(0, days - 1)
     ax.set_ylim(0, 1.0)
+    # whole-day ticks -- left to itself, a 15-day axis gets ticks at 2.5, 7.5, 12.5
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax.set_xlabel("Days")
     ax.set_ylabel("Cumulative probability")
-    ax.set_title(group_title)
+    ax.set_title(group_title if args.title is None else args.title)
     ax.grid(True, alpha=0.3, linewidth=AXES_LINEWIDTH)
     ax.legend(loc="lower right")#, bbox_to_anchor=(0.5, 1.0))
 
-plt.savefig("epicast_transitions_comparison.png", dpi=300)
+plt.savefig(args.output, dpi=300)
 #plt.show()

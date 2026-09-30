@@ -77,7 +77,10 @@ Compares a case-seeding file against Epicast's seeded infections, per county.
 ### `calc_epicast_trans_probs.py`
 
 Fits gamma distributions against Epicast's per-day transmission probabilities, for tuning ExaEpi's
-own disease parameters.
+own disease parameters. The gammas to compare are given with `--transitions`, as
+`PERIOD:SHAPE:SCALE:LOC` specs (e.g. `-t latent:2.77:1.5:0 infectious:3.54:1.22:2.75`). A single
+period is sized for a half-page slot by default (`--width third` for three across), and
+`--title ""` drops the title, as in the other paper plotting scripts.
 
 ### `extract_epicast_data.py`
 
