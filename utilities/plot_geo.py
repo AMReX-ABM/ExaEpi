@@ -122,6 +122,21 @@ def load_exaepi_day_night_population(csv_path):
 _ACTIVE_STATES = {"exposed", "presymptomatic", "symptomatic", "asymptomatic"}
 
 
+def epicast_home_tracts(events_df, demog_df):
+    """Return each event's agent's home tract FIPS, as an int64 array aligned with events_df.
+
+    An event's own tract_fips is where the agent was when the transition happened, which for a
+    day-half timestep is often its work or school tract -- about 6.6% of the CA p01 infections
+    happen outside the agent's home county. ExaEpi's aggregated diagnostics count agents by home
+    location, so comparing against Epicast's event locations would move commuters' infections
+    into employment centers (e.g. +17% for San Francisco county). Epicast numbers its agents
+    consecutively tract by tract in the order of the events file's per-tract table (see
+    read_epicast_events.urbanpop_agent_index), so the home tract is just a lookup by agent id.
+    """
+    home_tract = np.repeat(demog_df["fips"].to_numpy().astype(np.int64), demog_df["total"].to_numpy().astype(np.int64))
+    return home_tract[events_df["true_agent_id"].to_numpy().astype(np.int64)]
+
+
 def reconstruct_epicast_snapshot(events_df, demog_df, day=None, county_level=False):
     """Given already-loaded Epicast events/demographics (see read_events_bin), reconstruct a
     snapshot DataFrame (columns GEOID10, pop, never_infected, infected, immune) as of the START of
@@ -134,8 +149,8 @@ def reconstruct_epicast_snapshot(events_df, demog_df, day=None, county_level=Fal
     (a "day" half-step and a "night" half-step) per calendar day. To get a "snapshot as of the
     start of day D" comparable to ExaEpi's own day-D data (written before day D's own dynamics run
     -- day 0 is the raw seed state, zero elapsed transmission), this reconstructs each agent's most
-    recent disease_state (and the tract they were in when that transition happened) among all their
-    events with timestep <= cutoff, then buckets agents by that tract:
+    recent disease_state among all their events with timestep <= cutoff, then buckets agents by
+    their home tract (see epicast_home_tracts), matching ExaEpi's by-home counts:
         immune         = last state is "recovered"
         infected       = last state is exposed/presymptomatic/symptomatic/asymptomatic (still active)
         never_infected = tract population (from the file's demographics) minus the above two
@@ -146,10 +161,8 @@ def reconstruct_epicast_snapshot(events_df, demog_df, day=None, county_level=Fal
     night-half -- EXCEPT day 0, which has no "day -1" to stop after: day 0's day-half (timestep 0)
     IS the initial seeding itself (the same agents/tracts as ExaEpi's plt00000), so day 0 stops
     right there instead, at timestep 0. Without this exception (i.e. the plain 2*day-1 formula
-    extended to day 0), day 0 would already include day 0's own night-half dynamics -- which lets
-    already-seeded agents' disease-state progression get logged from wherever they physically are
-    at that later timestep (e.g. a commuter's workplace tract), so tracts/counties with no seeded
-    infections of their own can appear "infected" at what's supposed to be the starting snapshot.
+    extended to day 0), day 0 would already include day 0's own night-half dynamics rather than
+    the seed state alone.
     """
     max_day = (int(events_df.timestep.max()) + 1) // 2
     day = max_day if day is None else day
@@ -159,15 +172,16 @@ def reconstruct_epicast_snapshot(events_df, demog_df, day=None, county_level=Fal
     cutoff_timestep = 0 if day == 0 else 2 * day - 1
     print(f"Reconstructing snapshot at day {day} (timestep <= {cutoff_timestep})")
 
-    # Reconstruct each agent's most recent disease_state (and the tract of that transition) among
-    # events at or before the cutoff -- see the docstring above for why this, rather than a simple
-    # per-column aggregate, is needed to get a snapshot-like view out of a transition log.
+    # Reconstruct each agent's most recent disease_state among events at or before the cutoff --
+    # see the docstring above for why this, rather than a simple per-column aggregate, is needed to
+    # get a snapshot-like view out of a transition log.
     sub = events_df[events_df.timestep <= cutoff_timestep]
     last_idx = sub.groupby("true_agent_id")["timestep"].idxmax()
     last_events = sub.loc[last_idx]
+    last_events = last_events.assign(home_tract=epicast_home_tracts(last_events, demog_df))
 
-    immune = last_events[last_events.disease_state == "recovered"].groupby("tract_fips").size()
-    infected = last_events[last_events.disease_state.isin(_ACTIVE_STATES)].groupby("tract_fips").size()
+    immune = last_events[last_events.disease_state == "recovered"].groupby("home_tract").size()
+    infected = last_events[last_events.disease_state.isin(_ACTIVE_STATES)].groupby("home_tract").size()
 
     grid_stats_df = _grid_stats_from_counts(demog_df, immune, infected, county_level)
     return grid_stats_df, day
@@ -183,10 +197,8 @@ def _grid_stats_from_counts(demog_df, immune, infected, county_level):
     grid_stats_df["immune"] = immune
     grid_stats_df["infected"] = infected
     grid_stats_df = grid_stats_df.fillna(0)
-    # A small number of tracts can end up with pop < immune+infected (an agent's last event before
-    # the cutoff landed in a different tract than earlier events for that same agent -- Epicast's
-    # location_id records where each transition happened, not a fixed home tract). Clip rather than
-    # let those tracts go negative.
+    # Agents are counted by home tract, so immune+infected can't exceed a tract's pop; the clip is
+    # just a guard.
     grid_stats_df["never_infected"] = (grid_stats_df["pop"] - grid_stats_df["immune"] - grid_stats_df["infected"]).clip(lower=0)
     grid_stats_df = grid_stats_df.reset_index()
 
@@ -232,7 +244,7 @@ def iter_epicast_snapshots(events_df, demog_df, days, county_level=False):
     timesteps = sorted_events["timestep"].to_numpy()
     agent_ids = sorted_events["true_agent_id"].to_numpy()
     disease_states = sorted_events["disease_state"].to_numpy()
-    tract_fips = sorted_events["tract_fips"].to_numpy()
+    home_tract = epicast_home_tracts(sorted_events, demog_df)
     n = len(sorted_events)
 
     # Per-agent last-known state as of the current cutoff, held as dense arrays indexed directly by
@@ -263,12 +275,12 @@ def iter_epicast_snapshots(events_df, demog_df, days, county_level=False):
                 "true_agent_id": agent_ids[pos:end],
                 "timestep": timesteps[pos:end],
                 "disease_state": disease_states[pos:end],
-                "tract_fips": tract_fips[pos:end],
+                "home_tract": home_tract[pos:end],
             })
             chunk_last = chunk_df.loc[chunk_df.groupby("true_agent_id")["timestep"].idxmax()].set_index("true_agent_id")
 
             target_ids = chunk_last.index.to_numpy()
-            new_tract = chunk_last["tract_fips"].to_numpy()
+            new_tract = chunk_last["home_tract"].to_numpy()
             new_category = np.where(
                 chunk_last["disease_state"].to_numpy() == "recovered",
                 1,
