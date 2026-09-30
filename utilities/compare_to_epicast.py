@@ -878,6 +878,69 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
                 row += 1
 
 
+SOURCE_DIFF_PLOT_NAME = "Source Differences"
+
+# Shorter still than _SOURCE_STACK_LABELS, so a two-column legend fits a third-page-width panel.
+_SOURCE_DIFF_LABELS = {
+    "household":              "Household",
+    "cluster":                "Cluster",
+    "neighborhood_community": "Nbhd+Comm",
+    "work":                   "Work",
+    "school":                 "School",
+}
+
+
+def plot_source_differences(ax, epicast_data, exaepi_data, title):
+    """ExaEpi minus Epicast for every "Source: ..." curve at once, one line per source on a zero
+    baseline -- the curves plot_single_source draws side by side, reduced to where and when they
+    disagree. The line panels make a mismatch readable only by comparing two nearly overlapping
+    curves, and the stacked panels (plot_source_stack) only by comparing band thicknesses across
+    two separate axes; here it is the distance from zero.
+
+    Uses exactly the curves plot_single_source compares: the first -e and first -x group's
+    medoid, each shifted as there (epicast_shift / shift_by_group[0]) and day-aligned, in the same
+    units (fraction of that model's run-wide total exposed), so a difference of 0.001 here is 0.001
+    on those panels' y axis. Sources are colored as in the stacked panels (_SOURCE_STACK_COLORS).
+    Prints each source's largest difference and the day it occurs.
+    """
+    ax.set_title(title)
+    ax.set_xlabel("Days")
+    ax.set_ylabel("ExaEpi $-$ Epicast")
+    ax.set_xlim([0, args.xlimit])
+    ax.axhline(0, color="0.4", linewidth=AXES_LINEWIDTH)
+    ax.grid(True, which="major", linewidth=AXES_LINEWIDTH)
+    ax.grid(True, which="minor", alpha=0.3, linewidth=AXES_LINEWIDTH)
+    ax.minorticks_on()
+    print(title)
+    if not epicast_data or not exaepi_data:
+        print("  needs both an -e and an -x group; nothing drawn")
+        return
+    epicast_entry, exaepi_entry = epicast_data[0], exaepi_data[0]
+    days = np.arange(args.xlimit)
+    for key, label in _SOURCE_LABELS.items():
+        col = key + "_frac"
+        if col not in epicast_entry["dfs"][0].columns or col not in exaepi_entry["dfs"][0].columns:
+            continue
+        ref = _shift_array(_get_group_y(epicast_entry, col, args.xlimit), epicast_shift, args.xlimit)
+        y = _shift_array(_get_group_y(exaepi_entry, col, args.xlimit), shift_by_group[0], args.xlimit)
+        diff = y - ref
+        ax.plot(days, diff, color=_SOURCE_STACK_COLORS[key], linewidth=1, label=_SOURCE_DIFF_LABELS[key])
+        i = int(np.argmax(np.abs(diff)))
+        peak = float(np.max(np.abs(ref)))
+        rel = f" ({100 * diff[i] / peak:+.1f}% of Epicast's peak)" if peak > 0 else ""
+        print(f"  {label}: largest difference {diff[i]:+.5f} on day {i}{rel}")
+    # Plain decimals, like the "Source: ..." panels' y axes, so the differences read directly
+    # against those curves -- a shared "1e-3" factor hides that they are the same quantity.
+    ax.ticklabel_format(axis="y", style="plain", useOffset=False)
+    # The curves fill the middle of the panel in both directions, so make room above the data for
+    # the legend (two columns of short labels -- about a third of the panel's height) instead of
+    # letting it cover the curves.
+    lo, hi = ax.get_ylim()
+    ax.set_ylim(lo, hi + 0.6 * (hi - lo))
+    ax.legend(loc="upper center", ncols=2, handlelength=0.8, handletextpad=0.3, columnspacing=0.5,
+              borderaxespad=0.2, labelspacing=0.2, borderpad=0.25)
+
+
 # Bottom-to-top stacking order for the stacked-composition panels, and one color per source.
 # "other" (Epicast's ctx_customer/ctx_bar_social bucket -- see _CONTEXT_TO_SOURCE) has no ExaEpi
 # counterpart in _EXAEPI_SOURCE_MAPPING, so it simply doesn't appear on the ExaEpi panel.
@@ -999,6 +1062,48 @@ def _daily_source_composition(entry, xlimit, window=1):
 
     nonzero = [i for i in range(len(keys)) if frac[i].max() > 0]
     return [keys[i] for i in nonzero], frac[nonzero]
+
+
+# One plot name per source, e.g. "Daily Share: Work" -> source key "work".
+DAILY_SHARE_PLOT_NAMES = [f"Daily Share: {label}" for label in _SOURCE_LABELS.values()]
+_DAILY_SHARE_TO_KEY = {f"Daily Share: {label}": key for key, label in _SOURCE_LABELS.items()}
+
+
+def plot_daily_share(ax, epicast_data, exaepi_data, source_key, title):
+    """One source's share of each day's new infections, for both models on one axes: the same
+    per-day composition plot_source_stack stacks (see _daily_source_composition -- pooled across a
+    wildcard group's files, smoothed over --share_window days), but for a single source, so the two
+    models can be compared directly rather than across two stacked panels.
+
+    Unlike the "Source: ..." panels, which normalize by the run's total and so follow the epidemic
+    curve's shape, this is each day's own mix -- which is what shows *when* a source matters, e.g.
+    one that carries a larger share of transmission during the growth phase and so speeds it up.
+    Each model is drawn on its own day axis, shifted as the other panels are (epicast_shift /
+    shift_by_group[0]).
+    """
+    ax.set_title(title)
+    ax.set_xlabel("Days")
+    ax.set_ylabel("Share of daily infections (%)")
+    ax.set_xlim([0, args.xlimit])
+    ax.grid(True, which="major", linewidth=AXES_LINEWIDTH)
+    ax.grid(True, which="minor", alpha=0.3, linewidth=AXES_LINEWIDTH)
+    ax.minorticks_on()
+    print(title)
+    for data, shift, color, name in ((epicast_data, epicast_shift, "blue", "Epicast"),
+                                     (exaepi_data, shift_by_group[0] if exaepi_data else 0, "red", "ExaEpi")):
+        if not data:
+            continue
+        comp = _daily_source_composition(data[0], args.xlimit, window=args.share_window)
+        if comp is None or source_key not in comp[0]:
+            continue
+        keys, frac = comp
+        share = 100 * frac[keys.index(source_key)]
+        x = np.arange(len(share)) + shift
+        ax.plot(x, share, color=color, linewidth=1, label=name)
+        print(f"  {name}: mean share {share[share > 0].mean():.1f}%, max {share.max():.1f}% on day "
+              f"{int(x[np.argmax(share)])}")
+    ax.set_ylim(bottom=0)
+    ax.legend()
 
 
 def plot_source_stack(ax, epicast_data, exaepi_data, model, title):
@@ -1494,6 +1599,11 @@ for _name, _typ, _default, _help in _SEIR_PARAM_ARGS:
     for _i in range(1, MAX_SEIR_CURVES + 1):
         parser.add_argument(f"{_flag}{_i}", type=_typ, default=None, help=argparse.SUPPRESS)
 parser.add_argument(
+    "--share_window", type=int, default=7, metavar="DAYS",
+    help="Centered moving-average window for the 'Daily Share: ...' plots (see "
+         "_daily_source_composition); the default week also smooths out any weekly cycle",
+)
+parser.add_argument(
     "--stack_window", type=int, default=1, metavar="DAYS",
     help="Smooth the 'Source Stack ...' panels with a centered moving average of this many days "
          "before taking each day's per-source shares. Only affects those panels. Use it when the "
@@ -1507,9 +1617,14 @@ parser.add_argument(
         "Which plots to show, in the order given. Rendered in 2-column layout. "
         "Valid names (case-insensitive): Exposed, Symptomatic, Presymptomatic, "
         "Asymptomatic, Hospitalized, Dead, Recovered, 'Cumulative Exposed', Context, "
-        + ", ".join(f"'{n}'" for n in SOURCE_PLOT_NAMES + SOURCE_STACK_PLOT_NAMES) + ". "
+        + ", ".join(f"'{n}'" for n in SOURCE_PLOT_NAMES + SOURCE_STACK_PLOT_NAMES) + ", "
+        f"'{SOURCE_DIFF_PLOT_NAME}', "
+        + ", ".join(f"'{n}'" for n in DAILY_SHARE_PLOT_NAMES) + ". "
         "'Source Fractions' is a legacy alias that expands to all of the per-context "
         "'Source: ...' plots, and 'Source Stack' expands to both 'Source Stack (...)' plots. "
+        f"'{SOURCE_DIFF_PLOT_NAME}' plots ExaEpi minus Epicast for every 'Source: ...' curve on one "
+        "panel, and 'Daily Share: ...' one source's share of each day's new infections for both "
+        "models. "
         "Default: all 8 (or Exposed/Recovered/Cumulative Exposed when --seir_from_ini is used)."
     ),
 )
@@ -1601,7 +1716,7 @@ for _idx in _seir_curve_indices:
 ALL_PLOTS = [
     "Exposed", "Symptomatic", "Presymptomatic", "Asymptomatic",
     "Hospitalized", "Dead", "Recovered", "Cumulative Exposed", "Context", *SOURCE_PLOT_NAMES,
-    *SOURCE_STACK_PLOT_NAMES,
+    *SOURCE_STACK_PLOT_NAMES, SOURCE_DIFF_PLOT_NAME, *DAILY_SHARE_PLOT_NAMES,
 ]
 _plot_map: dict[str, str | list[str]] = {p.lower(): p for p in ALL_PLOTS}
 _plot_map["source fractions"] = SOURCE_PLOT_NAMES  # legacy alias: expands to all context plots
@@ -1822,7 +1937,8 @@ elif seir_dfs:
 else:
     selected_plots = [p for p in ALL_PLOTS
                       if p != "Context" and p not in SOURCE_PLOT_NAMES
-                      and p not in SOURCE_STACK_PLOT_NAMES]
+                      and p not in SOURCE_STACK_PLOT_NAMES and p != SOURCE_DIFF_PLOT_NAME
+                      and p not in DAILY_SHARE_PLOT_NAMES]
 
 n = len(selected_plots)
 ncols = 1 if n == 1 else 2
@@ -1864,6 +1980,10 @@ for i, plot_name in enumerate(selected_plots):
     elif plot_name in _SOURCE_STACK_TO_MODEL:
         plot_source_stack(axes[i], epicast_data, exaepi_data, _SOURCE_STACK_TO_MODEL[plot_name],
                            plot_name)
+    elif plot_name == SOURCE_DIFF_PLOT_NAME:
+        plot_source_differences(axes[i], epicast_data, exaepi_data, plot_name)
+    elif plot_name in _DAILY_SHARE_TO_KEY:
+        plot_daily_share(axes[i], epicast_data, exaepi_data, _DAILY_SHARE_TO_KEY[plot_name], plot_name)
     else:
         plot_series(axes[i], epicast_data, exaepi_data, plot_name, seir_dfs=seir_dfs)
 
