@@ -30,8 +30,16 @@ def load_epicast(fname):
         #print(f"Reading pre-extracted Epicast summary {fname} ...")
         df = pd.read_csv(fname)
         #print(f"Epicast has {len(df)} days (from pre-extracted summary)")
-        return df
-    return read_epicast_summary(fname)
+    else:
+        df = read_epicast_summary(fname)
+    # Epicast records a death as a transition to the "recovered" disease state (with the
+    # ctx_removed context), so its recovered count includes every agent who dies -- checked on
+    # nm-p01-r0: all 19,232 ctx_removed events have disease_state "recovered". ExaEpi's R excludes
+    # the dead, so take them out here to compare like with like; "dead" is exactly those
+    # ctx_removed events (see read_epicast_summary). Done at load rather than in
+    # read_epicast_summary so the .summary.csv files already on disk stay valid.
+    df["recovered"] = df["recovered"] - df["dead"]
+    return df
 
 
 # Groups ExaEpi's per-phase context_diag columns into the same buckets Epicast's
@@ -354,8 +362,12 @@ def _shift_array(y, shift, n):
 
 
 def _goodness_of_fit(ref_y, y):
-    """Return (R^2, NRMSE) of curve y against reference curve ref_y, comparing over their
-    common length. NRMSE is RMSE normalized by the reference curve's mean absolute value.
+    """Return (R^2, NRMSE, peak_diff_pct) of curve y against reference curve ref_y, comparing over
+    their common length. peak_diff_pct is how much higher (positive) or lower (negative) y's peak
+    is than ref_y's, as a percentage of ref_y's peak -- heights only, whatever day each falls on. NRMSE is RMSE normalized by the reference curve's peak (maximum absolute
+    value), so it reads as the typical error as a fraction of the peak height. Normalizing by the
+    mean instead made it depend on the plotted window: days where both curves sit near zero pull
+    the mean down and so push the NRMSE up, with no change in how well the curves agree.
     Either value is NaN if it isn't computable (e.g. a constant-zero reference).
     """
     n = min(len(ref_y), len(y))
@@ -366,9 +378,20 @@ def _goodness_of_fit(ref_y, y):
     ss_res = np.sum((r - v) ** 2)
     ss_tot = np.sum((r - r.mean()) ** 2)
     r2 = (1.0 - ss_res / ss_tot) if ss_tot > 0 else float("nan")
-    ref_mean = np.mean(np.abs(r))
-    nrmse = (np.sqrt(ss_res / n) / ref_mean) if ref_mean > 0 else float("nan")
-    return r2, nrmse
+    ref_peak = np.max(np.abs(r))
+    nrmse = (np.sqrt(ss_res / n) / ref_peak) if ref_peak > 0 else float("nan")
+    peak_diff_pct = (100.0 * (np.max(np.abs(v)) - ref_peak) / ref_peak) if ref_peak > 0 else float("nan")
+    return r2, nrmse, peak_diff_pct
+
+
+def _format_gof(gof):
+    """'R²=... NRMSE=... peak=+x.x%' for a _goodness_of_fit result, N/A for any value that isn't
+    computable."""
+    r2, nrmse, peak_diff_pct = gof
+    r2_str = f"{r2:.3f}" if np.isfinite(r2) else "N/A"
+    nrmse_str = f"{nrmse:.3f}" if np.isfinite(nrmse) else "N/A"
+    peak_str = f"{peak_diff_pct:+.1f}%" if np.isfinite(peak_diff_pct) else "N/A"
+    return f"R²={r2_str}  NRMSE={nrmse_str}  peak={peak_str}"
 
 
 def _peak_day(y, smooth_window=5):
@@ -800,10 +823,7 @@ def plot_single_source(ax, epicast_data, exaepi_data, source_key, title, ylimit)
             if reference_y is not None:
                 gof = _goodness_of_fit(reference_y, _shift_array(y, shift, args.xlimit))
                 if gof is not None:
-                    r2, nrmse = gof
-                    r2_str    = f"{r2:.3f}"    if np.isfinite(r2)    else "N/A"
-                    nrmse_str = f"{nrmse:.3f}" if np.isfinite(nrmse) else "N/A"
-                    gof_str = f"  R²={r2_str}  NRMSE={nrmse_str}"
+                    gof_str = f"  {_format_gof(gof)}"
             print(f"  ExaEpi AUC: {auc:.3f}{gof_str}")
             if legend_label is not None:
                 text = f"{legend_label} AUC: {auc:.3f}" if args.show_auc else legend_label
@@ -1241,18 +1261,12 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None):
             if not is_reference and reference_y is not None:
                 gof = _goodness_of_fit(reference_y, y_for_gof)
                 if gof is not None:
-                    r2, nrmse = gof
-                    r2_str    = f"{r2:.3f}"    if np.isfinite(r2)    else "N/A"
-                    nrmse_str = f"{nrmse:.3f}" if np.isfinite(nrmse) else "N/A"
-                    gof_str = f"  R²={r2_str}  NRMSE={nrmse_str}"
+                    gof_str = f"  {_format_gof(gof)}"
             print(f"  {lbl_str} AUC: {auc:,.0f}{gof_str}")
             if is_seir and exaepi_reference_y is not None:
                 gof_x = _goodness_of_fit(exaepi_reference_y, y_for_gof)
                 if gof_x is not None:
-                    r2_x, nrmse_x = gof_x
-                    r2_x_str    = f"{r2_x:.3f}"    if np.isfinite(r2_x)    else "N/A"
-                    nrmse_x_str = f"{nrmse_x:.3f}" if np.isfinite(nrmse_x) else "N/A"
-                    print(f"    vs ExaEpi:  R²={r2_x_str}  NRMSE={nrmse_x_str}")
+                    print(f"    vs ExaEpi:  {_format_gof(gof_x)}")
             if lbl is not None:
                 text = f"{lbl} AUC: {auc:,.0f}" if args.show_auc else lbl
                 ax.text(0.98, 0.95 - row * 0.09, text,
@@ -1771,6 +1785,10 @@ else:
     if n > 1:
         sys.exit(f"--width {args.width} sizes a single panel, but {n} plots were selected")
     panel_width, panel_height = PAGE_WIDTHS_IN[args.width]
+    if args.width == "half":
+        # this script's own panel shape, as in the grid above, rather than the shared 4:3 --
+        # otherwise a half-width panel stands taller than the grid panels it appears alongside
+        panel_height = panel_width * (3.5 / 6)
 fig, axes_grid = plt.subplots(
     nrows, ncols, figsize=(ncols * panel_width, nrows * panel_height), squeeze=False, layout="constrained"
 )
