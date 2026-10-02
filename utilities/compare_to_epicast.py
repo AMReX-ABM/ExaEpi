@@ -6,6 +6,7 @@ import glob
 import io
 import contextlib
 import functools
+import warnings
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
 import psutil
@@ -1106,6 +1107,100 @@ def plot_daily_share(ax, epicast_data, exaepi_data, source_key, title):
     ax.legend()
 
 
+RT_PLOT_NAME = "Reproduction Number"
+
+
+def _reproduction_number(incidence, g, window=7):
+    """Instantaneous reproduction number R_t = i_t / sum_k g_k i_{t-k} (the renewal equation, as in
+    Cori et al. 2013) from daily new infections, after a centered `window`-day moving average. For
+    a homogeneously mixed SEIR model with this g it is exactly R0 * S(t)/N."""
+    x = np.asarray(incidence, dtype=float)
+    if window > 1:
+        w = min(window, len(x))
+        pad = w // 2
+        x = np.convolve(np.pad(x, pad, mode="edge"), np.ones(w) / w, mode="valid")[:len(incidence)]
+    pressure = np.convolve(x, np.concatenate([[0.0], g[1:]]))[:len(x)]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.where(pressure > 0, x / pressure, np.nan)
+
+
+def plot_reproduction_number(ax, epicast_data, exaepi_data, seir_dfs, title, start_frac=0.001,
+                             end_frac=0.99):
+    """Effective reproduction number R_t against the fraction of the population infected so far,
+    for Epicast, ExaEpi and the SEIRHD curves.
+
+    Plotting against the attack fraction rather than the day compares the models at the same stage
+    of the epidemic, so the day shift between them doesn't enter, and it makes the homogeneous
+    reference trivial: an SEIRHD model's R_t = R0 * (1 - A), a straight line. How far the ABM curves
+    fall from that line shows how their contact structure changes R_t as the epidemic progresses:
+    above it early (faster growth) and below it later (households and other small groups
+    saturating), for the same final size.
+
+    For a wildcard group, R_t is estimated for each run and interpolated onto a common grid of
+    attack fractions; the line is the median over runs and the band the central --band percent
+    (the first value). Estimates are shown only between start_frac and end_frac of the run's own
+    final size, since at either end a few infections a day make the ratio meaningless. Needs a
+    --seir_from_ini curve for the generation interval (see seirhd_params.generation_interval).
+    """
+    if not seir_dfs:
+        sys.exit(f"'{RT_PLOT_NAME}' needs --seir_from_ini for the generation interval")
+    g = seirhd_params.generation_interval(seir_dfs[0][1])
+    print(title)
+    print(f"  generation interval mean {np.dot(np.arange(len(g)), g):.2f} days")
+
+    grid = np.linspace(0, 1, 1001)
+
+    def _curve(incidence, pop):
+        cum = np.cumsum(incidence)
+        rt = _reproduction_number(incidence, g, window=args.share_window)
+        final = cum[-1]
+        keep = (cum >= start_frac * final) & (cum <= end_frac * final) & np.isfinite(rt)
+        frac = cum / pop
+        # frac is nondecreasing; drop repeats so the interpolation is well defined
+        f, idx = np.unique(frac[keep], return_index=True)
+        if len(f) < 2:
+            return np.full_like(grid, np.nan)
+        return np.interp(grid, f, rt[keep][idx], left=np.nan, right=np.nan)
+
+    band = args.band[0] if args.band else 0
+    for data, col, color, name in ((epicast_data, "exposed", "blue", "Epicast"),
+                                   (exaepi_data, "NewI", "red", "ExaEpi")):
+        if not data:
+            continue
+        curves = np.array([_curve(df[col].values[:args.xlimit], population) for df in data[0]["dfs"]])
+        # all-NaN grid points (beyond a model's final size) are expected, not worth a warning
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            mid = np.nanmedian(curves, axis=0)
+            if band and len(curves) > 1:
+                lo, hi = np.nanpercentile(curves, [50 - band / 2, 50 + band / 2], axis=0)
+                ax.fill_between(grid * 100, lo, hi, color=color, alpha=0.2, linewidth=0)
+        ax.plot(grid * 100, mid, color=color, linewidth=1, label=name)
+        ok = np.isfinite(mid)
+        print(f"  {name}: R_t {mid[ok][0]:.2f} at {100 * grid[ok][0]:.1f}% infected, "
+              f"max {np.nanmax(mid):.2f}, 1.0 at {100 * grid[ok][np.argmin(np.abs(mid[ok] - 1))]:.1f}%")
+
+    seir_colors = [plt.cm.Greens(x) for x in np.linspace(0.55, 1.0, len(seir_dfs))]
+    for (idx, p, df), color in zip(seir_dfs, seir_colors):
+        rt = _curve(df["exposed"].values, p["N"])
+        label = "SEIRHD" if len(seir_dfs) == 1 else f"SEIRHD {idx}"
+        ax.plot(grid * 100, rt, color=color, linewidth=1, label=label)
+        ok = np.isfinite(rt)
+        print(f"  {label}: R_t {rt[ok][0]:.2f} at {100 * grid[ok][0]:.1f}% infected "
+              f"(R0 = {p['r0']:.2f}), 1.0 at {100 * grid[ok][np.argmin(np.abs(rt[ok] - 1))]:.1f}%")
+
+    ax.axhline(1.0, color="gray", linestyle="--", linewidth=AXES_LINEWIDTH)
+    ax.set_title(title)
+    ax.set_xlabel("Population infected (%)")
+    ax.set_ylabel(r"$R_t$")
+    ax.set_xlim(left=0)
+    ax.set_ylim(bottom=0.5)
+    ax.grid(True, which="major", linewidth=AXES_LINEWIDTH)
+    ax.grid(True, which="minor", alpha=0.3, linewidth=AXES_LINEWIDTH)
+    ax.minorticks_on()
+    ax.legend()
+
+
 def plot_source_stack(ax, epicast_data, exaepi_data, model, title):
     """Stacked bar chart of each interaction context's share of that day's new infections, for one
     model (see _daily_source_composition). Every bar reaches 1; what changes over time is how it's
@@ -1619,12 +1714,13 @@ parser.add_argument(
         "Asymptomatic, Hospitalized, Dead, Recovered, 'Cumulative Exposed', Context, "
         + ", ".join(f"'{n}'" for n in SOURCE_PLOT_NAMES + SOURCE_STACK_PLOT_NAMES) + ", "
         f"'{SOURCE_DIFF_PLOT_NAME}', "
-        + ", ".join(f"'{n}'" for n in DAILY_SHARE_PLOT_NAMES) + ". "
+        + ", ".join(f"'{n}'" for n in DAILY_SHARE_PLOT_NAMES) + f", '{RT_PLOT_NAME}'. "
         "'Source Fractions' is a legacy alias that expands to all of the per-context "
         "'Source: ...' plots, and 'Source Stack' expands to both 'Source Stack (...)' plots. "
         f"'{SOURCE_DIFF_PLOT_NAME}' plots ExaEpi minus Epicast for every 'Source: ...' curve on one "
         "panel, and 'Daily Share: ...' one source's share of each day's new infections for both "
-        "models. "
+        f"models. '{RT_PLOT_NAME}' plots the effective reproduction number against the fraction "
+        "infected, for both models and the SEIRHD (needs --seir_from_ini). "
         "Default: all 8 (or Exposed/Recovered/Cumulative Exposed when --seir_from_ini is used)."
     ),
 )
@@ -1716,7 +1812,7 @@ for _idx in _seir_curve_indices:
 ALL_PLOTS = [
     "Exposed", "Symptomatic", "Presymptomatic", "Asymptomatic",
     "Hospitalized", "Dead", "Recovered", "Cumulative Exposed", "Context", *SOURCE_PLOT_NAMES,
-    *SOURCE_STACK_PLOT_NAMES, SOURCE_DIFF_PLOT_NAME, *DAILY_SHARE_PLOT_NAMES,
+    *SOURCE_STACK_PLOT_NAMES, SOURCE_DIFF_PLOT_NAME, *DAILY_SHARE_PLOT_NAMES, RT_PLOT_NAME,
 ]
 _plot_map: dict[str, str | list[str]] = {p.lower(): p for p in ALL_PLOTS}
 _plot_map["source fractions"] = SOURCE_PLOT_NAMES  # legacy alias: expands to all context plots
@@ -1938,7 +2034,7 @@ else:
     selected_plots = [p for p in ALL_PLOTS
                       if p != "Context" and p not in SOURCE_PLOT_NAMES
                       and p not in SOURCE_STACK_PLOT_NAMES and p != SOURCE_DIFF_PLOT_NAME
-                      and p not in DAILY_SHARE_PLOT_NAMES]
+                      and p not in DAILY_SHARE_PLOT_NAMES and p != RT_PLOT_NAME]
 
 n = len(selected_plots)
 ncols = 1 if n == 1 else 2
@@ -1984,6 +2080,8 @@ for i, plot_name in enumerate(selected_plots):
         plot_source_differences(axes[i], epicast_data, exaepi_data, plot_name)
     elif plot_name in _DAILY_SHARE_TO_KEY:
         plot_daily_share(axes[i], epicast_data, exaepi_data, _DAILY_SHARE_TO_KEY[plot_name], plot_name)
+    elif plot_name == RT_PLOT_NAME:
+        plot_reproduction_number(axes[i], epicast_data, exaepi_data, seir_dfs, plot_name)
     else:
         plot_series(axes[i], epicast_data, exaepi_data, plot_name, seir_dfs=seir_dfs)
 
