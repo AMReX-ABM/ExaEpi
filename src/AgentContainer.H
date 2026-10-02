@@ -106,7 +106,7 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     amrex::Real sumExpectedInfections(int d) const;
 
     void snapshotProbs(int d);
-    amrex::Real sumContextInfections(int d);
+    amrex::Real sumContextInfections(int d, amrex::Real* home_bg_infections = nullptr, int num_block_groups = 0);
 
     void shelterStart();
 

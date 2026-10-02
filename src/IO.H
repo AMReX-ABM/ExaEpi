@@ -34,7 +34,8 @@ void writeCheckpointFile(const AgentContainer& pc, const MFPtrVec& a_disease_sta
                          const std::vector<std::string>& disease_names, const Real cur_time, const int step);
 
 void writeAggregatedData(const AgentContainer& pc, const UrbanPopData& urbanpopData, const std::string& prefix,
-                         const int num_diseases, const std::vector<std::string>& disease_names, const int step);
+                         const int num_diseases, const std::vector<std::string>& disease_names, const int step,
+                         const amrex::Real* home_context_infections = nullptr);
 
 /*! Per-community population counts (everyone / workers / students), index-aligned with
     UrbanPopData::block_groups -- see AgentContainer::generatePopulationBreakdown() and

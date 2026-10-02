@@ -1460,10 +1460,20 @@ void AgentContainer::snapshotProbs (int d) {
     This returns each rank's local sum only -- it does not reduce across ranks. Call sites that
     invoke this once per interaction context (see main.cpp's context_diag block) should collect
     all contexts' local sums into one array and issue a single ParallelDescriptor::ReduceRealSum
-    over all of them, rather than reducing after every call. */
-amrex::Real AgentContainer::sumContextInfections (int d) {
+    over all of them, rather than reducing after every call.
+    If home_bg_infections is given, each agent's contribution is also added to
+    home_bg_infections[b], b being the agent's HOME block group (0..num_block_groups-1, the
+    UrbanPopData::block_groups index) -- wherever the agent currently is, so that daytime contexts
+    are credited to where their infected agents live, as the aggregated case counts are. Block
+    group b sits at grid cell (b % nx, b / nx) (see UrbanPopData::init), so it follows from the
+    agent's home_i/home_j alone. Also rank-local and accumulated into, never reset here. */
+amrex::Real AgentContainer::sumContextInfections (int d, amrex::Real* home_bg_infections, int num_block_groups) {
     BL_PROFILE("AgentContainer::sumContextInfections");
     amrex::Real total = 0.0_rt;
+    const amrex::Box domain = Geom(0).Domain();
+    const int lo_x = domain.smallEnd(0);
+    const int lo_y = domain.smallEnd(1);
+    const int nx = domain.length(0);
     for (int lev = 0; lev < numLevels(); ++lev) {
         // mfi.tileIndex() (not a manually incremented counter) indexes m_prob_snapshot: it's the
         // same fixed per-tile position snapshotProbs()'s *serial* emplace_back() loop assigned,
@@ -1496,6 +1506,14 @@ amrex::Real AgentContainer::sumContextInfections (int d) {
                     amrex::Real before = amrex::max(before_ptr[i], ParticleReal(1e-30));
                     amrex::Real contribution = amrex::max(0.0_rt, 1.0_rt - prob_ptr[i] / before);
                     amrex::Gpu::Atomic::AddNoRet(sum_ptr, contribution);
+                    if (home_bg_infections != nullptr && contribution > 0.0_rt) {
+                        const int bg = (ptd.m_idata[IntIdx::home_j][i] - lo_y) * nx + (ptd.m_idata[IntIdx::home_i][i] - lo_x);
+                        // HostDevice rather than Gpu atomic: unlike sum_ptr, this array is shared by
+                        // every tile, and so by every OpenMP thread of the tile loop on the CPU
+                        if (bg >= 0 && bg < num_block_groups) {
+                            amrex::HostDevice::Atomic::Add(home_bg_infections + bg, contribution);
+                        }
+                    }
                 }
             });
             amrex::Gpu::synchronize();

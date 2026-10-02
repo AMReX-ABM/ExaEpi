@@ -7,6 +7,8 @@
 
 #include <AMReX_Particles.H>
 
+#include <array>
+
 namespace ExaEpi {
 /*! Maximum number of diseases */
 const int max_num_diseases = 10;
@@ -188,6 +190,29 @@ struct OutputStatus {
         nattribs
     };
 };
+
+/*! \brief Interaction contexts agent.context_diag attributes infections to, in the order of their
+    per-context columns: in the output file (main.cpp) and, per home block group, in the aggregated
+    diagnostic files (ExaEpi::IO::writeAggregatedData) */
+struct InfectionContext {
+    enum {
+        work = 0,
+        hosp,
+        school,
+        nborhood_day,   /*!< daytime neighborhood */
+        comm_day,       /*!< daytime community */
+        household,
+        nc,             /*!< neighborhood (household) cluster */
+        nborhood_night, /*!< nighttime (home) neighborhood */
+        comm_night,     /*!< nighttime (home) community */
+        total
+    };
+};
+
+/*! Column names of the #InfectionContext contexts, in enum order */
+inline const std::array<const char*, InfectionContext::total> infection_context_names = {"EWork", "EHosp",  "ESchool",
+                                                                                         "ENbhD", "ECommD", "EHH",
+                                                                                         "ENC",   "ENbhN",  "ECommN"};
 
 /*! \brief Get the total number of exposed agents (in or out of hospital) */
 AMREX_FORCE_INLINE

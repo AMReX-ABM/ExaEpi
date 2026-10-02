@@ -60,7 +60,8 @@ agent.shelter_length = 0
 # agent.seed =
 # Use faster, non-bitwise-reproducible implementations (e.g. binning).
 agent.fast = false
-# Attribute infections to interaction contexts and write per-context columns to the output file.
+# Attribute infections to interaction contexts and write per-context columns to the output file
+# (and, per home block group, to the aggregated diagnostic files if aggregated_diag_int is set).
 agent.context_diag = false
 # How much additional detail to print: 0 quiet; 1 adds initial-infection detail, the school and
 # age-group counts, plotfile-write messages and the per-day infection/death update; 2 adds all

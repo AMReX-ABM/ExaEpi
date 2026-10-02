@@ -10,6 +10,7 @@
 #include "IO.H"
 
 #include <array>
+#include <cmath>
 #include <vector>
 
 using namespace amrex;
@@ -351,13 +352,26 @@ void writeCheckpointFile (const AgentContainer& pc,                      /*!< Ag
     + On each processor, sets the block-group-th element of each stat's output vector to that
       stat's count in the block group on this processor.
     + Sum across all processors and write GEOID + all 4 stats to file, one community per row.
+
+    With home_context_infections (agent.context_diag), the first disease's file also gets one
+    column per #InfectionContext (EWork, ..., ECommN): the expected infections in that context of
+    the agents living in each block group since the previous call -- see
+    AgentContainer::sumContextInfections, and main.cpp, which accumulates them and resets them
+    after each call. Like the statewide per-context columns of the output file, they are expected
+    rather than counted infections, and lag the case counts by one step: the interactions of step
+    i-1 infect agents that this file at step i is the first to count. The first file after a restart
+    has them all 0, since a checkpoint doesn't carry them.
 */
 void writeAggregatedData (const AgentContainer& agents,                  /*!< Agents (particle) container */
                           const UrbanPopData& urbanpopData,              /*!< UrbanPop data */
                           const std::string& prefix,                     /*!< Filename prefix */
                           const int num_diseases,                        /*!< Number of diseases */
                           const std::vector<std::string>& disease_names, /*!< Names of diseases */
-                          const int step /*!< Current step */) {
+                          const int step,                                /*!< Current step */
+                          const Real* home_context_infections /*!< Rank-local device array of
+                                                                   InfectionContext::total x
+                                                                   block groups, context-major,
+                                                                   or nullptr for none */) {
     static const int ncomp_d = 5;
     static const int ncomp = ncomp_d * num_diseases + 4;
 
@@ -377,6 +391,15 @@ void writeAggregatedData (const AgentContainer& agents,                  /*!< Ag
     static const std::array<const char*, n_stats> stat_names = {"total", "never_infected", "infected", "immune"};
 
     const long n_comm = urbanpopData.block_groups.size();
+
+    // the per-context columns, summed over ranks (on the IOProcessor)
+    std::vector<Real> context_data;
+    if (home_context_infections != nullptr) {
+        context_data.resize(InfectionContext::total * n_comm);
+        Gpu::copy(Gpu::deviceToHost, home_context_infections, home_context_infections + context_data.size(),
+                  context_data.begin());
+        ParallelDescriptor::ReduceRealSum(context_data.data(), context_data.size(), ParallelDescriptor::IOProcessorNumber());
+    }
 
     for (int d = 0; d < num_diseases; d++) {
         amrex::Print() << "Generating diagnostic data by census block group " << "for " << disease_names[d] << "\n";
@@ -424,17 +447,32 @@ void writeAggregatedData (const AgentContainer& agents,                  /*!< Ag
             if (num_diseases > 1) { fn += ("_" + disease_names[d]); }
             std::ofstream ofs{fn, std::ofstream::out};
 
+            // context_diag only attributes the first disease's infections (see main.cpp)
+            const bool with_contexts = (d == 0 && !context_data.empty());
+
             ofs << "GEOID";
             for (const auto* stat_name : stat_names) {
                 ofs << "," << stat_name;
             }
+            if (with_contexts) {
+                for (const auto* context_name : infection_context_names) {
+                    ofs << "," << context_name;
+                }
+            }
             ofs << "\n";
 
-            ofs << std::fixed << std::setprecision(0);
             for (long ci = 0; ci < n_comm; ++ci) {
-                ofs << urbanpopData.block_groups[ci].geoid;
+                ofs << urbanpopData.block_groups[ci].geoid << std::fixed << std::setprecision(0);
                 for (int c = 0; c < n_stats; ++c) {
                     ofs << "," << data[c][ci];
+                }
+                if (with_contexts) {
+                    // rounded to 0.001 and written without trailing zeros, so that the many
+                    // block groups with no infections in a context cost "0" rather than "0.000"
+                    ofs << std::defaultfloat << std::setprecision(12);
+                    for (int c = 0; c < InfectionContext::total; ++c) {
+                        ofs << "," << std::round(context_data[c * n_comm + ci] * 1000.0) / 1000.0;
+                    }
                 }
                 ofs << "\n";
             }

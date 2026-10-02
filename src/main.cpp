@@ -461,8 +461,7 @@ void runAgent () {
                                           "S/I/H", "A/PI", "A/I",   "H/NI",    "H/I",    "ICU",  "V",
                                           "R",     "D",    "NewI",  "NewS",    "NewH",   "NewA", "NewP"};
                 if (params.context_diag) {
-                    headers.insert(headers.end(),
-                                   {"EWork", "EHosp", "ESchool", "ENbhD", "ECommD", "EHH", "ENC", "ENbhN", "ECommN"});
+                    headers.insert(headers.end(), infection_context_names.begin(), infection_context_names.end());
                 }
                 for (const auto& header : headers) {
                     File << std::setw(header == "Day" ? 5 : 12) << header;
@@ -701,6 +700,26 @@ void runAgent () {
         }
     }
 
+    // Per-context expected infections (agent.context_diag) by the infected agents' home block
+    // group, for the aggregated diagnostic files: accumulated over the interactions since the last
+    // aggregated write, and reset after it (see ExaEpi::IO::writeAggregatedData).
+    const int num_block_groups = (int)urbanPopData.block_groups.size();
+    amrex::Gpu::DeviceVector<amrex::Real> home_context_infections;
+    if (params.context_diag && params.aggregated_diag_int > 0) {
+        home_context_infections.resize(InfectionContext::total * num_block_groups, 0.0_rt);
+    }
+    amrex::Real* home_context_ptr = home_context_infections.empty() ? nullptr : home_context_infections.dataPtr();
+    auto write_aggregated = [&] (int step) {
+        ExaEpi::IO::writeAggregatedData(pc, urbanPopData, params.aggregated_diag_prefix, params.num_diseases,
+                                        params.disease_names, step, home_context_ptr);
+        if (home_context_ptr != nullptr) {
+            amrex::ParallelFor((int)home_context_infections.size(), [=] AMREX_GPU_DEVICE (int k) noexcept {
+                home_context_ptr[k] = 0.0_rt;
+            });
+            amrex::Gpu::streamSynchronize();
+        }
+    };
+
     {
         BL_PROFILE_REGION("Evolution");
         // Per-context expected-infection diagnostics (1-step lag: written on day i+1).
@@ -727,10 +746,7 @@ void runAgent () {
                                                 params.num_diseases, params.disease_names, cur_time, i);
             }
 
-            if ((params.aggregated_diag_int > 0) && (i % params.aggregated_diag_int == 0)) {
-                ExaEpi::IO::writeAggregatedData(pc, urbanPopData, params.aggregated_diag_prefix, params.num_diseases,
-                                                params.disease_names, i);
-            }
+            if ((params.aggregated_diag_int > 0) && (i % params.aggregated_diag_int == 0)) { write_aggregated(i); }
             if (weatherWeekIndex >= 0) {
                 if ((weatherWeekIndex + 1) < wd.numWeeks) {
                     if ((i - start_day) % 7 == daysToWeatherWeekend) {
@@ -872,10 +888,13 @@ void runAgent () {
             if ((params.air_travel_int > 0) && (i % params.air_travel_int == 0)) { pc.moveAirTravel(urbanPopData.unit_mf, air); }
 
             using InteractFn = void (AgentContainer::*)(amrex::MultiFab&);
-            auto interact = [&] (InteractFn fn, amrex::Real& diag) {
+            auto interact = [&] (InteractFn fn, amrex::Real& diag, int context) {
                 if (params.context_diag) { pc.snapshotProbs(0); }
                 (pc.*fn)(mask_behavior);
-                if (params.context_diag) { diag = pc.sumContextInfections(0); }
+                if (params.context_diag) {
+                    diag = pc.sumContextInfections(0, home_context_ptr ? home_context_ptr + context * num_block_groups : nullptr,
+                                                   num_block_groups);
+                }
             };
 
             pc.morningCommute(mask_behavior);
@@ -907,17 +926,17 @@ void runAgent () {
                 pc.morningCommute(mask_behavior);
             }
 
-            interact(&AgentContainer::interactWork, diag_exp_work);
-            interact(&AgentContainer::interactHospital, diag_exp_hosp);
-            interact(&AgentContainer::interactSchool, diag_exp_school);
-            interact(&AgentContainer::interactNborhoodDay, diag_exp_nbhd);
-            interact(&AgentContainer::interactCommDay, diag_exp_commd);
+            interact(&AgentContainer::interactWork, diag_exp_work, InfectionContext::work);
+            interact(&AgentContainer::interactHospital, diag_exp_hosp, InfectionContext::hosp);
+            interact(&AgentContainer::interactSchool, diag_exp_school, InfectionContext::school);
+            interact(&AgentContainer::interactNborhoodDay, diag_exp_nbhd, InfectionContext::nborhood_day);
+            interact(&AgentContainer::interactCommDay, diag_exp_commd, InfectionContext::comm_day);
             pc.eveningCommute(mask_behavior);
             pc.interactEvening(mask_behavior);
-            interact(&AgentContainer::interactHH, diag_exp_hh);
-            interact(&AgentContainer::interactNC, diag_exp_nc);
-            interact(&AgentContainer::interactNborhoodNight, diag_exp_nbhn);
-            interact(&AgentContainer::interactCommNight, diag_exp_commn);
+            interact(&AgentContainer::interactHH, diag_exp_hh, InfectionContext::household);
+            interact(&AgentContainer::interactNC, diag_exp_nc, InfectionContext::nc);
+            interact(&AgentContainer::interactNborhoodNight, diag_exp_nbhn, InfectionContext::nborhood_night);
+            interact(&AgentContainer::interactCommNight, diag_exp_commn, InfectionContext::comm_night);
 
             // Each interact() call above collected a rank-local sum only (see
             // AgentContainer::sumContextInfections); reduce all 9 contexts across ranks in one
@@ -1029,7 +1048,6 @@ void runAgent () {
     }
 
     if ((params.aggregated_diag_int > 0) && (params.nsteps % params.aggregated_diag_int == 0)) {
-        ExaEpi::IO::writeAggregatedData(pc, urbanPopData, params.aggregated_diag_prefix, params.num_diseases,
-                                        params.disease_names, params.nsteps);
+        write_aggregated(params.nsteps);
     }
 }

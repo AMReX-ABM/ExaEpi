@@ -102,7 +102,10 @@ The following are inputs for the overall simulation:
     reproducibility for a given random seed.
 * ``agent.context_diag`` (`bool`, default ``false``)
     If true, attribute infections to interaction contexts (work, school, household, ...) and
-    write per-context columns to the output file.
+    write per-context columns to the output file. If ``agent.aggregated_diag_int`` is also set,
+    the aggregated data files get the same columns (``EWork`` ... ``ECommN``) per block group,
+    counting each infection at the infected agent's home block group: the expected infections
+    in each context since the previous aggregated file.
 * ``agent.verbose`` (`integer`, default ``0``)
     How much additional detail to print to the output trace. Each level includes everything the
     levels below it print: ``0`` only the output every run produces; ``1`` adds per-hub/per-FIPS
