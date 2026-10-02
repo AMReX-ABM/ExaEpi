@@ -329,7 +329,8 @@ def plot_local_rt(epi_runs, exa_runs, epi_local, exa_local, tpop, g, args, out):
         epi, exa = lines.get("Epicast", np.empty((0, len(grid)))), lines.get("ExaEpi", np.empty((0, len(grid))))
     fig, ax = plt.subplots(figsize=PAGE_WIDTHS_IN[args.width], layout="constrained")
     plot_vs_statewide(ax, grid, epi, exa, tpop, args, bands)
-    ax.set_ylabel(f"{'Home-setting ' if home else ''}$R_t$, tracts $\\geq${args.established_infections} infected")
+    # the tract threshold is left to the caption: with it the label overflows a half-page figure
+    ax.set_ylabel("Home-setting $R_t$" if home else f"$R_t$, tracts $\\geq${args.established_infections} infected")
     # below the hump and clear of the wide early bands at the left
     ax.legend(loc="lower center")
     fig.savefig(out)
