@@ -6,6 +6,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     libopenmpi-dev openmpi-bin libhdf5-openmpi-dev \
     ccache python3 python3-pip python3-venv clang-format sudo \
     curl ca-certificates poppler-utils time \
+    texlive-latex-extra texlive-science latexmk \
     && pip3 install --no-cache-dir --break-system-packages \
        numpy==2.5.3 matplotlib==3.11.2 pandas==3.0.5 pandas-stubs==3.0.5.260914 \
        h5py==3.16.0 scipy==1.18.1 geopandas==1.1.4 yt==4.4.2 \
@@ -28,6 +29,10 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
 #             measure solve memory. The bash builtin `time` does not.
 # python3-venv -- provides ensurepip, without which `python3 -m venv` fails outright. Needed for
 #             the isolated livelike/pymedm environment created below.
+# texlive-latex-extra, texlive-science, latexmk -- build the emerge-model-comparisons paper
+#             (PLOS template: lineno, microtype, subcaption, ...). Was installed by hand, which a
+#             rebuild would silently lose. latexmk is what LaTeX Workshop and the paper's
+#             .latexmkrc expect.
 
 # Rename the existing ubuntu user/group (UID/GID 1000) to match USERNAME
 ARG USERNAME=user
