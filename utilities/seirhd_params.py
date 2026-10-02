@@ -493,6 +493,30 @@ def to_rates(d):
     }
 
 
+def generation_interval(p, max_days=60):
+    """Daily generation-interval distribution of a SEIRHD model with rates p (to_rates()'s
+    sigma/gamma/hosp_rate/kE/kI): the time from being infected to infecting someone, which in an
+    SEIR model is the latent period (Erlang(kE) with mean 1/sigma) plus the time into the
+    infectious period, whose density is the infectious period's survival function (Erlang(kI) with
+    mean 1/(gamma + hosp_rate)) normalized by its mean. Returned as g[k], k = 0..max_days-1, the
+    mass in (k - 1/2, k + 1/2] -- centered on the day, so that a daily-incidence renewal estimate
+    of R_t isn't shifted by half a day. compare_to_epicast.py and plot_tract_seeding.py use the
+    same g for every model: replaying ExaEpi's lifecycle with reduced presymptomatic/asymptomatic
+    infectiousness, symptomatic withdrawal and at-home transmission while hospitalized gives a mean
+    within 0.3 days of this one, as those effects largely cancel.
+    """
+    from scipy.stats import gamma as gamma_dist
+    dt = 0.01
+    t = np.arange(0, max_days + 0.5, dt)
+    latent = gamma_dist.pdf(t, p["kE"], scale=1 / (p["kE"] * p["sigma"]))
+    exit_i = p["gamma"] + p["hosp_rate"]
+    residual = gamma_dist.sf(t, p["kI"], scale=1 / (p["kI"] * exit_i)) * exit_i
+    density = np.convolve(latent, residual)[:len(t)] * dt
+    edges = np.concatenate([[0], np.arange(0.5, max_days, 1.0)])
+    g = np.array([density[(t >= a) & (t < b)].sum() * dt for a, b in zip(edges[:-1], edges[1:])])
+    return g / g.sum()
+
+
 # ---------------------------------------------------------------------------
 # Library entry point
 
