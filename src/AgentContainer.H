@@ -25,6 +25,7 @@
 #include "DiseaseStatus.H"
 #include "HospitalModel.H"
 #include "InteractionModelLibrary.H"
+#include "RandomTravel.H"
 #include "Utils.H"
 #include "WeatherData.H"
 
@@ -93,9 +94,33 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void moveAgentsRandomWalk();
 
-    void moveRandomTravel(const amrex::Real random_travel_prob);
+    /*! \brief Read the agent.random_travel_* inputs and build the destination tables (block
+        groups by tract, and each block group's neighborhood and household-cluster counts) -- see
+        RandomTravel.H. Collective. */
+    void initRandomTravel(const UrbanPopData& urbanpopData);
 
-    void returnRandomTravel();
+    /*! \brief Advance irregular trips by a day -- end those that are over (or whose traveller was
+        hospitalized or died) and, if start_trips, start new ones -- and place travellers at their
+        destinations. Call with agents at home, after updateStatus() and before morningCommute(),
+        whose Redistribute() moves travellers to their destination tiles. */
+    void updateRandomTravel(bool start_trips);
+
+    /*! \brief Move travellers in the region to their home cells (at_home) or back to their
+        destinations, and Redistribute. Travellers spend the day's interactions at their
+        destinations but go home, as far as the tiles are concerned, before infectAgents(): it,
+        updateStatus() and the hospital model accumulate statistics at each agent's home cell in
+        the agent's current tile, so every agent must be in its home tile then. */
+    void placeTravellers(bool at_home);
+
+    /*! \brief Accumulate the day's travel diagnostics (agents travelling, and expected infections
+        on trips and overall, disease 0). Call after the interactions, before infectAgents(). */
+    void accumulateRandomTravelDiagnostics();
+
+    /*! \brief Print the run's travel diagnostics */
+    void printRandomTravelSummary() const;
+
+    /*! \brief Is irregular travel on (initRandomTravel called)? */
+    bool randomTravelOn () const { return m_random_travel_on; }
 
     void returnAirTravel();
 
@@ -257,7 +282,10 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     Array<int, IntIdx::nattribs> max_attribute_values;
 
     std::vector<amrex::Gpu::DeviceVector<amrex::ParticleReal>>
-            m_prob_snapshot; /*!< per-tile prob snapshot for context diagnostics */
+            m_prob_snapshot;         /*!< per-tile prob snapshot for context diagnostics */
+
+    RandomTravel m_random_travel;    /*!< irregular travel model -- see RandomTravel.H */
+    bool m_random_travel_on = false; /*!< set by initRandomTravel */
 
     /*! \brief Add runtime SoA attributes */
     void addAttributes();

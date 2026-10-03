@@ -17,8 +17,11 @@
  * little to do with what actually determines a neighborhood's infectious headcount.
  *
  * Parameterized for day vs. night:
- *   - Day (m_is_day=true):  uses IntIdx::work_nborhood; requires random_travel < 0
- *   - Night (m_is_day=false): uses IntIdx::nborhood; allows random travelers
+ *   - Day (m_is_day=true):  uses IntIdx::work_nborhood
+ *   - Night (m_is_day=false): uses IntIdx::nborhood
+ * An agent on an irregular trip in the region (RandomTravel.H) mixes, day and night, in the
+ * destination's neighborhoods (IntIdx::trav_work_nborhood / trav_nborhood -- see nborhoodOf); one
+ * away out of the region mixes nowhere.
  */
 
 #ifndef _INTERACTION_MOD_NBORHOOD_H_
@@ -36,7 +39,7 @@ template <typename PTDType>
 struct WorkNborhoodCandidate {
     AMREX_GPU_HOST_DEVICE
     bool operator()(const int idx, const PTDType& ptd) const noexcept {
-        return !inHospital(idx, ptd) && !ptd.m_idata[IntIdx::withdrawn][idx] && ptd.m_idata[IntIdx::random_travel][idx] < 0;
+        return !inHospital(idx, ptd) && !ptd.m_idata[IntIdx::withdrawn][idx] && !awayFromRegion(idx, ptd);
     }
 };
 
@@ -45,8 +48,7 @@ template <typename PTDType>
 struct HomeNborhoodCandidate {
     AMREX_GPU_HOST_DEVICE
     bool operator()(const int idx, const PTDType& ptd) const noexcept {
-        // random travelers are allowed to interact at night (they are sleeping somewhere)
-        return !inHospital(idx, ptd) && !ptd.m_idata[IntIdx::withdrawn][idx];
+        return !inHospital(idx, ptd) && !ptd.m_idata[IntIdx::withdrawn][idx] && !awayFromRegion(idx, ptd);
     }
 };
 
@@ -95,8 +97,6 @@ void InteractionModNborhood<PCType, PTDType, PType>::fastInteractNborhood (PCTyp
             if (np == 0) { continue; }
 
             auto& soa = ptile.GetStructOfArrays();
-            auto nborhood_ptr = soa.GetIntData(nborhood_attr).data();
-
             GetCommunityIndex<PTDType> getCommunityIndex;
             getCommunityIndex.init(agents.Geom(lev), mfi.tilebox(), agents.comm_mf[mfi].array());
             auto plo = getCommunityIndex.plo;
@@ -130,7 +130,7 @@ void InteractionModNborhood<PCType, PTDType, PType>::fastInteractNborhood (PCTyp
                         auto iv = getParticleCell(ptd, i, plo, dxi, domain);
                         auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                         auto community = d_ptr[tidx];
-                        auto nborhood_i = community * max_nborhood + nborhood_ptr[i];
+                        auto nborhood_i = community * max_nborhood + nborhoodOf(i, ptd, nborhood_attr);
                         if (isAsymptomatic(i, ptd, d) || isPresymptomatic(i, ptd, d)) {
                             Gpu::Atomic::AddNoRet(&infected_nborhood_asymp_d_ptr[nborhood_i], 1);
                         } else {
@@ -147,7 +147,7 @@ void InteractionModNborhood<PCType, PTDType, PType>::fastInteractNborhood (PCTyp
                         auto iv = getParticleCell(ptd, i, plo, dxi, domain);
                         auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                         auto community = d_ptr[tidx];
-                        auto nborhood_i = community * max_nborhood + nborhood_ptr[i];
+                        auto nborhood_i = community * max_nborhood + nborhoodOf(i, ptd, nborhood_attr);
 
                         int num_infected_nborhood = infected_nborhood_d_ptr[nborhood_i];
                         int num_infected_nborhood_asymp = infected_nborhood_asymp_d_ptr[nborhood_i];

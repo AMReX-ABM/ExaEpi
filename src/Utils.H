@@ -31,14 +31,14 @@ constexpr int histograms = 2; /*!< the above, plus all histograms (see ExaEpi::U
     for the input file provided in the command line.
 */
 struct TestParams {
-    amrex::IntVect size;                                  /*!< domain size (see ExaEpi::Utils::getGeometry) */
-    int max_box_size = 16;                                /*!< box size */
-    int nsteps = 1;                                       /*!< number of simulation steps */
-    int plot_int = -1;                                    /*!< plot interval (see ExaEpi::IO::writePlotFile) */
-    int check_int = -1;                                   /*!< checkpoint interval (see ExaEpi::IO::writeCheckpointFile) */
-    int random_travel_int = -1;                           /*!< steps between random travel events
-                                                               (see AgentContainer::moveRandomTravel) */
-    amrex::Real random_travel_prob = amrex::Real(0.0001); /*!< probability of an agent going on random travel */
+    amrex::IntVect size;        /*!< domain size (see ExaEpi::Utils::getGeometry) */
+    int max_box_size = 16;      /*!< box size */
+    int nsteps = 1;             /*!< number of simulation steps */
+    int plot_int = -1;          /*!< plot interval (see ExaEpi::IO::writePlotFile) */
+    int check_int = -1;         /*!< checkpoint interval (see ExaEpi::IO::writeCheckpointFile) */
+    int random_travel_int = -1; /*!< steps between irregular trip starts; <= 0 disables
+                                     irregular travel (see RandomTravel.H, whose own
+                                     agent.random_travel_* inputs it reads) */
     int air_travel_int = -1;
     int weather_int = -1;
 

@@ -268,53 +268,6 @@ void AgentContainer::moveAgentsToHome () {
     AMREX_ASSERT(OK());
 }
 
-/*! \brief Move agents randomly
-
-    For each agent, set its position to a random location with a probabilty of 0.01%
-*/
-void AgentContainer::moveRandomTravel (const amrex::Real random_travel_prob) {
-    BL_PROFILE("AgentContainer::moveRandomTravel");
-
-    const Box& domain = Geom(0).Domain();
-    int i_max = domain.length(0);
-    int j_max = domain.length(1);
-    for (int lev = 0; lev <= finestLevel(); ++lev) {
-        auto& plev = GetParticles(lev);
-
-#ifdef AMREX_USE_OMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
-            auto& ptile = plev[{mfi.index(), mfi.LocalTileIndex()}];
-            const auto& ptd = ptile.getParticleTileData();
-            auto& aos = ptile.GetArrayOfStructs();
-            ParticleType* pstruct = &(aos[0]);
-            const size_t np = aos.numParticles();
-            auto& soa = ptile.GetStructOfArrays();
-            auto random_travel_ptr = soa.GetIntData(IntIdx::random_travel).data();
-            auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
-            auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
-
-            amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
-                if (!inHospital(i, ptd) && !withdrawn_ptr[i]) {
-                    ParticleType& p = pstruct[i];
-                    if (amrex::Random(engine) < random_travel_prob) {
-                        random_travel_ptr[i] = i;
-                        int i_random = int(amrex::Real(i_max) * amrex::Random(engine));
-                        int j_random = int(amrex::Real(j_max) * amrex::Random(engine));
-                        p.pos(0) = i_random;
-                        p.pos(1) = j_random;
-                        weatherIdxPtr[i] = -weatherIdxPtr[i] - 2;
-                    }
-                }
-            });
-        }
-    }
-
-    // Redistribute();
-    // AMREX_ALWAYS_ASSERT(OK());
-}
-
 /*! \brief Select agents to travel by air
 
 */
@@ -458,44 +411,6 @@ void AgentContainer::setAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air,
             });
         }
     }
-}
-
-/*! \brief Return agents from random travel
- */
-void AgentContainer::returnRandomTravel () {
-    BL_PROFILE("AgentContainer::returnRandomTravel");
-
-    for (int lev = 0; lev <= finestLevel(); ++lev) {
-        auto& plev = GetParticles(lev);
-        const auto dx = Geom(lev).CellSizeArray();
-
-#ifdef AMREX_USE_OMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
-            auto& ptile = plev[{mfi.index(), mfi.LocalTileIndex()}];
-            auto& aos = ptile.GetArrayOfStructs();
-            ParticleType* pstruct = &(aos[0]);
-            const size_t np = aos.numParticles();
-            auto& soa = ptile.GetStructOfArrays();
-            auto random_travel_ptr = soa.GetIntData(IntIdx::random_travel).data();
-            auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
-            auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
-            auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
-
-            amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
-                if (random_travel_ptr[i] >= 0) {
-                    ParticleType& p = pstruct[i];
-                    random_travel_ptr[i] = -1;
-                    p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
-                    p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
-                    weatherIdxPtr[i] = -weatherIdxPtr[i] - 2;
-                }
-            });
-        }
-    }
-    Redistribute();
-    AMREX_ALWAYS_ASSERT(OK());
 }
 
 /*! \brief Return agents from air travel

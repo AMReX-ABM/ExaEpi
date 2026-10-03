@@ -590,6 +590,9 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
         soa.GetIntData(IntIdx::withdrawn).assign(0);
         soa.GetIntData(IntIdx::random_travel).assign(-1);
         soa.GetIntData(IntIdx::air_travel).assign(-1);
+        soa.GetIntData(IntIdx::trav_nborhood).assign(-1);
+        soa.GetIntData(IntIdx::trav_work_nborhood).assign(-1);
+        soa.GetIntData(IntIdx::trav_hh_cluster).assign(-1);
         // -1 is the "no weather unit for this agent" sentinel that
         // AgentContainer::initializeWeatherIndex_UrbanPop assigns for a community whose FIPS is not
         // in the active weather set. That function is the only thing that ever writes this field,

@@ -48,8 +48,8 @@ struct IntIdx {
         work_j /*!< work location index */,
         hosp_i /*!< hosp location index */,
         hosp_j /*!< hosp location index */,
-        trav_i /*!< air travel location index */,
-        trav_j /*!< air travel location index */,
+        trav_i /*!< travel destination location index (random travel: -1 while out of state) */,
+        trav_j /*!< travel destination location index */,
         nborhood,           /*!< home neighborhood ID */
         hh_cluster,         /*!< household cluster ID */
         school_grade,       /*!< school grade, including universities */
@@ -78,8 +78,11 @@ struct IntIdx {
                                  UrbanPop-scripts/group_assignment.py */
         work_nborhood,      /*!< work neighborhood ID */
         withdrawn,          /*!< quarantine status */
-        random_travel,      /*!< on long distance travel? */
+        random_travel,      /*!< days left of an irregular trip, -1 when not travelling -- see RandomTravel.H */
         air_travel,         /*!< on long distance travel by Air? */
+        trav_nborhood,      /*!< nighttime neighborhood at the trip's destination */
+        trav_work_nborhood, /*!< daytime neighborhood at the trip's destination */
+        trav_hh_cluster,    /*!< household cluster at the trip's destination */
         weatherLookup,      /*!< index for current weather variables, incremented weekly */
         nattribs            /*!< number of integer-type attribute */
     };
@@ -263,6 +266,47 @@ bool isOnTravel (const int a_idx, /*!< Agent index */
     return (a_ptd.m_idata[IntIdx::random_travel][a_idx] >= 0 || a_ptd.m_idata[IntIdx::air_travel][a_idx] >= 0);
 }
 
+/*! \brief Is the agent on an irregular trip to a destination inside the simulated region? Such an
+    agent is at the destination cell and mixes in its household cluster, neighborhoods and
+    community (see RandomTravel.H). */
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+bool onTripInRegion (const int a_idx, /*!< Agent index */
+                     const PTDType& a_ptd /*!< Particle tile data */) {
+    return a_ptd.m_idata[IntIdx::random_travel][a_idx] >= 0 && a_ptd.m_idata[IntIdx::trav_i][a_idx] >= 0;
+}
+
+/*! \brief Is the agent away on an irregular trip outside the simulated region? Such an agent takes
+    no part in any interaction until it returns (see RandomTravel.H). */
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+bool awayFromRegion (const int a_idx, /*!< Agent index */
+                     const PTDType& a_ptd /*!< Particle tile data */) {
+    return a_ptd.m_idata[IntIdx::random_travel][a_idx] >= 0 && a_ptd.m_idata[IntIdx::trav_i][a_idx] < 0;
+}
+
+/*! \brief The agent's neighborhood for nborhood_attr (IntIdx::nborhood at night,
+    IntIdx::work_nborhood by day), or the destination's while on a trip in the region */
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+int nborhoodOf (const int a_idx,      /*!< Agent index */
+                const PTDType& a_ptd, /*!< Particle tile data */
+                const int nborhood_attr /*!< IntIdx::nborhood or IntIdx::work_nborhood */) {
+    if (onTripInRegion(a_idx, a_ptd)) {
+        return a_ptd.m_idata[nborhood_attr == IntIdx::work_nborhood ? IntIdx::trav_work_nborhood : IntIdx::trav_nborhood][a_idx];
+    }
+    return a_ptd.m_idata[nborhood_attr][a_idx];
+}
+
+/*! \brief The agent's household cluster, or the destination's while on a trip in the region */
+template <typename PTDType>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+int hhClusterOf (const int a_idx, /*!< Agent index */
+                 const PTDType& a_ptd /*!< Particle tile data */) {
+    return onTripInRegion(a_idx, a_ptd) ? a_ptd.m_idata[IntIdx::trav_hh_cluster][a_idx]
+                                        : a_ptd.m_idata[IntIdx::hh_cluster][a_idx];
+}
+
 /*! \brief Did the agent just become asymptomatic this step? */
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
@@ -419,6 +463,9 @@ void setAgentData (PTDType& ptd, int ip, int i, int j, const amrex::GpuArray<amr
     ptd.m_idata[IntIdx::school_class_group][ip] = -1;
     ptd.m_idata[IntIdx::random_travel][ip] = -1;
     ptd.m_idata[IntIdx::air_travel][ip] = -1;
+    ptd.m_idata[IntIdx::trav_nborhood][ip] = -1;
+    ptd.m_idata[IntIdx::trav_work_nborhood][ip] = -1;
+    ptd.m_idata[IntIdx::trav_hh_cluster][ip] = -1;
 }
 
 /*! \brief Is agent an adult? */

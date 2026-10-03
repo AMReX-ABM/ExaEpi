@@ -2,7 +2,8 @@
  * \brief Neighborhood-cluster (NC) transmission only — xmit_nc
  *
  * Counts infectious non-withdrawn agents in each NC cluster and applies
- * transmission to non-withdrawn susceptible agents. Same-family members are
+ * transmission to non-withdrawn susceptible agents. An agent on an irregular trip (RandomTravel.H)
+ * mixes in its destination's cluster instead of its own. Same-family members are
  * NOT excluded from the NC count: Epicast's venues are explicitly not
  * mutually exclusive (paper: "if two agents share a household, they will
  * necessarily interact within the household, household-cluster, neighborhood,
@@ -16,10 +17,20 @@
 
 #include "AgentDefinitions.H"
 #include "DiseaseParm.H"
-#include "InteractionModHH.H" // for HomeCandidate
 #include "InteractionModel.H"
 
 using namespace amrex;
+
+/*! \brief Predicate: agent mixes in a household cluster tonight -- the home one, or the
+    destination's while on an irregular trip in the region (see RandomTravel.H); not while away
+    out of the region or on air travel */
+template <typename PTDType>
+struct NCCandidate {
+    AMREX_GPU_HOST_DEVICE
+    bool operator()(const int idx, const PTDType& ptd) const noexcept {
+        return ptd.m_idata[IntIdx::air_travel][idx] < 0 && !awayFromRegion(idx, ptd);
+    }
+};
 
 /*! \brief NC cluster contact model — applies xmit_nc only */
 template <typename PCType, typename PTDType, typename PType>
@@ -35,7 +46,7 @@ void InteractionModNC<PCType, PTDType, PType>::fastInteractNC (PCType& agents) {
     BL_PROFILE(__func__);
     int n_disease = agents.numDiseases();
 
-    HomeCandidate<PTDType> isHomeCandidate;
+    NCCandidate<PTDType> isNCCandidate;
 
     Vector<Gpu::DeviceVector<int>> infected_nc_d(OMP_MAX_THREADS);
     Vector<Gpu::DeviceVector<int>> infected_nc_asymp_d(OMP_MAX_THREADS);
@@ -54,8 +65,6 @@ void InteractionModNC<PCType, PTDType, PType>::fastInteractNC (PCType& agents) {
             if (np == 0) { continue; }
 
             auto& soa = ptile.GetStructOfArrays();
-            auto hh_cluster_ptr = soa.GetIntData(IntIdx::hh_cluster).data();
-
             GetCommunityIndex<PTDType> getCommunityIndex;
             getCommunityIndex.init(agents.Geom(lev), mfi.tilebox(), agents.comm_mf[mfi].array());
             auto plo = getCommunityIndex.plo;
@@ -88,13 +97,13 @@ void InteractionModNC<PCType, PTDType, PType>::fastInteractNC (PCType& agents) {
 
                     // Count non-withdrawn infectious agents in each NC cluster bucket.
                     ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
-                        if (isInfectious(i, ptd, d) && isHomeCandidate(i, ptd) && (isAnAdult(i, ptd) == adults) &&
+                        if (isInfectious(i, ptd, d) && isNCCandidate(i, ptd) && (isAnAdult(i, ptd) == adults) &&
                             !ptd.m_idata[IntIdx::withdrawn][i]) {
                             Box tbx;
                             auto iv = getParticleCell(ptd, i, plo, dxi, domain);
                             auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                             auto community = d_ptr[tidx];
-                            int cluster_i = community * max_hcs + hh_cluster_ptr[i];
+                            int cluster_i = community * max_hcs + hhClusterOf(i, ptd);
                             if (isAsymptomatic(i, ptd, d) || isPresymptomatic(i, ptd, d)) {
                                 Gpu::Atomic::AddNoRet(&infected_nc_asymp_d_ptr[cluster_i], 1);
                             } else {
@@ -106,14 +115,14 @@ void InteractionModNC<PCType, PTDType, PType>::fastInteractNC (PCType& agents) {
 
                     // Apply NC transmission to non-withdrawn susceptible home candidates.
                     ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
-                        if (isSusceptible(i, ptd, d) && isHomeCandidate(i, ptd) && !ptd.m_idata[IntIdx::withdrawn][i]) {
+                        if (isSusceptible(i, ptd, d) && isNCCandidate(i, ptd) && !ptd.m_idata[IntIdx::withdrawn][i]) {
                             Real xmit_nc_prob = adults ? lparm->xmit_nc_adult[ptd.m_idata[IntIdx::age_group][i]]
                                                        : lparm->xmit_nc_child[ptd.m_idata[IntIdx::age_group][i]];
                             Box tbx;
                             auto iv = getParticleCell(ptd, i, plo, dxi, domain);
                             auto tidx = getTileIndex(iv, valid_box, true, bin_size, tbx);
                             auto community = d_ptr[tidx];
-                            int cluster_i = community * max_hcs + hh_cluster_ptr[i];
+                            int cluster_i = community * max_hcs + hhClusterOf(i, ptd);
 
                             int num_infected_nc = infected_nc_d_ptr[cluster_i];
                             Real nc_prob = 1.0_rt - infect * xmit_nc_prob * scale;

@@ -110,8 +110,14 @@ void printHelp (const char* prog) {
     line("nsteps", fmt(tp.nsteps), "number of simulation steps");
     line("plot_int", fmt(tp.plot_int), "plot file interval, in steps; <=0 disables");
     line("check_int", fmt(tp.check_int), "checkpoint file interval, in steps; <=0 disables");
-    line("random_travel_int", fmt(tp.random_travel_int), "interval between random travel events, in steps; <=0 disables");
-    line("random_travel_prob", fmt(tp.random_travel_prob), "probability of an agent going on random travel");
+    line("random_travel_int", fmt(tp.random_travel_int), "interval between irregular trip starts, in steps; <=0 disables");
+    desc_line("irregular (long-distance) travel after Epicast 2.0 -- see RandomTravel.H");
+    line("random_travel_prob", "Epicast Table 3", "trip start probability per Epicast step, 1 value or one per age group");
+    line("random_travel_scale", "1", "multiplier on random_travel_prob (Epicast's p_travel)");
+    line("random_travel_steps_per_day", "1", "start draws per day (start probability per day = 1 - (1 - p)^steps)");
+    line("random_travel_in_state_frac", "1", "share of trips staying in the simulated region");
+    line("random_travel_out_of_state", "remove", "trips leaving the region: remove (traveller out of the simulation) or skip");
+    line("random_travel_duration_cdf", "Epicast Fig. 4B", "P(trip lasts <= d days), d = 1, 2, ...");
     line("air_travel_int", fmt(tp.air_travel_int), "interval between air travel events, in steps; <=0 disables");
     line("number_of_diseases", fmt(tp.num_diseases), "number of diseases to track");
     line("disease_names", "default00, default01, ...", "");
@@ -700,6 +706,14 @@ void runAgent () {
         }
     }
 
+    if (params.random_travel_int > 0) {
+        if (params.air_travel_int > 0) {
+            amrex::Abort("agent.random_travel_int and agent.air_travel_int can't both be on: both keep their "
+                         "destination in trav_i/trav_j");
+        }
+        pc.initRandomTravel(urbanPopData);
+    }
+
     // Per-context expected infections (agent.context_diag) by the infected agents' home block
     // group, for the aggregated diagnostic files: accumulated over the interactions since the last
     // aggregated write, and reset after it (see ExaEpi::IO::writeAggregatedData).
@@ -881,9 +895,12 @@ void runAgent () {
 
             if (params.shelter_start > 0 && params.shelter_start + params.shelter_length == i) { pc.shelterStop(); }
 
-            if ((params.random_travel_int > 0) && (i % params.random_travel_int == 0)) {
-                pc.moveRandomTravel(params.random_travel_prob);
-            }
+            // Irregular trips advance every day; new ones start every random_travel_int days, from
+            // the second day on (so a fresh start's static day/night diagnostics below see nobody
+            // away). With agents at home here, morningCommute()'s Redistribute() then takes
+            // travellers to their destinations, where they spend the day's and the night's
+            // interactions; they return to their home tiles before infectAgents() below.
+            if (pc.randomTravelOn()) { pc.updateRandomTravel(!is_fresh_start && (i % params.random_travel_int == 0)); }
 
             if ((params.air_travel_int > 0) && (i % params.air_travel_int == 0)) { pc.moveAirTravel(urbanPopData.unit_mf, air); }
 
@@ -958,9 +975,14 @@ void runAgent () {
                 diag_exp_commn = diag_local[8];
             }
 
-            if ((params.random_travel_int > 0) && (i % params.random_travel_int == 0)) { pc.returnRandomTravel(); }
-
             if ((params.air_travel_int > 0) && (i % params.air_travel_int == 0)) { pc.returnAirTravel(); }
+
+            if (pc.randomTravelOn()) {
+                pc.accumulateRandomTravelDiagnostics();
+                // back to their home tiles for infectAgents(), the next updateStatus() and the
+                // aggregated output, which all key on the home cell (see placeTravellers)
+                pc.placeTravellers(true);
+            }
 
             // Infect agents based on their interactions
             pc.infectAgents(disease_stats);
@@ -984,6 +1006,8 @@ void runAgent () {
             if (num_infected[0] == 0) { break; }
         }
     }
+
+    if (pc.randomTravelOn()) { pc.printRandomTravelSummary(); }
 
     std::vector<std::array<Long, AgeGroups::total>> cumulative_deaths_by_age(params.num_diseases);
     for (int d = 0; d < params.num_diseases; d++) {
