@@ -14,7 +14,7 @@ import pandas as pd
 import numpy as np
 import argparse
 import matplotlib.pyplot as plt
-from matplotlib.ticker import FuncFormatter
+from matplotlib.ticker import FuncFormatter, NullFormatter
 from scipy.integrate import solve_ivp
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -696,6 +696,16 @@ def _format_count(value, _pos=None):
 
 def _use_count_ticks(ax):
     ax.yaxis.set_major_formatter(FuncFormatter(_format_count))
+    if ax.get_yscale() == "log":
+        # a log axis labels its minor ticks too when it spans few decades, in its own 2x10^3 style
+        ax.yaxis.set_minor_formatter(NullFormatter())
+
+
+def _use_logy(ax):
+    """Put a count panel's y axis on a log scale if --logy was given. Call before _use_count_ticks,
+    since changing the scale resets the axis's tick formatters."""
+    if args.logy:
+        ax.set_yscale("log")
 
 
 _CONTEXT_COLS = {
@@ -718,6 +728,7 @@ def plot_context(ax, exaepi_data):
     ax.set_title("Infections by context (ExaEpi)")
     ax.set_xlabel("Days")
     ax.set_ylabel("Expected new infections")
+    _use_logy(ax)
     _use_count_ticks(ax)
     ax.set_xlim([0, args.xlimit])
     ax.grid(True, which="major", linewidth=AXES_LINEWIDTH)
@@ -731,6 +742,11 @@ def plot_context(ax, exaepi_data):
                 if col in df.columns:
                     y = df[col].values[:args.xlimit]
                     ax.plot(x, y, label=label_str, color=color, linewidth=1)
+
+    if args.logy:
+        # expected infections go far below one in the tails, which would stretch the axis over
+        # many empty decades
+        ax.set_ylim(bottom=1)
 
     if exaepi_data:
         _mark_exaepi_start(ax, shift_by_group)
@@ -1403,6 +1419,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None):
     # already names the series, so the axis label doesn't need to restate it in full.
     ax.set_xlabel("Days")
     ax.set_ylabel(label)
+    _use_logy(ax)
     _use_count_ticks(ax)
     ax.set_xlim([0, args.xlimit])
 
@@ -1429,7 +1446,16 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None):
     if seir_dfs and seir_col is not None:
         for _, _p, seir_df in seir_dfs:
             max_vals.append(seir_df[seir_col].values[: args.xlimit].max())
-    if args.ylimit is not None:
+    if args.logy:
+        # Bottom at one case: below that a count means nothing, and the SEIRHD curves' fractional
+        # early values would otherwise stretch the axis down many decades. The top gets more
+        # headroom than the linear 1.1x, which is a sliver on a log axis -- the summary text in
+        # the upper right needs room clear of the peak.
+        if args.ylimit is not None:
+            ax.set_ylim([1, args.ylimit])
+        elif max_vals:
+            ax.set_ylim([1, 3 * max(max_vals)])
+    elif args.ylimit is not None:
         ax.set_ylim([0, args.ylimit])
     elif max_vals:
         ax.set_ylim([0, 1.1 * max(max_vals)])
@@ -1608,6 +1634,13 @@ parser.add_argument(
 )
 parser.add_argument(
     "--ylimit", "-y", type=float, default=None, help="Y-axis maximum for all plots (default: auto)"
+)
+parser.add_argument(
+    "--logy", action="store_true", default=False,
+    help="Log-scale the y axis, from 1 upward, on the count panels (the per-day series, "
+         "'Cumulative Exposed' and Context), so the early exponential growth and the tail are "
+         "visible rather than flattened against zero. The other panels plot fractions, shares, "
+         "differences or R_t and ignore it.",
 )
 def _shift_type(value):
     if isinstance(value, str) and value.strip().lower() == "auto":
