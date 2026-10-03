@@ -6,9 +6,9 @@
     long it lasts. This reproduces it as closely as the paper and Epicast's event logs allow:
 
     - Start: an agent who is not travelling, hospitalized or withdrawn starts a trip with
-      probability p_travel * P_travel(age), P_travel from Epicast's Table 3, once a day by default.
-      The paper gives these per time step (Epicast's are 12 hours); steps_per_day = 2 applies them
-      twice a day instead, as 1 - (1 - p)^2.
+      probability p_travel * P_travel(age), P_travel from Epicast's Table 3, once a day, as Epicast
+      draws them (once per 24 hours, though its time steps are 12 hours). steps_per_day = 2 applies
+      them twice a day instead, as 1 - (1 - p)^2.
     - Destination: Epicast draws a destination state from its home state's row of a 2019 flight
       count matrix, then a uniformly random tract in that state and a uniformly random community in
       that tract. Here a trip goes to a uniformly random tract of the simulated region, then a
@@ -50,7 +50,7 @@
 
 struct RandomTravel {
     /*! Epicast Table 3 (ages 0-5, 6-17, 18-29, 30-64, 65+) on ExaEpi's age groups; 30-49 and
-        50-64 both take 30-64's value. Per Epicast time step. */
+        50-64 both take 30-64's value. Per start draw (one a day in Epicast). */
     static constexpr amrex::GpuArray<amrex::Real, AgeGroups::total> default_prob_per_step = {amrex::Real(0.0023),
                                                                                              amrex::Real(0.0023),
                                                                                              amrex::Real(0.0050),
@@ -62,7 +62,7 @@ struct RandomTravel {
                                                                          0.791, 0.814, 0.838, 0.861, 0.885, 0.909, 0.932, 0.944,
                                                                          0.956, 0.968, 0.979, 0.985, 0.994, 1.000};
 
-    /*! Per-step start probability by age group (agent.random_travel_prob) */
+    /*! Per-draw start probability by age group (agent.random_travel_prob) */
     amrex::GpuArray<amrex::Real, AgeGroups::total> prob_per_step = default_prob_per_step;
     amrex::Real scale = 1.0;         /*!< Epicast's p_travel (agent.random_travel_scale) */
     int steps_per_day = 1;           /*!< start draws per ExaEpi day (agent.random_travel_steps_per_day) */

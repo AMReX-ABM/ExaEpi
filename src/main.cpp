@@ -112,7 +112,7 @@ void printHelp (const char* prog) {
     line("check_int", fmt(tp.check_int), "checkpoint file interval, in steps; <=0 disables");
     line("random_travel_int", fmt(tp.random_travel_int), "interval between irregular trip starts, in steps; <=0 disables");
     desc_line("irregular (long-distance) travel after Epicast 2.0 -- see RandomTravel.H");
-    line("random_travel_prob", "Epicast Table 3", "trip start probability per Epicast step, 1 value or one per age group");
+    line("random_travel_prob", "Epicast Table 3", "trip start probability per draw, 1 value or one per age group");
     line("random_travel_scale", "1", "multiplier on random_travel_prob (Epicast's p_travel)");
     line("random_travel_steps_per_day", "1", "start draws per day (start probability per day = 1 - (1 - p)^steps)");
     line("random_travel_in_state_frac", "1", "share of trips staying in the simulated region");
