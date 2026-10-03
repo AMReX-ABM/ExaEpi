@@ -16,6 +16,8 @@ UrbanPop/*
 # as-is via git-lfs rather than gzip'd alongside an unpacking step -- see .gitattributes
 !UrbanPop/urbanpop_ca.bin
 !UrbanPop/urbanpop_nm.bin
+!UrbanPop/urbanpop_ca_ctpp.bin
+!UrbanPop/urbanpop_nm_ctpp.bin
 !UrbanPop/workgroup_sizes_us.txt
 !UrbanPop/establishment_sizes_us.txt
 !UrbanPop/cbp19st_derived.csv
