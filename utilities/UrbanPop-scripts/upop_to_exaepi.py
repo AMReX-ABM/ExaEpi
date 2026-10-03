@@ -345,6 +345,23 @@ def get_args():
         "../US_2010_Census_BlockGroups/tl_2010_35_bg10.shp.csv, for the distances "
         "--fill_decay_km uses",
     )
+    parser.add_argument(
+        "--worker_placement",
+        default="lodes",
+        choices=["lodes", "ctpp"],
+        help="How workers get their work block groups. 'lodes' (the default) is alloc_workers: "
+        "LODES flows, with the fill's distance decay calibrated to LODES' own share of commutes "
+        "over 100 km. 'ctpp' is popgen-port's stage S3 (alloc_workers_ctpp): LODES corrected by "
+        "distance against CTPP, filled by each worker's reported commute time. Needs "
+        "--commute_bundle.",
+    )
+    parser.add_argument(
+        "--commute_bundle",
+        default="",
+        help="popgen-port population bundle (.upb, format 4) for --worker_placement ctpp, e.g. "
+        "nm_popgen.upb. It supplies the LODES pairs, block-group coordinates, CBP tables and the "
+        "CTPP-calibrated commute tables.",
+    )
     # --- group-structure targets ---
     # These used to be ExaEpi runtime options (agent.nborhood_size and friends in Utils.H). The
     # groups they size are now built here and stored in the .bin, so they are properties of the
@@ -703,7 +720,9 @@ def process_upop(df: pl.DataFrame, out_fname: str) -> pl.DataFrame:
         # "pr_emp_stat",
         "pr_travel",
         "pr_veh_occ",
-        # "pr_commute",
+        # reported minutes to work (PUMS JWMNP), which alloc_workers_ctpp's time bands use; not
+        # written to the .bin (main selects the output columns)
+        "pr_commute",
         "pr_grade",
     }
     # Drop columns not in include_fields
@@ -1516,6 +1535,79 @@ def alloc_workers(
     return workers_df
 
 
+# Share of commuters over this distance, and out of their home county, that alloc_workers_ctpp
+# reports, for checking against CTPP (NM 0.89% and 12.4%, CA 1.31% and 18.0%).
+CTPP_CHECK_FAR_KM = 100.0
+
+
+@timer
+def alloc_workers_ctpp(workers_df: pl.DataFrame, commute_bundle: str, seed: int) -> pl.DataFrame:
+    """Worker destinations from popgen-port's stage S3, run on the delivered UrbanPop workers.
+
+    popgen/{workers,commute,cbp,kr64,stages,units,bundle}.py are copied unchanged from popgen-port
+    (23e04c6); see popgen/workers.py for the method. In short: LODES is only the prior, corrected
+    per distance band against CTPP (LODES links jobs to residences from administrative records, so
+    its tail beyond 100 km is ~10x CTPP's), plus a short-range background; destinations get CBP
+    establishment slots from their commute shed as in alloc_workers, but the demand is soft, and
+    each industry is filled over (home, commute-time band) rows, the band from the worker's reported
+    minutes and mode, so a worker who reports a 10-minute drive is not sent 100 km. The bundle
+    supplies LODES, block-group coordinates, the CBP tables and the calibrated commute tables.
+
+    Workers who work from home keep their home block group, as popgen-port does (ExaEpi keeps
+    them home during the day regardless). Every random draw is keyed on (seed, stage, ids), not on
+    numpy's global stream, so the allocation is reproducible on its own.
+    """
+    from popgen import bundle as pg_bundle
+    from popgen import cbp as pg_cbp
+    from popgen import commute as pg_commute
+    from popgen import workers as pg_workers
+
+    printgreen(f"Allocating workers (CTPP-calibrated commutes, from {commute_bundle})")
+    if not commute_bundle:
+        raise_err("--worker_placement ctpp needs --commute_bundle")
+    b = pg_bundle.read(commute_bundle)
+    if pg_bundle.strings(b, "naics.codes") != list(categ_types["pr_naics"].categories):
+        raise_err(f"{commute_bundle}: its NAICS codes differ from categ_types['pr_naics']")
+    if list(categ_types["pr_travel"].categories)[pg_commute.TRAVEL_WFH] != "wfh":
+        raise_err("categ_types['pr_travel'] no longer has wfh where popgen's TRAVEL_WFH expects it")
+
+    # popgen keys its draws on (block group, household, person) integers; the delivered person ids
+    # are strings (group-quarters ones have letters), so their dense rank stands in
+    P = {
+        "bg": workers_df["home_geoid"].cast(pl.Int64).to_numpy(),
+        "h": workers_df["household_id"].cast(pl.Int64).to_numpy(),
+        "p": workers_df["id"].rank("dense").cast(pl.Int64).to_numpy(),
+        "naics": workers_df["naics"].cast(pl.Int16).to_numpy(),
+        "travel": workers_df["travel"].cast(pl.Int8).to_numpy(),
+        # minutes to work; 0 = not reported (UrbanPop writes -999), which popgen treats as neutral
+        "jwmnp": workers_df["commute"].cast(pl.Float64).fill_null(0).clip(0, 32767).cast(pl.Int16).to_numpy(),
+        "employed": np.ones(len(workers_df), dtype=bool),
+    }
+    work, stats = pg_workers.allocate(b, P, pg_cbp.SizeTables(b), seed, 0)
+
+    commuter = P["travel"] != pg_commute.TRAVEL_WFH
+    km = np.sqrt(pg_commute.chord2(pg_commute.xyz_of(b, P["bg"][commuter]), pg_commute.xyz_of(b, work[commuter])))
+    out_of_county = (P["bg"][commuter] // 10**7) != (work[commuter] // 10**7)
+    print(f"  {stats['workers']} commuters, {stats['wfh']} working from home; {stats['fallback']} placed by "
+          f"the fallback draw; {100.0 * stats['demand_moved'] / max(1, stats['demanded']):.1f}% of slot "
+          f"demand released")
+    print(f"  commuters over {CTPP_CHECK_FAR_KM:g} km {100.0 * np.mean(km > CTPP_CHECK_FAR_KM):.2f}%, out of "
+          f"their home county {100.0 * np.mean(out_of_county):.1f}%, median {np.median(km):.1f} km")
+
+    workers_df = workers_df.with_columns(pl.Series("work_geoid", [f"{g:012d}" for g in work]))
+    # Set grade to -1 and school_id to empty for all workers, as alloc_workers does
+    workers_df = workers_df.with_columns(
+        [pl.lit(-1, dtype=pl.Int8).alias("grade"), pl.lit("").alias("school_id")]
+    )
+    num_without_naics = len(workers_df.filter(pl.col("naics") == -1))
+    if num_without_naics > 0:
+        warn(f"There are {num_without_naics} workers without NAICS classification")
+    print("Added destinations for", len(workers_df), "workers")
+    dump_intermediate(workers_df, "workers_nt_dt")
+
+    return workers_df
+
+
 def process_students_region(
     region: str,
     student_group: pl.DataFrame,
@@ -2064,6 +2156,8 @@ def generate_nt_dt(
     establishment_sizes_file: str = "",
     blockgroup_points: dict[str, tuple[float, float]] | None = None,
     fill_decay_km: float | str = DEFAULT_FILL_DECAY_KM,
+    worker_placement: str = "lodes",
+    commute_bundle: str = "",
 ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     # randomly allocate some young agents to childcare
     upop_df = set_childcare(upop_df, seed)
@@ -2102,8 +2196,11 @@ def generate_nt_dt(
             pl.lit(-1, dtype=pl.Int16).alias("naics"),
         ]
     )
-    workers_nt_dt_df = alloc_workers(lodes_df, workers_df, workgroup_sizes_file, establishment_sizes_file,
-                                     blockgroup_points, fill_decay_km)
+    if worker_placement == "ctpp":
+        workers_nt_dt_df = alloc_workers_ctpp(workers_df, commute_bundle, seed)
+    else:
+        workers_nt_dt_df = alloc_workers(lodes_df, workers_df, workgroup_sizes_file, establishment_sizes_file,
+                                         blockgroup_points, fill_decay_km)
     if num_unique_ids != (len(workers_nt_dt_df) + len(students_df) + len(unemp_df)):
         raise_err(f"Incorrect number of unique IDS after worker allocation")
     students_nt_dt_df = alloc_students(schools_df, students_df, county_adjacency)
@@ -3257,7 +3354,8 @@ def main():
     blockgroup_points = load_blockgroup_points(args.blockgroup_points_files) if fill_decay != 0 else None
     workers_df, students_df, schools_df, unemp_df = generate_nt_dt(
         schools_df, upop_df, lodes_df, args.rseed, county_adjacency, args.workgroup_sizes_file,
-        args.establishment_sizes_file, blockgroup_points, args.fill_decay_km
+        args.establishment_sizes_file, blockgroup_points, args.fill_decay_km, args.worker_placement,
+        args.commute_bundle
     )
     check_flows_correlation(workers_df, lodes_df)
     # workers_df.write_ipc("workers_df.feather")
