@@ -334,15 +334,19 @@ def iter_epicast_snapshots(events_df, demog_df, days, county_level=False):
 
 def _is_aggregated_file(path):
     """An ExaEpi aggregated-diagnostics file (see ExaEpi::IO::writeAggregatedData / --
-    load_exaepi_grid_stats) is a plain file whose first line is the fixed CSV header this reader
-    expects -- check that, rather than just the filename, to tell it apart from an unrelated file
-    a glob/parent-directory listing might also pick up.
+    load_exaepi_grid_stats) is a plain file whose first line starts with the fixed CSV columns this
+    reader expects (newer runs append infection-source columns, EWork, EHosp, ...) -- check that,
+    rather than just the filename, to tell it apart from an unrelated file a glob/parent-directory
+    listing might also pick up.
     """
     if not os.path.isfile(path):
         return False
     try:
         with open(path) as f:
-            return f.readline().rstrip("\n") == "GEOID,total,never_infected,infected,immune"
+            header = f.readline().rstrip("\n")
+        return header == "GEOID,total,never_infected,infected,immune" or header.startswith(
+            "GEOID,total,never_infected,infected,immune,"
+        )
     except UnicodeDecodeError:
         # Not a text file at all (e.g. a compressed or binary file living alongside the CSVs in
         # the same directory) -- not an aggregated-diagnostics file, but not an error either.
