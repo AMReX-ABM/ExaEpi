@@ -770,93 +770,92 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
  *  applied separately, per-disease, since this function has no disease to key on). Neighborhood
  *  transmission (InteractionModNborhood.H) deliberately does NOT use this correction -- see that
  *  file's header for why:
- *    raw[c]   = 1 / population[c]                                   -- fixed correction, not tunable
- *    scale[c] = clip(raw[c]/mean(raw), min_scale, max_scale)
- *  where mean(raw) is the population-weighted mean of raw[] over all communities. InteractionModComm.H
- *  multiplies a susceptible's infection probability once per *raw count* of infectious agents in
- *  their entire community, so without correction the force of infection scales with the absolute
- *  size of the community (num_infected ~= population[c] * prevalence) rather than with
- *  local prevalence alone. Dividing by population[c] exactly cancels that out: num_infected *
- *  raw[c] ~= prevalence, independent of population[c]. This is a fixed correction for how the
- *  interaction code counts contacts, not an epidemiological hypothesis to calibrate per scenario --
- *  every fit sweep converged on this same 1/population form (previously exposed as a size_beta
- *  parameter that always landed on -1.0), so it's built in rather than left tunable. home_population
- *  is always available, so every community participates. */
+ *    scale[c] = reference_size / clip(population[c], size_min_population, size_max_population)
+ *  InteractionModComm.H multiplies a susceptible's infection probability once per *raw count* of
+ *  infectious agents in their entire community, so without correction the force of infection
+ *  scales with the absolute size of the community (num_infected ~= population[c] * prevalence)
+ *  rather than with local prevalence alone. Dividing by population[c] exactly cancels that out:
+ *  num_infected * scale[c] ~= reference_size * prevalence, independent of population[c]. This is a
+ *  fixed correction for how the interaction code counts contacts, not an epidemiological
+ *  hypothesis to calibrate per scenario -- every fit sweep converged on this same 1/population form
+ *  (previously exposed as a size_beta parameter that always landed on -1.0), so it's built in
+ *  rather than left tunable.
+ *
+ *  reference_size is the community size whose transmission xmit_comm describes as is
+ *  (TestParams::community_reference_size): by default Epicast's fixed 2000-agent community, the
+ *  same in every state, so that a given xmit_comm_scale means the same per-capita transmission
+ *  wherever it's applied. The population limits are fixed too, for the same reason.
+ *
+ *  reference_size <= 0 instead reproduces the behavior before reference_size existed: the
+ *  reference is the simulated region's mean community size (total population / number of
+ *  communities; CA 1696, NM 1447), and the limits are 1/20 and 20 times it -- so the meaning of
+ *  xmit_comm_scale and where the limits fall both depend on the region. Communities with no
+ *  population get 1.0. */
 namespace {
-/*! Clip bounds on the per-community size-scale factor -- not exposed as user-tunable
-    parameters since every fit sweep converged on the same 1/population form and these
-    bounds only guard against extreme multipliers for unusually small/large communities. */
+/*! Limits on the population the size scale divides by -- not exposed as user-tunable parameters
+    since every fit sweep converged on the same 1/population form and these limits only guard
+    against extreme multipliers for unusually small/large communities. They are where the
+    region-relative limits (1/20 and 20 times the mean community size) fell for California, the
+    calibration state, rounded (moving no CA community across them), so CA runs calibrated with
+    those keep their meaning (with xmit_comm_scale times 1696/2000). */
+constexpr Real size_min_population = 85.0_rt;
+constexpr Real size_max_population = 34000.0_rt;
+/*! The limits for reference_size <= 0, on the scale itself (so on the population at 1/20 and 20
+    times the mean community size), as before reference_size existed: clipping the scale rather
+    than the population keeps those runs' random draws identical to the older ones' */
 constexpr Real size_min_scale = 0.05_rt;
 constexpr Real size_max_scale = 20.0_rt;
+
+Vector<Real> sizeScale (const Vector<Real>& population, Real reference_size, const char* label) {
+    Vector<Real> scale(population.size(), 1.0_rt);
+    Real total = 0.0_rt;
+    int num_populated = 0;
+    for (Real pop : population) {
+        if (pop > 0.0_rt) {
+            total += pop;
+            num_populated++;
+        }
+    }
+    if (num_populated == 0) { return scale; }
+    const Real mean_size = total / num_populated;
+    const bool fixed = reference_size > 0.0_rt;
+    const Real ref = fixed ? reference_size : mean_size;
+    const Real min_pop = fixed ? size_min_population : ref / size_max_scale;
+    const Real max_pop = fixed ? size_max_population : ref / size_min_scale;
+    for (int c = 0; c < (int)population.size(); ++c) {
+        if (population[c] <= 0.0_rt) { continue; }
+        if (fixed) {
+            scale[c] = ref / std::max(min_pop, std::min(max_pop, population[c]));
+        } else {
+            scale[c] = std::max(size_min_scale, std::min(size_max_scale, ref / population[c]));
+        }
+    }
+    amrex::Print() << label << ": " << num_populated << " communities, mean size " << mean_size << ", reference size " << ref
+                   << (fixed ? "" : " (the mean)") << ", population limited to [" << min_pop << ", " << max_pop << "]\n";
+    return scale;
+}
 } // namespace
 
-amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockGroup>& block_groups, const int verbose) {
-    Vector<Real> scale(block_groups.size(), 1.0_rt);
-    if (block_groups.empty()) { return scale; }
-
-    Real weight_sum = 0.0_rt;
-    for (const auto& bg : block_groups) {
-        weight_sum += (Real)bg.home_population;
-    }
-
-    Vector<Real> raw(block_groups.size(), 1.0_rt);
-    Real weighted_raw_sum = 0.0_rt;
+amrex::Vector<amrex::Real> computeCommunitySizeScale (const amrex::Vector<BlockGroup>& block_groups, amrex::Real reference_size) {
+    Vector<Real> population(block_groups.size());
     for (int c = 0; c < (int)block_groups.size(); ++c) {
-        Real pop = (Real)block_groups[c].home_population;
-        raw[c] = 1.0_rt / pop;
-        weighted_raw_sum += pop * raw[c];
+        population[c] = (Real)block_groups[c].home_population;
     }
-    Real mean_raw = (weight_sum > 0.0_rt) ? (weighted_raw_sum / weight_sum) : 1.0_rt;
-
-    for (int c = 0; c < (int)block_groups.size(); ++c) {
-        Real s = raw[c] / mean_raw;
-        scale[c] = std::max(size_min_scale, std::min(size_max_scale, s));
-    }
-
-    if (verbose >= ExaEpi::Verbosity::detail) { amrex::Print() << "SizeScale: " << block_groups.size() << " communities\n"; }
-
-    return scale;
+    return sizeScale(population, reference_size, "SizeScale (night)");
 }
 
 /*! \brief Compute a per-community work-population scale factor, exactly mirroring
  *  computeCommunitySizeScale but keyed on day_population (true daytime headcount -- see its doc
  *  comment for why this is used instead of BlockGroup::work_populations[0]) instead of
  *  home_population:
- *    raw[c]   = 1 / day_population[c]                             -- fixed correction, not tunable
- *    scale[c] = clip(raw[c]/mean(raw), min_scale, max_scale)
- *  where mean(raw) is the day-population-weighted mean of raw[] over all communities. Communities
- *  with zero daytime population get scale=1.0 and don't contribute to the weighted mean. Shares
- *  min_scale/max_scale with computeCommunitySizeScale (a decoupled sweep found no benefit to
- *  tuning them separately from the home/night values). The disease-specific overall magnitude
- *  (DiseaseParm::xmit_comm_scale) is applied separately, per-disease. */
-amrex::Vector<amrex::Real> computeCommunityWorkSizeScale (const amrex::Vector<amrex::Real>& day_population, const int verbose) {
-    Vector<Real> scale(day_population.size(), 1.0_rt);
-    if (day_population.empty()) { return scale; }
-
-    Real weight_sum = 0.0_rt;
-    for (Real pop : day_population) {
-        if (pop > 0.0_rt) { weight_sum += pop; }
-    }
-
-    Vector<Real> raw(day_population.size(), 1.0_rt);
-    Real weighted_raw_sum = 0.0_rt;
-    for (int c = 0; c < (int)day_population.size(); ++c) {
-        Real pop = day_population[c];
-        if (pop <= 0.0_rt) { continue; }
-        raw[c] = 1.0_rt / pop;
-        weighted_raw_sum += pop * raw[c];
-    }
-    Real mean_raw = (weight_sum > 0.0_rt) ? (weighted_raw_sum / weight_sum) : 1.0_rt;
-
-    for (int c = 0; c < (int)day_population.size(); ++c) {
-        if (day_population[c] <= 0.0_rt) { continue; }
-        Real s = raw[c] / mean_raw;
-        scale[c] = std::max(size_min_scale, std::min(size_max_scale, s));
-    }
-
-    if (verbose >= ExaEpi::Verbosity::detail) {
-        amrex::Print() << "WorkSizeScale: " << day_population.size() << " communities\n";
-    }
-
-    return scale;
+ *    scale[c] = reference_size / clip(day_population[c], size_min_population, size_max_population)
+ *  with the same reference_size (<= 0: the mean daytime community size, which equals the mean
+ *  nighttime one, since everyone is somewhere in the region in the day). Communities with zero
+ *  daytime population get scale=1.0. Shares the population limits with computeCommunitySizeScale
+ *  (a decoupled sweep found no benefit to tuning them separately from the home/night values). The
+ *  disease-specific overall magnitude (DiseaseParm::xmit_comm_scale) is applied separately,
+ *  per-disease. */
+amrex::Vector<amrex::Real> computeCommunityWorkSizeScale (const amrex::Vector<amrex::Real>& day_population,
+                                                          amrex::Real reference_size) {
+    return sizeScale(day_population, reference_size, "SizeScale (day)");
 }

@@ -68,9 +68,9 @@ struct BlockGroup {
 /*! \brief Compute a per-community population-size scale factor that converts the community/
     neighborhood interaction models from density-dependent to frequency-dependent transmission
     (a fixed 1/population correction, not a tunable exponent -- see the .cpp for why), keyed on
-    home_population (population is always available from the UrbanPop binary). */
-amrex::Vector<amrex::Real> computeCommunitySizeScale(const amrex::Vector<BlockGroup>& block_groups,
-                                                     const int verbose = ExaEpi::Verbosity::quiet);
+    home_population (population is always available from the UrbanPop binary). A community of
+    reference_size gets 1.0; reference_size <= 0 uses the region's mean community size. */
+amrex::Vector<amrex::Real> computeCommunitySizeScale(const amrex::Vector<BlockGroup>& block_groups, amrex::Real reference_size);
 
 /*! \brief Daytime analog of computeCommunitySizeScale, keyed on each community's true daytime
     headcount (UrbanPopData::day_population) instead of home_population. Meant to populate a
@@ -84,11 +84,11 @@ amrex::Vector<amrex::Real> computeCommunitySizeScale(const amrex::Vector<BlockGr
     who stays home during the day, and every student at a school located there (naics == -1).
     Empirically (NM UrbanPop), the true daytime headcount exceeds work_populations[0] by a median
     of 4x and by >20x at the 90th percentile, so using work_populations[0] here would systematically
-    push the 1/population correction toward its size_max_scale clip for the most heavily
+    push the 1/population correction toward its upper clip for the most heavily
     residential/school-heavy communities -- exactly backwards, since those are typically among the
     *largest* daytime-occupied communities, not the smallest. */
 amrex::Vector<amrex::Real> computeCommunityWorkSizeScale(const amrex::Vector<amrex::Real>& day_population,
-                                                         const int verbose = ExaEpi::Verbosity::quiet);
+                                                         amrex::Real reference_size);
 
 struct UrbanPopData {
     // these three data structures are used for setting the initial cases

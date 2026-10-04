@@ -44,6 +44,8 @@ agent.startdate = ""
 # Enable population-size-based transmission scaling (keeps community/neighborhood
 # transmission frequency-dependent rather than density-dependent).
 agent.size_scale_enabled = true
+# Community size the size scaling leaves unscaled (Epicast's 2000); <=0 uses the region's mean.
+agent.community_reference_size = 2000
 # Maximum box size used for MPI domain decomposition.
 agent.max_box_size = 16
 # Interval for writing aggregated diagnostic data, in steps; <=0 disables.

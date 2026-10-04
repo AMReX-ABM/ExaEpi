@@ -63,6 +63,16 @@ The following are inputs for the overall simulation:
     frequency-dependent (depending on local prevalence) rather than density-dependent
     (depending on the raw number of infectious agents present, which would otherwise scale with
     how populous a community happens to be).
+* ``agent.community_reference_size`` (`float`, default ``2000``)
+    The community size at which the population-size correction is 1, i.e. the community size
+    whose transmission ``disease.xmit_comm`` describes unscaled. The default is Epicast's fixed
+    2000-agent community, the same in every region, so a given ``disease.xmit_comm_scale`` means
+    the same per-capita transmission wherever it is applied. The community population the
+    correction divides by is limited to 85--34,000 (where the earlier, region-relative limits fell
+    for California). A value ``<= 0`` restores the behavior before this parameter existed: the
+    reference is the simulated region's mean community size (CA 1696, NM 1447), and the limits are
+    1/20 and 20 times it. To reproduce a California run calibrated that way with the default,
+    multiply its ``disease.xmit_comm_scale`` by 1696/2000.
 * ``agent.airports_filename`` (`string`)
     The path to the ``*.dat`` file containing available airports and the counties they serve.
     Must be provided if ``agent.air_travel_int > 0``.

@@ -133,6 +133,8 @@ void printHelp (const char* prog) {
     line("airports_filename", "required if air_travel_int > 0", "");
     desc_line("airports file");
     line("size_scale_enabled", fmt(tp.size_scale_enabled), "enable population-size-based transmission scaling");
+    line("community_reference_size", fmt(tp.community_reference_size),
+         "community size xmit_comm applies to unscaled (Epicast: 2000); <=0 uses the region's mean");
     line("max_box_size", fmt(tp.max_box_size), "box size for domain decomposition");
     line("aggregated_diag_int", fmt(tp.aggregated_diag_int), "interval for aggregated diagnostic output, in steps; <=0 disables");
     line("aggregated_diag_prefix", fmt(tp.aggregated_diag_prefix), "filename prefix for aggregated diagnostic output");
@@ -575,7 +577,7 @@ void runAgent () {
         // restarted runs get the same scaling as a fresh run rather than silently reverting to flat
         // 1.0.
         if (params.size_scale_enabled) {
-            Vector<Real> comm_scale = computeCommunitySizeScale(urbanPopData.block_groups, params.verbose);
+            Vector<Real> comm_scale = computeCommunitySizeScale(urbanPopData.block_groups, params.community_reference_size);
             Gpu::DeviceVector<Real> comm_scale_d(comm_scale.size());
             Gpu::copyAsync(Gpu::hostToDevice, comm_scale.begin(), comm_scale.end(), comm_scale_d.begin());
             Gpu::streamSynchronize();
@@ -598,7 +600,7 @@ void runAgent () {
         // since home_population isn't a meaningful covariate for the population physically present
         // in a community during the day.
         if (params.size_scale_enabled) {
-            Vector<Real> work_scale = computeCommunityWorkSizeScale(urbanPopData.day_population, params.verbose);
+            Vector<Real> work_scale = computeCommunityWorkSizeScale(urbanPopData.day_population, params.community_reference_size);
             Gpu::DeviceVector<Real> work_scale_d(work_scale.size());
             Gpu::copyAsync(Gpu::hostToDevice, work_scale.begin(), work_scale.end(), work_scale_d.begin());
             Gpu::streamSynchronize();

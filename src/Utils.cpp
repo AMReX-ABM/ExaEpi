@@ -81,6 +81,7 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
     pp.get("urbanpop_filename", params.urbanpop_filename);
 
     pp.query("size_scale_enabled", params.size_scale_enabled);
+    pp.query("community_reference_size", params.community_reference_size);
 
     if (params.air_travel_int > 0) {
         pp.get("air_traffic_filename", params.air_traffic_filename);

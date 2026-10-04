@@ -81,6 +81,13 @@ struct TestParams {
         left tunable. */
     bool size_scale_enabled = true;
 
+    /*! Community size at which the size scale is 1, i.e. the community size whose transmission
+        xmit_comm describes as is (see computeCommunitySizeScale). Defaults to Epicast's fixed
+        2000-agent community, the same in every region, so a given xmit_comm_scale means the same
+        per-capita transmission wherever it's applied. <= 0 uses the simulated region's mean
+        community size instead (the behavior before this parameter existed: CA 1696, NM 1447). */
+    amrex::Real community_reference_size = 2000;
+
     int aggregated_diag_int = -1;                 /*!< interval for writing aggregated diagnostic data
                                                        (see: ExaEpi::IO::writeAggregatedData) */
     std::string aggregated_diag_prefix = "cases"; /*!< filename prefix for diagnostic data, used only if
