@@ -1783,14 +1783,12 @@ _derived_seir_cache = {}
 
 
 def _derive_seir_params(ini):
-    """SEIRHD rates implied by an ExaEpi .ini (see seirhd_params.params_from_ini)."""
+    """SEIRHD rates implied by an ExaEpi .ini (see seirhd_params.params_from_ini). The rates
+    themselves are printed per curve, with the beta that curve's R0 gives (_resolve_seir_params)."""
     if ini not in _derived_seir_cache:
         derivation = seirhd_params.params_from_ini(ini)
         print(f"Derived SEIRHD rates from {ini}")
         print(f"  age composition: {derivation.age_source}")
-        print("  " + "  ".join(
-            f"{k}={v:.6g}" if isinstance(v, float) else f"{k}={v}"
-            for k, v in derivation.rates.items()))
         _derived_seir_cache[ini] = derivation.rates
     return _derived_seir_cache[ini]
 
@@ -1820,6 +1818,11 @@ def _resolve_seir_params(idx):
         resolved[name] = _SEIR_PARAM_DEFAULTS[name] if value is None else value
 
     resolved["beta"] = resolved["r0"] * (resolved["gamma"] + resolved["hosp_rate"])
+    # The derived rates, as before, plus the beta this curve's R0 gives them (both before
+    # --seir_rate_scale, which scales all of them together)
+    print("  " + "  ".join(
+        f"{k}={v:.6g}" if isinstance(v, float) else f"{k}={v}"
+        for k, v in [*_derive_seir_params(ini).items(), ("beta", resolved["beta"])]))
     for name in _SEIR_RATE_NAMES:
         resolved[name] *= resolved["rate_scale"]
     return resolved
@@ -2051,9 +2054,9 @@ for _entry, _shift in zip(exaepi_data, shift_by_group):
 # (curve 1 plus any curve N referenced by a --<param>N override -- see _seir_curve_indices).
 seir_dfs = []
 for _idx in _seir_curve_indices:
-    _p = _resolve_seir_params(_idx)
     if len(_seir_curve_indices) > 1:
         print(f"SEIRHD curve {_idx}:")
+    _p = _resolve_seir_params(_idx)
     _df = run_seirhd_erlang(_p["beta"], _p["sigma"], _p["gamma"], _p["hosp_rate"], _p["gamma_h"],
                              _p["mu"], _p["N"], _p["seed"], args.xlimit,
                              kE=_p["kE"], kI=_p["kI"], kD=_p["kD"])
