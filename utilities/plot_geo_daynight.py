@@ -206,6 +206,15 @@ def main():
         "given); tracts/counties above this are clipped to the same color as this value (default: "
         "99th percentile of |diff|, i.e. symmetric around 0).",
     )
+    parser.add_argument(
+        "--panel_overlap", type=float, default=0.42,
+        help="With --epicast_file, overlap the two panels by this fraction of a panel's width (0 = "
+        "no overlap, the panels merely touching), as plot_geo.py's --panel_overlap does. A "
+        "choropleth panel is as wide as the whole lon/lat bounding box, so for a diagonal state "
+        "like California most of each panel is empty either side of the data and the panels can "
+        "tuck into that dead space. Use 0 (or close) for a state that fills its bounding box more "
+        "squarely, such as New Mexico, where an overlap hides real geography (default: 0.42).",
+    )
     args = parser.parse_args()
 
     population = args.population if args.population is not None else ("workers" if args.epicast_file else "all")
@@ -333,8 +342,10 @@ def main():
         cbar_w_in = 0.12
         cbar_gap_in = 0.08
         cbar_label_w_in = 0.65  # room for the colorbar's own tick labels (e.g. "-10000")
-        panel_gap_in = -1.5
-        panel_w_in = (fig_x - cbar_w_in - cbar_gap_in - cbar_label_w_in - (n - 1) * panel_gap_in) / n
+        # Panels overlap by a fraction of their own width, so n panels span n - (n-1)*overlap
+        # widths (see --panel_overlap).
+        panel_w_in = (fig_x - cbar_w_in - cbar_gap_in - cbar_label_w_in) / (n - (n - 1) * args.panel_overlap)
+        panel_gap_in = -args.panel_overlap * panel_w_in
         map_h_in = panel_w_in * yrange / xrange
         fig_y = top_margin_in + map_h_in + bottom_margin_in
         print(f"Plot dimensions: lng/lat {xmin}, {xmax}, {ymin}, {ymax}, figure size: {fig_x}, {fig_y}")
