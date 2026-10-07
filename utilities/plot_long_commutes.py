@@ -27,7 +27,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from plos_compbio_style import FONT_TICK, FONT_TITLE, FULL_PAGE_WIDTH_IN, apply_style  # noqa: E402
+from plos_compbio_style import FONT_TICK, FONT_TITLE, FULL_PAGE_WIDTH_IN, HALF_PAGE_WIDTH_IN, apply_style  # noqa: E402
 from plot_commute_distance import load_exaepi_pairs, load_internal_points, pair_distances  # noqa: E402
 
 
@@ -60,6 +60,9 @@ def main():
     parser.add_argument("--threshold", type=float, default=100.0, help="Distance threshold in km (default 100)")
     parser.add_argument("--vmax", type=float, default=None,
                         help="Top of the color scale in percent (default: the largest share in either panel)")
+    parser.add_argument("--width", choices=["half", "full"], default="full",
+                        help="Figure width in the paper (plos_compbio_style.py): 'full' puts the color bar "
+                        "beside the maps, 'half' (one state of two side by side) below them (default full)")
     parser.add_argument("--output", "-o", default="long-commutes.png", help="Output file")
     args = parser.parse_args()
 
@@ -92,15 +95,23 @@ def main():
     cmap = "YlOrRd"
 
     # Two maps side by side with a shared colorbar, placed by hand as in plot_geo_daynight.py:
-    # geopandas fixes each map's data aspect, which constrained_layout handles badly.
+    # geopandas fixes each map's data aspect, which constrained_layout handles badly. At full
+    # width the colorbar stands beside the maps; at half width there is no room for it and its
+    # label there, so it lies along the bottom instead.
     xmin, ymin, xmax, ymax = counties.total_bounds
     xrange, yrange = xmax - xmin, ymax - ymin
-    fig_x = FULL_PAGE_WIDTH_IN
+    horizontal = args.width == "half"
+    fig_x = HALF_PAGE_WIDTH_IN if horizontal else FULL_PAGE_WIDTH_IN
     top_margin_in = (FONT_TITLE * 1.3 + 4) / 72
-    bottom_margin_in = FONT_TICK / 2 / 72
-    cbar_w_in, cbar_gap_in, cbar_label_w_in = 0.12, 0.08, 0.75
     panel_gap_in = 0.1
-    panel_w_in = (fig_x - cbar_w_in - cbar_gap_in - cbar_label_w_in - panel_gap_in) / 2
+    if horizontal:
+        cbar_h_in, cbar_gap_in = 0.08, 0.06
+        bottom_margin_in = cbar_gap_in + cbar_h_in + 3.8 * FONT_TICK / 72  # bar, tick labels, label
+        panel_w_in = (fig_x - panel_gap_in) / 2
+    else:
+        bottom_margin_in = FONT_TICK / 2 / 72
+        cbar_w_in, cbar_gap_in, cbar_label_w_in = 0.12, 0.08, 0.75
+        panel_w_in = (fig_x - cbar_w_in - cbar_gap_in - cbar_label_w_in - panel_gap_in) / 2
     map_h_in = panel_w_in * yrange / xrange
     fig_y = top_margin_in + map_h_in + bottom_margin_in
     fig = plt.figure(figsize=(fig_x, fig_y))
@@ -115,10 +126,17 @@ def main():
         ax.set_xlim([xmin, xmax])
         ax.set_ylim([ymin, ymax])
         ax.set_axis_off()
-    cax = fig.add_axes(((2 * panel_w_in + panel_gap_in + cbar_gap_in) / fig_x, bottom, cbar_w_in / fig_x, height))
-    cbar = fig.colorbar(mcm.ScalarMappable(norm=norm, cmap=cmap), cax=cax)
+    if horizontal:
+        cbar_bottom_in = bottom_margin_in - cbar_gap_in - cbar_h_in
+        cax = fig.add_axes((0.1, cbar_bottom_in / fig_y, 0.8, cbar_h_in / fig_y))
+        cbar = fig.colorbar(mcm.ScalarMappable(norm=norm, cmap=cmap), cax=cax, orientation="horizontal")
+        label = f"Jobs held by workers living over {args.threshold:g} km away (%)"
+    else:
+        cax = fig.add_axes(((2 * panel_w_in + panel_gap_in + cbar_gap_in) / fig_x, bottom, cbar_w_in / fig_x, height))
+        cbar = fig.colorbar(mcm.ScalarMappable(norm=norm, cmap=cmap), cax=cax)
+        label = f"Jobs held by workers living\nover {args.threshold:g} km away (%)"
     cbar.ax.tick_params(labelsize=FONT_TICK)
-    cbar.set_label(f"Jobs held by workers living\nover {args.threshold:g} km away (%)", fontsize=FONT_TICK)
+    cbar.set_label(label, fontsize=FONT_TICK)
 
     print("Plotting results to", args.output)
     plt.savefig(args.output)
