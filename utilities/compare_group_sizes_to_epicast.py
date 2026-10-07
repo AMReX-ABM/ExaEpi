@@ -11,7 +11,9 @@ from preschool (UrbanPop's own preschoolers) to 12th grade, with no childcare or
 school member is in exactly one of them (both files total 8.51M on CA, 461k on NM), about 1.3M more
 than UrbanPop's preschool-12 students on CA -- roughly its NAICS 611 workers, whom Epicast makes
 the teachers, one per school-group, pooling the rest into an administrative school-group per
-school. ExaEpi's class sizes count students only (see below).
+school. ExaEpi's class sizes count students only (see below), so Epicast's are put on the same
+footing by epicast_class_students: the school-groups of 1-2 members, which appear to be the
+administrative groups, are left out, and the teacher is taken out of every other one.
 
 ExaEpi side: computed straight from the UrbanPop .bin ExaEpi reads its agents from (default
 data/UrbanPop/urbanpop_ca.bin), so no ExaEpi run -- and so no cases file -- is needed. The
@@ -102,6 +104,14 @@ def load_epicast_sizes(fname):
     sizes = np.loadtxt(fname, dtype=int)
     print(f"Read {len(sizes):,} sizes from Epicast file {fname}")
     return sizes
+
+
+def epicast_class_students(sizes):
+    """Students per class from Epicast's school-group sizes, which count every member: leave out
+    the 1-2-member groups (the administrative groups of surplus teachers, as far as the sizes can
+    tell) and take the class's one teacher out of the rest, to count what ExaEpi's class sizes and
+    the schools data's student-teacher ratios count."""
+    return sizes[sizes > 2] - 1
 
 
 def group_counts(keys):
@@ -624,7 +634,10 @@ def main():
     for ax, group_name in zip(axes, args.groups):
         info = GROUP_INFO[group_name]
         # Epicast is K-12 only, so it shares the K-12 series' bins (see plot_comparison)
-        series = [{"sizes": load_epicast_sizes(epicast_files[group_name]), "label": "Epicast", "color": "blue",
+        epicast = load_epicast_sizes(epicast_files[group_name])
+        if group_name == "class":
+            epicast = epicast_class_students(epicast)
+        series = [{"sizes": epicast, "label": "Epicast", "color": "blue",
                    "bin_group": "k12"}]
         if group_name == "workgroup":
             series.append({"sizes": exaepi_data_by_group[group_name], **SERIES_STYLE["k12"][0], "bin_group": "k12"})
