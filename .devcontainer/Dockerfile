@@ -34,6 +34,20 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
 #             rebuild would silently lose. latexmk is what LaTeX Workshop and the paper's
 #             .latexmkrc expect.
 
+# Microsoft core fonts, for Arial: PLOS allows only Arial, Times or Symbol in figures, and without
+# Arial matplotlib silently falls back to DejaVu Sans (plos_compbio_style.py). The package shows an
+# interactive EULA prompt, so the answer is preseeded through debconf. It downloads the fonts from
+# SourceForge at install time and does not fail the install if that download fails, hence the
+# fc-list check. A separate layer, so changing it does not invalidate the large layer above.
+RUN echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" \
+       | debconf-set-selections \
+    && apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+       ttf-mscorefonts-installer fontconfig \
+    && fc-cache -f \
+    && fc-list | grep -q "Arial.ttf" \
+    && rm -rf /var/lib/apt/lists/*
+
 # Rename the existing ubuntu user/group (UID/GID 1000) to match USERNAME
 ARG USERNAME=user
 ARG USER_UID=1000
