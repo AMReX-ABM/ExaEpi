@@ -1196,10 +1196,18 @@ def plot_reproduction_number(ax, epicast_data, exaepi_data, seir_dfs, title, sta
         print(f"  {name}: R_t {mid[ok][0]:.2f} at {100 * grid[ok][0]:.1f}% infected, "
               f"max {np.nanmax(mid):.2f}, 1.0 at {100 * grid[ok][np.argmin(np.abs(mid[ok] - 1))]:.1f}%")
 
+    # The SEIRHD's R_t is exact, R0 * S(t) / N, rather than estimated like the ABMs'. A renewal
+    # estimate from its new infections is badly inflated for the first ~10 days (over 100 on day 1),
+    # because run_seirhd_erlang puts the seed straight into the I chain: the seed infects from day 0
+    # but never appears among the new infections that the estimate divides by. How much of that
+    # transient start_frac trims depends on the seed (with 2000 in New Mexico, the curve started at
+    # R_t = 23), whereas past it the estimate equals R0 * S / N anyway.
     seir_colors = [plt.cm.Greens(x) for x in np.linspace(0.55, 1.0, len(seir_dfs))]
     for (idx, p, df), color in zip(seir_dfs, seir_colors):
-        rt = _curve(df["exposed"].values, p["N"])
-        label = "SEIRHD" if len(seir_dfs) == 1 else f"SEIRHD {idx}"
+        cum = np.concatenate([[0.0], np.cumsum(df["exposed"].values)])
+        susceptible = p["N"] - p["seed"] - cum
+        rt = np.interp(grid, cum / p["N"], p["r0"] * susceptible / p["N"], left=np.nan, right=np.nan)
+        label = p["label"]
         ax.plot(grid * 100, rt, color=color, linewidth=1, label=label)
         ok = np.isfinite(rt)
         print(f"  {label}: R_t {rt[ok][0]:.2f} at {100 * grid[ok][0]:.1f}% infected "
@@ -1398,11 +1406,10 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None):
 
     # Plot each SEIRHD curve (one per --seir_from_ini curve; see _resolve_seir_params)
     if seir_dfs and seir_col is not None:
-        multi = len(seir_dfs) > 1
         for i, (idx, p, seir_df) in enumerate(seir_dfs):
             seir_y = seir_df[seir_col].values[: args.xlimit]
             color = seir_colors[i % len(seir_colors)]
-            short_lbl = f"SEIRHD {idx}" if multi else "SEIRHD"
+            short_lbl = p["label"]
             ax.plot(
                 np.arange(len(seir_y)), seir_y,
                 label=f"{short_lbl} (β={p['beta']:.4g}, h={p['hosp_rate']:.4g}, "
@@ -1516,10 +1523,9 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None):
             if legend_label is not None:
                 text_entries.append((legend_label, text, color))
         if seir_dfs and seir_col is not None:
-            multi = len(seir_dfs) > 1
             for i, (idx, p, seir_df) in enumerate(seir_dfs):
                 max_val = float(seir_df[seir_col].values[: args.xlimit].max())
-                short_lbl = f"SEIRHD {idx}" if multi else "SEIRHD"
+                short_lbl = p["label"]
                 # Each curve is run at the N derived from its own .ini.
                 text, logged = summary(max_val, float(p["N"]))
                 print(f"  {short_lbl}: {logged}")
@@ -1529,7 +1535,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None):
         # entry placed ends up at the bottom -- draw in reverse to keep the on-plot top-to-bottom
         # reading order matching the other plots' top-anchored (va="top") AUC block above.
         for row, (lbl_str, text, color) in enumerate(reversed(text_entries)):
-            ax.text(0.98, 0.03 + row * 0.09, f"{lbl_str} {text}",
+            ax.text(0.98, 0.03 + row * 0.09, f"{lbl_str} {text}" if args.show_attack_rate else lbl_str,
                     transform=ax.transAxes, ha="right", va="bottom", fontsize=FONT_TICK, color=color)
     else:
         row = 0
@@ -1669,6 +1675,12 @@ parser.add_argument(
          "from (the panel falls back to reporting the cumulative count itself).",
 )
 parser.add_argument(
+    "--show_attack_rate", action="store_true", default=False,
+    help="Show each series' attack rate in its on-plot label on the 'Cumulative Exposed' panel "
+         "(e.g. 'Epicast attack rate 61.3%%'). Off by default, showing just the series name, as on "
+         "every other panel; the attack rates are still printed to the console either way.",
+)
+parser.add_argument(
     "--show_auc", action="store_true", default=False,
     help="Show each series' AUC value in its on-plot label (e.g. 'Epicast AUC: 1,177,264'). Off "
          "by default, showing just the series name; AUC values are still printed to the console "
@@ -1714,6 +1726,10 @@ _SEIR_PARAM_ARGS = [
      "of the derivation deliberately: it is the one shape that barely reaches the plotted "
      "curves, since admissions come from the I chain and carry no kD at all. 1 makes H a "
      "single exponential compartment"),
+    ("label",      str,   None,
+     "name of the curve on the plot and in the printed fits, e.g. --seir_label 'SEIRHD (ExaEpi)' "
+     "--seir_r02 1.45 --seir_seed2 2000 --seir_label2 'SEIRHD (Epicast)' to show the curve fitted "
+     "to each model. Defaults to 'SEIRHD', or 'SEIRHD <N>' when there are several curves"),
 ]
 _SEIR_PARAM_DEFAULTS = {_name: _default for _name, _, _default, _ in _SEIR_PARAM_ARGS}
 # Registered with default=None rather than the real default so _resolve_seir_params can tell
@@ -1816,6 +1832,13 @@ def _resolve_seir_params(idx):
     for name in ("seed", "kD", "rate_scale", "r0"):
         value = _seir_flag(idx, name)
         resolved[name] = _SEIR_PARAM_DEFAULTS[name] if value is None else value
+    # A numbered label only: a bare --seir_label shared by several curves would make them
+    # indistinguishable, so it names curve 1 alone
+    label = getattr(args, f"{SEIR_FLAG_PREFIX}label{idx}")
+    if label is None and idx == 1:
+        label = getattr(args, f"{SEIR_FLAG_PREFIX}label")
+    resolved["label"] = label if label is not None else ("SEIRHD" if len(_seir_curve_indices) == 1
+                                                         else f"SEIRHD {idx}")
 
     resolved["beta"] = resolved["r0"] * (resolved["gamma"] + resolved["hosp_rate"])
     # The derived rates, as before, plus the beta this curve's R0 gives them (both before
