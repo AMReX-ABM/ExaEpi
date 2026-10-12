@@ -38,9 +38,9 @@ struct RealIdxDisease {
 /*! \brief Integer-type SoA attributes of agent */
 struct IntIdx {
     enum {
-        age_group = 0,  /*!< Age group (under 5, 5-17, 18-29, 30-64, 65+) */
-        family,         /*!< Family ID */
-        home_i,         /*!< home location index */
+        age_group = 0, /*!< Age group (under 5, 5-17, 18-29, 30-64, 65+) */
+        family,        /*!< Family ID */
+        home_i,        /*!< home location index */
         home_j /*!< home location index */,
         work_i /*!< work location index */,
         work_j /*!< work location index */,
@@ -48,20 +48,20 @@ struct IntIdx {
         hosp_j /*!< hosp location index */,
         trav_i /*!< air travel location index */,
         trav_j /*!< air travel location index */,
-        nborhood,       /*!< home neighborhood ID */
-        hh_cluster,     /*!< household cluster ID */
-        school_grade,   /*!< school grade, including universities */
-        school_id,      /*!< ID for a given school */
-        school_closed,  /*!< 0 for open, 1 for closed */
-        naics,          /*!< industry NAICS code for business employed at */
-        workgroup,      /*!< workgroup ID */
-        work_nborhood,  /*!< work neighborhood ID */
-        withdrawn,      /*!< quarantine status */
-        random_travel,  /*!< on long distance travel? */
-        air_travel,     /*!< on long distance travel by Air? */
-        air_trav_timer, /*!< number of traveling days by Air */
-        weatherLookup,  /*!< index for current weather variables, incremented weekly */
-        nattribs        /*!< number of integer-type attribute */
+        nborhood,      /*!< home neighborhood ID */
+        hh_cluster,    /*!< household cluster ID */
+        school_grade,  /*!< school grade, including universities */
+        school_id,     /*!< ID for a given school */
+        school_closed, /*!< 0 for open, 1 for closed */
+        naics,         /*!< industry NAICS code for business employed at */
+        workgroup,     /*!< workgroup ID */
+        work_nborhood, /*!< work neighborhood ID */
+        withdrawn,     /*!< quarantine status */
+        random_travel, /*!< on long distance travel? */
+        air_travel,    /*!< on long distance travel by Air? */
+        air_trav_timer,/*!< number of traveling days by Air */
+        weatherLookup, /*!< index for current weather variables, incremented weekly */
+        nattribs       /*!< number of integer-type attribute */
     };
 };
 
@@ -236,7 +236,7 @@ bool isOnTravel (const int a_idx, /*!< Agent index */
 template <typename PTDType>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 bool isOnAirTravel (const int a_idx, /*!< Agent index */
-                 const PTDType& a_ptd /*!< Particle tile data */) {
+                    const PTDType& a_ptd /*!< Particle tile data */) {
     return (a_ptd.m_idata[IntIdx::air_travel][a_idx] >= 0);
 }
 

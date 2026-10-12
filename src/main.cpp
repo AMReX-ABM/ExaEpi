@@ -460,8 +460,7 @@ void runAgent () {
                     mmc[2] = amrex::get<2>(mm);
                     mmc[3] = amrex::get<3>(mm);
                     mmc[4] = amrex::get<4>(mm);
-                } else
-                {
+                } else {
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (!system::regtest_reduction) reduction(+ : mmc[ : 5])
 #endif

@@ -357,9 +357,7 @@ void AgentContainer::moveAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air
                 if (!inHospital(i, ptd) && random_travel_ptr[i] < 0 && air_travel_ptr[i] < 0) {
                     if (withdrawn_ptr[i] == 1) { return; }
                     for (int d = 0; d < n_disease; d++) {
-                        if (status_ptrs[d][i] == Status::dead) {
-                            return;
-                        }
+                        if (status_ptrs[d][i] == Status::dead) { return; }
                     }
 
                     if (amrex::Random(engine) < air_travel_prob_ptr[unit]) {
@@ -367,7 +365,8 @@ void AgentContainer::moveAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air
                         p.pos(0) = trav_i_ptr[i];
                         p.pos(1) = trav_j_ptr[i];
                         air_travel_ptr[i] = i;
-                        air_trav_timer_ptr[i] = static_cast<int>(std::round(RandomGamma(air_travel_length_alpha, air_travel_length_beta, engine)));
+                        air_trav_timer_ptr[i] = static_cast<int>(
+                                std::round(RandomGamma(air_travel_length_alpha, air_travel_length_beta, engine)));
                         weatherIdxPtr[i] = -weatherIdxPtr[i] - 2;
                     }
                 }
@@ -547,13 +546,13 @@ void AgentContainer::returnAirTravel () {
 
             int i_RT = IntIdx::nattribs;
             GpuArray<int*, ExaEpi::max_num_diseases> status_ptrs;
-            for (int d = 0; d < n_disease; d++) {    
+            for (int d = 0; d < n_disease; d++) {
                 status_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
             }
 
             amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                 if (air_travel_ptr[i] >= 0) {
-                    //if an agent dies, bring them home immediately
+                    // if an agent dies, bring them home immediately
                     for (int d = 0; d < n_disease; d++) {
                         if (status_ptrs[d][i] == Status::dead) {
                             ParticleType& p = pstruct[i];
@@ -566,12 +565,14 @@ void AgentContainer::returnAirTravel () {
                         }
                     }
 
-                    air_trav_timer_ptr[i] --;
+                    air_trav_timer_ptr[i]--;
                     if (inHospital(i, ptd) || withdrawn_ptr[i]) {
-                        if (air_trav_timer_ptr[i] <= 0) air_trav_timer_ptr[i] = 1; //extend travel time by 1 day to continue treatment
+                        if (air_trav_timer_ptr[i] <= 0) {
+                            air_trav_timer_ptr[i] = 1; // extend travel time by 1 day to continue treatment
+                        }
                         return;
                     }
-                    if (air_trav_timer_ptr[i] <= 0) { //return home
+                    if (air_trav_timer_ptr[i] <= 0) { // return home
                         ParticleType& p = pstruct[i];
                         air_travel_ptr[i] = -1;
                         air_trav_timer_ptr[i] = 0;
@@ -745,7 +746,7 @@ void AgentContainer::updateStatus (MFPtrVec& a_disease_stats /*!< Community-wise
             });
         }
     }
-    //Redistribute();
+    // Redistribute();
 }
 
 /*! \brief Start shelter-in-place */
@@ -874,8 +875,9 @@ void AgentContainer::infectAgents (MFPtrVec& a_disease_stats /*!< Community-wise
                             setInfected(&(status_ptr[i]), &(symptomatic_ptr[i]), &(counter_ptr[i]), &(latent_period_ptr[i]),
                                         &(infectious_period_ptr[i]), &(incubation_period_ptr[i]), &(hospital_delay_ptr[i]),
                                         &(hospital_random_ptr[i]), engine, lparm);
-                            if(air_travel_ptr[i] < 0) 
+                            if(air_travel_ptr[i] < 0) {
                                 Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::new_cases), 1.0_rt);
+                            }
 
                             return;
                         }
@@ -956,7 +958,7 @@ std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_
 
                 if (status == Status::never || status == Status::susceptible) { s[OutputStatus::Su] = 1; }
                 if (status == Status::immune) { s[OutputStatus::R] = 1; }
-                if (!isOnAirTravel(i, ptd)) { //defer the count if an agent dies on travel
+                if (!isOnAirTravel(i, ptd)) { // defer the count if an agent dies on travel
                     if (status == Status::dead) { s[OutputStatus::D] = 1; }
                 }
 
