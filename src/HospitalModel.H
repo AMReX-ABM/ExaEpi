@@ -75,6 +75,9 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
             auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
             auto hosp_i_ptr = soa.GetIntData(IntIdx::hosp_i).data();
             auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
+            auto air_travel_ptr = soa.GetIntData(IntIdx::air_travel).data();
+            Gpu::DeviceVector<int> marked_air_travel(np, 0);
+            auto marked_air_travel_ptr = marked_air_travel.data();
 
             int i_RT = IntIdx::nattribs;
             int r_RT = RealIdx::nattribs;
@@ -103,6 +106,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
             auto exit_vent_ptr = exit_vent.data();
 
             ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
+                if (air_travel_ptr[i] >= 0) marked_air_travel_ptr[i] = 1;
                 // if status_ptr for any one disease is dead, they should all be dead
                 if (status_ptrs[0][i] == Status::dead) {
                     is_alive_ptr[i] = 0;
@@ -268,6 +272,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
             for (int d = 0; d < n_disease; d++) {
                 auto ds_arr = (*a_dstats[d])[mfi].array();
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
+                    if (marked_air_travel_ptr[i] == 1) return; //don't count travel agents until they come home
                     if (died_today_ptr[i]) {
                         Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::death), 1.0_rt);
                     }

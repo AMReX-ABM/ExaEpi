@@ -155,6 +155,8 @@ void writePlotFile (const AgentContainer& pc,                      /*!< Agent (p
         write_int_comp.push_back(1);
         int_varnames.push_back("air_travel");
         write_int_comp.push_back(1);
+        int_varnames.push_back("air_trav_timer");
+        write_int_comp.push_back(1);
         int_varnames.push_back("weatherLookup");
         write_int_comp.push_back(1);
         // disease-specific (runtime-added) attributes

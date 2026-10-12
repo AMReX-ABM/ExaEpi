@@ -163,7 +163,7 @@ void runAgent () {
     }
 
     AirTravelFlow air;
-    if (params.air_travel_int > 0) {
+    if (params.do_air_travel > 0) {
         air.readAirports(params.airports_filename, censusData.demo);
         air.readAirTravelFlow(params.air_traffic_filename);
         air.computeTravelProbs(censusData.demo);
@@ -285,7 +285,7 @@ void runAgent () {
             pc.printStudentTeacherCounts();
             pc.printAgeGroupCounts();
 
-            if (params.ic_type == ICType::Census && params.air_travel_int > 0) {
+            if (params.ic_type == ICType::Census && params.do_air_travel > 0) {
                 pc.setAirTravel(censusData.unit_mf, air, censusData.demo);
             }
         } else {
@@ -461,7 +461,6 @@ void runAgent () {
                     mmc[3] = amrex::get<3>(mm);
                     mmc[4] = amrex::get<4>(mm);
                 } else
-#endif
                 {
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (!system::regtest_reduction) reduction(+ : mmc[ : 5])
@@ -534,6 +533,7 @@ void runAgent () {
 
                     if (!File.good()) { amrex::Abort("problem writing output file"); }
                 }
+#endif
             }
 
             if (params.shelter_start > 0 && params.shelter_start == i) { pc.shelterStart(); }
@@ -544,7 +544,7 @@ void runAgent () {
                 pc.moveRandomTravel(params.random_travel_prob);
             }
 
-            if ((params.air_travel_int > 0) && (i % params.air_travel_int == 0)) {
+            if ((params.do_air_travel > 0) && (i % params.do_air_travel == 0)) {
                 pc.moveAirTravel(censusData.unit_mf, air, censusData.demo);
             }
 
@@ -557,7 +557,7 @@ void runAgent () {
 
             if ((params.random_travel_int > 0) && (i % params.random_travel_int == 0)) { pc.returnRandomTravel(); }
 
-            if ((params.air_travel_int > 0) && (i % params.air_travel_int == 0)) { pc.returnAirTravel(); }
+            if ((params.do_air_travel > 0) && (i % params.do_air_travel == 0)) { pc.returnAirTravel(); }
 
             // Infect agents based on their interactions
             pc.infectAgents(disease_stats);

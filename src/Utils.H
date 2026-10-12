@@ -28,7 +28,7 @@ struct TestParams {
     int random_travel_int = -1;                           /*!< steps between random travel events
                                                                (see AgentContainer::moveRandomTravel) */
     amrex::Real random_travel_prob = amrex::Real(0.0001); /*!< probability of an agent going on random travel */
-    int air_travel_int = -1;
+    int do_air_travel = -1;
     short ic_type;                                        /*!< initialization type (see ExaEpi::ICType) */
     int weather_int = -1;
 

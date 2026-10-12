@@ -319,6 +319,7 @@ void AgentContainer::moveRandomTravel (const amrex::Real random_travel_prob) {
 */
 void AgentContainer::moveAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air, DemographicData& demo) {
     BL_PROFILE("AgentContainer::moveAirTravel");
+    int n_disease = numDiseases();
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev = GetParticles(lev);
 #ifdef AMREX_USE_OMP
@@ -333,6 +334,7 @@ void AgentContainer::moveAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air
             const size_t np = aos.numParticles();
             auto& soa = ptile.GetStructOfArrays();
             auto air_travel_ptr = soa.GetIntData(IntIdx::air_travel).data();
+            auto air_trav_timer_ptr = soa.GetIntData(IntIdx::air_trav_timer).data();
             auto random_travel_ptr = soa.GetIntData(IntIdx::random_travel).data();
             auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
             auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
@@ -340,24 +342,39 @@ void AgentContainer::moveAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air
             auto trav_i_ptr = soa.GetIntData(IntIdx::trav_i).data();
             auto trav_j_ptr = soa.GetIntData(IntIdx::trav_j).data();
             auto air_travel_prob_ptr = air.air_travel_prob_d.data();
+            auto air_travel_length_alpha = air.air_travel_length_alpha;
+            auto air_travel_length_beta = air.air_travel_length_beta;
             auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
+            int i_RT = IntIdx::nattribs;
+            GpuArray<int*, ExaEpi::max_num_diseases> status_ptrs;
+            for (int d = 0; d < n_disease; d++) {
+                status_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
+            }
+
 
             amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
                 int unit = unit_arr(home_i_ptr[i], home_j_ptr[i], 0);
                 if (!inHospital(i, ptd) && random_travel_ptr[i] < 0 && air_travel_ptr[i] < 0) {
                     if (withdrawn_ptr[i] == 1) { return; }
+                    for (int d = 0; d < n_disease; d++) {
+                        if (status_ptrs[d][i] == Status::dead) {
+                            return;
+                        }
+                    }
+
                     if (amrex::Random(engine) < air_travel_prob_ptr[unit]) {
                         ParticleType& p = pstruct[i];
                         p.pos(0) = trav_i_ptr[i];
                         p.pos(1) = trav_j_ptr[i];
                         air_travel_ptr[i] = i;
+                        air_trav_timer_ptr[i] = static_cast<int>(std::round(RandomGamma(air_travel_length_alpha, air_travel_length_beta, engine)));
                         weatherIdxPtr[i] = -weatherIdxPtr[i] - 2;
                     }
                 }
             });
         }
     }
-    // Redistribute();
+    Redistribute();
     // AMREX_ALWAYS_ASSERT(OK());
 }
 
@@ -386,6 +403,8 @@ void AgentContainer::setAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air,
             auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
             auto trav_i_ptr = soa.GetIntData(IntIdx::trav_i).data();
             auto trav_j_ptr = soa.GetIntData(IntIdx::trav_j).data();
+            auto air_travel_ptr = soa.GetIntData(IntIdx::air_travel).data();
+            auto air_trav_timer_ptr = soa.GetIntData(IntIdx::air_trav_timer).data();
             auto Start = demo.Start_d.data();
             auto dest_airports_ptr = air.dest_airports_d.data();
             auto dest_airports_offset_ptr = air.dest_airports_offset_d.data();
@@ -398,6 +417,8 @@ void AgentContainer::setAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air,
             amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
                 trav_i_ptr[i] = -1;
                 trav_j_ptr[i] = -1;
+                air_travel_ptr[i] = -1;
+                air_trav_timer_ptr[i] = 0;
                 int unit = unit_arr(home_i_ptr[i], home_j_ptr[i], 0);
                 int orgAirport = assigned_airport_ptr[unit];
                 int destAirport = -1;
@@ -501,6 +522,7 @@ void AgentContainer::returnRandomTravel () {
  */
 void AgentContainer::returnAirTravel () {
     BL_PROFILE("AgentContainer::returnAirTravel");
+    int n_disease = numDiseases();
 
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev = GetParticles(lev);
@@ -512,21 +534,51 @@ void AgentContainer::returnAirTravel () {
         for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
             auto& ptile = plev[{mfi.index(), mfi.LocalTileIndex()}];
             auto& aos = ptile.GetArrayOfStructs();
+            const auto& ptd = ptile.getParticleTileData();
             ParticleType* pstruct = &(aos[0]);
             const size_t np = aos.numParticles();
             auto& soa = ptile.GetStructOfArrays();
             auto air_travel_ptr = soa.GetIntData(IntIdx::air_travel).data();
+            auto air_trav_timer_ptr = soa.GetIntData(IntIdx::air_trav_timer).data();
+            auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
             auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
             auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
             auto weatherIdxPtr = soa.GetIntData(IntIdx::weatherLookup).data();
 
+            int i_RT = IntIdx::nattribs;
+            GpuArray<int*, ExaEpi::max_num_diseases> status_ptrs;
+            for (int d = 0; d < n_disease; d++) {    
+                status_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
+            }
+
             amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                 if (air_travel_ptr[i] >= 0) {
-                    ParticleType& p = pstruct[i];
-                    air_travel_ptr[i] = -1;
-                    p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
-                    p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
-                    weatherIdxPtr[i] = -weatherIdxPtr[i] - 2;
+                    //if an agent dies, bring them home immediately
+                    for (int d = 0; d < n_disease; d++) {
+                        if (status_ptrs[d][i] == Status::dead) {
+                            ParticleType& p = pstruct[i];
+                            air_travel_ptr[i] = -1;
+                            air_trav_timer_ptr[i] = 0;
+                            p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
+                            p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
+                            weatherIdxPtr[i] = -weatherIdxPtr[i] - 2;
+                            return;
+                        }
+                    }
+
+                    air_trav_timer_ptr[i] --;
+                    if (inHospital(i, ptd) || withdrawn_ptr[i]) {
+                        if (air_trav_timer_ptr[i] <= 0) air_trav_timer_ptr[i] = 1; //extend travel time by 1 day to continue treatment
+                        return;
+                    }
+                    if (air_trav_timer_ptr[i] <= 0) { //return home
+                        ParticleType& p = pstruct[i];
+                        air_travel_ptr[i] = -1;
+                        air_trav_timer_ptr[i] = 0;
+                        p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
+                        p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
+                        weatherIdxPtr[i] = -weatherIdxPtr[i] - 2;
+                    }
                 }
             });
         }
@@ -693,6 +745,7 @@ void AgentContainer::updateStatus (MFPtrVec& a_disease_stats /*!< Community-wise
             });
         }
     }
+    //Redistribute();
 }
 
 /*! \brief Start shelter-in-place */
@@ -795,6 +848,7 @@ void AgentContainer::infectAgents (MFPtrVec& a_disease_stats /*!< Community-wise
                 auto hospital_random_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_random).data();
                 auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
                 auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+                auto air_travel_ptr = soa.GetIntData(IntIdx::air_travel).data();
 
                 const auto lparm = m_d_parm[d];
 
@@ -820,7 +874,8 @@ void AgentContainer::infectAgents (MFPtrVec& a_disease_stats /*!< Community-wise
                             setInfected(&(status_ptr[i]), &(symptomatic_ptr[i]), &(counter_ptr[i]), &(latent_period_ptr[i]),
                                         &(infectious_period_ptr[i]), &(incubation_period_ptr[i]), &(hospital_delay_ptr[i]),
                                         &(hospital_random_ptr[i]), engine, lparm);
-                            Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::new_cases), 1.0_rt);
+                            if(air_travel_ptr[i] < 0) 
+                                Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::new_cases), 1.0_rt);
 
                             return;
                         }
@@ -869,8 +924,10 @@ void AgentContainer::generateCellData (MultiFab& mf, /*!< MultiFab with at least
 
                 for (int d = 0; d < n_disease; d++) {
                     int status = ptd.m_runtime_idata[i0(d) + IntIdxDisease::status][i];
-                    Gpu::Atomic::AddNoRet(&count(iv, a_ncomp * d + 0), 1.0_rt);
-                    if (status != Status::dead) { Gpu::Atomic::AddNoRet(&count(iv, a_ncomp * d + status + 1), 1.0_rt); }
+                    if (!isOnAirTravel(i, ptd)) {
+                        Gpu::Atomic::AddNoRet(&count(iv, a_ncomp * d + 0), 1.0_rt);
+                        if (status != Status::dead) { Gpu::Atomic::AddNoRet(&count(iv, a_ncomp * d + status + 1), 1.0_rt); }
+                    }
                 }
             },
             false);
@@ -899,7 +956,9 @@ std::array<Long, OutputStatus::nattribs> AgentContainer::getTotals (const int a_
 
                 if (status == Status::never || status == Status::susceptible) { s[OutputStatus::Su] = 1; }
                 if (status == Status::immune) { s[OutputStatus::R] = 1; }
-                if (status == Status::dead) { s[OutputStatus::D] = 1; }
+                if (!isOnAirTravel(i, ptd)) { //defer the count if an agent dies on travel
+                    if (status == Status::dead) { s[OutputStatus::D] = 1; }
+                }
 
                 if (isNewlyInfected(i, ptd, a_d)) { s[OutputStatus::NewI] = 1; }
                 if (isNewlySymptomatic(i, ptd, a_d)) { s[OutputStatus::NewS] = 1; }

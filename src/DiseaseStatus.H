@@ -112,6 +112,8 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
             auto marked_for_hosp_ptr = marked_for_hosp.data();
             auto marked_for_ICU_ptr = marked_for_ICU.data();
             auto marked_for_vent_ptr = marked_for_vent.data();
+            Gpu::DeviceVector<int> marked_air_travel(np, 0);
+            auto marked_air_travel_ptr = marked_air_travel.data();
 
             for (int d = 0; d < n_disease; d++) {
 
@@ -126,6 +128,9 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                 auto incubation_period_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::incubation_period).data();
                 auto hospital_delay_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_delay).data();
                 auto hospital_random_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_random).data();
+                auto air_travel_ptr = soa.GetIntData(IntIdx::air_travel).data();
+                auto air_trav_timer_ptr = soa.GetIntData(IntIdx::air_trav_timer).data();
+
 
                 auto* disease_parm_d = a_agents.getDiseaseParameters_d(d);
                 auto* disease_parm_h = a_agents.getDiseaseParameters_h(d);
@@ -138,6 +143,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                 auto compliance_day_2 = a_agents.m_symptomatic_withdraw_compliance_day_2;
 
                 ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
+                    if (air_travel_ptr[i] >= 0) marked_air_travel_ptr[i] = 1;
                     if (status_ptr[i] == Status::dead) { return; }
                     prob_ptr[i] = 1.0_rt;
                     if (status_ptr[i] == Status::never || status_ptr[i] == Status::susceptible) {
@@ -210,6 +216,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
             for (int d = 0; d < n_disease; d++) {
                 auto ds_arr = (*a_stats[d])[mfi].array();
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
+                    if (marked_air_travel_ptr[i] == 1) return; //don't count travel agents until they come home
                     if (marked_for_hosp_ptr[i] == 1) {
                         Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::hospitalization), 1.0_rt);
                     }

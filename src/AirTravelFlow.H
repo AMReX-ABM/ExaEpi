@@ -54,6 +54,8 @@ struct AirTravelFlow {
     // data that processed by only host
     int nairports;                                                 /*! Total number of airports */
     int n_counties_with_airports;
+    Real air_travel_length_alpha = Real(9.0);
+    Real air_travel_length_beta = Real(0.6667);
     std::map<std::string, int> airport_id;                         /*! integer id for airport code*/
     std::map<int, std::string> id_to_airport;                      /*! integer id to airport code*/
     std::map<int, std::string> FIPS_to_airport;                    /*!< map from FIPS to airport code */

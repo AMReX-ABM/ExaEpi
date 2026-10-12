@@ -29,7 +29,7 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
     pp.query("check_int", params.check_int);
     pp.query("random_travel_int", params.random_travel_int);
     pp.query("random_travel_prob", params.random_travel_prob);
-    pp.query("air_travel_int", params.air_travel_int);
+    pp.query("do_air_travel", params.do_air_travel);
     pp.query("number_of_diseases", params.num_diseases);
     pp.query("weather_int", params.weather_int);
     pp.query("startdate", params.startdate);
@@ -48,7 +48,7 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
         params.ic_type = ICType::Census;
         pp.get("census_filename", params.census_filename);
         pp.get("workerflow_filename", params.workerflow_filename);
-        if (params.air_travel_int > 0) {
+        if (params.do_air_travel > 0) {
             pp.get("air_traffic_filename", params.air_traffic_filename);
             pp.get("airports_filename", params.airports_filename);
         }
