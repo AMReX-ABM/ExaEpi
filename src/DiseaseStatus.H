@@ -215,7 +215,7 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                 auto ds_arr = (*a_stats[d])[mfi].array();
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                     if (marked_air_travel_ptr[i] == 1) {
-                        return; //don't count travel agents until they come home
+                        return; // don't count travel agents until they come home
                     }
                     if (marked_for_hosp_ptr[i] == 1) {
                         Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::hospitalization), 1.0_rt);

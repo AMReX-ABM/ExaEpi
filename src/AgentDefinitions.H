@@ -48,20 +48,20 @@ struct IntIdx {
         hosp_j /*!< hosp location index */,
         trav_i /*!< air travel location index */,
         trav_j /*!< air travel location index */,
-        nborhood,      /*!< home neighborhood ID */
-        hh_cluster,    /*!< household cluster ID */
-        school_grade,  /*!< school grade, including universities */
-        school_id,     /*!< ID for a given school */
-        school_closed, /*!< 0 for open, 1 for closed */
-        naics,         /*!< industry NAICS code for business employed at */
-        workgroup,     /*!< workgroup ID */
-        work_nborhood, /*!< work neighborhood ID */
-        withdrawn,     /*!< quarantine status */
-        random_travel, /*!< on long distance travel? */
-        air_travel,    /*!< on long distance travel by Air? */
-        air_trav_timer,/*!< number of traveling days by Air */
-        weatherLookup, /*!< index for current weather variables, incremented weekly */
-        nattribs       /*!< number of integer-type attribute */
+        nborhood,       /*!< home neighborhood ID */
+        hh_cluster,     /*!< household cluster ID */
+        school_grade,   /*!< school grade, including universities */
+        school_id,      /*!< ID for a given school */
+        school_closed,  /*!< 0 for open, 1 for closed */
+        naics,          /*!< industry NAICS code for business employed at */
+        workgroup,      /*!< workgroup ID */
+        work_nborhood,  /*!< work neighborhood ID */
+        withdrawn,      /*!< quarantine status */
+        random_travel,  /*!< on long distance travel? */
+        air_travel,     /*!< on long distance travel by Air? */
+        air_trav_timer, /*!< number of traveling days by Air */
+        weatherLookup,  /*!< index for current weather variables, incremented weekly */
+        nattribs        /*!< number of integer-type attribute */
     };
 };
 

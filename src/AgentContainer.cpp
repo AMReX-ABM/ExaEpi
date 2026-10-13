@@ -351,7 +351,6 @@ void AgentContainer::moveAirTravel (const iMultiFab& unit_mf, AirTravelFlow& air
                 status_ptrs[d] = soa.GetIntData(i_RT + i0(d) + IntIdxDisease::status).data();
             }
 
-
             amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
                 int unit = unit_arr(home_i_ptr[i], home_j_ptr[i], 0);
                 if (!inHospital(i, ptd) && random_travel_ptr[i] < 0 && air_travel_ptr[i] < 0) {
@@ -875,7 +874,7 @@ void AgentContainer::infectAgents (MFPtrVec& a_disease_stats /*!< Community-wise
                             setInfected(&(status_ptr[i]), &(symptomatic_ptr[i]), &(counter_ptr[i]), &(latent_period_ptr[i]),
                                         &(infectious_period_ptr[i]), &(incubation_period_ptr[i]), &(hospital_delay_ptr[i]),
                                         &(hospital_random_ptr[i]), engine, lparm);
-                            if(air_travel_ptr[i] < 0) {
+                            if (air_travel_ptr[i] < 0) {
                                 Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::new_cases), 1.0_rt);
                             }
 

@@ -273,7 +273,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< 
                 auto ds_arr = (*a_dstats[d])[mfi].array();
                 ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
                     if (marked_air_travel_ptr[i] == 1) {
-                        return; //don't count travel agents until they come home
+                        return; // don't count travel agents until they come home
                     }
                     if (died_today_ptr[i]) {
                         Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::death), 1.0_rt);
