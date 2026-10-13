@@ -129,8 +129,6 @@ void DiseaseStatus<AC, ACT, ACTD, A>::updateAgents (AC& a_agents, /*!< Agent con
                 auto hospital_delay_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_delay).data();
                 auto hospital_random_ptr = soa.GetRealData(r_RT + r0(d) + RealIdxDisease::hospital_random).data();
                 auto air_travel_ptr = soa.GetIntData(IntIdx::air_travel).data();
-                auto air_trav_timer_ptr = soa.GetIntData(IntIdx::air_trav_timer).data();
-
 
                 auto* disease_parm_d = a_agents.getDiseaseParameters_d(d);
                 auto* disease_parm_h = a_agents.getDiseaseParameters_h(d);

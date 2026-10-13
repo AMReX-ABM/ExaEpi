@@ -460,7 +460,9 @@ void runAgent () {
                     mmc[2] = amrex::get<2>(mm);
                     mmc[3] = amrex::get<3>(mm);
                     mmc[4] = amrex::get<4>(mm);
-                } else {
+                } else
+#endif
+                {
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (!system::regtest_reduction) reduction(+ : mmc[ : 5])
 #endif
@@ -532,7 +534,6 @@ void runAgent () {
 
                     if (!File.good()) { amrex::Abort("problem writing output file"); }
                 }
-#endif
             }
 
             if (params.shelter_start > 0 && params.shelter_start == i) { pc.shelterStart(); }
