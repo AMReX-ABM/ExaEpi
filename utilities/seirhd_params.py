@@ -85,6 +85,11 @@ DEFAULTS: dict[str, Any] = {
     "hospCVF": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     "icuCVF": [0.0, 0.0, 0.0, 0.0, 0.0, 0.26],
     "ventCVF": [0.20, 0.20, 0.20, 0.45, 0.45, 1.0],
+    "asymp_relative_inf": 0.7,
+    # agent.* parameters, from AgentContainer.H, read only by replayed_generation_interval()
+    "symptomatic_withdraw_compliance_day_0": [0.3, 0.3, 0.3, 0.3, 0.3, 0.3],
+    "symptomatic_withdraw_compliance_day_1": [0.8, 0.7, 0.5, 0.5, 0.5, 0.5],
+    "symptomatic_withdraw_compliance_day_2": [0.9, 0.8, 0.7, 0.7, 0.7, 0.7],
 }
 
 # The agent record layout from UrbanPopAgentStruct.H, in declaration order, as
@@ -501,9 +506,11 @@ def generation_interval(p, max_days=60):
     mean 1/(gamma + hosp_rate)) normalized by its mean. Returned as g[k], k = 0..max_days-1, the
     mass in (k - 1/2, k + 1/2] -- centered on the day, so that a daily-incidence renewal estimate
     of R_t isn't shifted by half a day. compare_to_epicast.py and plot_tract_seeding.py use the
-    same g for every model: replaying ExaEpi's lifecycle with reduced presymptomatic/asymptomatic
-    infectiousness, symptomatic withdrawal and at-home transmission while hospitalized gives a mean
-    within 0.3 days of this one, as those effects largely cancel.
+    same g for every model. ExaEpi's own generation interval, replayed with reduced
+    presymptomatic/asymptomatic infectiousness, symptomatic withdrawal and transmission at home by
+    withdrawn and hospitalized agents (replayed_generation_interval(), seirhd_params.py --replay-gi),
+    is about 0.5 days longer on the CA and NM inputs: enough to raise an early R_t estimate by about
+    4%, but not to move where R_t crosses 1.
     """
     from scipy.stats import gamma as gamma_dist
     dt = 0.01
@@ -514,6 +521,58 @@ def generation_interval(p, max_days=60):
     density = np.convolve(latent, residual)[:len(t)] * dt
     edges = np.concatenate([[0], np.arange(0.5, max_days, 1.0)])
     g = np.array([density[(t >= a) & (t < b)].sum() * dt for a, b in zip(edges[:-1], edges[1:])])
+    return g / g.sum()
+
+
+def replayed_generation_interval(p, agent_p, age_fractions, household_share, rng, n, max_days=60):
+    """Daily generation-interval distribution of ExaEpi itself, replaying each agent's lifecycle
+    (draw_periods(), with derive()'s whole-day conventions) and weighting each infectious day by
+    how infectious the agent is that day, relative to a symptomatic agent mixing in every setting:
+
+      - presymptomatic and asymptomatic agents: asymp_relative_inf (InteractionMod*.H);
+      - symptomatic agents: 1 until they withdraw, which they do with the age group's compliance
+        on each of the first three days of symptoms (DiseaseStatus.H), or on the day they are
+        admitted to hospital;
+      - withdrawn and hospitalized agents (to the end of the hospital stay): household_share,
+        since they transmit only within their households, where household_share is the share of
+        a mixing agent's transmission that happens there (e.g. the household share of all
+        infections in the model's runs).
+
+    Returned like generation_interval() (g[k], the mass on day k since infection), so the two
+    can be compared: the SEIRHD one has no reduced presymptomatic infectiousness, no withdrawal
+    and no transmission while hospitalized.
+    """
+    age = rng.choice(N_AGE, size=n, p=age_fractions)
+    latent, incubation, infectious, hospital_delay = draw_periods(p, rng, n)
+    symptomatic = rng.random(n) >= p.scalar("p_asymp")
+    hospitalised = symptomatic & (rng.random(n) < p.array("CHR")[age])
+    latent_days = np.round(latent)
+    symptom_day = np.round(incubation)
+    recovery_day = np.round(latent + infectious)
+    admission_day = symptom_day + np.round(hospital_delay)
+    if p.string("hospital_stay_type") == "random":
+        stay = np.maximum(np.trunc(rng.gamma(p.array("hospitalization_days_alpha")[age],
+                                             p.array("hospitalization_days_beta")[age])), 1.0)
+    else:
+        stay = p.array("hospitalization_days")[age]
+    end_day = np.where(hospitalised, admission_day + stay, recovery_day)
+
+    never = np.inf
+    compliance = [agent_p.array(f"symptomatic_withdraw_compliance_day_{d}")[age] for d in range(3)]
+    draws = rng.random((3, n))
+    withdraw_day = np.where(draws[0] < compliance[0], symptom_day,
+                            np.where(draws[1] < compliance[1], symptom_day + 1,
+                                     np.where(draws[2] < compliance[2], symptom_day + 2, never)))
+    withdraw_day = np.where(symptomatic, withdraw_day, never)
+    withdraw_day = np.where(hospitalised, np.minimum(withdraw_day, admission_day), withdraw_day)
+
+    rel = p.scalar("asymp_relative_inf")
+    g = np.zeros(max_days)
+    for k in range(max_days):
+        infectious_today = (k > latent_days) & (k < end_day)
+        has_symptoms = symptomatic & (k >= symptom_day)
+        w = np.where(has_symptoms, np.where(k >= withdraw_day, household_share, 1.0), rel)
+        g[k] = (w * infectious_today).sum()
     return g / g.sum()
 
 
@@ -596,6 +655,12 @@ def main():
     parser.add_argument("--no-cache", action="store_true",
                         help="ignore and do not write the .agecounts.json cache "
                              "beside the .bin")
+    parser.add_argument("--replay-gi", type=float, metavar="HOUSEHOLD_SHARE",
+                        help="also compare the SEIRHD generation interval with ExaEpi's own, "
+                             "replayed with reduced presymptomatic/asymptomatic infectiousness, "
+                             "symptomatic withdrawal and transmission at home while hospitalized; "
+                             "HOUSEHOLD_SHARE is the share of transmission in households (see "
+                             "replayed_generation_interval)")
     parser.add_argument("--show-inputs", action="store_true",
                         help="also list every parameter read, and whether it came "
                              "from the .ini or from the DiseaseParm.H default")
@@ -655,6 +720,25 @@ def main():
         print("\nbeta is not derivable from disease parameters -- it depends on the "
               "contact\nnetwork. Fit it, or pass --r0 to convert a fitted R0 into "
               "the matching beta.")
+
+    if args.replay_gi is not None:
+        agent_p = Params(parse_ini(args.ini, list(args.overrides)), "agent")
+        days = np.arange(60)
+
+        def describe(g):
+            mean = float(np.dot(days, g))
+            return mean, float(np.sqrt(np.dot((days - mean) ** 2, g)))
+
+        seir_mean, seir_sd = describe(generation_interval(r))
+        replay = replayed_generation_interval(p, agent_p, age_fractions, args.replay_gi,
+                                              np.random.default_rng(args.seed), args.num_agents)
+        replay_mean, replay_sd = describe(replay)
+        print(f"\nGeneration interval (days), mean and SD:")
+        print(f"  SEIRHD                             {seir_mean:8.2f}   SD {seir_sd:.2f}")
+        print(f"  ExaEpi, replayed                   {replay_mean:8.2f}   SD {replay_sd:.2f}"
+              f"  (household share {args.replay_gi:g}, asymp_relative_inf "
+              f"{p.scalar('asymp_relative_inf'):g})")
+        print(f"  difference                         {replay_mean - seir_mean:+8.2f}")
 
 
 if __name__ == "__main__":
