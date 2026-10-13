@@ -2199,8 +2199,14 @@ def generate_nt_dt(
     if worker_placement == "ctpp":
         workers_nt_dt_df = alloc_workers_ctpp(workers_df, commute_bundle, seed)
     else:
+        # alloc_workers draws from numpy's global stream, which alloc_workers_ctpp leaves alone, so
+        # restore the stream afterwards: the students and teachers are then drawn the same way for
+        # either placement, and populations that differ only in --worker_placement differ only in
+        # where the workers go
+        rng_state = np.random.get_state()
         workers_nt_dt_df = alloc_workers(lodes_df, workers_df, workgroup_sizes_file, establishment_sizes_file,
                                          blockgroup_points, fill_decay_km)
+        np.random.set_state(rng_state)
     if num_unique_ids != (len(workers_nt_dt_df) + len(students_df) + len(unemp_df)):
         raise_err(f"Incorrect number of unique IDS after worker allocation")
     students_nt_dt_df = alloc_students(schools_df, students_df, county_adjacency)
