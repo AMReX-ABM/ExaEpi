@@ -3,7 +3,7 @@ The scripts in this directory are for analyzing, comparing and plotting ExaEpi r
 Scripts that *generate* ExaEpi's UrbanPop input `.bin` files live in `UrbanPop-scripts/` instead,
 and are documented by that directory's own README.
 
-Most of the plotting scripts share `plos_compbio_style.py`, so figures come out with one consistent
+Most of the plotting scripts share `figure_style.py`, so figures come out with one consistent
 set of fonts, line widths and page widths rather than each script's own.
 
 ## Plotting a run
@@ -70,10 +70,6 @@ same transmission-context buckets Epicast reports, and plots the two side by sid
 Compares the two models' distributions of workgroup size, school-class size and school size. With
 `--cbp_state` it also overlays the real CBP establishment-size distribution as a reference.
 
-### `compare_initial_cases.py`
-
-Compares a case-seeding file against Epicast's seeded infections, per county.
-
 ### `calc_epicast_trans_probs.py`
 
 Fits gamma distributions against Epicast's per-day transmission probabilities, for tuning ExaEpi's
@@ -96,9 +92,9 @@ comparison scripts above.
 
 These are imported by the scripts above rather than run on their own.
 
-* `plos_compbio_style.py` -- shared matplotlib styling (fonts, line widths, page widths) so every
-  paper figure matches. See its docstring for why figure width is calibrated against the paper's
-  LaTeX `\linewidth` rather than the journal's raw submission spec.
+* `figure_style.py` -- shared matplotlib styling (fonts, line widths, page widths) so every
+  figure matches, sized for the PLOS LaTeX template. See its docstring for why figure width is
+  calibrated against a paper's LaTeX `\linewidth` rather than the journal's raw submission spec.
 * `geo_agg_utils.py` -- geographic aggregation helper for the `plot_geo*` scripts, deliberately
   standard-library-only so reusing it does not pull in `yt` or the Epicast readers.
 

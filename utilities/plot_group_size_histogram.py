@@ -46,7 +46,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from plos_compbio_style import apply_style, HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN  # noqa: E402
+from figure_style import apply_style, HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN  # noqa: E402
 from read_epicast_events import (  # noqa: E402
     EPICAST_NEIGHBORHOODS_PER_COMMUNITY,
     estimate_community_populations,

@@ -19,7 +19,7 @@ from scipy.integrate import solve_ivp
 
 sys.path.insert(0, os.path.dirname(__file__))
 from read_epicast_events import read_epicast_summary, EPICAST_SUMMARY_SUFFIX
-from plos_compbio_style import apply_style, FULL_PAGE_WIDTH_IN, FONT_TICK, AXES_LINEWIDTH, PAGE_WIDTHS_IN
+from figure_style import apply_style, FULL_PAGE_WIDTH_IN, FONT_TICK, AXES_LINEWIDTH, PAGE_WIDTHS_IN
 import seirhd_params
 
 apply_style()
@@ -1651,7 +1651,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--width", choices=["grid"] + list(PAGE_WIDTHS_IN), default="grid",
-    help="Panel size (see plos_compbio_style.py). 'grid' (default) gives every panel half the page "
+    help="Panel size (see figure_style.py). 'grid' (default) gives every panel half the page "
     "width, laid out two across; 'half' or 'third' size a single panel for a sub-figure placed at "
     "0.48 or 0.32 \\linewidth -- a panel drawn at half width and shown three across would have its "
     "text shrunk to 2/3 of its size, below PLOS's 8pt floor",

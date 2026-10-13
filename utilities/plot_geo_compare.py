@@ -48,7 +48,7 @@ from plot_geo import (  # noqa: E402
 )
 from read_epicast_events import read_events_bin  # noqa: E402
 from geo_agg_utils import aggregate_to_county  # noqa: E402
-from plos_compbio_style import apply_style, HALF_PAGE_WIDTH_IN, PAGE_WIDTHS_IN  # noqa: E402
+from figure_style import apply_style, HALF_PAGE_WIDTH_IN, PAGE_WIDTHS_IN  # noqa: E402
 
 
 def _fmt(r):
@@ -130,7 +130,7 @@ def main():
     )
     parser.add_argument(
         "--width", choices=list(PAGE_WIDTHS_IN), default="half",
-        help="Figure size for the slot it is placed in in the paper (see plos_compbio_style.py): "
+        help="Figure size for the slot it is placed in in the paper (see figure_style.py): "
         "'half' for 0.48\\linewidth, 'third' for three sub-figures across at 0.32\\linewidth",
     )
     parser.add_argument(

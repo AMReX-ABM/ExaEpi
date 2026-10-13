@@ -45,7 +45,7 @@ import numpy as np  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "UrbanPop-scripts"))
 from compute_workgroup_sizes import load_cbp_cache, parse_naics_descriptions  # noqa: E402
-from plos_compbio_style import apply_style, FONT_TICK, HALF_PAGE_HEIGHT_IN, HALF_PAGE_WIDTH_IN  # noqa: E402
+from figure_style import apply_style, FONT_TICK, HALF_PAGE_HEIGHT_IN, HALF_PAGE_WIDTH_IN  # noqa: E402
 from plot_commute_distance import read_urbanpop_columns  # noqa: E402
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

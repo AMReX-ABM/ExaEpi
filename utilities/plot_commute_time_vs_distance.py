@@ -35,7 +35,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from plos_compbio_style import apply_style, HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN  # noqa: E402
+from figure_style import apply_style, HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN  # noqa: E402
 from plot_commute_distance import (  # noqa: E402
     read_urbanpop_columns,
     exaepi_commuters,

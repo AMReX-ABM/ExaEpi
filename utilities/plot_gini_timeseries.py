@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from plot_geo import load_exaepi_grid_stats, _parse_day_from_filename, iter_epicast_snapshots  # noqa: E402
 from read_epicast_events import read_events_bin  # noqa: E402
-from plos_compbio_style import apply_style, PAGE_WIDTHS_IN, AXES_LINEWIDTH  # noqa: E402
+from figure_style import apply_style, PAGE_WIDTHS_IN, AXES_LINEWIDTH  # noqa: E402
 
 import geopandas as gp  # noqa: E402
 
@@ -155,7 +155,7 @@ def main():
     )
     parser.add_argument(
         "--width", choices=list(PAGE_WIDTHS_IN), default="half",
-        help="Figure size for the slot it is placed in in the paper (see plos_compbio_style.py): "
+        help="Figure size for the slot it is placed in in the paper (see figure_style.py): "
         "'half' for 0.48\\linewidth, 'third' for three sub-figures across at 0.32\\linewidth",
     )
     parser.add_argument("--output", "-o", default="spread_timeseries.png", help="Output plot file")

@@ -10,7 +10,7 @@ from scipy.stats import gamma, pearsonr
 from scipy.optimize import minimize, differential_evolution
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from plos_compbio_style import (  # noqa: E402
+from figure_style import (  # noqa: E402
     apply_style,
     FULL_PAGE_WIDTH_IN,
     FONT_TICK,
@@ -212,7 +212,7 @@ parser.add_argument(
     "--width",
     choices=["full"] + list(PAGE_WIDTHS_IN),
     default=None,
-    help="Figure size for the slot it is placed in in the paper (see plos_compbio_style.py): "
+    help="Figure size for the slot it is placed in in the paper (see figure_style.py): "
     "'half' for 0.48\\linewidth, 'third' for three sub-figures across at 0.32\\linewidth, "
     "'full' for one row of panels (one per period) spanning \\linewidth. 'half' and 'third' "
     "size a single panel. Default: 'half' for a single period, 'full' otherwise",
@@ -230,7 +230,7 @@ width = args.width or ("half" if len(groups) == 1 else "full")
 if width == "full":
     # Total width fixed at the paper's full-page width regardless of how many groups there are --
     # each panel just gets narrower as more groups are added, rather than the whole figure growing
-    # past the page (see plos_compbio_style.py). Height matches the same 4:3-ish aspect used for
+    # past the page (see figure_style.py). Height matches the same 4:3-ish aspect used for
     # every other ordinary (non-map) plot in the paper.
     panel_width = FULL_PAGE_WIDTH_IN / len(groups)
     figsize = (FULL_PAGE_WIDTH_IN, panel_width * 0.75)

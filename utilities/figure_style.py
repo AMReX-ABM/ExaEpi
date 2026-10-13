@@ -1,13 +1,15 @@
-"""Shared matplotlib styling for every plot_geo*/plot_group_size*/plot_gini_timeseries.py figure
-going into the emerge paper (a PLOS Computational Biology submission), so they all look like one
-consistent set rather than each script's own ad hoc font sizes and aspect ratios.
+"""Shared matplotlib styling for the plotting scripts in this directory (plot_geo*,
+plot_group_size*, plot_gini_timeseries, compare_to_epicast, ...), so that their figures look like
+one consistent set rather than each script's own ad hoc font sizes and aspect ratios. The defaults
+are sized for a paper in the PLOS LaTeX template (PLOS Computational Biology and the other PLOS
+journals), and suit other single-column journal templates with a similar text width.
 
 Font sizes (8-12pt, using the very bottom of that range: 8pt ticks/legends/axis labels, 9pt titles --
-Arial reads noticeably larger than the Computer Modern of the paper's 9pt sub-captions at the same
+Arial reads noticeably larger than the Computer Modern of a paper's 9pt sub-captions at the same
 point size, so anything bigger makes the figure text look larger than its captions), font family (Arial -- PLOS allows "Arial, Times,
 or Symbol" only), and line width (~0.2mm, PLOS's own guidance) come from PLOS's figure spec
 (https://journals.plos.org/ploscompbiol/s/figures). But figure WIDTH here is calibrated against how
-the figures are actually placed in the paper's LaTeX source, NOT PLOS's spec for the submitted
+the figures are actually placed in a paper's LaTeX source, NOT PLOS's spec for the submitted
 file's own resolution -- those are two different numbers, and conflating them is what makes text
 come out too small. PLOS's 5.2in/7.5in figures describe the physical size PLOS's own production
 pipeline re-embeds a submitted file at (from its pixel dimensions and DPI) -- that's irrelevant to
@@ -17,9 +19,9 @@ into the raster/vector at a fixed point size, LaTeX scaling the whole image down
 scales the fonts down with it -- so a figure must be authored at (or very near) its ACTUAL final
 display width for an 8-12pt font to still read as 8-12pt on the page.
 
-This paper places third-page figures at 0.32\\linewidth (three sub-figures across), half-page ones
-at 0.48\\linewidth and full-page ones at \\linewidth, in the PLOS LaTeX template (\\linewidth ~= 6.5in
-for that template's single-column body text):
+The widths assume third-page figures placed at 0.32\\linewidth (three sub-figures across), half-page
+ones at 0.48\\linewidth and full-page ones at \\linewidth, in the PLOS LaTeX template (\\linewidth
+~= 6.5in for that template's single-column body text):
   - third-page width = 0.32 * 6.5in ~= 2.08in
   - half-page width  = 0.48 * 6.5in ~= 3.12in
   - full-page width  = 1.00 * 6.5in ~= 6.5in

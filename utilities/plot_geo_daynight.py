@@ -40,7 +40,7 @@ import matplotlib.cm as mcm
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from plot_geo import load_exaepi_day_night_population  # noqa: E402
-from plos_compbio_style import (  # noqa: E402
+from figure_style import (  # noqa: E402
     apply_style,
     HALF_PAGE_WIDTH_IN,
     FULL_PAGE_WIDTH_IN,

@@ -49,7 +49,7 @@ import matplotlib as mp  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from geo_agg_utils import aggregate_to_county  # noqa: E402
 from read_epicast_events import read_events_bin  # noqa: E402
-from plos_compbio_style import (  # noqa: E402
+from figure_style import (  # noqa: E402
     apply_style,
     FONT_TICK,
     FONT_LABEL,

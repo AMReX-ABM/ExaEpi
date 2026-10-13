@@ -59,7 +59,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
-from plos_compbio_style import apply_style, HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN
+from figure_style import apply_style, HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN
 from plot_commute_distance import read_urbanpop_columns, TRAVEL_WFH
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -624,7 +624,7 @@ def main():
     }
 
     # Total width fixed at the paper's half-page width regardless of how many groups are plotted
-    # side by side -- each panel just gets narrower as more are added (see plos_compbio_style.py).
+    # side by side -- each panel just gets narrower as more are added (see figure_style.py).
     # Height stays the shared standard regardless of how many panels there are.
     fig, axes = plt.subplots(1, len(args.groups), figsize=(HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN), layout="constrained")
     if len(args.groups) == 1:

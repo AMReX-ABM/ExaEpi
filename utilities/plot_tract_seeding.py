@@ -43,7 +43,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from plos_compbio_style import apply_style, PAGE_WIDTHS_IN, FONT_TICK  # noqa: E402
+from figure_style import apply_style, PAGE_WIDTHS_IN, FONT_TICK  # noqa: E402
 from read_epicast_events import read_events_records, urbanpop_agent_index  # noqa: E402
 from plot_commute_distance import read_urbanpop_columns  # noqa: E402
 import seirhd_params  # noqa: E402
@@ -395,7 +395,7 @@ def main():
     parser.add_argument("--logy", action="store_true",
                         help="Log y axis (tracts reached) on the tract-seeding plot")
     parser.add_argument("--width", choices=list(PAGE_WIDTHS_IN), default="half",
-                        help="Figure size for the slot it is placed in in the paper (see plos_compbio_style.py)")
+                        help="Figure size for the slot it is placed in in the paper (see figure_style.py)")
     parser.add_argument("--output", "-o", default="tract",
                         help="Output prefix: writes <prefix>-tract-seeding.png and "
                         "<prefix>-tract-local-growth.png (default: tract)")

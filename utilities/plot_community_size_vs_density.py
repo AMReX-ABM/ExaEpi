@@ -32,7 +32,7 @@ from scipy.stats import spearmanr
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from plot_geo import load_exaepi_day_night_population  # noqa: E402
-from plos_compbio_style import apply_style, HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN  # noqa: E402
+from figure_style import apply_style, HALF_PAGE_WIDTH_IN, HALF_PAGE_HEIGHT_IN  # noqa: E402
 
 SQ_M_PER_SQ_KM = 1_000_000.0
 MIN_BIN_COUNT = 5  # minimum communities in a density bin before its median is plotted
