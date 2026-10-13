@@ -384,10 +384,28 @@ def _shift_array(y, shift, n):
     return np.where((src >= 0) & (src < len(y)), y[np.clip(src, 0, len(y) - 1)], 0.0)
 
 
+# Days in the centered moving average a peak is taken on -- both its height (_goodness_of_fit) and
+# its day (_peak_day) -- so that a single noisy day isn't taken for the peak. The paper's other
+# peak figures (the New Mexico tests, county peaks) use the same 7-day centered mean.
+PEAK_SMOOTH_WINDOW = 7
+
+
+def _centered_mean(y, window=PEAK_SMOOTH_WINDOW):
+    """y's centered `window`-day moving average, averaging over only the days that exist at either
+    end (as pandas' rolling(window, center=True, min_periods=1).mean() does)."""
+    y = np.asarray(y, dtype=float)
+    if len(y) == 0:
+        return y
+    kernel = np.ones(min(window, len(y)))
+    return np.convolve(y, kernel, mode="same") / np.convolve(np.ones(len(y)), kernel, mode="same")
+
+
 def _goodness_of_fit(ref_y, y):
     """Return (R^2, NRMSE, peak_diff_pct) of curve y against reference curve ref_y, comparing over
     their common length. peak_diff_pct is how much higher (positive) or lower (negative) y's peak
-    is than ref_y's, as a percentage of ref_y's peak -- heights only, whatever day each falls on. NRMSE is RMSE normalized by the reference curve's peak (maximum absolute
+    is than ref_y's, as a percentage of ref_y's peak -- heights only, whatever day each falls on,
+    each peak that of the curve's PEAK_SMOOTH_WINDOW-day centered mean. R^2 and NRMSE compare the
+    daily values themselves. NRMSE is RMSE normalized by the reference curve's peak (maximum absolute
     value), so it reads as the typical error as a fraction of the peak height. Normalizing by the
     mean instead made it depend on the plotted window: days where both curves sit near zero pull
     the mean down and so push the NRMSE up, with no change in how well the curves agree.
@@ -403,7 +421,9 @@ def _goodness_of_fit(ref_y, y):
     r2 = (1.0 - ss_res / ss_tot) if ss_tot > 0 else float("nan")
     ref_peak = np.max(np.abs(r))
     nrmse = (np.sqrt(ss_res / n) / ref_peak) if ref_peak > 0 else float("nan")
-    peak_diff_pct = (100.0 * (np.max(np.abs(v)) - ref_peak) / ref_peak) if ref_peak > 0 else float("nan")
+    ref_smooth_peak = np.max(np.abs(_centered_mean(r)))
+    peak_diff_pct = ((100.0 * (np.max(np.abs(_centered_mean(v))) - ref_smooth_peak) / ref_smooth_peak)
+                     if ref_smooth_peak > 0 else float("nan"))
     return r2, nrmse, peak_diff_pct
 
 
@@ -422,16 +442,14 @@ def _format_gof(gof, total_diff_pct=None):
     return text
 
 
-def _peak_day(y, smooth_window=5):
-    """Day-index of y's peak, located on a short moving-average of y rather than the raw series
-    so a single noisy day-to-day spike isn't mistaken for the true peak.
+def _peak_day(y, smooth_window=PEAK_SMOOTH_WINDOW):
+    """Day-index of y's peak, located on its centered moving average (see _centered_mean) rather
+    than the raw series, so a single noisy day-to-day spike isn't mistaken for the true peak.
     """
     y = np.asarray(y, dtype=float)
     if len(y) == 0:
         return 0
-    w = min(smooth_window, len(y))
-    smoothed = np.convolve(y, np.ones(w) / w, mode="same")
-    return int(np.argmax(smoothed))
+    return int(np.argmax(_centered_mean(y, smooth_window)))
 
 
 _ENVELOPE_SMOOTH_WINDOW = 9
@@ -1316,7 +1334,7 @@ def plot_series(ax, epicast_data, exaepi_data, label, seir_dfs=None):
             run_seirhd_erlang(), one per --seir_from_ini curve (see _resolve_seir_params)
     """
     epicast_colors = ["blue", "darkblue", "royalblue", "steelblue", "navy", "cornflowerblue"]
-    exaepi_colors  = ["red", "darkred", "crimson", "firebrick", "maroon", "indianred"]
+    exaepi_colors  = args.exaepi_colors or ["red", "darkred", "crimson", "firebrick", "maroon", "indianred"]
     # One shade of green per SEIRHD curve, sampled from a sequential colormap so any number of
     # curves stay visually distinguishable (a short fixed color list ran out of contrast for
     # more than a couple of curves).
@@ -1673,6 +1691,11 @@ parser.add_argument(
          "and, for every dataset checked, for the Epicast run beside it too; pass this where the "
          "two models were given different populations, or where there is no -x input to read one "
          "from (the panel falls back to reporting the cumulative count itself).",
+)
+parser.add_argument(
+    "--exaepi_colors", nargs="+", default=None, metavar="COLOR",
+    help="Colors of the -x groups, in order (default: shades of red). Shades of one color are hard "
+         "to tell apart for more than two groups.",
 )
 parser.add_argument(
     "--show_attack_rate", action="store_true", default=False,
