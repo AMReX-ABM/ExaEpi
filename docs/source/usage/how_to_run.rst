@@ -68,11 +68,16 @@ The following are inputs for the overall simulation:
     whose transmission ``disease.xmit_comm`` describes unscaled. The default is Epicast's fixed
     2000-agent community, the same in every region, so a given ``disease.xmit_comm_scale`` means
     the same per-capita transmission wherever it is applied. The community population the
-    correction divides by is limited to 85--34,000 (where the earlier, region-relative limits fell
-    for California). A value ``<= 0`` restores the behavior before this parameter existed: the
+    correction divides by is at least 85 (where the earlier, region-relative lower limit fell for
+    California), and at most ``agent.community_size_max``. A value ``<= 0`` restores the behavior before this parameter existed: the
     reference is the simulated region's mean community size (CA 1696, NM 1447), and the limits are
     1/20 and 20 times it. To reproduce a California run calibrated that way with the default,
     multiply its ``disease.xmit_comm_scale`` by 1696/2000.
+* ``agent.community_size_max`` (`float`, default ``0``)
+    With a fixed ``agent.community_reference_size``, an upper limit on the community population
+    the population-size correction divides by; ``<= 0`` (the default) for none. A limit raises the
+    per-capita transmission of the communities above it (in practice, large daytime job centers)
+    above frequency-dependent. ``34000`` reproduces runs made before the default was no limit.
 * ``agent.airports_filename`` (`string`)
     The path to the ``*.dat`` file containing available airports and the counties they serve.
     Must be provided if ``agent.air_travel_int > 0``.

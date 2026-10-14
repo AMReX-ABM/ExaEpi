@@ -46,6 +46,8 @@ agent.startdate = ""
 agent.size_scale_enabled = true
 # Community size the size scaling leaves unscaled (Epicast's 2000); <=0 uses the region's mean.
 agent.community_reference_size = 2000
+# Upper limit on the community population the size scaling divides by; <=0 for none.
+agent.community_size_max = 0
 # Maximum box size used for MPI domain decomposition.
 agent.max_box_size = 16
 # Interval for writing aggregated diagnostic data, in steps; <=0 disables.

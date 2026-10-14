@@ -69,8 +69,10 @@ struct BlockGroup {
     neighborhood interaction models from density-dependent to frequency-dependent transmission
     (a fixed 1/population correction, not a tunable exponent -- see the .cpp for why), keyed on
     home_population (population is always available from the UrbanPop binary). A community of
-    reference_size gets 1.0; reference_size <= 0 uses the region's mean community size. */
-amrex::Vector<amrex::Real> computeCommunitySizeScale(const amrex::Vector<BlockGroup>& block_groups, amrex::Real reference_size);
+    reference_size gets 1.0; reference_size <= 0 uses the region's mean community size. With a fixed
+    reference_size, max_population > 0 limits the population divided by (none by default). */
+amrex::Vector<amrex::Real> computeCommunitySizeScale(const amrex::Vector<BlockGroup>& block_groups, amrex::Real reference_size,
+                                                     amrex::Real max_population);
 
 /*! \brief Daytime analog of computeCommunitySizeScale, keyed on each community's true daytime
     headcount (UrbanPopData::day_population) instead of home_population. Meant to populate a
@@ -88,7 +90,7 @@ amrex::Vector<amrex::Real> computeCommunitySizeScale(const amrex::Vector<BlockGr
     residential/school-heavy communities -- exactly backwards, since those are typically among the
     *largest* daytime-occupied communities, not the smallest. */
 amrex::Vector<amrex::Real> computeCommunityWorkSizeScale(const amrex::Vector<amrex::Real>& day_population,
-                                                         amrex::Real reference_size);
+                                                         amrex::Real reference_size, amrex::Real max_population);
 
 struct UrbanPopData {
     // these three data structures are used for setting the initial cases

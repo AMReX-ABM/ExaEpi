@@ -88,6 +88,12 @@ struct TestParams {
         community size instead (the behavior before this parameter existed: CA 1696, NM 1447). */
     amrex::Real community_reference_size = 2000;
 
+    /*! Upper limit on the community population the size scale divides by, with a fixed
+        community_reference_size (see computeCommunitySizeScale); <= 0 (the default) for none.
+        Limiting it raised the per-capita transmission of the largest daytime communities above
+        frequency-dependent; 34000 reproduces the runs made with that limit. */
+    amrex::Real community_size_max = 0;
+
     int aggregated_diag_int = -1;                 /*!< interval for writing aggregated diagnostic data
                                                        (see: ExaEpi::IO::writeAggregatedData) */
     std::string aggregated_diag_prefix = "cases"; /*!< filename prefix for diagnostic data, used only if
