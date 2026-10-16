@@ -485,7 +485,17 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
             naics_ptr[i] = agent.naics;
             // set up workers
             if (agent.naics != -1) {
-                if (agent.travel == TRAVEL::_wfh) {
+                if (agent.school_id != 0) {
+                    // educator, workgroup is school, as is nborhood. Checked before the
+                    // work-from-home case below: unlike a regular worker, an educator's
+                    // work_i/work_j must stay at their real school's location regardless of
+                    // commute mode, since school_id is only unique within that location --
+                    // overriding it to home_i/home_j here silently reassigns the agent to
+                    // whatever unrelated school_id happens to be locally numbered the same at
+                    // home instead of their real school.
+                    workgroup_ptr[i] = school_id_ptr[i];
+                    work_nborhood_ptr[i] = school_id_ptr[i];
+                } else if (agent.travel == TRAVEL::_wfh) {
                     // declared work-from-home: no real commute, and no physical collocation with
                     // real workplace colleagues, so treat like a non-worker for workgroup/
                     // work_nborhood purposes (naics_population/work_population describe the
@@ -496,7 +506,7 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     work_nborhood_ptr[i] = nborhood_ptr[i];
                     work_i_ptr[i] = home_i_ptr[i];
                     work_j_ptr[i] = home_j_ptr[i];
-                } else if (agent.school_id == 0) {
+                } else {
                     // the group work population for this agent is for the NAICS category for the agent
                     int max_workgroup = agents_extras_ptr[i].naics_population / workgroup_size + 1;
                     // a workgroup of 0 indicates not working
@@ -505,10 +515,6 @@ void UrbanPopData::initAgents (AgentContainer& pc, const ExaEpi::TestParams& par
                     int max_work_nborhood = get_max_nborhood(nborhood_size, agents_extras_ptr[i].work_population);
                     work_nborhood_ptr[i] = Random_int(max_work_nborhood, engine);
                     AMREX_ASSERT(work_nborhood_ptr[i] < 5000);
-                } else {
-                    // educator, workgroup is school, as is nborhood
-                    workgroup_ptr[i] = school_id_ptr[i];
-                    work_nborhood_ptr[i] = school_id_ptr[i];
                 }
             } else {
                 workgroup_ptr[i] = 0;
