@@ -249,6 +249,8 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
     const auto score_type = m_score_type;
     const auto sc_floor = m_sc_floor;
     const auto mort_mult_max = m_mort_mult_max;
+    const bool shelter_active = a_agents.shelterActive();
+    const amrex::Real shelter_compliance = a_agents.shelterCompliance();
 
     if (model_mw) { computeHospitalScores(a_agents, a_iter); }
     m_num_underserved_patients = 0;
@@ -282,6 +284,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
             auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
             auto hosp_i_ptr = soa.GetIntData(IntIdx::hosp_i).data();
             auto hosp_j_ptr = soa.GetIntData(IntIdx::hosp_j).data();
+            auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
 
             int i_RT = IntIdx::nattribs;
             int r_RT = RealIdx::nattribs;
@@ -462,7 +465,7 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
             auto rm_from_ICU_ptr = rm_from_ICU.data();
             auto rm_from_vent_ptr = rm_from_vent.data();
 
-            ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
+            ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
                 if (!inHospital(i, ptd)) { return; }
 
                 // Recompute the agent's hospital level after this step's treatment update.
@@ -498,10 +501,14 @@ void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents,   /*!
                     p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
                     p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
                 } else if (level_after == 0) {
-                    // no disease keeps the agent hospitalized -> discharge
+                    // no disease keeps the agent hospitalized -> discharge; re-apply shelter-in-place
+                    // if an order is in force, except for medical workers, who are exempt from the order
                     hosp_i_ptr[i] = -1;
                     hosp_j_ptr[i] = -1;
-                    withdrawn_ptr[i] = 0;
+                    withdrawn_ptr[i] =
+                            (shelter_active && naics_ptr[i] != NAICSCodes::NAICS::med_sca && Random(engine) < shelter_compliance)
+                                    ? 1
+                                    : 0;
                     PType& p = pstruct[i];
                     p.pos(0) = static_cast<ParticleReal>((home_i_ptr[i] + 0.5_rt) * dx[0]);
                     p.pos(1) = static_cast<ParticleReal>((home_j_ptr[i] + 0.5_rt) * dx[1]);
