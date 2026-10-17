@@ -340,10 +340,13 @@ bool isNewlyHospitalized (const int a_idx,      /*!< Agent index */
                           const PTDType& a_ptd, /*!< Particle tile data */
                           const int a_d /*!< Disease index */) {
     if (!inHospital(a_idx, a_ptd)) { return false; }
+    int status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx];
+    // the treatment timer of disease d is set only when the agent is admitted for d
+    auto treatment_timer = a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::treatment_timer][a_idx];
     int disease_counter = (int)(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx]);
     int incb_period = (int)(amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]));
     int hospital_delay = (int)(amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::hospital_delay][a_idx]));
-    return disease_counter == incb_period + hospital_delay;
+    return status == Status::infected && treatment_timer > 0 && disease_counter == incb_period + hospital_delay;
 }
 
 template <typename PTDType>
