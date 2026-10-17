@@ -1,0 +1,14 @@
+# ExaEpi hospital-capacity data -- utilities/build_hospital_data.py
+# source: HHS COVID-19 Hospital Capacity by Facility (anag-cw7u): staffed inpatient beds (beds) + staffed adult ICU beds (icu_beds)
+# state=CA year=2020 level=county week=2020-09-27
+# columns: FIPS beds icu_beds n_hospitals
+9
+6001 2574 257 13
+6013 1249 160 7
+6041 279 30 4
+6055 194 27 2
+6075 1873 254 10
+6081 680 76 6
+6085 3000 424 8
+6095 518 51 4
+6097 509 50 7

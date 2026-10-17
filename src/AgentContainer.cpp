@@ -4,6 +4,8 @@
 
 #include "AgentContainer.H"
 #include "AgentDefinitions.H"
+#include "HospitalData.H"
+#include "NAICS.H"
 
 // repeat macro for repeating identical tokens
 #define REPEAT_0(x)
@@ -103,6 +105,8 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
 
     amrex::ParmParse pp("agent");
 
+    pp.query("model_medical_workers", m_model_medical_workers);
+    pp.query("med_workers_proportion", m_med_workers_prop);
     pp.query("shelter_compliance", m_shelter_compliance);
     queryGpuArray<int, SchoolType::total>(pp, "student_teacher_ratio", m_student_teacher_ratio);
 
@@ -116,12 +120,18 @@ AgentContainer::AgentContainer (const amrex::Geometry& a_geom,                  
         /* Create the interaction model objects and push to container */
         m_interactions.clear();
         m_interactions[InteractionNames::home] = new InteractionModHome<PCType, PTDType, PType>(fast);
-        m_interactions[InteractionNames::work] = new InteractionModWork<PCType, PTDType, PType>(fast);
+        m_interactions[InteractionNames::work] = new InteractionModWork<PCType, PTDType, PType>(fast, m_model_medical_workers);
         m_interactions[InteractionNames::school] = new InteractionModSchool<PCType, PTDType, PType>(fast);
         m_interactions[InteractionNames::home_nborhood] = new InteractionModHomeNborhood<PCType, PTDType, PType>(fast);
-        m_interactions[InteractionNames::work_nborhood] = new InteractionModWorkNborhood<PCType, PTDType, PType>(fast);
+        m_interactions[InteractionNames::work_nborhood] =
+                new InteractionModWorkNborhood<PCType, PTDType, PType>(fast, m_model_medical_workers);
 
-        m_hospital = std::make_unique<HospitalModel<PCType, PTDType, PType>>(fast);
+        m_hospital = std::make_unique<HospitalModel<PCType, PTDType, PType>>(fast, "hospital_model", m_model_medical_workers);
+        m_hosp_data.define(a_ba, a_dmap, HospMod::ncomps, 0);
+        m_hospital->initHospitalScoreMF(&m_hosp_data);
+        // frontline medical workers in each community: component 0 - total (full-strength)
+        // frontline workers, component 1 - currently-available frontline workers
+        m_num_medworkers = std::make_unique<MultiFab>(a_ba, a_dmap, 2, 0);
     }
 
     m_h_parm.resize(m_num_diseases);
@@ -657,11 +667,16 @@ void AgentContainer::advanceWeatherIndex () {
 }
 
 /*! \brief Updates disease status of each agent */
-void AgentContainer::updateStatus (MFPtrVec& a_disease_stats /*!< Community-wise disease stats tracker */) {
+void AgentContainer::updateStatus (MFPtrVec& a_disease_stats, /*!< Community-wise disease stats tracker */
+                                   const int a_iter /*!< iteration/day */) {
     BL_PROFILE("AgentContainer::updateStatus");
 
     m_disease_status.updateAgents(*this, a_disease_stats);
-    m_hospital->treatAgents(*this, a_disease_stats);
+
+    // tract-level routing: send hospitalized agents to their assigned (nearest) hospital community
+    // instead of their home community (the work_i/work_j analog). Implemented in HospitalData.cpp
+    // (a no-op unless tract-level routing is active) so its device code stays out of this TU.
+    rerouteHospitalizedToHospital(a_iter);
 
     // move hospitalized agents to their hospital location
     for (int lev = 0; lev <= finestLevel(); ++lev) {
@@ -693,6 +708,10 @@ void AgentContainer::updateStatus (MFPtrVec& a_disease_stats /*!< Community-wise
             });
         }
     }
+    Redistribute();
+    AMREX_ASSERT(OK());
+
+    m_hospital->treatAgents(*this, a_disease_stats, a_iter);
 }
 
 /*! \brief Start shelter-in-place */
@@ -700,6 +719,7 @@ void AgentContainer::shelterStart () {
     BL_PROFILE("AgentContainer::shelterStart");
 
     amrex::Print() << "Starting shelter in place order \n";
+    m_shelter_active = true;
 
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev = GetParticles(lev);
@@ -716,9 +736,12 @@ void AgentContainer::shelterStart () {
             if (np == 0) { continue; }
 
             auto withdrawn_ptr = soa.GetIntData(IntIdx::withdrawn).data();
+            auto naics_ptr = soa.GetIntData(IntIdx::naics).data();
 
             auto shelter_compliance = m_shelter_compliance;
             amrex::ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, amrex::RandomEngine const& engine) noexcept {
+                // medical workers stay on duty under a shelter-in-place order (they still withdraw when symptomatic)
+                if (naics_ptr[i] == NAICSCodes::NAICS::med_sca) { return; }
                 if (amrex::Random(engine) < shelter_compliance) { withdrawn_ptr[i] = 1; }
             });
         }
@@ -730,6 +753,7 @@ void AgentContainer::shelterStop () {
     BL_PROFILE("AgentContainer::shelterStop");
 
     amrex::Print() << "Stopping shelter in place order \n";
+    m_shelter_active = false;
 
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev = GetParticles(lev);
@@ -820,7 +844,21 @@ void AgentContainer::infectAgents (MFPtrVec& a_disease_stats /*!< Community-wise
                             setInfected(&(status_ptr[i]), &(symptomatic_ptr[i]), &(counter_ptr[i]), &(latent_period_ptr[i]),
                                         &(infectious_period_ptr[i]), &(incubation_period_ptr[i]), &(hospital_delay_ptr[i]),
                                         &(hospital_random_ptr[i]), engine, lparm);
-                            Gpu::Atomic::AddNoRet(&ds_arr(home_i_ptr[i], home_j_ptr[i], 0, DiseaseStats::new_cases), 1.0_rt);
+                            // A hospitalized agent sits in its hospital cell, not its home cell; with
+                            // tract-level routing that cell can be in a different box, so depositing at
+                            // the home cell would write outside this tile. Deposit the new infection at
+                            // the cell the agent currently occupies (its hospital cell when hospitalized,
+                            // otherwise its home cell), which is always inside this tile's box.
+                            const bool in_hosp = inHospital(i, ptd);
+                            const int dep_i = in_hosp ? ptd.m_idata[IntIdx::hosp_i][i] : home_i_ptr[i];
+                            const int dep_j = in_hosp ? ptd.m_idata[IntIdx::hosp_j][i] : home_j_ptr[i];
+                            Gpu::Atomic::AddNoRet(&ds_arr(dep_i, dep_j, 0, DiseaseStats::new_cases), 1.0_rt);
+                            // Hospitalized agents are cut off from all other contact, so a new infection
+                            // here is necessarily hospital-acquired (nosocomial) -- a patient admitted for
+                            // one disease acquiring another. Record it at the hospital cell, by disease.
+                            if (in_hosp) {
+                                Gpu::Atomic::AddNoRet(&ds_arr(dep_i, dep_j, 0, DiseaseStats::hospital_acquired), 1.0_rt);
+                            }
 
                             return;
                         }
@@ -1004,6 +1042,45 @@ int AgentContainer::getMaxGroup (const int group_idx) {
     return max_attribute_values[group_idx];
 }
 
+/*! Updates the MultiFab that contains the number of total and available frontline medical workers
+ *  in each community and sends this the HospitalModel object to compute the patient capacities and
+ *  hospital quality scores.
+ *
+ *  **NOTE** this function must be called when the agents are at work; consequently, the medical
+ *  workers are at their work locations. */
+void AgentContainer::updateHospitalCapacities () {
+    BL_PROFILE("AgentContainer::updateHospitalCapacities");
+    const int lev = 0;
+    AMREX_ASSERT(OK());
+    AMREX_ASSERT(numParticlesOutOfRange(*this, 0) == 0);
+
+    const auto& geom = Geom(lev);
+    const auto plo = geom.ProbLoArray();
+    const auto dxi = geom.InvCellSizeArray();
+    const auto domain = geom.Domain();
+    auto& mf = *m_num_medworkers;
+
+    mf.setVal(0.0);
+    ParticleToMesh(
+            *this, mf, lev,
+            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd, int i,
+                                 Array4<Real> const& mf_arr) {
+                auto p = ptd.m_aos[i];
+                auto iv = getParticleCell(p, plo, dxi, domain);
+
+                if (ptd.m_idata[IntIdx::naics][i] == NAICSCodes::NAICS::med_sca) {
+                    Gpu::Atomic::AddNoRet(&mf_arr(iv, 0), 1.0_rt);
+                    if ((!ptd.m_idata[IntIdx::withdrawn][i]) && (!inHospital(i, ptd)) &&
+                        (ptd.m_runtime_idata[i0(0) + IntIdxDisease::status][i] != Status::dead)) {
+                        Gpu::Atomic::AddNoRet(&mf_arr(iv, 1), 1.0_rt);
+                    }
+                }
+            },
+            false);
+
+    m_hospital->updateCapacities(m_num_medworkers);
+}
+
 /*! \brief Interaction and movement of agents during morning commute
  *
  * + Move agents to work
@@ -1037,6 +1114,7 @@ void AgentContainer::eveningCommute (MultiFab& /*a_mask_behavior*/ /*!< Masking 
 /*! \brief Interaction of agents during day time - work and school */
 void AgentContainer::interactDay (MultiFab& a_mask_behavior /*!< Masking behavior */) {
     BL_PROFILE("AgentContainer::interactDay");
+    if (m_model_medical_workers) { updateHospitalCapacities(); }
     if (haveInteractionModel(ExaEpi::InteractionNames::work)) {
         m_interactions[ExaEpi::InteractionNames::work]->interactAgents(*this, a_mask_behavior);
     }
@@ -1046,7 +1124,7 @@ void AgentContainer::interactDay (MultiFab& a_mask_behavior /*!< Masking behavio
     if (haveInteractionModel(ExaEpi::InteractionNames::work_nborhood)) {
         m_interactions[ExaEpi::InteractionNames::work_nborhood]->interactAgents(*this, a_mask_behavior);
     }
-    m_hospital->interactAgents(*this, a_mask_behavior);
+    if (m_model_medical_workers) { m_hospital->interactAgents(*this, a_mask_behavior); }
 }
 
 /*! \brief Interaction of agents during evening (after work) - social stuff */
@@ -1104,6 +1182,29 @@ void AgentContainer::printStudentTeacherCounts () const {
                 << "  Total      " << total_educators << " " << total_students << " " << ((Real)total_students / total_educators)
                 << "\n";
     }
+}
+
+/*! Print the number of medical workers */
+void AgentContainer::printMedicalWorkerCounts () const {
+    ReduceOps<ReduceOpSum, ReduceOpSum> reduce_ops;
+    auto r = ParticleReduce<ReduceData<int, int>>(
+            *this,
+            [=] AMREX_GPU_DEVICE (const AgentContainer::ParticleTileType::ConstParticleTileDataType& ptd,
+                                 const int i) noexcept -> GpuTuple<int, int> {
+                int counts[2] = {0, 0};
+                int naics = ptd.m_idata[IntIdx::naics][i];
+                counts[0] = (naics == NAICSCodes::NAICS::med_sca ? 1 : 0);
+                counts[1] = (naics < 0 ? 0 : 1);
+                return {counts[0], counts[1]};
+            },
+            reduce_ops);
+    std::array<Long, 2> counts = {amrex::get<0>(r), amrex::get<1>(r)};
+    ParallelDescriptor::ReduceLongSum(&counts[0], 2);
+
+    Print() << std::fixed << std::setprecision(1) << "Medical worker counts:\n"
+            << "  Total: " << counts[0] << "  (" << (((double)counts[0]) / ((double)counts[1]) * 100) << "% of total "
+            << counts[1] << " workers)"
+            << "\n";
 }
 
 void AgentContainer::printAgeGroupCounts () const {

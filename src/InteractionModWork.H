@@ -7,6 +7,7 @@
 
 #include "AgentDefinitions.H"
 #include "InteractionModel.H"
+#include "NAICS.H"
 
 using namespace amrex;
 
@@ -51,11 +52,27 @@ struct BinaryInteractionWork {
 
 template <typename PTDType>
 struct WorkCandidate {
+    /*! Whether the medical-workers model is active. When active, medical workers are excluded
+     *  from the workplace model (they interact in HospitalModel instead); when off, they are
+     *  ordinary workers. */
+    bool m_model_medical_workers = false;
+
+    AMREX_GPU_HOST_DEVICE
+    WorkCandidate (bool a_model_medical_workers = false) : m_model_medical_workers(a_model_medical_workers) {}
+
+    /* Exclude the following categories:
+     * + in hospital
+     * + non-workers or work-from-home
+     * + withdrawn due to symptomatic infections
+     * + medical workers, when the medical-workers model is active (they interact in HospitalModel)
+     * + workers on travel
+     */
     AMREX_GPU_HOST_DEVICE
     bool operator()(const int idx, const PTDType& ptd) const noexcept {
         return !inHospital(idx, ptd) && ptd.m_idata[IntIdx::work_i][idx] >= 0 && ptd.m_idata[IntIdx::workgroup][idx] > 0 &&
-               !ptd.m_idata[IntIdx::withdrawn][idx] && ptd.m_idata[IntIdx::air_travel][idx] < 0 &&
-               ptd.m_idata[IntIdx::random_travel][idx] < 0;
+               !ptd.m_idata[IntIdx::withdrawn][idx] &&
+               (!m_model_medical_workers || ptd.m_idata[IntIdx::naics][idx] != NAICSCodes::NAICS::med_sca) &&
+               ptd.m_idata[IntIdx::air_travel][idx] < 0 && ptd.m_idata[IntIdx::random_travel][idx] < 0;
     }
 };
 
@@ -63,8 +80,9 @@ struct WorkCandidate {
 template <typename PCType, typename PTDType, typename PType>
 class InteractionModWork : public InteractionModel<PCType, PTDType, PType> {
   public:
-    /*! \brief null constructor */
-    InteractionModWork (bool _fast_bin) : InteractionModel<PCType, PTDType, PType>(_fast_bin) {}
+    /*! \brief constructor */
+    InteractionModWork (bool _fast_bin, bool a_model_medical_workers = false)
+        : InteractionModel<PCType, PTDType, PType>(_fast_bin), m_model_medical_workers(a_model_medical_workers) {}
 
     /*! \brief default destructor */
     virtual ~InteractionModWork() = default;
@@ -75,11 +93,16 @@ class InteractionModWork : public InteractionModel<PCType, PTDType, PType> {
         fastInteractWork(agents);
 #else
         interactAgentsImpl<InteractionModWork<PCType, PTDType, PType>, PCType, PTDType, WorkCandidate<PTDType>,
-                           BinaryInteractionWork<PTDType>>(*this, agents, IntIdx::workgroup);
+                           BinaryInteractionWork<PTDType>>(*this, agents, IntIdx::workgroup,
+                                                           WorkCandidate<PTDType>(m_model_medical_workers));
 #endif
     }
 
     void fastInteractWork(PCType& agents);
+
+  protected:
+    /*! Whether the medical-workers model is active */
+    bool m_model_medical_workers = false;
 };
 
 template <typename PCType, typename PTDType, typename PType>
@@ -87,7 +110,7 @@ void InteractionModWork<PCType, PTDType, PType>::fastInteractWork (PCType& agent
     BL_PROFILE(__func__);
     int n_disease = agents.numDiseases();
 
-    WorkCandidate<PTDType> isCandidate;
+    WorkCandidate<PTDType> isCandidate(m_model_medical_workers);
 
     Vector<Gpu::DeviceVector<int>> infected_workgroup_d(OMP_MAX_THREADS);
     Vector<Gpu::DeviceVector<int>> infected_workgroup_asymp_d(OMP_MAX_THREADS);

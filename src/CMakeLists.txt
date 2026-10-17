@@ -4,6 +4,8 @@ set(_sources
     AgentDefinitions.H
     AgentContainer.H
     AgentContainer.cpp
+    HospitalData.H
+    HospitalData.cpp
     AirTravelFlow.H
     AirTravelFlow.cpp
     CaseData.H
@@ -28,6 +30,7 @@ set(_sources
     InteractionModelLibrary.H
     InitializeInfections.H
     InitializeInfections.cpp
+    NAICS.H
     UrbanPopAgentStruct.H
     UrbanPopData.H
     UrbanPopData.cpp

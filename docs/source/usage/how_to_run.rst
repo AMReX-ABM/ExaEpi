@@ -105,6 +105,18 @@ The following are inputs for the overall simulation:
 * ``agent.student_teacher_ratio`` (`list of int`, default: ``0 15 15 15 15 15``)
     This option sets the desired student-teacher ratio for school levels (none, college, high, middle, elementary, daycare).
     The first entry is ignored and should always be set to 0. This option is only used with ``ic_type = census``.
+* ``agent.model_medical_workers`` (`bool`, default ``false``)
+    Master switch for the medical-workers / hospital-capacity model. When ``false`` (default),
+    medical workers are treated as ordinary workers, there is no hospital capacity limit or
+    in-hospital transmission, and hospitalized agents recover or die with the load-independent
+    baseline mortality (a run identical to one without the model, for both census and UrbanPop
+    initialization). When ``true``, medical workers are excluded from the workplace model, set the
+    hospital capacity, and are subject to in-hospital transmission.
+* ``agent.med_workers_proportion`` (`float`, default ``0.13``)
+    Proportion of the worker population who are medical workers (valid for census initialization
+    only; UrbanPop carries NAICS industry codes natively). Only used when
+    ``agent.model_medical_workers = true``. The default ~0.13 corresponds to NAICS 62 (health care
+    and social assistance, ~14% of US employment).
 * ``agent.max_box_size`` (`integer`, default ``16``)
     This option sets the maximum box size used for MPI domain decomposition.
 * ``diag.output_filename`` (`string`, default ``output.dat`` for a single disease,
@@ -188,6 +200,14 @@ The following inputs specify the disease parameters:
     This parameter is only used if ``disease.hospital_stay_type`` is ``random``.
 * ``disease.xmit_work`` (`float`, default ``0.0575``)
     Transmission probability within a workgroup.
+* ``disease.xmit_hosp_d2d`` (`float`, default ``0.1*disease.xmit_work``)
+    Transmission probability within a hospital workgroup (between medical workers). Default is ~1/10th of ``disease.xmit_work``: workplace-intensity contact reduced ~90% by PPE/precautions among staff. Used only when the medical-workers model is active.
+* ``disease.xmit_hosp_p2d`` (`float`, default ``0.1*disease.xmit_work``)
+    Transmission probability within a hospital (from patient to medical worker). Default ~0.1*xmit_work reflects elevated but PPE-reduced frontline-staff risk.
+* ``disease.xmit_hosp_d2p`` (`float`, default ``0.1*disease.xmit_work``)
+    Transmission probability within a hospital (from medical worker to patient).
+* ``disease.xmit_hosp_p2p`` (`float`, default ``0.3*disease.xmit_work``)
+    Transmission probability within a hospital (between patients), who share wards with less mutual protection.
 * ``disease.xmit_comm`` (`list of float`, default ``0.000018125 0.000054375 0.000145 0.000145 0.000145 0.0002175``)
     Transmission probabilities at the community level, for both work and home locations,
     given the age group of the susceptible agent (0-4, 5-17, 18-29, 30-49, 50-64).
@@ -254,8 +274,31 @@ can be specified as follows:
 where ``[disease name]`` is any of the names specified in ``agent.disease_names`` (or the
 default value), and ``[key]`` is any of the parameters listed above.
 
+The following inputs specify parameters for the hospital model.
+
+* ``hospital_model.staffed_beds_per_1000`` (`float`, default ``2.4``)
+    Staffed hospital beds per 1000 population at full workforce strength. Sets each community's
+    bed supply (``bed_supply = staffed_beds_per_1000/1000 x population``). The hospital capacity is
+    this supply scaled by workforce availability (``capacity = bed_supply x available_workers /
+    full_strength_workers``), so capacity falls as medical workers fall ill, withdraw, or die. The
+    default ~2.4 matches US staffed-bed density (AHA). Used only when the medical-workers model is active.
+* ``hospital_model.use_HHS_data`` (`bool`, default ``false``)
+    Set each community's staffed-bed supply from real hospital data (built by
+    ``utilities/build_hospital_data.py`` from HHS public facility data) instead of the uniform
+    ``staffed_beds_per_1000`` density. County-level data apportions each county's beds to its
+    communities by population (capturing real between-county bed-density variation); tract-level
+    data places hospitals at real tracts and routes patients (and staff) to the nearest hospital.
+    Census initialization only.
+* ``hospital_model.hospital_data_file`` (`string`, default empty)
+    Path to the hospital bed-supply ``.dat`` file (see ``data/HospitalData/``). Required when
+    ``use_HHS_data = true``.
+* ``hospital_model.score_minimum`` (`float`, default ``0.1``)
+    The minimum hospital score (quality of treatment) when a hospital is overloaded (i.e., number of patients with
+    respect to its capacity) to a very high degree.
+* ``hospital_model.halfscore_load`` (`float`, default ``5``)
+    The load (number of patients divided by the capacity) at which the hospital's score drops to ``0.5``.
+* ``hospital_model.write_pltfiles`` (`bool`, default ``false``)
+    Write hospital scores and capacities to `plt` files
+
 In addition to the ExaEpi inputs, there are also a number of runtime options that can be configured for AMReX itself.
 Please see <https://amrex-codes.github.io/amrex/docs_html/GPU.html#inputs-parameters>`__ for more information on these options.
-
-
-

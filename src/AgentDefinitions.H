@@ -24,6 +24,7 @@ struct RealIdxDisease {
     enum {
         /* Disease counter starts after infection. */
         treatment_timer = 0, /*!< Timer since hospital admission */
+        treatment_quality,   /*!< Treatment quality at hospital */
         disease_counter,     /*!< Counter since start of infection */
         prob,                /*!< Probability of infection */
         latent_period,       /*!< Time until infectious, which could be before symptoms appear */
@@ -130,7 +131,8 @@ struct DiseaseStats {
         ICU,                 /*!< number of current ICU cases */
         ventilator,          /*!< number of current ventilator cases */
         death,               /*!< number of deaths */
-        new_cases            /*!< number of new infections each day */
+        new_cases,           /*!< number of new infections each day */
+        hospital_acquired    /*!< cumulative hospital-acquired (nosocomial) infections of this disease, at the hospital cell */
     };
 };
 
@@ -338,10 +340,13 @@ bool isNewlyHospitalized (const int a_idx,      /*!< Agent index */
                           const PTDType& a_ptd, /*!< Particle tile data */
                           const int a_d /*!< Disease index */) {
     if (!inHospital(a_idx, a_ptd)) { return false; }
+    int status = a_ptd.m_runtime_idata[i0(a_d) + IntIdxDisease::status][a_idx];
+    // the treatment timer of disease d is set only when the agent is admitted for d
+    auto treatment_timer = a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::treatment_timer][a_idx];
     int disease_counter = (int)(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::disease_counter][a_idx]);
     int incb_period = (int)(amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::incubation_period][a_idx]));
     int hospital_delay = (int)(amrex::Math::floor(a_ptd.m_runtime_rdata[r0(a_d) + RealIdxDisease::hospital_delay][a_idx]));
-    return disease_counter == incb_period + hospital_delay;
+    return status == Status::infected && treatment_timer > 0 && disease_counter == incb_period + hospital_delay;
 }
 
 template <typename PTDType>
@@ -381,7 +386,7 @@ void setAgentData (PTDType& ptd, int ip, int i, int j, const amrex::GpuArray<amr
     ptd.m_idata[IntIdx::hh_cluster][ip] = family / 4;
     ptd.m_idata[IntIdx::work_nborhood][ip] = nborhood;
     ptd.m_idata[IntIdx::workgroup][ip] = 0;
-    ptd.m_idata[IntIdx::naics][ip] = 0;
+    ptd.m_idata[IntIdx::naics][ip] = -1;
     ptd.m_idata[IntIdx::random_travel][ip] = -1;
     ptd.m_idata[IntIdx::air_travel][ip] = -1;
 }

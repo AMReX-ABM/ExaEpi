@@ -77,6 +77,18 @@ struct DiseaseParm {
 
     /*! probability for transmission within a workgroup, independent of age group currently */
     Real xmit_work = Real(0.0575);
+    /*! probability for transmission within a hospital workgroup (doctor-to-doctor), independent of age group currently.
+     *  Default ~0.1 x xmit_work: workplace-intensity contact reduced ~90% by PPE/precautions among staff.
+     *  Used only when the medical-workers model is active. */
+    Real xmit_hosp_d2d = amrex::Real(0.1) * xmit_work;
+    /*! probability for transmission within a hospital (patient-to-doctor), independent of age group currently.
+     *  Default ~0.1 x xmit_work: frontline staff are at elevated risk (aHR ~3.4) but PPE-reduced. */
+    Real xmit_hosp_p2d = amrex::Real(0.1) * xmit_work;
+    /*! probability for transmission within a hospital (doctor-to-patient), independent of age group currently. */
+    Real xmit_hosp_d2p = amrex::Real(0.1) * xmit_work;
+    /*! probability for transmission within a hospital (patient-to-patient), independent of age group currently.
+     *  Default ~0.3 x xmit_work: patients share wards with less mutual protection. */
+    Real xmit_hosp_p2p = amrex::Real(0.3) * xmit_work;
 
     Real p_trans = Real(0.20);                 /*!< probability of transimission given contact */
     Real p_asymp = Real(0.30);                 /*!< fraction of cases that are asymptomatic */
