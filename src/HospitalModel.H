@@ -602,7 +602,7 @@ void HospitalModel<PCType, PTDType, PType>::fastInteractHospital (PCType& a_agen
             auto inf_p_d_ptr = inf_p_d[OMP_THREAD_NUM].data();
 
             inf_p_asymp_d[OMP_THREAD_NUM].resize(max_communities);
-            auto inf_p_asymp_d_ptr = inf_mw_asymp_d[OMP_THREAD_NUM].data();
+            auto inf_p_asymp_d_ptr = inf_p_asymp_d[OMP_THREAD_NUM].data();
 
             for (int d = 0; d < n_disease; d++) {
                 devMemset(inf_mw_d_ptr, 0, inf_mw_d[OMP_THREAD_NUM].size() * sizeof(int));
