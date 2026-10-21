@@ -98,6 +98,8 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
         : InteractionModel<PCType, PTDType, PType>(_fast_bin), m_model_medical_workers(a_model_medical_workers) {
         ParmParse pp(a_prefix);
         pp.query("staffed_beds_per_1000", m_beds_per_1000);
+        pp.query("capacity_exponent", m_capacity_exponent);
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_capacity_exponent > 0.0_rt, "hospital_model.capacity_exponent must be positive");
         pp.query("use_HHS_data", m_use_hhs_data);
         pp.query("hospital_data_file", m_hospital_data_file);
         pp.query("score_minimum", m_sc_floor);
@@ -120,7 +122,7 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
                 Print() << "  Staffed beds per 1000 population (at full strength): " << m_beds_per_1000 << "\n";
             }
             Print() << "  Minimum score for overloaded hospitals: " << m_sc_floor << "\n";
-            Print() << "  Load for score=0.5: " << m_sc_half_load << "\n";
+            Print() << "  Excess load for the half score: " << m_sc_half_load << "\n";
             Print() << "  Mortality multiplier ceiling at overload: " << m_mort_mult_max << "\n";
             Print() << "  Treatment-quality accumulation: " << amrex::getEnumNameString(m_score_type) << "\n";
             Print() << "  Write hospital data plotfiles: " << (m_write_pltfiles ? "yes" : "no") << "\n";
@@ -187,6 +189,11 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
      *  Ignored when m_use_hhs_data is true. */
     Real m_beds_per_1000 = 2.4_rt;
 
+    /*! Exponent of the workforce scaling of capacity:
+     *  capacity = bed_supply x (available / baseline)^m_capacity_exponent.
+     *  1 = proportional; < 1 = capacity falls more slowly than staff; > 1 = faster. */
+    Real m_capacity_exponent = 1.0_rt;
+
     /*! Whether to set the per-community bed supply from real HHS county data
      *  (built by utilities/build_hospital_data.py) instead of the per-capita formula. */
     bool m_use_hhs_data = false;
@@ -201,7 +208,7 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
     /*! Minimum hospital score even at very high loading */
     Real m_sc_floor = 0.1_rt;
 
-    /*! Load at which hospital score falls to 0.5 */
+    /*! Excess load (load - 1) at which the hospital score falls halfway from 1 to m_sc_floor */
     Real m_sc_half_load = 5.0_rt;
 
     /*! Mortality multiplier at full treatment-quality degradation (the overload ceiling).
@@ -699,13 +706,14 @@ void HospitalModel<PCType, PTDType, PType>::fastInteractHospital (PCType& a_agen
  *  medical workers (the full-strength workforce, recorded once on the first call), and (1) the
  *  currently-available frontline medical workers. The staffed-bed supply (fixed per community)
  *  must already have been set by AgentContainer::initHospitalCapacityModel. On every call the capacity is the bed supply
- *  scaled by workforce availability: capacity = bed_supply x (available / baseline). Communities
- *  with no baseline workforce carry no capacity limit. */
+ *  scaled by workforce availability: capacity = bed_supply x (available / baseline)^capacity_exponent.
+ *  Communities with no baseline workforce carry no capacity limit. */
 template <typename PCType, typename PTDType, typename PType>
 void HospitalModel<PCType, PTDType, PType>::updateCapacities (const MFPtr& a_num_medworkers /*!< frontline worker counts */) {
     BL_PROFILE("HospitalModel::updateCapacities");
 
     const bool first_call = !m_capacities_initialized;
+    const auto cap_exp = m_capacity_exponent;
 
     for (MFIter mfi(*m_data); mfi.isValid(); ++mfi) {
         const auto& bx = mfi.tilebox();
@@ -721,9 +729,12 @@ void HospitalModel<PCType, PTDType, PType>::updateCapacities (const MFPtr& a_num
             if (n_baseline == 0) {
                 // no hospital workforce in this community -> no capacity limit
                 data_arr(i, j, k, HospMod::capacity) = 0.0_rt;
-            } else {
+            } else if (cap_exp == 1.0_rt) {
                 data_arr(i, j, k, HospMod::capacity) =
                         data_arr(i, j, k, HospMod::bed_supply) * data_arr(i, j, k, HospMod::n_avail_mw) / n_baseline;
+            } else {
+                data_arr(i, j, k, HospMod::capacity) = data_arr(i, j, k, HospMod::bed_supply) *
+                                                       std::pow(data_arr(i, j, k, HospMod::n_avail_mw) / n_baseline, cap_exp);
             }
         });
     }

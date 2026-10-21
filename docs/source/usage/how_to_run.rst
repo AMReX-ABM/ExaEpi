@@ -282,6 +282,13 @@ The following inputs specify parameters for the hospital model.
     this supply scaled by workforce availability (``capacity = bed_supply x available_workers /
     full_strength_workers``), so capacity falls as medical workers fall ill, withdraw, or die. The
     default ~2.4 matches US staffed-bed density (AHA). Used only when the medical-workers model is active.
+* ``hospital_model.capacity_exponent`` (`float`, default ``1``)
+    Exponent of the workforce scaling of the hospital capacity: ``capacity = bed_supply x
+    (available_workers / full_strength_workers)^capacity_exponent``. The default ``1`` scales the
+    capacity in proportion to the available workforce. Values below ``1`` model hospitals that absorb
+    part of the absences (capacity falls more slowly than the workforce); values above ``1`` model a
+    capacity that falls faster than the workforce. Must be positive. Used only when the
+    medical-workers model is active.
 * ``hospital_model.use_HHS_data`` (`bool`, default ``false``)
     Set each community's staffed-bed supply from real hospital data (built by
     ``utilities/build_hospital_data.py`` from HHS public facility data) instead of the uniform
@@ -296,7 +303,30 @@ The following inputs specify parameters for the hospital model.
     The minimum hospital score (quality of treatment) when a hospital is overloaded (i.e., number of patients with
     respect to its capacity) to a very high degree.
 * ``hospital_model.halfscore_load`` (`float`, default ``5``)
-    The load (number of patients divided by the capacity) at which the hospital's score drops to ``0.5``.
+    The excess load (load minus one) at which the hospital's score falls halfway from ``1`` to
+    ``score_minimum``. The load ``L`` is the number of patients divided by the capacity. The score
+    is ``1`` for ``L <= 1`` and ``1 - (1 - score_minimum) (exp(L - 1) - 1) / ((exp(halfscore_load) - 1)
+    + (exp(L - 1) - 1))`` for ``L > 1``. For example, ``halfscore_load = 1.5`` with
+    ``score_minimum = 0`` gives a score of ``0.5`` at a load of ``2.5``.
+* ``hospital_model.mortality_multiplier_max`` (`float`, default ``3``)
+    Mortality multiplier under the worst treatment quality. A hospitalized agent with accumulated
+    treatment quality ``q`` dies with probability ``min(1, M x p_baseline)``, where
+    ``M = 1 + (mortality_multiplier_max - 1) (1 - q)`` and ``p_baseline`` is the load-independent
+    death probability; ``M = 1`` under unimpaired care (``q = 1``).
+* ``hospital_model.treatment_score_type`` (`string`, ``minimum`` or ``cumulative``, default ``minimum``)
+    How an admitted agent's treatment quality ``q`` accumulates the daily hospital scores over its
+    stay: ``minimum`` keeps the lowest daily score, and ``cumulative`` multiplies the daily scores.
+* ``hospital_model.patient_transfer`` (`bool`, default ``true``)
+    With tract-level hospital data, admit a new patient whose nearest hospital is over capacity
+    (judged by the previous day's load) to the lowest-load hospital in the same county instead.
+    Inert until a hospital exceeds its capacity.
+* ``hospital_model.transfer_output_file`` (`string`, default empty)
+    When set, and ``patient_transfer`` is ``true``, append one line per day and source hospital with
+    the number of patients transferred (day, source and target county FIPS and tract, count).
+* ``hospital_model.workgroup_size`` (`int`, default ``agent.workgroup_size``)
+    Size of the workgroups into which each hospital's medical workforce is divided. The groups set
+    the worker-to-worker in-hospital transmission; the capacity depends on the total available
+    workforce only.
 * ``hospital_model.write_pltfiles`` (`bool`, default ``false``)
     Write hospital scores and capacities to `plt` files
 
