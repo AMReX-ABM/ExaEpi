@@ -187,6 +187,16 @@ void runAgent () {
     ParmParse pp("diag");
     pp.queryarr("output_filename", output_filename, 0, params.num_diseases);
 
+    // per-day medical-worker infection counts (written only when the medical-workers model is on)
+    std::vector<std::string> medworker_filename(params.num_diseases);
+    if (params.num_diseases == 1) {
+        medworker_filename[0] = "medical_workers.dat";
+    } else {
+        for (int d = 0; d < params.num_diseases; d++) {
+            medworker_filename[d] = "medical_workers_" + params.disease_names[d] + ".dat";
+        }
+    }
+
     if (params.restart_chkfile == "") {
         for (int d = 0; d < params.num_diseases; d++) {
             if (ParallelDescriptor::IOProcessor()) {
@@ -219,7 +229,7 @@ void runAgent () {
     amrex::Vector<std::unique_ptr<MultiFab>> disease_stats;
     disease_stats.resize(params.num_diseases);
     for (int d = 0; d < params.num_diseases; d++) {
-        disease_stats[d] = std::make_unique<MultiFab>(ba, dm, 5, 0);
+        disease_stats[d] = std::make_unique<MultiFab>(ba, dm, 6, 0); // +1 for DiseaseStats::hospital_acquired
         disease_stats[d]->setVal(0);
     }
 
@@ -283,7 +293,15 @@ void runAgent () {
             }
 
             pc.printStudentTeacherCounts();
+            pc.printMedicalWorkerCounts();
             pc.printAgeGroupCounts();
+
+            // record the per-community staffed-bed supply while agents are at home (no-op if model off)
+            if (params.ic_type == ICType::Census) {
+                pc.initHospitalCapacityModel(&censusData.FIPS_mf, &censusData.demo);
+            } else {
+                pc.initHospitalCapacityModel();
+            }
 
             if (params.ic_type == ICType::Census && params.air_travel_int > 0) {
                 pc.setAirTravel(censusData.unit_mf, air, censusData.demo);
@@ -295,6 +313,12 @@ void runAgent () {
             } else {
                 IO::readCheckpointFile(params.restart_chkfile, pc, disease_stats, nullptr, &(urbanPopData.geoid_mf),
                                        &(urbanPopData.community_mf), cur_time, start_day);
+            }
+            // record the per-community staffed-bed supply after restart (no-op if model off)
+            if (params.ic_type == ICType::Census) {
+                pc.initHospitalCapacityModel(&censusData.FIPS_mf, &censusData.demo);
+            } else {
+                pc.initHospitalCapacityModel();
             }
         }
     }
@@ -392,6 +416,7 @@ void runAgent () {
             auto start_time = std::chrono::high_resolution_clock::now();
 
             if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
+                pc.Redistribute();
                 if (params.ic_type == ICType::Census) {
                     ExaEpi::IO::writePlotFile(pc, disease_stats, &censusData.unit_mf, &censusData.FIPS_mf, &censusData.comm_mf,
                                               params.num_diseases, params.disease_names, cur_time, i);
@@ -432,7 +457,7 @@ void runAgent () {
             }
 
             // Update agents' disease status
-            pc.updateStatus(disease_stats);
+            pc.updateStatus(disease_stats, i);
 
             for (int d = 0; d < params.num_diseases; d++) {
                 auto counts = pc.getTotals(d);
@@ -484,6 +509,9 @@ void runAgent () {
                 auto symp_age_counts = pc.getNewStatusByAge(d, OutputStatus::NewS);
                 auto hosp_age_counts = pc.getNewStatusByAge(d, OutputStatus::NewH);
 
+                std::array<Long, 8> mw_counts{};
+                if (pc.modelMedicalWorkers()) { mw_counts = pc.getMedicalWorkerCounts(d); }
+
                 if (ParallelDescriptor::IOProcessor()) {
                     // total number of deaths computed on agents and on mesh should be the same...
                     if (mmc[3] != counts[OutputStatus::D]) {
@@ -533,6 +561,28 @@ void runAgent () {
                     File.close();
 
                     if (!File.good()) { amrex::Abort("problem writing output file"); }
+
+                    if (pc.modelMedicalWorkers()) {
+                        std::ofstream mwFile;
+                        const bool mw_header = (i == start_day) && (params.restart_chkfile == "");
+                        mwFile.open(medworker_filename[d].c_str(),
+                                    mw_header ? (std::ios::out | std::ios::trunc) : (std::ios::out | std::ios::app));
+                        if (!mwFile.good()) { amrex::FileOpenFailed(medworker_filename[d]); }
+                        if (mw_header) {
+                            mwFile << std::setw(5) << "Day" << std::setw(12) << "MW_tot" << std::setw(12) << "MW_susc"
+                                   << std::setw(12) << "MW_newinf" << std::setw(12) << "OW_tot" << std::setw(12) << "OW_susc"
+                                   << std::setw(12) << "OW_newinf" << std::setw(12) << "MW_dead" << std::setw(12) << "OW_dead"
+                                   << "\n";
+                        }
+                        mwFile << std::setw(5) << i;
+                        for (int j = 0; j < 8; ++j) {
+                            mwFile << std::setw(12) << mw_counts[j];
+                        }
+                        mwFile << "\n";
+                        mwFile.flush();
+                        mwFile.close();
+                        if (!mwFile.good()) { amrex::Abort("problem writing medical-worker output file"); }
+                    }
                 }
             }
 

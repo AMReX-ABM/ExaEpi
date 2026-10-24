@@ -105,6 +105,18 @@ The following are inputs for the overall simulation:
 * ``agent.student_teacher_ratio`` (`list of int`, default: ``0 15 15 15 15 15``)
     This option sets the desired student-teacher ratio for school levels (none, college, high, middle, elementary, daycare).
     The first entry is ignored and should always be set to 0. This option is only used with ``ic_type = census``.
+* ``agent.model_medical_workers`` (`bool`, default ``false``)
+    Master switch for the medical-workers / hospital-capacity model. When ``false`` (default),
+    medical workers are treated as ordinary workers, there is no hospital capacity limit or
+    in-hospital transmission, and hospitalized agents recover or die with the load-independent
+    baseline mortality (a run identical to one without the model, for both census and UrbanPop
+    initialization). When ``true``, medical workers are excluded from the workplace model, set the
+    hospital capacity, and are subject to in-hospital transmission.
+* ``agent.med_workers_proportion`` (`float`, default ``0.13``)
+    Proportion of the worker population who are medical workers (valid for census initialization
+    only; UrbanPop carries NAICS industry codes natively). Only used when
+    ``agent.model_medical_workers = true``. The default ~0.13 corresponds to NAICS 62 (health care
+    and social assistance, ~14% of US employment).
 * ``agent.max_box_size`` (`integer`, default ``16``)
     This option sets the maximum box size used for MPI domain decomposition.
 * ``diag.output_filename`` (`string`, default ``output.dat`` for a single disease,
@@ -188,6 +200,14 @@ The following inputs specify the disease parameters:
     This parameter is only used if ``disease.hospital_stay_type`` is ``random``.
 * ``disease.xmit_work`` (`float`, default ``0.0575``)
     Transmission probability within a workgroup.
+* ``disease.xmit_hosp_d2d`` (`float`, default ``0.1*disease.xmit_work``)
+    Transmission probability within a hospital workgroup (between medical workers). Default is ~1/10th of ``disease.xmit_work``: workplace-intensity contact reduced ~90% by PPE/precautions among staff. Used only when the medical-workers model is active.
+* ``disease.xmit_hosp_p2d`` (`float`, default ``0.1*disease.xmit_work``)
+    Transmission probability within a hospital (from patient to medical worker). Default ~0.1*xmit_work reflects elevated but PPE-reduced frontline-staff risk.
+* ``disease.xmit_hosp_d2p`` (`float`, default ``0.1*disease.xmit_work``)
+    Transmission probability within a hospital (from medical worker to patient).
+* ``disease.xmit_hosp_p2p`` (`float`, default ``0.3*disease.xmit_work``)
+    Transmission probability within a hospital (between patients), who share wards with less mutual protection.
 * ``disease.xmit_comm`` (`list of float`, default ``0.000018125 0.000054375 0.000145 0.000145 0.000145 0.0002175``)
     Transmission probabilities at the community level, for both work and home locations,
     given the age group of the susceptible agent (0-4, 5-17, 18-29, 30-49, 50-64).
@@ -254,8 +274,73 @@ can be specified as follows:
 where ``[disease name]`` is any of the names specified in ``agent.disease_names`` (or the
 default value), and ``[key]`` is any of the parameters listed above.
 
+The following inputs specify parameters for the hospital model.
+
+* ``hospital_model.staffed_beds_per_1000`` (`float`, default ``2.4``)
+    Staffed hospital beds per 1000 population at full workforce strength. Sets each community's
+    bed supply (``bed_supply = staffed_beds_per_1000/1000 x population``). The hospital capacity is
+    this supply scaled by workforce availability (``capacity = bed_supply x available_workers /
+    full_strength_workers``), so capacity falls as medical workers fall ill, withdraw, or die. The
+    default ~2.4 matches US staffed-bed density (AHA). Used only when the medical-workers model is active.
+* ``hospital_model.capacity_exponent`` (`float`, default ``1``)
+    Exponent of the workforce scaling of the hospital capacity: ``capacity = bed_supply x
+    (available_workers / full_strength_workers)^capacity_exponent``. The default ``1`` scales the
+    capacity in proportion to the available workforce. Values below ``1`` model hospitals that absorb
+    part of the absences (capacity falls more slowly than the workforce); values above ``1`` model a
+    capacity that falls faster than the workforce. Must be positive. Used only when the
+    medical-workers model is active.
+* ``hospital_model.use_HHS_data`` (`bool`, default ``false``)
+    Set each community's staffed-bed supply from real hospital data (built by
+    ``utilities/build_hospital_data.py`` from HHS public facility data) instead of the uniform
+    ``staffed_beds_per_1000`` density. County-level data apportions each county's beds to its
+    communities by population (capturing real between-county bed-density variation); tract-level
+    data places hospitals at real tracts and routes patients (and staff) to the nearest hospital.
+    Census initialization only.
+* ``hospital_model.hospital_data_file`` (`string`, default empty)
+    Path to the hospital bed-supply ``.dat`` file (see ``data/HospitalData/``). Required when
+    ``use_HHS_data = true``.
+* ``hospital_model.score_minimum`` (`float`, default ``0.1``)
+    The minimum hospital score (quality of treatment) when a hospital is overloaded (i.e., number of patients with
+    respect to its capacity) to a very high degree.
+* ``hospital_model.halfscore_load`` (`float`, default ``5``)
+    The excess load (load minus one) at which the hospital's score falls halfway from ``1`` to
+    ``score_minimum``. The load ``L`` is the number of patients divided by the capacity. The score
+    is ``1`` for ``L <= 1`` and ``1 - (1 - score_minimum) (exp(L - 1) - 1) / ((exp(halfscore_load) - 1)
+    + (exp(L - 1) - 1))`` for ``L > 1``. For example, ``halfscore_load = 1.5`` with
+    ``score_minimum = 0`` gives a score of ``0.5`` at a load of ``2.5``. This is the ``logistic``
+    shape with ``score_steepness = 1``; ``score_shape`` selects other shapes.
+* ``hospital_model.score_shape`` (`string`, ``logistic``, ``linear``, or ``saturating``, default ``logistic``)
+    Shape of the score degradation above capacity. With ``x = L - 1`` and ``x_h = halfscore_load``,
+    the score is ``1 - (1 - score_minimum) g(x)``, where ``g = (exp(k x) - 1) / ((exp(k x_h) - 1) +
+    (exp(k x) - 1))`` for ``logistic`` (``k = score_steepness``), ``g = min(1, x / (2 x_h))`` for
+    ``linear``, and ``g = 1 - 2^(-x / x_h)`` for ``saturating``. Every shape gives ``g = 1/2`` at
+    ``x = x_h``. ``linear`` reaches the floor at ``x = 2 x_h``; ``saturating`` degrades fastest just
+    above capacity.
+* ``hospital_model.score_steepness`` (`float`, default ``1``)
+    Steepness ``k`` of the ``logistic`` shape. The default ``1`` gives the score above; larger
+    values delay the degradation and make it more abrupt around ``x = halfscore_load``. Must be
+    positive.
+* ``hospital_model.mortality_multiplier_max`` (`float`, default ``3``)
+    Mortality multiplier under the worst treatment quality. A hospitalized agent with accumulated
+    treatment quality ``q`` dies with probability ``min(1, M x p_baseline)``, where
+    ``M = 1 + (mortality_multiplier_max - 1) (1 - q)`` and ``p_baseline`` is the load-independent
+    death probability; ``M = 1`` under unimpaired care (``q = 1``).
+* ``hospital_model.treatment_score_type`` (`string`, ``minimum`` or ``cumulative``, default ``minimum``)
+    How an admitted agent's treatment quality ``q`` accumulates the daily hospital scores over its
+    stay: ``minimum`` keeps the lowest daily score, and ``cumulative`` multiplies the daily scores.
+* ``hospital_model.patient_transfer`` (`bool`, default ``true``)
+    With tract-level hospital data, admit a new patient whose nearest hospital is over capacity
+    (judged by the previous day's load) to the lowest-load hospital in the same county instead.
+    Inert until a hospital exceeds its capacity.
+* ``hospital_model.transfer_output_file`` (`string`, default empty)
+    When set, and ``patient_transfer`` is ``true``, append one line per day and source hospital with
+    the number of patients transferred (day, source and target county FIPS and tract, count).
+* ``hospital_model.workgroup_size`` (`int`, default ``agent.workgroup_size``)
+    Size of the workgroups into which each hospital's medical workforce is divided. The groups set
+    the worker-to-worker in-hospital transmission; the capacity depends on the total available
+    workforce only.
+* ``hospital_model.write_pltfiles`` (`bool`, default ``false``)
+    Write hospital scores and capacities to `plt` files
+
 In addition to the ExaEpi inputs, there are also a number of runtime options that can be configured for AMReX itself.
 Please see <https://amrex-codes.github.io/amrex/docs_html/GPU.html#inputs-parameters>`__ for more information on these options.
-
-
-
