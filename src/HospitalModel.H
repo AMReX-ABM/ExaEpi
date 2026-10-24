@@ -23,6 +23,13 @@ using namespace amrex;
  *  - cumulative: treat_q = product of the daily scores (compounds each day) */
 AMREX_ENUM(TreatmentScoreType, minimum, cumulative);
 
+/*! Shape of the score degradation g(x) in [0,1] above capacity, x = load - 1, with
+ *  g(halfscore_load) = 1/2 for every shape:
+ *  - logistic:   g = (e^{kx} - 1) / ((e^{k x_half} - 1) + (e^{kx} - 1)), k = score_steepness
+ *  - linear:     g = min(1, x / (2 x_half))
+ *  - saturating: g = 1 - 2^{-x / x_half} */
+AMREX_ENUM(TreatmentScoreShape, logistic, linear, saturating);
+
 struct HospMod {
     enum {
         score = 0,     // hospital score (treatment quality)
@@ -104,6 +111,9 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
         pp.query("hospital_data_file", m_hospital_data_file);
         pp.query("score_minimum", m_sc_floor);
         pp.query("halfscore_load", m_sc_half_load);
+        pp.query_enum_case_insensitive("score_shape", m_score_shape);
+        pp.query("score_steepness", m_sc_steepness);
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_sc_steepness > 0.0_rt, "hospital_model.score_steepness must be positive");
         pp.query("mortality_multiplier_max", m_mort_mult_max);
         pp.query_enum_case_insensitive("treatment_score_type", m_score_type);
         pp.query("write_pltfiles", m_write_pltfiles);
@@ -123,6 +133,9 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
             }
             Print() << "  Minimum score for overloaded hospitals: " << m_sc_floor << "\n";
             Print() << "  Excess load for the half score: " << m_sc_half_load << "\n";
+            Print() << "  Score degradation shape: " << amrex::getEnumNameString(m_score_shape);
+            if (m_score_shape == TreatmentScoreShape::logistic) { Print() << " (steepness " << m_sc_steepness << ")"; }
+            Print() << "\n";
             Print() << "  Mortality multiplier ceiling at overload: " << m_mort_mult_max << "\n";
             Print() << "  Treatment-quality accumulation: " << amrex::getEnumNameString(m_score_type) << "\n";
             Print() << "  Write hospital data plotfiles: " << (m_write_pltfiles ? "yes" : "no") << "\n";
@@ -210,6 +223,12 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
 
     /*! Excess load (load - 1) at which the hospital score falls halfway from 1 to m_sc_floor */
     Real m_sc_half_load = 5.0_rt;
+
+    /*! Shape of the score degradation above capacity */
+    TreatmentScoreShape m_score_shape = TreatmentScoreShape::logistic;
+
+    /*! Steepness k of the logistic shape; k = 1 is the original score */
+    Real m_sc_steepness = 1.0_rt;
 
     /*! Mortality multiplier at full treatment-quality degradation (the overload ceiling).
      *  The per-patient death probability is the baseline scaled by a factor in
@@ -787,6 +806,8 @@ void HospitalModel<PCType, PTDType, PType>::computeHospitalScores (const PCType&
 
         const auto sc_floor = m_sc_floor;
         const auto sc_half_load = m_sc_half_load;
+        const auto score_shape = m_score_shape;
+        const auto sc_steepness = m_sc_steepness;
 
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) {
             // Compute load
@@ -806,11 +827,21 @@ void HospitalModel<PCType, PTDType, PType>::computeHospitalScores (const PCType&
                 data_arr(i, j, k, HospMod::score) = 1.0_rt;
             } else {
                 auto x = data_arr(i, j, k, HospMod::load) - 1.0_rt;
-                // Continuous at load = 1: (e^x - 1) vanishes there, so the score meets the
-                // load<=1 branch at 1; the half-score load and the floor are preserved.
-                auto excess = std::exp(x) - 1.0_rt;
-                auto half_excess = std::exp(sc_half_load) - 1.0_rt;
-                data_arr(i, j, k, HospMod::score) = 1.0_rt - (1.0_rt - sc_floor) * excess / (half_excess + excess);
+                if (score_shape == TreatmentScoreShape::logistic) {
+                    // Continuous at load = 1: (e^{kx} - 1) vanishes there, so the score meets the
+                    // load<=1 branch at 1; the half-score load and the floor are preserved.
+                    auto excess = std::exp(sc_steepness * x) - 1.0_rt;
+                    auto half_excess = std::exp(sc_steepness * sc_half_load) - 1.0_rt;
+                    data_arr(i, j, k, HospMod::score) = 1.0_rt - (1.0_rt - sc_floor) * excess / (half_excess + excess);
+                } else {
+                    amrex::Real g;
+                    if (score_shape == TreatmentScoreShape::linear) {
+                        g = amrex::min(1.0_rt, x / (2.0_rt * sc_half_load));
+                    } else {
+                        g = 1.0_rt - std::exp(-0.6931471805599453_rt * x / sc_half_load);
+                    }
+                    data_arr(i, j, k, HospMod::score) = 1.0_rt - (1.0_rt - sc_floor) * g;
+                }
                 Gpu::Atomic::Add(overloaded_hosp_ptr, Long(1));
             }
         });

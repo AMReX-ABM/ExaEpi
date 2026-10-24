@@ -307,7 +307,19 @@ The following inputs specify parameters for the hospital model.
     ``score_minimum``. The load ``L`` is the number of patients divided by the capacity. The score
     is ``1`` for ``L <= 1`` and ``1 - (1 - score_minimum) (exp(L - 1) - 1) / ((exp(halfscore_load) - 1)
     + (exp(L - 1) - 1))`` for ``L > 1``. For example, ``halfscore_load = 1.5`` with
-    ``score_minimum = 0`` gives a score of ``0.5`` at a load of ``2.5``.
+    ``score_minimum = 0`` gives a score of ``0.5`` at a load of ``2.5``. This is the ``logistic``
+    shape with ``score_steepness = 1``; ``score_shape`` selects other shapes.
+* ``hospital_model.score_shape`` (`string`, ``logistic``, ``linear``, or ``saturating``, default ``logistic``)
+    Shape of the score degradation above capacity. With ``x = L - 1`` and ``x_h = halfscore_load``,
+    the score is ``1 - (1 - score_minimum) g(x)``, where ``g = (exp(k x) - 1) / ((exp(k x_h) - 1) +
+    (exp(k x) - 1))`` for ``logistic`` (``k = score_steepness``), ``g = min(1, x / (2 x_h))`` for
+    ``linear``, and ``g = 1 - 2^(-x / x_h)`` for ``saturating``. Every shape gives ``g = 1/2`` at
+    ``x = x_h``. ``linear`` reaches the floor at ``x = 2 x_h``; ``saturating`` degrades fastest just
+    above capacity.
+* ``hospital_model.score_steepness`` (`float`, default ``1``)
+    Steepness ``k`` of the ``logistic`` shape. The default ``1`` gives the score above; larger
+    values delay the degradation and make it more abrupt around ``x = halfscore_load``. Must be
+    positive.
 * ``hospital_model.mortality_multiplier_max`` (`float`, default ``3``)
     Mortality multiplier under the worst treatment quality. A hospitalized agent with accumulated
     treatment quality ``q`` dies with probability ``min(1, M x p_baseline)``, where
