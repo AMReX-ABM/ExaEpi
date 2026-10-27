@@ -74,6 +74,9 @@ void ExaEpi::Utils::getTestParams (TestParams& params, /*!< Test parameters */
     pp.query("shelter_start", params.shelter_start);
     pp.query("shelter_length", params.shelter_length);
 
+    pp.query("school_closure_start", params.school_closure_start);
+    pp.query("school_closure_length", params.school_closure_length);
+
     pp.query("nborhood_size", params.nborhood_size);
     pp.query("workgroup_size", params.workgroup_size);
 

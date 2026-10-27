@@ -74,6 +74,12 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void shelterStop();
 
+    void schoolClosureStart();
+
+    void setSchoolClosed(const int a_closed);
+
+    void schoolClosureStop();
+
     void generateCellData(amrex::MultiFab& mf, const int ncomp) const;
 
     std::array<amrex::Long, OutputStatus::nattribs> getTotals(const int);

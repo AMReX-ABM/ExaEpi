@@ -88,6 +88,13 @@ The following are inputs for the overall simulation:
     Number of days shelter-in-place is in effect.
 * ``agent.shelter_compliance`` (`float`, default ``0.95``)
     Fraction of agents that comply with shelter-in-place order.
+* ``agent.school_closure_start`` (`integer`, default ``-1``)
+    Day on which to close all schools and daycares. Disabled when set to -1. While closed, every agent
+    with a school (students and educators) has no school interactions, educators have no work interactions,
+    and these agents use the school-closure transmission rates set by ``disease.child_compliance`` and
+    ``disease.child_hh_closure``.
+* ``agent.school_closure_length`` (`integer`, default ``0``)
+    Number of days schools remain closed.
 * ``agent.symptomatic_withdraw_compliance_0`` (`float`, default: ``0.3 0.3 0.3 0.3 0.3 0.3``)
     Compliance rate for agents withdrawing on day 0 when they have symptoms, per age groups u5, 6-17, 18-29, 30-49, 50-64, 64+.
     Should be 0.0 to 1.0. Set it to 0 if not using withdrawal.
@@ -97,11 +104,11 @@ The following are inputs for the overall simulation:
 * ``agent.symptomatic_withdraw_compliance_2`` (`float`, default: ``0.9 0.8 0.7 0.7 0.7 0.7``)
     Compliance rate for agents withdrawing on day 2 when they have symptoms, per age groups u5, 6-17, 18-29, 30-49, 50-64, 64+.
     Should be 0.0 to 1.0. Set it to 0 if not using withdrawal.
-* ``agent.child_compliance`` (`float`, default ``0.95``)
+* ``disease.child_compliance`` (`float`, default ``0.5``)
     Compliance rate for children when schools are closed. This reduces the probability of transmission within
     neighborhood clusters, neighborhoods and communities.
-* ``agent.child_hh_closure`` (`float`, default ``2``)
-    Factor for increasing transmission by children witihn households when schools are closed.
+* ``disease.child_hh_closure`` (`float`, default ``2``)
+    Factor for increasing transmission by children within households when schools are closed.
 * ``agent.student_teacher_ratio`` (`list of int`, default: ``0 15 15 15 15 15``)
     This option sets the desired student-teacher ratio for school levels (none, college, high, middle, elementary, daycare).
     The first entry is ignored and should always be set to 0. This option is only used with ``ic_type = census``.
