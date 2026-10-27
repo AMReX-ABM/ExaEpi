@@ -76,6 +76,8 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
 
     void schoolClosureStart();
 
+    void setSchoolClosed(const int a_closed);
+
     void schoolClosureStop();
 
     void generateCellData(amrex::MultiFab& mf, const int ncomp) const;
@@ -137,8 +139,6 @@ class AgentContainer : public amrex::ParticleContainer<0, 0, RealIdx::nattribs, 
     ActiveWeather* awd;
 
   protected:
-    void setSchoolClosed(const int a_closed);
-
     amrex::Real m_shelter_compliance = 0.95_rt; /*!< Shelter-in-place compliance rate */
 
     std::vector<DiseaseParm*> m_h_parm;         /*!< Disease parameters */
