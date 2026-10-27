@@ -1,0 +1,19 @@
+# ExaEpi hospital-capacity data -- utilities/build_hospital_data.py
+# source: HHS COVID-19 Hospital Capacity by Facility (anag-cw7u): staffed inpatient beds (beds) + staffed adult ICU beds (icu_beds)
+# state=MA year=2020 level=county week=2020-09-27
+# columns: FIPS beds icu_beds n_hospitals
+14
+25001 416 49 2
+25003 390 24 2
+25005 1283 104 5
+25007 28 6 1
+25009 1104 87 6
+25011 154 26 1
+25013 1692 217 7
+25015 150 19 1
+25017 2952 268 13
+25019 30 0 1
+25021 920 57 5
+25023 591 62 3
+25025 5626 645 16
+25027 2029 269 10
