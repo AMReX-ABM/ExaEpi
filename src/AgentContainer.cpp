@@ -754,6 +754,53 @@ void AgentContainer::shelterStop () {
     }
 }
 
+/*! \brief Start school closure
+
+    Close all schools (including daycares): every agent with a school (students and educators,
+    i.e. #IntIdx::school_id > 0) is flagged with #IntIdx::school_closed = 1. Such agents do not
+    interact at school or (for educators) at work, and use the school-closure transmission
+    rates (see DiseaseParm::child_compliance and DiseaseParm::child_HH_closure) */
+void AgentContainer::schoolClosureStart () {
+    BL_PROFILE("AgentContainer::schoolClosureStart");
+
+    amrex::Print() << "Starting school closure \n";
+    setSchoolClosed(1);
+}
+
+/*! \brief Stop school closure */
+void AgentContainer::schoolClosureStop () {
+    BL_PROFILE("AgentContainer::schoolClosureStop");
+
+    amrex::Print() << "Stopping school closure \n";
+    setSchoolClosed(0);
+}
+
+/*! \brief Set #IntIdx::school_closed to the given value for all agents with a school */
+void AgentContainer::setSchoolClosed (const int a_closed) {
+    for (int lev = 0; lev <= finestLevel(); ++lev) {
+        auto& plev = GetParticles(lev);
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi = MakeMFIter(lev); mfi.isValid(); ++mfi) {
+            int gid = mfi.index();
+            int tid = mfi.LocalTileIndex();
+            auto& ptile = plev[std::make_pair(gid, tid)];
+            auto& soa = ptile.GetStructOfArrays();
+            const auto np = ptile.numParticles();
+            if (np == 0) { continue; }
+
+            auto school_id_ptr = soa.GetIntData(IntIdx::school_id).data();
+            auto school_closed_ptr = soa.GetIntData(IntIdx::school_closed).data();
+
+            amrex::ParallelFor(np, [=] AMREX_GPU_DEVICE (int i) noexcept {
+                if (school_id_ptr[i] > 0) { school_closed_ptr[i] = a_closed; }
+            });
+        }
+    }
+}
+
 /*! \brief Infect agents based on their current status and the computed probability of infection.
     The infection probability is computed in AgentContainer::interactAgentsHomeWork() or
     AgentContainer::interactAgents() */

@@ -49,13 +49,14 @@ struct BinaryInteractionWork {
 };
 #endif
 
+/*! \brief Agents that interact at work; educators whose school is closed (#IntIdx::school_closed) stay home */
 template <typename PTDType>
 struct WorkCandidate {
     AMREX_GPU_HOST_DEVICE
     bool operator()(const int idx, const PTDType& ptd) const noexcept {
         return !inHospital(idx, ptd) && ptd.m_idata[IntIdx::work_i][idx] >= 0 && ptd.m_idata[IntIdx::workgroup][idx] > 0 &&
                !ptd.m_idata[IntIdx::withdrawn][idx] && ptd.m_idata[IntIdx::air_travel][idx] < 0 &&
-               ptd.m_idata[IntIdx::random_travel][idx] < 0;
+               ptd.m_idata[IntIdx::random_travel][idx] < 0 && ptd.m_idata[IntIdx::school_closed][idx] == 0;
     }
 };
 

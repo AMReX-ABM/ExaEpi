@@ -540,6 +540,12 @@ void runAgent () {
 
             if (params.shelter_start > 0 && params.shelter_start + params.shelter_length == i) { pc.shelterStop(); }
 
+            if (params.school_closure_start > 0 && params.school_closure_start == i) { pc.schoolClosureStart(); }
+
+            if (params.school_closure_start > 0 && params.school_closure_start + params.school_closure_length == i) {
+                pc.schoolClosureStop();
+            }
+
             if ((params.random_travel_int > 0) && (i % params.random_travel_int == 0)) {
                 pc.moveRandomTravel(params.random_travel_prob);
             }
