@@ -106,7 +106,7 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
         ParmParse pp(a_prefix);
         pp.query("staffed_beds_per_1000", m_beds_per_1000);
         pp.query("capacity_exponent", m_capacity_exponent);
-        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_capacity_exponent > 0.0_rt, "hospital_model.capacity_exponent must be positive");
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_capacity_exponent >= 0.0_rt, "hospital_model.capacity_exponent must be non-negative");
         pp.query("use_HHS_data", m_use_hhs_data);
         pp.query("hospital_data_file", m_hospital_data_file);
         pp.query("score_minimum", m_sc_floor);
@@ -204,7 +204,8 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
 
     /*! Exponent of the workforce scaling of capacity:
      *  capacity = bed_supply x (available / baseline)^m_capacity_exponent.
-     *  1 = proportional; < 1 = capacity falls more slowly than staff; > 1 = faster. */
+     *  1 = proportional; < 1 = capacity falls more slowly than staff; > 1 = faster;
+     *  0 = capacity fixed at the bed supply. */
     Real m_capacity_exponent = 1.0_rt;
 
     /*! Whether to set the per-community bed supply from real HHS county data
@@ -751,6 +752,8 @@ void HospitalModel<PCType, PTDType, PType>::updateCapacities (const MFPtr& a_num
             } else if (cap_exp == 1.0_rt) {
                 data_arr(i, j, k, HospMod::capacity) =
                         data_arr(i, j, k, HospMod::bed_supply) * data_arr(i, j, k, HospMod::n_avail_mw) / n_baseline;
+            } else if (cap_exp == 0.0_rt) {
+                data_arr(i, j, k, HospMod::capacity) = data_arr(i, j, k, HospMod::bed_supply);
             } else {
                 data_arr(i, j, k, HospMod::capacity) = data_arr(i, j, k, HospMod::bed_supply) *
                                                        std::pow(data_arr(i, j, k, HospMod::n_avail_mw) / n_baseline, cap_exp);

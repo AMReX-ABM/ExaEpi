@@ -287,7 +287,8 @@ The following inputs specify parameters for the hospital model.
     (available_workers / full_strength_workers)^capacity_exponent``. The default ``1`` scales the
     capacity in proportion to the available workforce. Values below ``1`` model hospitals that absorb
     part of the absences (capacity falls more slowly than the workforce); values above ``1`` model a
-    capacity that falls faster than the workforce. Must be positive. Used only when the
+    capacity that falls faster than the workforce; ``0`` fixes the capacity at the bed supply,
+    independent of workforce availability. Must be non-negative. Used only when the
     medical-workers model is active.
 * ``hospital_model.use_HHS_data`` (`bool`, default ``false``)
     Set each community's staffed-bed supply from real hospital data (built by
