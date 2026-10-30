@@ -48,7 +48,7 @@ class HospitalModel : public InteractionModel<PCType, PTDType, PType> {
 template <typename PCType, typename PTDType, typename PType>
 void HospitalModel<PCType, PTDType, PType>::treatAgents (PCType& a_agents, /*!< Agent container */
                                                          MFPtrVec& a_dstats /*!< disease stats */) {
-    BL_PROFILE("HospitalModel::interactAgents");
+    BL_PROFILE("HospitalModel::treatAgents");
     int n_disease = a_agents.numDiseases();
 
     for (int lev = 0; lev < a_agents.numLevels(); ++lev) {
