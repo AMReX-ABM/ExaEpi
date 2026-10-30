@@ -663,12 +663,13 @@ void AgentContainer::rerouteHospitalizedToHospital (int a_iter) {
     if (m_hosp_obj && m_hosp_obj->tractRouting()) { m_hosp_obj->rerouteHospitalized(*this, m_hosp_data, a_iter); }
 }
 
-/*! Per-day medical-worker vs other-worker infection counts for disease a_d (rank-summed), for
+/*! Per-day counts of medical workers and of all other agents for disease a_d (rank-summed), for
  *  calibrating the in-hospital transmission parameters against the observed HCW infection risk.
- *  Returns {mw_total, mw_susceptible, mw_newly_infected, ow_total, ow_susceptible, ow_newly_infected}.
- *  A medical worker is an employed agent (work_i >= 0) with NAICS med_sca; an other worker is any
- *  other employed agent. Kept in this translation unit with the rest of the medical-worker device
- *  code. */
+ *  Returns {mw_total, mw_susceptible, mw_newly_infected, ow_total, ow_susceptible, ow_newly_infected,
+ *  mw_dead, ow_dead}; the dead counts are cumulative. A medical worker is an agent with NAICS med_sca.
+ *  The "ow" group is every other agent: every agent has a work location (work_i >= 0), since agents
+ *  without a job keep their home community. Kept in this translation unit with the rest of the
+ *  medical-worker device code. */
 std::array<Long, 8> AgentContainer::getMedicalWorkerCounts (const int a_d) {
     BL_PROFILE("AgentContainer::getMedicalWorkerCounts");
     ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum> reduce_ops;
