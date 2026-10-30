@@ -581,8 +581,12 @@ void runAgent () {
 
             cur_time += 1.0_rt; // time step is one day
 
-            // early exit if no more spreading or deaths can occur
-            if (num_infected[0] == 0) { break; }
+            // early exit if no more spreading or deaths can occur for any disease
+            Long num_infected_all = 0;
+            for (int d = 0; d < params.num_diseases; d++) {
+                num_infected_all += num_infected[d];
+            }
+            if (num_infected_all == 0) { break; }
         }
     }
 
